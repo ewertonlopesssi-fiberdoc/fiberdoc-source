@@ -13,6 +13,8 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
+  AlertTriangle,
+  ChevronRight,
 } from "lucide-react";
 import {
   BarChart,
@@ -310,6 +312,78 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Capacity Alerts */}
+      {(stats?.capacityAlerts ?? []).length > 0 && (
+        <Card className="border-amber-500/30 bg-card">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                </div>
+                <CardTitle className="text-sm font-semibold text-foreground">
+                  Alertas de Capacidade
+                </CardTitle>
+                <span className="text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded-md font-medium">
+                  {(stats?.capacityAlerts ?? []).length} equipamento{(stats?.capacityAlerts ?? []).length !== 1 ? "s" : ""} com ≥80%
+                </span>
+              </div>
+              <button
+                onClick={() => setLocation("/equipamentos")}
+                className="text-xs text-primary hover:text-primary/80 transition-colors"
+              >
+                Ver equipamentos
+              </button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {(stats?.capacityAlerts ?? []).map((alert) => (
+                <div
+                  key={alert.id}
+                  className="flex items-center gap-3 p-3 rounded-lg border border-border/30 bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer group"
+                  onClick={() => setLocation(`/portas/${alert.id}`)}
+                >
+                  <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
+                    alert.occupancyRate >= 100
+                      ? "bg-red-500/15 border border-red-500/30"
+                      : alert.occupancyRate >= 90
+                      ? "bg-orange-500/15 border border-orange-500/30"
+                      : "bg-amber-500/15 border border-amber-500/30"
+                  }`}>
+                    <Server className={`h-4 w-4 ${
+                      alert.occupancyRate >= 100 ? "text-red-400" : alert.occupancyRate >= 90 ? "text-orange-400" : "text-amber-400"
+                    }`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{alert.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {EQUIPMENT_TYPE_LABELS[alert.type] ?? alert.type} · {alert.occupiedPorts}/{alert.totalPorts} portas ocupadas
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="w-24 h-2 bg-muted/50 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          alert.occupancyRate >= 100 ? "bg-red-400" : alert.occupancyRate >= 90 ? "bg-orange-400" : "bg-amber-400"
+                        }`}
+                        style={{ width: `${Math.min(alert.occupancyRate, 100)}%` }}
+                      />
+                    </div>
+                    <span className={`text-xs font-bold w-10 text-right ${
+                      alert.occupancyRate >= 100 ? "text-red-400" : alert.occupancyRate >= 90 ? "text-orange-400" : "text-amber-400"
+                    }`}>
+                      {alert.occupancyRate}%
+                    </span>
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent History */}
       <Card className="border-border/50 bg-card">

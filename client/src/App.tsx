@@ -18,6 +18,7 @@ import CeoDetail from "./pages/CeoDetail";
 import Users from "./pages/Users";
 import Backup from "./pages/Backup";
 import SystemSettings from "./pages/SystemSettings";
+import OccupancyReport from "./pages/OccupancyReport";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
@@ -34,6 +35,7 @@ function Router() {
         <Route path={"/historico"} component={History} />
         <Route path={"/salas"} component={Rooms} />
         <Route path={"/importar"} component={Import} />
+        <Route path={"/relatorio-ocupacao"} component={OccupancyReport} />
         <Route path={"/ceo"} component={Ceos} />
         <Route path={"/ceo/:id"} component={CeoDetail} />
         <Route path={"/usuarios"} component={Users} />

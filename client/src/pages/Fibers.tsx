@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Plus, Search, Cable, Edit, Trash2, ArrowRight, Filter, Ruler, Zap } from "lucide-react";
+import { useRole } from "@/hooks/useRole";
 
 const FIBER_TYPES = [
   { value: "single_mode", label: "Monomodo (SM)" },
@@ -113,6 +114,7 @@ export default function Fibers() {
   const [form, setForm] = useState<FiberForm>(defaultForm);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
+  const { isAdmin } = useRole();
   const utils = trpc.useUtils();
 
   const { data: fibers, isLoading } = trpc.fibers.list.useQuery({
@@ -220,10 +222,12 @@ export default function Fibers() {
             Cadastro e rastreamento de fibras ópticas da infraestrutura
           </p>
         </div>
-        <Button onClick={() => { setEditId(null); setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Nova Fibra
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => { setEditId(null); setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Nova Fibra
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-3">
@@ -330,17 +334,21 @@ export default function Fibers() {
                   </div>
 
                   <div className="flex items-center gap-2 pt-3 border-t border-border/30">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={() => handleEdit(fiber)}>
-                      <Edit className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-destructive hover:text-destructive"
-                      onClick={() => setDeleteId(fiber.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    {isAdmin && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={() => handleEdit(fiber)}>
+                        <Edit className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={() => setDeleteId(fiber.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>

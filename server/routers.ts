@@ -56,6 +56,7 @@ import {
   getSystemSettings,
   setSystemSettings,
   updateEquipmentImage,
+  getOccupancyReport,
   type BackupData,
   type BulkEquipmentRow,
   type BulkFiberRow,
@@ -856,6 +857,16 @@ export const appRouter = router({
         await setSystemSettings({ logoUrl: url });
         return { url };
       }),
+  }),
+
+  // ─── Relatório de Ocupação ─────────────────────────────────────────────────
+  reports: router({
+    occupancy: publicProcedure
+      .input(z.object({
+        roomId: z.number().optional(),
+        equipmentId: z.number().optional(),
+      }))
+      .query(({ input }) => getOccupancyReport(input)),
   }),
 
   // ─── Upload de Imagem de Equipamento ────────────────────────────────────────

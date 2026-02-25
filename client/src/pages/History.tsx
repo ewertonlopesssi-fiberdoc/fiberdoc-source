@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Plus, History as HistoryIcon, Clock, Wrench, CheckCircle, AlertCircle, Trash2, Edit, Eye, RefreshCw } from "lucide-react";
+import { useRole } from "@/hooks/useRole";
 import { formatDistanceToNow, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -77,6 +78,7 @@ export default function History() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<HistoryForm>(defaultForm);
 
+  const { isAdmin } = useRole();
   const utils = trpc.useUtils();
 
   const { data: history, isLoading } = trpc.history.list.useQuery({
@@ -113,10 +115,12 @@ export default function History() {
             Registro completo de alterações e manutenções da infraestrutura
           </p>
         </div>
-        <Button onClick={() => { setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Registrar Manutenção
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => { setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Registrar Manutenção
+          </Button>
+        )}
       </div>
 
       {/* Filter */}

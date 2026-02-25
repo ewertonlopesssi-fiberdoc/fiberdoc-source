@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Plus, GitBranch, Edit, Trash2, ArrowRight, Plug } from "lucide-react";
+import { useRole } from "@/hooks/useRole";
 
 const CONNECTION_TYPES = [
   { value: "direct", label: "Direta" },
@@ -80,6 +81,7 @@ export default function Connections() {
   const [form, setForm] = useState<ConnForm>(defaultForm);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
+  const { isAdmin } = useRole();
   const utils = trpc.useUtils();
 
   const { data: connections, isLoading } = trpc.connections.list.useQuery();
@@ -163,10 +165,12 @@ export default function Connections() {
             Mapeamento de conexões entre portas e equipamentos
           </p>
         </div>
-        <Button onClick={() => { setEditId(null); setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Nova Conexão
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => { setEditId(null); setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Nova Conexão
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -212,16 +216,20 @@ export default function Connections() {
                       <Badge variant="outline" className={`text-xs border ${getStatusClass(conn.status)}`}>
                         {getStatusLabel(conn.status)}
                       </Badge>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
-                        setEditId(conn.id);
-                        setForm({ ...defaultForm, name: conn.name ?? "", status: conn.status, notes: conn.notes ?? "", type: conn.type });
-                        setDialogOpen(true);
-                      }}>
-                        <Edit className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(conn.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      {isAdmin && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
+                          setEditId(conn.id);
+                          setForm({ ...defaultForm, name: conn.name ?? "", status: conn.status, notes: conn.notes ?? "", type: conn.type });
+                          setDialogOpen(true);
+                        }}>
+                          <Edit className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      {isAdmin && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(conn.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                   {conn.notes && (

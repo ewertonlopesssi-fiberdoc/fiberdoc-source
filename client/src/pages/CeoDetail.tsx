@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { CeoFusionPrint } from "@/components/CeoFusionPrint";
 import { cn } from "@/lib/utils";
+import { useRole } from "@/hooks/useRole";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 type Tube = {
@@ -162,7 +163,7 @@ function ViaCard({
 // ─── Componente: Painel de Tubo ───────────────────────────────────────────────
 function TubePanel({
   tube, tubes, ceoId, fibers,
-  onEditTube, onDeleteTube,
+  onEditTube, onDeleteTube, isAdmin,
 }: {
   tube: Tube;
   tubes: Tube[];
@@ -170,6 +171,7 @@ function TubePanel({
   fibers: Fiber[];
   onEditTube: (tube: Tube) => void;
   onDeleteTube: (tubeId: number) => void;
+  isAdmin: boolean;
 }) {
   const utils = trpc.useUtils();
   const [fusionDialog, setFusionDialog] = useState<Via | null>(null);
@@ -310,20 +312,24 @@ function TubePanel({
           <span className="text-xs text-muted-foreground mr-3">
             {tube.totalVias > 0 ? Math.round((fusedCount / tube.totalVias) * 100) : 0}%
           </span>
-          <button
-            onClick={() => onEditTube(tube)}
-            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border/40"
-            title={`Editar ${tube.identifier}`}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => onDeleteTube(tube.id)}
-            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors border border-border/40"
-            title={`Remover ${tube.identifier}`}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => onEditTube(tube)}
+              className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border/40"
+              title={`Editar ${tube.identifier}`}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => onDeleteTube(tube.id)}
+              className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors border border-border/40"
+              title={`Remover ${tube.identifier}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -536,6 +542,7 @@ export default function CeoDetail() {
     totalVias: "12", color: "", notes: "",
   });
 
+  const { isAdmin } = useRole();
   const utils = trpc.useUtils();
   const { data: ceo, isLoading: ceoLoading } = trpc.ceos.byId.useQuery({ id: ceoId }, { enabled: ceoId > 0 });
   const { data: tubes = [], isLoading: tubesLoading } = trpc.ceoTubes.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
@@ -664,13 +671,15 @@ export default function CeoDetail() {
             <Printer className="h-4 w-4" />
             Imprimir Mapa
           </Button>
-          <Button
-            onClick={() => { setEditTube(null); resetTubeForm(); setTubeDialog(true); }}
-            className="gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Adicionar Tubo / Splitter
-          </Button>
+          {isAdmin && (
+            <Button
+              onClick={() => { setEditTube(null); resetTubeForm(); setTubeDialog(true); }}
+              className="gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar Tubo / Splitter
+            </Button>
+          )}
         </div>
       </div>
 
@@ -735,6 +744,7 @@ export default function CeoDetail() {
                     fibers={fiberList}
                     onEditTube={openEditTube}
                     onDeleteTube={id => setDeleteTubeId(id)}
+                    isAdmin={isAdmin}
                   />
                 </TabsContent>
               ))}

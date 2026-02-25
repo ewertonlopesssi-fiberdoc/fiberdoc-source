@@ -35,6 +35,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { useRole } from "@/hooks/useRole";
 
 const EQUIPMENT_TYPES = [
   { value: "switch", label: "Switch" },
@@ -137,6 +138,7 @@ export default function Equipments() {
   const [form, setForm] = useState<EquipmentForm>(defaultForm);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [, setLocation] = useLocation();
+  const { isAdmin } = useRole();
 
   const utils = trpc.useUtils();
 
@@ -242,10 +244,12 @@ export default function Equipments() {
             Gerencie switches, OLTs, DGOs e demais equipamentos de rede
           </p>
         </div>
-        <Button onClick={() => { setEditId(null); setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Novo Equipamento
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => { setEditId(null); setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Novo Equipamento
+          </Button>
+        )}
       </div>
 
       {/* Filters */}
@@ -361,17 +365,21 @@ export default function Equipments() {
                     Portas
                     <ChevronRight className="h-3 w-3 ml-auto" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(eq)}>
-                    <Edit className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive hover:text-destructive"
-                    onClick={() => setDeleteId(eq.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {isAdmin && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(eq)}>
+                      <Edit className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive"
+                      onClick={() => setDeleteId(eq.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

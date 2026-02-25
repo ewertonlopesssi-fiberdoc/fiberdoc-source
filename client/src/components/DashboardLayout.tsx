@@ -41,6 +41,7 @@ import {
   Upload,
   Users as UsersIcon,
   Wifi,
+  FileBarChart,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -49,15 +50,16 @@ import { Button } from "./ui/button";
 
 const publicMenuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+  { icon: Wifi, label: "Salas / Locais", path: "/salas" },
   { icon: Server, label: "Equipamentos", path: "/equipamentos" },
+  { icon: Network, label: "Topologia", path: "/topologia" },
+  { icon: Box, label: "CEO", path: "/ceo" },
   { icon: Cable, label: "Fibras Ópticas", path: "/fibras" },
   { icon: CircuitBoard, label: "Portas", path: "/portas" },
   { icon: GitBranch, label: "Conexões", path: "/conexoes" },
-  { icon: Network, label: "Topologia", path: "/topologia" },
   { icon: History, label: "Histórico", path: "/historico" },
-  { icon: Wifi, label: "Salas / Locais", path: "/salas" },
   { icon: Upload, label: "Importar CSV", path: "/importar" },
-  { icon: Box, label: "CEO", path: "/ceo" },
+  { icon: FileBarChart, label: "Relatório de Ocupação", path: "/relatorio-ocupacao" },
 ];
 
 const adminOnlyMenuItems = [

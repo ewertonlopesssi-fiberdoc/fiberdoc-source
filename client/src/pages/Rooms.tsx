@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Plus, Search, Building2, Edit, Trash2, MapPin, Server, Thermometer } from "lucide-react";
+import { useRole } from "@/hooks/useRole";
 
 const ROOM_TYPES = [
   { value: "datacenter", label: "Data Center" },
@@ -62,6 +63,7 @@ export default function Rooms() {
   const [form, setForm] = useState<RoomForm>(defaultForm);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
+  const { isAdmin } = useRole();
   const utils = trpc.useUtils();
 
   const { data: rooms, isLoading } = trpc.rooms.list.useQuery();
@@ -150,10 +152,12 @@ export default function Rooms() {
             Cadastro de data centers, POPs, NOCs e demais localizações
           </p>
         </div>
-        <Button onClick={() => { setEditId(null); setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Nova Sala
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => { setEditId(null); setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Nova Sala
+          </Button>
+        )}
       </div>
 
       <div className="relative max-w-sm">
@@ -222,17 +226,21 @@ export default function Rooms() {
                 </div>
 
                 <div className="flex items-center gap-2 pt-3 border-t border-border/30">
-                  <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={() => handleEdit(room)}>
-                    <Edit className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive hover:text-destructive"
-                    onClick={() => setDeleteId(room.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {isAdmin && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={() => handleEdit(room)}>
+                      <Edit className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive"
+                      onClick={() => setDeleteId(room.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

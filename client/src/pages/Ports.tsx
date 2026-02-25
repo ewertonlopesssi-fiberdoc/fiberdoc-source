@@ -19,6 +19,7 @@ import {
   Plus, CircuitBoard, Trash2, Server, ArrowLeft, Layers, Zap, Pencil, X,
 } from "lucide-react";
 import { useLocation, useParams } from "wouter";
+import { useRole } from "@/hooks/useRole";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const PORT_TYPE_GROUPS = [
@@ -205,6 +206,7 @@ export default function Ports() {
   const [bulkSpeed, setBulkSpeed] = useState("");
   const [bulkSlotId, setBulkSlotId] = useState<string>(""); // "" = sem slot
 
+  const { isAdmin } = useRole();
   const utils = trpc.useUtils();
 
   const { data: equipment } = trpc.equipments.byId.useQuery(
@@ -411,18 +413,24 @@ export default function Ports() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { setEditSlotId(null); setSlotForm(defaultSlotForm); setSlotDialogOpen(true); }} className="gap-2 border-border/50">
-            <Layers className="h-4 w-4" />
-            Novo Slot
-          </Button>
-          <Button variant="outline" onClick={() => setBulkOpen(true)} className="gap-2 border-border/50">
-            <CircuitBoard className="h-4 w-4" />
-            Criar em Lote
-          </Button>
-          <Button onClick={() => { setEditPortId(null); setPortForm(defaultPortForm); setPortDialogOpen(true); }} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Nova Porta
-          </Button>
+          {isAdmin && (
+            <Button variant="outline" onClick={() => { setEditSlotId(null); setSlotForm(defaultSlotForm); setSlotDialogOpen(true); }} className="gap-2 border-border/50">
+              <Layers className="h-4 w-4" />
+              Novo Slot
+            </Button>
+          )}
+          {isAdmin && (
+            <Button variant="outline" onClick={() => setBulkOpen(true)} className="gap-2 border-border/50">
+              <CircuitBoard className="h-4 w-4" />
+              Criar em Lote
+            </Button>
+          )}
+          {isAdmin && (
+            <Button onClick={() => { setEditPortId(null); setPortForm(defaultPortForm); setPortDialogOpen(true); }} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Nova Porta
+            </Button>
+          )}
         </div>
       </div>
 
@@ -491,7 +499,7 @@ export default function Ports() {
               const slotPorts = allPorts.filter(p => (p as any).slotId === slot.id);
               return (
                 <div key={slot.id}>
-                  <SlotHeader slot={slot} onEdit={() => handleEditSlot(slot)} onDelete={() => setDeleteSlotId(slot.id)} />
+                  <SlotHeader slot={slot} onEdit={() => handleEditSlot(slot)} onDelete={() => setDeleteSlotId(slot.id)} isAdmin={isAdmin} />
                   <PortGrid ports={slotPorts} onEdit={handleEditPort} />
                 </div>
               );
@@ -513,7 +521,7 @@ export default function Ports() {
             const slotPorts = allPorts.filter(p => (p as any).slotId === slot.id);
             return (
               <TabsContent key={slot.id} value={String(slot.id)} className="mt-0 space-y-4">
-                <SlotHeader slot={slot} onEdit={() => handleEditSlot(slot)} onDelete={() => setDeleteSlotId(slot.id)} />
+                <SlotHeader slot={slot} onEdit={() => handleEditSlot(slot)} onDelete={() => setDeleteSlotId(slot.id)} isAdmin={isAdmin} />
                 <PortGrid ports={slotPorts} onEdit={handleEditPort} />
                 {slotPorts.length > 0 && <PortLegend />}
               </TabsContent>
@@ -881,7 +889,7 @@ export default function Ports() {
 }
 
 // ─── SlotHeader ───────────────────────────────────────────────────────────────
-function SlotHeader({ slot, onEdit, onDelete }: { slot: any; onEdit: () => void; onDelete: () => void }) {
+function SlotHeader({ slot, onEdit, onDelete, isAdmin }: { slot: any; onEdit: () => void; onDelete: () => void; isAdmin: boolean }) {
   return (
     <div className="flex items-center gap-3 mb-3">
       <div className="flex items-center gap-2">
@@ -907,14 +915,16 @@ function SlotHeader({ slot, onEdit, onDelete }: { slot: any; onEdit: () => void;
         </div>
       </div>
       <div className="flex-1 h-px bg-border/30" />
-      <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onEdit}>
-          <Pencil className="h-3 w-3" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={onDelete}>
-          <X className="h-3 w-3" />
-        </Button>
-      </div>
+      {isAdmin && (
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onEdit}>
+            <Pencil className="h-3 w-3" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={onDelete}>
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

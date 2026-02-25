@@ -417,6 +417,34 @@ export async function getDashboardStats() {
 
   const recentHistory = await db.select().from(maintenanceHistory).orderBy(desc(maintenanceHistory.createdAt)).limit(5);
 
+  // Alertas de capacidade: equipamentos com >=80% de ocupação de portas
+  const allEquipments = await db.select({
+    id: equipments.id,
+    name: equipments.name,
+    type: equipments.type,
+    totalPorts: equipments.totalPorts,
+  }).from(equipments).where(sql`${equipments.totalPorts} > 0`);
+
+  const capacityAlerts: Array<{ id: number; name: string; type: string; totalPorts: number; occupiedPorts: number; occupancyRate: number }> = [];
+  for (const equip of allEquipments) {
+    if (!equip.totalPorts || equip.totalPorts === 0) continue;
+    const [occ] = await db.select({ count: sql<number>`count(*)` }).from(ports)
+      .where(and(eq(ports.equipmentId, equip.id), eq(ports.status, "occupied")));
+    const occupiedCount = Number(occ?.count ?? 0);
+    const rate = Math.round((occupiedCount / equip.totalPorts) * 100);
+    if (rate >= 80) {
+      capacityAlerts.push({
+        id: equip.id,
+        name: equip.name,
+        type: equip.type,
+        totalPorts: equip.totalPorts,
+        occupiedPorts: occupiedCount,
+        occupancyRate: rate,
+      });
+    }
+  }
+  capacityAlerts.sort((a, b) => b.occupancyRate - a.occupancyRate);
+
   return {
     totalEquipments: Number(equipmentCount?.count ?? 0),
     totalFibers: Number(fiberCount?.count ?? 0),
@@ -429,6 +457,7 @@ export async function getDashboardStats() {
     totalRooms: Number(roomCount?.count ?? 0),
     equipmentByType: equipByType.map((e) => ({ type: e.type, count: Number(e.count) })),
     recentHistory,
+    capacityAlerts,
   };
 }
 
@@ -992,4 +1021,89 @@ export async function updateEquipmentImage(id: number, imageUrl: string | null):
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   await db.update(equipments).set({ imageUrl }).where(eq(equipments.id, id));
+}
+
+// ─── Relatório de Ocupação ────────────────────────────────────────────────────
+export type OccupancyReportRow = {
+  equipmentId: number;
+  equipmentName: string;
+  equipmentType: string;
+  roomId: number | null;
+  roomName: string | null;
+  totalPorts: number;
+  freePorts: number;
+  occupiedPorts: number;
+  reservedPorts: number;
+  faultyPorts: number;
+  occupancyRate: number;
+  ports: Array<{
+    id: number;
+    portNumber: string;
+    label: string | null;
+    type: string;
+    speed: string | null;
+    status: string;
+    notes: string | null;
+  }>;
+};
+
+export async function getOccupancyReport(filters?: {
+  roomId?: number;
+  equipmentId?: number;
+}): Promise<OccupancyReportRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  let equipQuery = db.select({
+    id: equipments.id,
+    name: equipments.name,
+    type: equipments.type,
+    roomId: equipments.roomId,
+    totalPorts: equipments.totalPorts,
+  }).from(equipments);
+
+  const allEquips = await equipQuery;
+  const allRooms = await db.select({ id: rooms.id, name: rooms.name }).from(rooms);
+  const roomMap = new Map(allRooms.map((r) => [r.id, r.name]));
+
+  const filtered = allEquips.filter((e) => {
+    if (filters?.equipmentId && e.id !== filters.equipmentId) return false;
+    if (filters?.roomId && e.roomId !== filters.roomId) return false;
+    return true;
+  });
+
+  const result: OccupancyReportRow[] = [];
+  for (const equip of filtered) {
+    const portRows = await db.select().from(ports).where(eq(ports.equipmentId, equip.id)).orderBy(ports.portNumber);
+    const total = portRows.length;
+    const free = portRows.filter((p) => p.status === "free").length;
+    const occupied = portRows.filter((p) => p.status === "occupied").length;
+    const reserved = portRows.filter((p) => p.status === "reserved").length;
+    const faulty = portRows.filter((p) => p.status === "faulty").length;
+    const rate = total > 0 ? Math.round((occupied / total) * 100) : 0;
+    result.push({
+      equipmentId: equip.id,
+      equipmentName: equip.name,
+      equipmentType: equip.type,
+      roomId: equip.roomId,
+      roomName: equip.roomId ? (roomMap.get(equip.roomId) ?? null) : null,
+      totalPorts: total,
+      freePorts: free,
+      occupiedPorts: occupied,
+      reservedPorts: reserved,
+      faultyPorts: faulty,
+      occupancyRate: rate,
+      ports: portRows.map((p) => ({
+        id: p.id,
+        portNumber: p.portNumber,
+        label: p.label ?? null,
+        type: p.type,
+        speed: p.speed ?? null,
+        status: p.status,
+        notes: p.notes ?? null,
+      })),
+    });
+  }
+
+  return result.sort((a, b) => a.equipmentName.localeCompare(b.equipmentName, "pt-BR"));
 }

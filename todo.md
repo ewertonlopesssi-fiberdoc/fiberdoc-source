@@ -158,3 +158,31 @@
 - [x] Vias livres exibidas com traço (—) em cinza
 - [x] Resumo de ocupação por tubo no cabeçalho de cada bloco
 - [x] Índice de tubos no início do relatório
+
+## Botões de Edição para Visualizadores
+- [x] Equipamentos: ocultar botões Novo/Editar/Excluir para role=viewer
+- [x] Fibras: ocultar botões Novo/Editar/Excluir para role=viewer
+- [x] Portas: ocultar botões Novo/Editar/Excluir/Lote para role=viewer
+- [x] CEO: ocultar botões Novo/Editar/Excluir/Fusão para role=viewer
+- [x] Conexões: ocultar botões Nova/Excluir para role=viewer
+- [x] Salas: ocultar botões Novo/Editar/Excluir para role=viewer
+- [x] Histórico: ocultar botão Registrar Manutenção para role=viewer
+
+## Reorganização do Menu Lateral
+- [x] Nova ordem: Dashboard, Salas/Locais, Equipamentos, Topologia, CEO, Fibras, Portas, Conexões, Histórico, Importar CSV, Relatório de Ocupação
+
+## Alertas de Capacidade no Dashboard
+- [x] Procedure tRPC para buscar equipamentos com 80%+ de ocupação
+- [x] Card de alertas no Dashboard com lista de equipamentos críticos
+- [x] Badge de percentual colorido (amarelo 80%, laranja 90%, vermelho 100%)
+- [x] Link direto para o equipamento na lista de alertas
+
+## Relatório de Ocupação em PDF
+- [x] Procedure tRPC reports.occupancy com filtros por sala e equipamento
+- [x] Página OccupancyReport com filtros, estatísticas e lista de equipamentos
+- [x] Tabela de portas: número, etiqueta, tipo, velocidade, status, observações
+- [x] Barra de ocupação por equipamento e global
+- [x] Botão Imprimir/PDF com estilos @media print
+- [x] Expandir/recolher todos os equipamentos
+- [x] Item no menu lateral
+- [x] Testes unitários para reports.occupancy (5 testes)
