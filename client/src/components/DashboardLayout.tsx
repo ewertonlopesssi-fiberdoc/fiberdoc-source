@@ -20,12 +20,15 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
+import { useRole } from "@/hooks/useRole";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
   Activity,
   Box,
   Cable,
   CircuitBoard,
+  Crown,
+  Eye,
   GitBranch,
   History,
   LayoutDashboard,
@@ -34,6 +37,7 @@ import {
   PanelLeft,
   Server,
   Upload,
+  Users as UsersIcon,
   Wifi,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -41,7 +45,7 @@ import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
 
-const menuItems = [
+const publicMenuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Server, label: "Equipamentos", path: "/equipamentos" },
   { icon: Cable, label: "Fibras Ópticas", path: "/fibras" },
@@ -52,6 +56,10 @@ const menuItems = [
   { icon: Wifi, label: "Salas / Locais", path: "/salas" },
   { icon: Upload, label: "Importar CSV", path: "/importar" },
   { icon: Box, label: "CEO", path: "/ceo" },
+];
+
+const adminOnlyMenuItems = [
+  { icon: UsersIcon, label: "Usuários", path: "/usuarios" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -116,14 +124,17 @@ function DashboardLayoutContent({
   setSidebarWidth: (width: number) => void;
 }) {
   const { user, logout } = useAuth();
+  const { isAdmin, role } = useRole();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
+  const menuItems = isAdmin ? [...publicMenuItems, ...adminOnlyMenuItems] : publicMenuItems;
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
-  const activeMenuItem = menuItems.find((item) => {
+  const allMenuItems = isAdmin ? [...publicMenuItems, ...adminOnlyMenuItems] : publicMenuItems;
+  const activeMenuItem = allMenuItems.find((item) => {
     if (item.path === "/") return location === "/";
     if (item.path === "/portas") return location.startsWith("/portas");
     return location.startsWith(item.path);
@@ -215,7 +226,17 @@ function DashboardLayoutContent({
                   </Avatar>
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
                     <p className="text-xs font-medium truncate text-sidebar-foreground">{user?.name || "-"}</p>
-                    <p className="text-xs text-sidebar-foreground/50 truncate">{user?.email || "-"}</p>
+                    <div className="flex items-center gap-1">
+                      {role === "admin" ? (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-400">
+                          <Crown className="h-2.5 w-2.5" />Admin
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-400">
+                          <Eye className="h-2.5 w-2.5" />Visualizador
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
               </DropdownMenuTrigger>

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   getCeos, getCeoById, createCeo, updateCeo, deleteCeo,
   getTubesByCeo, createCeoTube, updateCeoTube, deleteCeoTube,
@@ -44,6 +44,9 @@ import {
   createSlot,
   updateSlot,
   deleteSlot,
+  getAllUsers,
+  updateUserRole,
+  deleteUser,
   type BulkEquipmentRow,
   type BulkFiberRow,
 } from "./db";
@@ -707,6 +710,33 @@ export const appRouter = router({
     clearFiber: protectedProcedure
       .input(z.object({ viaId: z.number() }))
       .mutation(async ({ input }) => setViaFiber(input.viaId, null)),
+  }),
+
+  // ─── Gerenciamento de Usuários (apenas admin) ─────────────────────────────
+  users: router({
+    list: adminProcedure.query(async () => getAllUsers()),
+
+    updateRole: adminProcedure
+      .input(z.object({
+        userId: z.number(),
+        role: z.enum(["admin", "user"]),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        // Impedir que o admin remova seu próprio papel
+        if (ctx.user.id === input.userId) {
+          throw new Error("Você não pode alterar seu próprio papel.");
+        }
+        await updateUserRole(input.userId, input.role);
+      }),
+
+    remove: adminProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.id === input.userId) {
+          throw new Error("Você não pode remover sua própria conta.");
+        }
+        await deleteUser(input.userId);
+      }),
   }),
 });
 export type AppRouter = typeof appRouter;

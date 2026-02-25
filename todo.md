@@ -96,3 +96,18 @@
 ## Fusão Bidirecional (CEO)
 - [x] setViaFusion grava nos dois sentidos (VIA A → VIA B e VIA B → VIA A)
 - [x] clearViaFusion remove a fusão nos dois sentidos
+
+## Impressão Mapa de Fusões (Atualização)
+- [ ] Layout espelhado: pares de tubos lado a lado com setas bidirecionais
+- [ ] Tabela com colunas: VIA (tubo A) | Etiqueta | ↔ | Etiqueta | VIA (tubo B)
+- [ ] Resumo de ocupação por tubo no cabeçalho de cada bloco
+- [ ] Vias sem fusão exibidas com traço (—) em cinza
+
+## Controle de Acesso por Grupo
+- [x] adminProcedure no backend (bloqueia role != admin)
+- [x] Router de gerenciamento de usuários (listar, alterar role, remover)
+- [x] Proteger todas as mutations com adminProcedure
+- [x] Página de Usuários acessível apenas para admins
+- [x] Badge de papel (Admin/Visualizador) no menu lateral
+- [x] Botões de criar/editar/excluir ocultos para visualizadores
+- [x] Testes unitários para o controle de acesso
