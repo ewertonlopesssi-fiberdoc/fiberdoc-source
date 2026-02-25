@@ -37,6 +37,7 @@ import {
 import { useLocation } from "wouter";
 import { useRole } from "@/hooks/useRole";
 import { Zap } from "lucide-react";
+import EquipmentQRCode from "@/components/EquipmentQRCode";
 
 const POWER_TYPES = [
   { value: "ac", label: "AC (Corrente Alternada)" },
@@ -402,6 +403,13 @@ export default function Equipments() {
                     Portas
                     <ChevronRight className="h-3 w-3 ml-auto" />
                   </Button>
+                  <EquipmentQRCode
+                    compact
+                    equipmentId={eq.id}
+                    equipmentName={eq.name}
+                    equipmentType={eq.type}
+                    roomName={(eq as any).roomName}
+                  />
                   {isAdmin && (
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(eq)}>
                       <Edit className="h-3.5 w-3.5" />

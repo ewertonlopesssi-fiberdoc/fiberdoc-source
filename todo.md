@@ -224,3 +224,21 @@
 - [x] Tela MobileProfile (perfil, status conexão, alterar servidor, logout)
 - [x] Indicador de status offline/online no banner superior
 - [x] Campos de energia (powerType, powerSource) no formulário mobile
+
+## Ícones PWA Personalizados
+- [x] Gerar icon-192.png com logo FiberDoc
+- [x] Gerar icon-512.png com logo FiberDoc
+- [x] Upload para S3 e ícones salvos em client/public/
+
+## Indicador de Capacidade na Topologia
+- [x] Incluir dados de ocupação de portas na query getEquipments
+- [x] Barra de progresso colorida em cada equipamento no rack (verde/amarelo/vermelho)
+- [x] Barra visível dentro do bloco do equipamento no rack
+
+## QR Code de Equipamento
+- [x] Instalar biblioteca qrcode.react
+- [x] Componente EquipmentQRCode reutilizável com dialog, imprimir e baixar SVG
+- [x] Botão QR Code (compact) em cada card na página de Equipamentos
+- [x] Botão QR Code no DetailPanel da Topologia
+- [x] Deep-link /mobile?eq=ID abre diretamente o equipamento no app mobile
+- [x] Suporte a deep-link no MobileApp.tsx e MobileEquipments.tsx

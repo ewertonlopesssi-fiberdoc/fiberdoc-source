@@ -121,10 +121,32 @@ export async function getEquipments(search?: string, type?: string, roomId?: num
     roomId: equipments.roomId, rack: equipments.rack, rackPosition: equipments.rackPosition,
     ipAddress: equipments.ipAddress, macAddress: equipments.macAddress, totalPorts: equipments.totalPorts,
     notes: equipments.notes, status: equipments.status, createdAt: equipments.createdAt, updatedAt: equipments.updatedAt,
-    roomName: rooms.name,
+    roomName: rooms.name, imageUrl: equipments.imageUrl,
   }).from(equipments).leftJoin(rooms, eq(equipments.roomId, rooms.id));
-  if (conditions.length > 0) return query.where(and(...conditions)).orderBy(equipments.name);
-  return query.orderBy(equipments.name);
+  const rows = conditions.length > 0
+    ? await query.where(and(...conditions)).orderBy(equipments.name)
+    : await query.orderBy(equipments.name);
+
+  // Calcular ocupação de portas por equipamento
+  const portCounts = await db
+    .select({
+      equipmentId: ports.equipmentId,
+      total: sql<number>`count(*)`,
+      occupied: sql<number>`sum(case when ${ports.status} = 'occupied' then 1 else 0 end)`,
+    })
+    .from(ports)
+    .groupBy(ports.equipmentId);
+  const occMap = new Map(portCounts.map(r => [r.equipmentId, r]));
+
+  return rows.map(row => {
+    const occ = occMap.get(row.id);
+    const total = Number(occ?.total ?? 0);
+    const occupied = Number(occ?.occupied ?? 0);
+    return {
+      ...row,
+      portOccupancy: total > 0 ? { total, occupied, rate: Math.round((occupied / total) * 100) } : null,
+    };
+  });
 }
 
 export async function getEquipmentById(id: number) {

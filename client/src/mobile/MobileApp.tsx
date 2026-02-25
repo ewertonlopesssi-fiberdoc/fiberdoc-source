@@ -12,8 +12,12 @@ type Tab = "equipamentos" | "ceos" | "relatorio" | "perfil";
 
 function MobileShell() {
   const { isConfigured, isAuthenticated } = useMobileAuth();
-  const [activeTab, setActiveTab] = useState<Tab>("equipamentos");
   const [online, setOnline] = useState(navigator.onLine);
+
+  // Deep-link: /mobile?eq=ID abre diretamente o equipamento
+  const params = new URLSearchParams(window.location.search);
+  const deepEqId = params.get("eq") ? Number(params.get("eq")) : null;
+  const [activeTab, setActiveTab] = useState<Tab>(deepEqId ? "equipamentos" : "equipamentos");
 
   useEffect(() => {
     const onOnline = () => setOnline(true);
@@ -48,7 +52,7 @@ function MobileShell() {
 
       {/* Conteúdo da aba ativa */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {activeTab === "equipamentos" && <MobileEquipments />}
+        {activeTab === "equipamentos" && <MobileEquipments initialEquipmentId={deepEqId} />}
         {activeTab === "ceos" && <MobileCeos />}
         {activeTab === "relatorio" && <MobileReport />}
         {activeTab === "perfil" && <MobileProfile />}

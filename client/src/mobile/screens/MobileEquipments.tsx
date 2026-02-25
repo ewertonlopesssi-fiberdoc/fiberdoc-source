@@ -57,7 +57,7 @@ type Port = {
 
 type View = "list" | "detail" | "edit" | "ports" | "editPort" | "maintenance";
 
-export default function MobileEquipments() {
+export default function MobileEquipments({ initialEquipmentId }: { initialEquipmentId?: number | null }) {
   const { serverUrl, token } = useMobileAuth();
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,6 +97,16 @@ export default function MobileEquipments() {
   }, [serverUrl, token]);
 
   useEffect(() => { loadEquipments(); }, [loadEquipments]);
+
+  // Deep-link: abrir equipamento diretamente por ID
+  useEffect(() => {
+    if (!initialEquipmentId || loading || equipments.length === 0) return;
+    const eq = equipments.find(e => e.id === initialEquipmentId);
+    if (eq) {
+      setSelected(eq);
+      setView("detail");
+    }
+  }, [initialEquipmentId, loading, equipments]);
 
   const loadPorts = useCallback(async (equipmentId: number) => {
     setPortsLoading(true);

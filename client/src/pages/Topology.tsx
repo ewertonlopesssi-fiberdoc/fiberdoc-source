@@ -8,6 +8,7 @@ import {
   Server, Wifi, Network, Box, Router, HardDrive, LayoutGrid,
   X, Layers, Activity, Cable, Info,
 } from "lucide-react";
+import EquipmentQRCode from "@/components/EquipmentQRCode";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const RACK_UNITS = 44;
@@ -74,6 +75,7 @@ type Equipment = {
   serialNumber?: string | null;
   roomId?: number | null;
   imageUrl?: string | null;
+  portOccupancy?: { total: number; occupied: number; rate: number } | null;
 };
 
 type RackSlot = {
@@ -174,7 +176,20 @@ function RackColumn({
                 ) : (
                   <Icon className="w-3 h-3 flex-shrink-0" />
                 )}
-                <span className="text-[10px] font-medium truncate leading-tight flex-1">{eq.name}</span>
+                <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+                  <span className="text-[10px] font-medium truncate leading-tight">{eq.name}</span>
+                  {eq.portOccupancy && eq.portOccupancy.total > 0 && (
+                    <div className="w-full bg-black/30 rounded-full h-1 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          eq.portOccupancy.rate >= 90 ? 'bg-rose-400' :
+                          eq.portOccupancy.rate >= 70 ? 'bg-amber-400' : 'bg-emerald-400'
+                        }`}
+                        style={{ width: `${eq.portOccupancy.rate}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
                 {slot.sizeU >= 2 && (
                   <span className="text-[9px] opacity-50 flex-shrink-0 font-mono">{eq.rackPosition}</span>
                 )}
@@ -306,6 +321,15 @@ function DetailPanel({ equipment, onClose }: { equipment: Equipment; onClose: ()
               </div>
             </div>
           )}
+
+          {/* QR Code */}
+          <div className="pt-1">
+            <EquipmentQRCode
+              equipmentId={equipment.id}
+              equipmentName={equipment.name}
+              equipmentType={EQUIPMENT_LABELS[equipment.type] ?? equipment.type}
+            />
+          </div>
 
           {/* Slots */}
           {slots && slots.length > 0 && (
