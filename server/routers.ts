@@ -2,6 +2,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
+import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   getCeos, getCeoById, createCeo, updateCeo, deleteCeo,
@@ -57,6 +58,10 @@ import {
   setSystemSettings,
   updateEquipmentImage,
   getOccupancyReport,
+  getUserByEmail,
+  setUserPassword,
+  getUserById,
+  listUsersForAdmin,
   type BackupData,
   type BulkEquipmentRow,
   type BulkFiberRow,
@@ -182,6 +187,9 @@ export const appRouter = router({
         autoCreatePorts: z.boolean().optional(),
         portType: portTypeEnum.optional(),
         imageUrl: z.string().optional(),
+        powerType: z.enum(["ac", "dc"]).optional(),
+        powerSource: z.enum(["rectifier", "inverter", "ups", "grid", "other"]).optional(),
+        powerSourceLabel: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { autoCreatePorts, portType, ...equipData } = input;
@@ -215,6 +223,9 @@ export const appRouter = router({
         notes: z.string().optional(),
         status: equipmentStatusEnum.optional(),
         imageUrl: z.string().optional(),
+        powerType: z.enum(["ac", "dc"]).optional().nullable(),
+        powerSource: z.enum(["rectifier", "inverter", "ups", "grid", "other"]).optional().nullable(),
+        powerSourceLabel: z.string().optional().nullable(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
@@ -834,12 +845,14 @@ export const appRouter = router({
         systemName: z.string().optional(),
         logoUrl: z.string().optional(),
         theme: z.string().optional(),
+        capacityAlertThreshold: z.number().min(1).max(100).optional(),
       }))
       .mutation(async ({ input }) => {
         const settings: Record<string, string> = {};
         if (input.systemName !== undefined) settings.systemName = input.systemName;
         if (input.logoUrl !== undefined) settings.logoUrl = input.logoUrl;
         if (input.theme !== undefined) settings.theme = input.theme;
+        if (input.capacityAlertThreshold !== undefined) settings.capacityAlertThreshold = String(input.capacityAlertThreshold);
         await setSystemSettings(settings);
         return { success: true };
       }),
@@ -893,6 +906,68 @@ export const appRouter = router({
         await updateEquipmentImage(input.equipmentId, null);
         return { success: true };
       }),
+  }),
+
+  // ─── Mobile Auth (login por senha) ──────────────────────────────────────────
+  mobileAuth: router({
+    login: publicProcedure
+      .input(z.object({
+        email: z.string().email(),
+        password: z.string().min(1),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { compare } = await import("bcryptjs");
+        const user = await getUserByEmail(input.email);
+        if (!user || !user.passwordHash) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário ou senha inválidos" });
+        }
+        const valid = await compare(input.password, user.passwordHash);
+        if (!valid) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário ou senha inválidos" });
+        }
+        // Gerar JWT para o app mobile
+        const { SignJWT } = await import("jose");
+        const secret = new TextEncoder().encode(process.env.JWT_SECRET ?? "fallback-secret");
+        const token = await new SignJWT({ role: user.role })
+          .setProtectedHeader({ alg: "HS256" })
+          .setSubject(String(user.id))
+          .setIssuer("fiberdoc-mobile")
+          .setExpirationTime("30d")
+          .sign(secret);
+        return {
+          token,
+          user: { id: user.id, name: user.name, email: user.email, role: user.role },
+        };
+      }),
+
+    me: publicProcedure
+      .input(z.object({ token: z.string() }))
+      .query(async ({ input }) => {
+        try {
+          const { jwtVerify } = await import("jose");
+          const secret = new TextEncoder().encode(process.env.JWT_SECRET ?? "fallback-secret");
+          const { payload } = await jwtVerify(input.token, secret);
+          const user = await getUserById(payload.userId as number);
+          if (!user) throw new TRPCError({ code: "UNAUTHORIZED" });
+          return { id: user.id, name: user.name, email: user.email, role: user.role };
+        } catch {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Token inválido ou expirado" });
+        }
+      }),
+
+    setPassword: adminProcedure
+      .input(z.object({
+        userId: z.number(),
+        password: z.string().min(6),
+      }))
+      .mutation(async ({ input }) => {
+        const { hash } = await import("bcryptjs");
+        const passwordHash = await hash(input.password, 12);
+        await setUserPassword(input.userId, passwordHash);
+        return { success: true };
+      }),
+
+    listUsers: adminProcedure.query(() => listUsersForAdmin()),
   }),
 });
 export type AppRouter = typeof appRouter;

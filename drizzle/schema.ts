@@ -17,6 +17,7 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  passwordHash: varchar("passwordHash", { length: 255 }),   // Login mobile por senha
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -71,6 +72,9 @@ export const equipments = mysqlTable("equipments", {
   macAddress: varchar("macAddress", { length: 32 }),
   totalPorts: int("totalPorts").default(0),
   imageUrl: text("imageUrl"),                  // URL da imagem do equipamento (S3)
+  powerType: mysqlEnum("power_type", ["ac", "dc"]),                    // Tipo de energia: AC ou DC
+  powerSource: mysqlEnum("power_source", ["rectifier", "inverter", "ups", "grid", "other"]),  // Fonte de alimentação
+  powerSourceLabel: varchar("powerSourceLabel", { length: 128 }),      // Identificação da fonte (ex: "Retificadora R1")
   notes: text("notes"),
   status: mysqlEnum("status", ["active", "inactive", "maintenance"]).default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `equipments` ADD `power_type` enum('ac','dc');\nALTER TABLE `equipments` ADD `power_source` enum('rectifier','inverter','ups','grid','other');\nALTER TABLE `equipments` ADD `powerSourceLabel` varchar(128);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute ALTER TABLE `equipments` ADD `power_type` enum('ac','dc');\nALTER TABLE `equipments` ADD `power_source` enum('rectifier','inverter','ups','grid','other');\nALTER TABLE `equipments` ADD `powerSourceLabel` varchar(128);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 678
+}

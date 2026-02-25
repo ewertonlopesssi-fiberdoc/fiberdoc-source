@@ -326,7 +326,7 @@ export default function Dashboard() {
                   Alertas de Capacidade
                 </CardTitle>
                 <span className="text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded-md font-medium">
-                  {(stats?.capacityAlerts ?? []).length} equipamento{(stats?.capacityAlerts ?? []).length !== 1 ? "s" : ""} com ≥80%
+                  {(stats?.capacityAlerts ?? []).length} equipamento{(stats?.capacityAlerts ?? []).length !== 1 ? "s" : ""} com ≥{stats?.alertThreshold ?? 80}%
                 </span>
               </div>
               <button

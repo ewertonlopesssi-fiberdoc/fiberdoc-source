@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves } from "lucide-react";
+import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const THEMES = [
@@ -197,6 +197,7 @@ export default function SystemSettingsPage() {
 
   const [systemName, setSystemName] = useState<string>("");
   const [selectedTheme, setSelectedTheme] = useState<string>("");
+  const [alertThreshold, setAlertThreshold] = useState<number>(80);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<{ base64: string; mimeType: string; filename: string } | null>(null);
   const [isDraggingLogo, setIsDraggingLogo] = useState(false);
@@ -207,6 +208,7 @@ export default function SystemSettingsPage() {
   if (settings && !initialized) {
     setSystemName(settings.systemName ?? "FiberDoc");
     setSelectedTheme(settings.theme ?? "dark-blue");
+    setAlertThreshold(parseInt((settings as any).capacityAlertThreshold ?? "80", 10) || 80);
     setInitialized(true);
   }
 
@@ -238,6 +240,7 @@ export default function SystemSettingsPage() {
       await saveMutation.mutateAsync({
         systemName,
         theme: selectedTheme,
+        capacityAlertThreshold: alertThreshold,
         ...(logoUrl ? { logoUrl } : {}),
       });
       applyTheme(selectedTheme);
@@ -338,6 +341,48 @@ export default function SystemSettingsPage() {
                     if (file) handleLogoFile(file);
                   }}
                 />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Threshold de Alertas de Capacidade */}
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Bell className="h-4 w-4" />
+              Alertas de Capacidade
+            </CardTitle>
+            <CardDescription>Percentual de ocupação de portas a partir do qual o equipamento aparece como alerta no Dashboard</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <div className="flex-1 space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Threshold de Alerta</Label>
+                  <span className={`text-sm font-bold px-2 py-0.5 rounded-md ${
+                    alertThreshold >= 95 ? "text-red-400 bg-red-400/10" :
+                    alertThreshold >= 85 ? "text-orange-400 bg-orange-400/10" :
+                    "text-amber-400 bg-amber-400/10"
+                  }`}>{alertThreshold}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={50}
+                  max={99}
+                  step={5}
+                  value={alertThreshold}
+                  onChange={(e) => setAlertThreshold(parseInt(e.target.value))}
+                  className="w-full h-2 rounded-full accent-primary cursor-pointer"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>50%</span>
+                  <span>75%</span>
+                  <span>99%</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Equipamentos com ≥ {alertThreshold}% de portas ocupadas serão exibidos no card de alertas do Dashboard.
+                </p>
               </div>
             </div>
           </CardContent>

@@ -36,6 +36,20 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useRole } from "@/hooks/useRole";
+import { Zap } from "lucide-react";
+
+const POWER_TYPES = [
+  { value: "ac", label: "AC (Corrente Alternada)" },
+  { value: "dc", label: "DC (Corrente Contínua)" },
+];
+
+const POWER_SOURCES = [
+  { value: "rectifier", label: "Retificadora" },
+  { value: "inverter", label: "Inversora" },
+  { value: "ups", label: "No-Break (UPS)" },
+  { value: "grid", label: "Rede Elétrica" },
+  { value: "other", label: "Outro" },
+];
 
 const EQUIPMENT_TYPES = [
   { value: "switch", label: "Switch" },
@@ -108,6 +122,9 @@ type EquipmentForm = {
   autoCreatePorts: boolean;
   portType: string;
   imageUrl: string;
+  powerType: string;
+  powerSource: string;
+  powerSourceLabel: string;
 };
 
 const defaultForm: EquipmentForm = {
@@ -127,6 +144,9 @@ const defaultForm: EquipmentForm = {
   autoCreatePorts: false,
   portType: "lc",
   imageUrl: "",
+  powerType: "",
+  powerSource: "",
+  powerSourceLabel: "",
 };
 
 export default function Equipments() {
@@ -201,6 +221,9 @@ export default function Equipments() {
       autoCreatePorts: false,
       portType: "lc",
       imageUrl: (eq as any).imageUrl ?? "",
+      powerType: (eq as any).powerType ?? "",
+      powerSource: (eq as any).powerSource ?? "",
+      powerSourceLabel: (eq as any).powerSourceLabel ?? "",
     });
     setDialogOpen(true);
   }
@@ -223,6 +246,9 @@ export default function Equipments() {
       autoCreatePorts: form.autoCreatePorts,
       portType: form.portType as any,
       imageUrl: form.imageUrl || undefined,
+      powerType: form.powerType as any || undefined,
+      powerSource: form.powerSource as any || undefined,
+      powerSourceLabel: form.powerSourceLabel || undefined,
     };
 
     if (editId) {
@@ -350,6 +376,17 @@ export default function Equipments() {
                     <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
                       <span className="text-primary/60">IP</span>
                       <span>{eq.ipAddress}</span>
+                    </div>
+                  )}
+                  {((eq as any).powerType || (eq as any).powerSource) && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Zap className="h-3 w-3 shrink-0 text-yellow-400" />
+                      <span className="truncate">
+                        {(eq as any).powerType === "dc" ? "DC" : (eq as any).powerType === "ac" ? "AC" : ""}
+                        {(eq as any).powerType && (eq as any).powerSource ? " · " : ""}
+                        {POWER_SOURCES.find((p) => p.value === (eq as any).powerSource)?.label ?? ""}
+                        {(eq as any).powerSourceLabel ? ` (${(eq as any).powerSourceLabel})` : ""}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -483,6 +520,44 @@ export default function Equipments() {
                 </div>
               </>
             )}
+            {/* Energia */}
+            <div className="col-span-2">
+              <div className="flex items-center gap-2 mb-3 mt-1">
+                <Zap className="h-4 w-4 text-yellow-400" />
+                <span className="text-sm font-medium text-foreground">Alimentação Elétrica</span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tipo de Energia</Label>
+              <Select value={form.powerType || "none"} onValueChange={(v) => setForm({ ...form, powerType: v === "none" ? "" : v })}>
+                <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Não informado" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Não informado</SelectItem>
+                  {POWER_TYPES.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fonte de Alimentação</Label>
+              <Select value={form.powerSource || "none"} onValueChange={(v) => setForm({ ...form, powerSource: v === "none" ? "" : v })}>
+                <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Não informado" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Não informado</SelectItem>
+                  {POWER_SOURCES.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Identificação da Fonte</Label>
+              <Input
+                value={form.powerSourceLabel}
+                onChange={(e) => setForm({ ...form, powerSourceLabel: e.target.value })}
+                placeholder="Ex: Retificadora R1, No-Break UPS-02, Quadro Q3"
+                className="bg-background border-border/50"
+              />
+              <p className="text-[11px] text-muted-foreground">Identificação da fonte de alimentação a que este equipamento está conectado.</p>
+            </div>
+
             <div className="col-span-2 space-y-1.5">
               <Label>URL da Imagem do Equipamento</Label>
               <div className="flex gap-2 items-center">

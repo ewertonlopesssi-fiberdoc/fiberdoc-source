@@ -4,6 +4,7 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import MobileApp from "./mobile/MobileApp";
 import Dashboard from "./pages/Dashboard";
 import Equipments from "./pages/Equipments";
 import Fibers from "./pages/Fibers";
@@ -22,6 +23,11 @@ import OccupancyReport from "./pages/OccupancyReport";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
+  // Rota do PWA mobile — sem DashboardLayout
+  if (window.location.pathname.startsWith("/mobile")) {
+    return <MobileApp />;
+  }
+
   return (
     <DashboardLayout>
       <Switch>

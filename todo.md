@@ -186,3 +186,41 @@
 - [x] Expandir/recolher todos os equipamentos
 - [x] Item no menu lateral
 - [x] Testes unitários para reports.occupancy (5 testes)
+
+## Campos de Energia nos Equipamentos
+- [ ] Adicionar campo powerType (DC/AC) ao schema de equipamentos
+- [ ] Adicionar campo powerSource (retificadora/inversora/ups/grid/other) ao schema
+- [ ] Gerar e aplicar migration SQL
+- [ ] Atualizar helper getEquipments e getEquipmentById
+- [ ] Atualizar formulários de criação/edição de equipamento
+- [ ] Exibir tipo de energia e fonte na listagem e detalhes
+- [ ] Exibir na topologia de racks
+
+## Threshold Configurável de Alertas
+- [ ] Adicionar chave capacity_alert_threshold nas system_settings
+- [ ] Procedure getSettings já retorna todas as chaves — usar diretamente
+- [ ] Atualizar getDashboardStats para usar o threshold do banco
+- [ ] Campo de configuração na página Sistema (slider ou input numérico)
+- [ ] Atualizar Dashboard para exibir o threshold configurado
+
+## Indicador de Capacidade na Topologia
+- [ ] Calcular ocupação por equipamento na query de topologia
+- [ ] Exibir barra de capacidade colorida em cada equipamento no rack
+- [ ] Tooltip com % de ocupação ao passar o mouse
+
+## PWA Mobile
+- [x] manifest.json com meta tags PWA no index.html
+- [x] Cache offline IndexedDB para equipamentos, portas, CEO e vias
+- [x] Campo passwordHash na tabela users + migration
+- [x] Procedure mobileAuth.login (email + senha → JWT 30d)
+- [x] Procedure mobileAuth.setPassword (admin define senha de usuário)
+- [x] Suporte a Bearer token JWT no context.ts
+- [x] Shell mobile /mobile com bottom navigation (4 abas)
+- [x] Tela MobileSetup (configuração de URL do servidor)
+- [x] Tela MobileLogin (email/senha)
+- [x] Tela MobileEquipments (lista, detalhe, editar, portas, status, manutenção)
+- [x] Tela MobileCeos (lista, detalhe, tubos, vias, edição completa)
+- [x] Tela MobileReport (relatório de ocupação)
+- [x] Tela MobileProfile (perfil, status conexão, alterar servidor, logout)
+- [x] Indicador de status offline/online no banner superior
+- [x] Campos de energia (powerType, powerSource) no formulário mobile

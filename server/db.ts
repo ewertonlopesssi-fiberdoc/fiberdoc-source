@@ -352,6 +352,9 @@ export async function getTopologyData() {
   const allEquipments = await db.select({
     id: equipments.id, name: equipments.name, type: equipments.type,
     model: equipments.model, status: equipments.status, rack: equipments.rack,
+    rackPosition: equipments.rackPosition, roomId: equipments.roomId,
+    totalPorts: equipments.totalPorts, imageUrl: equipments.imageUrl,
+    powerType: equipments.powerType, powerSource: equipments.powerSource, powerSourceLabel: equipments.powerSourceLabel,
     roomName: rooms.name,
   }).from(equipments).leftJoin(rooms, eq(equipments.roomId, rooms.id));
 
@@ -364,6 +367,16 @@ export async function getTopologyData() {
 
   const portMap = new Map(allPorts.map((p) => [p.id, p]));
 
+  // Calcular ocupação de portas por equipamento
+  const occupancyMap = new Map<number, { total: number; occupied: number; rate: number }>();
+  for (const equip of allEquipments) {
+    const equipPorts = allPorts.filter((p) => p.equipmentId === equip.id);
+    const total = equipPorts.length;
+    const occupied = equipPorts.filter((p) => p.status === "occupied").length;
+    const rate = total > 0 ? Math.round((occupied / total) * 100) : 0;
+    occupancyMap.set(equip.id, { total, occupied, rate });
+  }
+
   const edges = allConnections.map((c) => {
     const srcPort = portMap.get(c.sourcePortId);
     const tgtPort = portMap.get(c.targetPortId);
@@ -374,7 +387,12 @@ export async function getTopologyData() {
     };
   });
 
-  return { nodes: allEquipments, edges };
+  const nodes = allEquipments.map((e) => ({
+    ...e,
+    portOccupancy: occupancyMap.get(e.id) ?? { total: 0, occupied: 0, rate: 0 },
+  }));
+
+  return { nodes, edges };
 }
 
 // ─── Maintenance History ──────────────────────────────────────────────────────
@@ -417,7 +435,11 @@ export async function getDashboardStats() {
 
   const recentHistory = await db.select().from(maintenanceHistory).orderBy(desc(maintenanceHistory.createdAt)).limit(5);
 
-  // Alertas de capacidade: equipamentos com >=80% de ocupação de portas
+  // Alertas de capacidade: threshold configurável (padrão 80%)
+  const settingsRows = await db.select().from(systemSettings);
+  const settingsMap = Object.fromEntries(settingsRows.map((r) => [r.key, r.value ?? ""]));
+  const alertThreshold = parseInt(settingsMap.capacityAlertThreshold ?? "80", 10) || 80;
+
   const allEquipments = await db.select({
     id: equipments.id,
     name: equipments.name,
@@ -432,7 +454,7 @@ export async function getDashboardStats() {
       .where(and(eq(ports.equipmentId, equip.id), eq(ports.status, "occupied")));
     const occupiedCount = Number(occ?.count ?? 0);
     const rate = Math.round((occupiedCount / equip.totalPorts) * 100);
-    if (rate >= 80) {
+    if (rate >= alertThreshold) {
       capacityAlerts.push({
         id: equip.id,
         name: equip.name,
@@ -458,6 +480,7 @@ export async function getDashboardStats() {
     equipmentByType: equipByType.map((e) => ({ type: e.type, count: Number(e.count) })),
     recentHistory,
     capacityAlerts,
+    alertThreshold,
   };
 }
 
@@ -1106,4 +1129,39 @@ export async function getOccupancyReport(filters?: {
   }
 
   return result.sort((a, b) => a.equipmentName.localeCompare(b.equipmentName, "pt-BR"));
+}
+
+// ─── Login Mobile por Senha ───────────────────────────────────────────────────
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function setUserPassword(userId: number, passwordHash: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
+}
+
+export async function getUserById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function listUsersForAdmin() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: users.id,
+    name: users.name,
+    email: users.email,
+    role: users.role,
+    hasPassword: sql<boolean>`${users.passwordHash} IS NOT NULL`,
+    createdAt: users.createdAt,
+    lastSignedIn: users.lastSignedIn,
+  }).from(users).orderBy(users.name);
 }
