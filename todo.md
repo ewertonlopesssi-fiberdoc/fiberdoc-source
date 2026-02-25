@@ -122,3 +122,16 @@
 - [x] Histórico de backups gerados (data, tamanho, usuário)
 - [x] Item no menu lateral (apenas admin)
 - [x] Testes unitários para as procedures de backup
+
+## Agendamento Automático de Backup
+- [x] Tabela backup_schedules (frequência, hora, dia, ativo, próxima execução)
+- [x] Tabela backup_history (data, tamanho, URL S3, status, registros)
+- [x] Gerar e aplicar migration SQL
+- [x] Função de execução do backup agendado (gera JSON, faz upload S3, salva histórico)
+- [x] Endpoint /api/backup/run-scheduled para execução pelo cron do servidor
+- [x] Cron job no servidor (setInterval) para verificar e disparar backups agendados
+- [x] Procedures tRPC: getSchedule, saveSchedule, getHistory, downloadBackup, deleteBackup
+- [x] Seção de Agendamento na página de Backup (frequência, hora, dia da semana/mês)
+- [x] Seção de Histórico de Backups com lista, tamanho, status e botão de download
+- [x] Notificação ao admin após backup gerado automaticamente
+- [x] Testes unitários para as procedures de agendamento

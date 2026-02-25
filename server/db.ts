@@ -885,3 +885,74 @@ export async function restoreFromBackup(backup: BackupData): Promise<RestoreResu
 
   return result;
 }
+
+// ─── Agendamento de Backup ────────────────────────────────────────────────────
+import {
+  BackupSchedule,
+  InsertBackupSchedule,
+  InsertBackupHistory,
+  BackupHistoryEntry,
+  backupSchedules,
+  backupHistory,
+} from "../drizzle/schema";
+
+export async function getBackupSchedule(): Promise<BackupSchedule | null> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const rows = await db.select().from(backupSchedules).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertBackupSchedule(
+  data: Omit<InsertBackupSchedule, "id" | "createdAt" | "updatedAt">
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const existing = await db.select().from(backupSchedules).limit(1);
+  if (existing.length > 0) {
+    await db.update(backupSchedules).set(data).where(eq(backupSchedules.id, existing[0].id));
+  } else {
+    await db.insert(backupSchedules).values(data);
+  }
+}
+
+export async function updateScheduleNextRun(id: number, nextRunAt: Date, lastRunAt: Date): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(backupSchedules).set({ nextRunAt, lastRunAt }).where(eq(backupSchedules.id, id));
+}
+
+export async function getBackupHistory(limit = 50): Promise<BackupHistoryEntry[]> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  return db.select().from(backupHistory).orderBy(desc(backupHistory.createdAt)).limit(limit);
+}
+
+export async function createBackupHistoryEntry(
+  data: Omit<InsertBackupHistory, "id" | "createdAt">
+): Promise<BackupHistoryEntry> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.insert(backupHistory).values(data);
+  const rows = await db.select().from(backupHistory).orderBy(desc(backupHistory.createdAt)).limit(1);
+  return rows[0];
+}
+
+export async function deleteBackupHistoryEntry(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.delete(backupHistory).where(eq(backupHistory.id, id));
+}
+
+export async function deleteOldBackupEntries(olderThanDays: number): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+  const old = await db.select().from(backupHistory).where(
+    sql`${backupHistory.createdAt} < ${cutoff}`
+  );
+  for (const entry of old) {
+    await db.delete(backupHistory).where(eq(backupHistory.id, entry.id));
+  }
+  return old.length;
+}

@@ -223,3 +223,36 @@ export const ceoVias = mysqlTable("ceo_vias", {
 
 export type CeoVia = typeof ceoVias.$inferSelect;
 export type InsertCeoVia = typeof ceoVias.$inferInsert;
+
+// ─── Agendamento de Backup ───────────────────────────────────────────────────
+export const backupSchedules = mysqlTable("backup_schedules", {
+  id: int("id").autoincrement().primaryKey(),
+  enabled: boolean("enabled").default(false).notNull(),
+  frequency: mysqlEnum("frequency", ["daily", "weekly", "monthly"]).default("weekly").notNull(),
+  hour: int("hour").default(2).notNull(),         // hora do dia (0-23) para executar
+  dayOfWeek: int("dayOfWeek"),                    // 0=Dom..6=Sáb (para weekly)
+  dayOfMonth: int("dayOfMonth"),                  // 1-28 (para monthly)
+  retentionDays: int("retentionDays").default(30).notNull(), // dias para manter backups
+  nextRunAt: timestamp("nextRunAt"),
+  lastRunAt: timestamp("lastRunAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type BackupSchedule = typeof backupSchedules.$inferSelect;
+export type InsertBackupSchedule = typeof backupSchedules.$inferInsert;
+
+// ─── Histórico de Backups ────────────────────────────────────────────────────
+export const backupHistory = mysqlTable("backup_history", {
+  id: int("id").autoincrement().primaryKey(),
+  filename: varchar("filename", { length: 256 }).notNull(),
+  fileUrl: text("fileUrl"),                       // URL S3 do arquivo
+  fileKey: varchar("fileKey", { length: 512 }),   // chave S3
+  fileSizeBytes: int("fileSizeBytes"),
+  totalRecords: int("totalRecords"),
+  status: mysqlEnum("backup_status", ["success", "error"]).default("success").notNull(),
+  trigger: mysqlEnum("backup_trigger", ["manual", "scheduled"]).default("manual").notNull(),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type BackupHistoryEntry = typeof backupHistory.$inferSelect;
+export type InsertBackupHistory = typeof backupHistory.$inferInsert;

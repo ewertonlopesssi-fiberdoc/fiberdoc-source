@@ -49,10 +49,15 @@ import {
   deleteUser,
   exportFullBackup,
   restoreFromBackup,
+  getBackupSchedule,
+  upsertBackupSchedule,
+  getBackupHistory,
+  deleteBackupHistoryEntry,
   type BackupData,
   type BulkEquipmentRow,
   type BulkFiberRow,
 } from "./db";
+import { runBackup, calcNextRun } from "./backupScheduler";
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
@@ -770,6 +775,46 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         return restoreFromBackup(input.backup as BackupData);
+      }),
+
+    // Backup manual com upload S3
+    runManual: adminProcedure.mutation(async () => {
+      return runBackup("manual");
+    }),
+
+    // Agendamento
+    getSchedule: adminProcedure.query(async () => {
+      return getBackupSchedule();
+    }),
+    saveSchedule: adminProcedure
+      .input(z.object({
+        enabled: z.boolean(),
+        frequency: z.enum(["daily", "weekly", "monthly"]),
+        hour: z.number().min(0).max(23),
+        dayOfWeek: z.number().min(0).max(6).nullable().optional(),
+        dayOfMonth: z.number().min(1).max(28).nullable().optional(),
+        retentionDays: z.number().min(1).max(365),
+      }))
+      .mutation(async ({ input }) => {
+        const nextRunAt = calcNextRun(
+          input.frequency,
+          input.hour,
+          input.dayOfWeek ?? null,
+          input.dayOfMonth ?? null
+        );
+        await upsertBackupSchedule({ ...input, nextRunAt });
+        return { success: true, nextRunAt };
+      }),
+
+    // Histórico
+    getHistory: adminProcedure.query(async () => {
+      return getBackupHistory(50);
+    }),
+    deleteHistory: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteBackupHistoryEntry(input.id);
+        return { success: true };
       }),
   }),
 });
