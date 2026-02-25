@@ -563,3 +563,131 @@ export async function bulkImportFibers(
 
   return result;
 }
+
+// ─── CEO Helpers ──────────────────────────────────────────────────────────────
+import { ceos, ceoTubes, ceoVias, InsertCeo, InsertCeoTube, InsertCeoVia } from "../drizzle/schema";
+
+export async function getCeos(filters?: { roomId?: number; status?: string }) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ceos);
+  let result = rows;
+  if (filters?.roomId) result = result.filter(r => r.roomId === filters.roomId);
+  if (filters?.status) result = result.filter(r => r.status === filters.status);
+  return result.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
+
+export async function getCeoById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(ceos).where(eq(ceos.id, id)).limit(1);
+  return rows[0];
+}
+
+export async function createCeo(data: Omit<InsertCeo, "id" | "createdAt" | "updatedAt">) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.insert(ceos).values(data);
+}
+
+export async function updateCeo(id: number, data: Partial<Omit<InsertCeo, "id" | "createdAt" | "updatedAt">>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ceos).set(data).where(eq(ceos.id, id));
+}
+
+export async function deleteCeo(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  // Remove vias e tubos em cascata
+  const tubes = await db.select().from(ceoTubes).where(eq(ceoTubes.ceoId, id));
+  for (const tube of tubes) {
+    await db.delete(ceoVias).where(eq(ceoVias.tubeId, tube.id));
+  }
+  await db.delete(ceoTubes).where(eq(ceoTubes.ceoId, id));
+  await db.delete(ceos).where(eq(ceos.id, id));
+}
+
+// ─── CEO Tubes ────────────────────────────────────────────────────────────────
+export async function getTubesByCeo(ceoId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ceoTubes).where(eq(ceoTubes.ceoId, ceoId));
+  return rows.sort((a, b) => a.identifier.localeCompare(b.identifier, "pt-BR", { numeric: true }));
+}
+
+export async function createCeoTube(data: Omit<InsertCeoTube, "id" | "createdAt" | "updatedAt">) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(ceoTubes).values(data);
+  const insertId = (result as any)[0]?.insertId ?? 0;
+  // Criar as vias automaticamente
+  const totalVias = data.totalVias ?? 0;
+  if (totalVias > 0) {
+    const viaRows: Omit<InsertCeoVia, "id" | "createdAt" | "updatedAt">[] = [];
+    for (let i = 1; i <= totalVias; i++) {
+      viaRows.push({ tubeId: insertId, ceoId: data.ceoId, viaNumber: i });
+    }
+    if (viaRows.length > 0) {
+      await db.insert(ceoVias).values(viaRows);
+    }
+  }
+  return insertId;
+}
+
+export async function updateCeoTube(id: number, data: Partial<Omit<InsertCeoTube, "id" | "createdAt" | "updatedAt">>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ceoTubes).set(data).where(eq(ceoTubes.id, id));
+}
+
+export async function deleteCeoTube(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  // Limpar fusões que apontam para este tubo
+  await db.update(ceoVias).set({ fusedToTubeId: null, fusedToViaId: null }).where(eq(ceoVias.fusedToTubeId, id));
+  await db.delete(ceoVias).where(eq(ceoVias.tubeId, id));
+  await db.delete(ceoTubes).where(eq(ceoTubes.id, id));
+}
+
+// ─── CEO Vias ─────────────────────────────────────────────────────────────────
+export async function getViasByTube(tubeId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ceoVias).where(eq(ceoVias.tubeId, tubeId));
+  return rows.sort((a, b) => a.viaNumber - b.viaNumber);
+}
+
+export async function getViasByCeo(ceoId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ceoVias).where(eq(ceoVias.ceoId, ceoId));
+  return rows.sort((a, b) => a.viaNumber - b.viaNumber);
+}
+
+export async function setViaFusion(
+  viaId: number,
+  fusedToTubeId: number | null,
+  fusedToViaId: number | null,
+  notes?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ceoVias)
+    .set({ fusedToTubeId, fusedToViaId, notes: notes ?? null })
+    .where(eq(ceoVias.id, viaId));
+}
+
+export async function clearViaFusion(viaId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ceoVias)
+    .set({ fusedToTubeId: null, fusedToViaId: null })
+    .where(eq(ceoVias.id, viaId));
+}
+
+export async function updateVia(id: number, data: { label?: string | null; notes?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ceoVias).set(data).where(eq(ceoVias.id, id));
+}

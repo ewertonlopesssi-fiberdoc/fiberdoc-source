@@ -23,6 +23,7 @@ import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
   Activity,
+  Box,
   Cable,
   CircuitBoard,
   GitBranch,
@@ -50,6 +51,7 @@ const menuItems = [
   { icon: History, label: "Histórico", path: "/historico" },
   { icon: Wifi, label: "Salas / Locais", path: "/salas" },
   { icon: Upload, label: "Importar CSV", path: "/importar" },
+  { icon: Box, label: "CEO", path: "/ceo" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

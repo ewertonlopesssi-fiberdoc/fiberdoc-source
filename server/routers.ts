@@ -4,6 +4,11 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
+  getCeos, getCeoById, createCeo, updateCeo, deleteCeo,
+  getTubesByCeo, createCeoTube, updateCeoTube, deleteCeoTube,
+  getViasByTube, getViasByCeo, setViaFusion, clearViaFusion, updateVia,
+} from "./db";
+import {
   createConnection,
   createEquipment,
   createFiber,
@@ -557,6 +562,137 @@ export const appRouter = router({
           ctx.user.id,
           ctx.user.name ?? undefined
         );
+      }),
+  }),
+
+  // ─── CEO (Caixa de Emenda Óptica) ─────────────────────────────────────────
+  ceos: router({
+    list: protectedProcedure
+      .input(z.object({
+        roomId: z.number().optional(),
+        status: z.enum(["active", "inactive", "maintenance"]).optional(),
+      }))
+      .query(async ({ input }) => getCeos(input)),
+
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => getCeoById(input.id)),
+
+    create: protectedProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        location: z.string().optional(),
+        roomId: z.number().optional(),
+        notes: z.string().optional(),
+        status: z.enum(["active", "inactive", "maintenance"]).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await createCeo({
+          name: input.name,
+          location: input.location ?? null,
+          roomId: input.roomId ?? null,
+          notes: input.notes ?? null,
+          status: input.status ?? "active",
+        });
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(1).optional(),
+        location: z.string().optional(),
+        roomId: z.number().nullable().optional(),
+        notes: z.string().optional(),
+        status: z.enum(["active", "inactive", "maintenance"]).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateCeo(id, data as any);
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => deleteCeo(input.id)),
+  }),
+
+  // ─── Tubos / Splitters do CEO ─────────────────────────────────────────────
+  ceoTubes: router({
+    byCeo: protectedProcedure
+      .input(z.object({ ceoId: z.number() }))
+      .query(async ({ input }) => getTubesByCeo(input.ceoId)),
+
+    create: protectedProcedure
+      .input(z.object({
+        ceoId: z.number(),
+        type: z.enum(["tube", "splitter"]).default("tube"),
+        identifier: z.string().min(1),
+        totalVias: z.number().min(1).max(256).default(12),
+        color: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return createCeoTube({
+          ceoId: input.ceoId,
+          type: input.type,
+          identifier: input.identifier,
+          totalVias: input.totalVias,
+          color: input.color ?? null,
+          notes: input.notes ?? null,
+        });
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        identifier: z.string().min(1).optional(),
+        type: z.enum(["tube", "splitter"]).optional(),
+        color: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateCeoTube(id, data as any);
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => deleteCeoTube(input.id)),
+  }),
+
+  // ─── Vias do CEO ──────────────────────────────────────────────────────────
+  ceoVias: router({
+    byTube: protectedProcedure
+      .input(z.object({ tubeId: z.number() }))
+      .query(async ({ input }) => getViasByTube(input.tubeId)),
+
+    byCeo: protectedProcedure
+      .input(z.object({ ceoId: z.number() }))
+      .query(async ({ input }) => getViasByCeo(input.ceoId)),
+
+    setFusion: protectedProcedure
+      .input(z.object({
+        viaId: z.number(),
+        fusedToTubeId: z.number().nullable(),
+        fusedToViaId: z.number().nullable(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await setViaFusion(input.viaId, input.fusedToTubeId, input.fusedToViaId, input.notes);
+      }),
+
+    clearFusion: protectedProcedure
+      .input(z.object({ viaId: z.number() }))
+      .mutation(async ({ input }) => clearViaFusion(input.viaId)),
+
+    updateLabel: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        label: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateVia(id, data);
       }),
   }),
 });

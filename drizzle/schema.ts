@@ -174,3 +174,51 @@ export const maintenanceHistory = mysqlTable("maintenance_history", {
 
 export type MaintenanceHistory = typeof maintenanceHistory.$inferSelect;
 export type InsertMaintenanceHistory = typeof maintenanceHistory.$inferInsert;
+
+// ─── CEO (Caixa de Emenda Óptica) ────────────────────────────────────────────
+export const ceos = mysqlTable("ceos", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  location: varchar("location", { length: 256 }),
+  roomId: int("roomId"),
+  notes: text("notes"),
+  status: mysqlEnum("ceo_status", ["active", "inactive", "maintenance"]).default("active").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Ceo = typeof ceos.$inferSelect;
+export type InsertCeo = typeof ceos.$inferInsert;
+
+// ─── Tubos / Splitters do CEO ────────────────────────────────────────────────
+export const ceoTubes = mysqlTable("ceo_tubes", {
+  id: int("id").autoincrement().primaryKey(),
+  ceoId: int("ceoId").notNull(),
+  type: mysqlEnum("ceo_tube_type", ["tube", "splitter"]).default("tube").notNull(),
+  identifier: varchar("identifier", { length: 32 }).notNull(), // ex: "TUBO 1", "SPLITTER 1*8"
+  totalVias: int("totalVias").default(12).notNull(),
+  color: varchar("color", { length: 32 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CeoTube = typeof ceoTubes.$inferSelect;
+export type InsertCeoTube = typeof ceoTubes.$inferInsert;
+
+// ─── Vias do Tubo/Splitter ───────────────────────────────────────────────────
+export const ceoVias = mysqlTable("ceo_vias", {
+  id: int("id").autoincrement().primaryKey(),
+  tubeId: int("tubeId").notNull(),
+  ceoId: int("ceoId").notNull(),
+  viaNumber: int("viaNumber").notNull(),           // 1, 2, 3...
+  label: varchar("label", { length: 64 }),         // etiqueta opcional
+  fusedToViaId: int("fusedToViaId"),               // id da via destino da fusão
+  fusedToTubeId: int("fusedToTubeId"),             // id do tubo destino
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CeoVia = typeof ceoVias.$inferSelect;
+export type InsertCeoVia = typeof ceoVias.$inferInsert;

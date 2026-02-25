@@ -63,3 +63,19 @@
 ## Testes
 - [x] 37 testes unitários passando (auth, fiber_doc, import)
 - [x] Validação de formulários
+
+## Módulo CEO (Caixa de Emenda Óptica)
+- [x] Tabela ceos (id, name, location, roomId, notes, createdAt, updatedAt)
+- [x] Tabela ceo_tubes (id, ceoId, type: tube|splitter, identifier, totalVias, notes)
+- [x] Tabela ceo_vias (id, tubeId, viaNumber, label, fusedToViaId, fusedToTubeId, notes)
+- [x] Gerar e aplicar migration SQL
+- [x] Helpers de DB para CEOs, tubos e vias
+- [x] Procedures tRPC: ceos.list, ceos.create, ceos.update, ceos.delete, ceos.byId
+- [x] Procedures tRPC: ceoTubes.byCEO, ceoTubes.create, ceoTubes.update, ceoTubes.delete
+- [x] Procedures tRPC: ceoVias.byTube, ceoVias.setFusion, ceoVias.clearFusion
+- [x] Página de listagem/cadastro de CEOs com filtro por sala
+- [x] Página de detalhes do CEO com abas por tubo/splitter
+- [x] Grid de vias por tubo com status de fusão
+- [x] Dialog de identificação de fusão: selecionar tubo destino + número da via
+- [x] Navegação no menu lateral
+- [x] Testes unitários para o módulo CEO
