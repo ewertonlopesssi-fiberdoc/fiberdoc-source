@@ -37,6 +37,7 @@ import {
   Network,
   PanelLeft,
   Server,
+  Settings,
   Upload,
   Users as UsersIcon,
   Wifi,
@@ -62,6 +63,7 @@ const publicMenuItems = [
 const adminOnlyMenuItems = [
   { icon: UsersIcon, label: "Usuários", path: "/usuarios" },
   { icon: ShieldCheck, label: "Backup & Atualização", path: "/backup" },
+  { icon: Settings, label: "Sistema", path: "/sistema" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

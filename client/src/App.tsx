@@ -17,6 +17,7 @@ import Ceos from "./pages/Ceos";
 import CeoDetail from "./pages/CeoDetail";
 import Users from "./pages/Users";
 import Backup from "./pages/Backup";
+import SystemSettings from "./pages/SystemSettings";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
@@ -37,6 +38,7 @@ function Router() {
         <Route path={"/ceo/:id"} component={CeoDetail} />
         <Route path={"/usuarios"} component={Users} />
         <Route path={"/backup"} component={Backup} />
+        <Route path={"/sistema"} component={SystemSettings} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

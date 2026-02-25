@@ -1,0 +1,426 @@
+import { useState, useRef, useCallback } from "react";
+import { trpc } from "@/lib/trpc";
+import DashboardLayout from "@/components/DashboardLayout";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { toast } from "sonner";
+import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const THEMES = [
+  {
+    id: "dark-blue",
+    name: "Azul Escuro",
+    description: "Tema padrão — fundo escuro com acentos em azul ciano",
+    icon: Monitor,
+    preview: { bg: "#0a0f1e", accent: "#00d4ff", card: "#0f1729" },
+  },
+  {
+    id: "dark-green",
+    name: "Verde Escuro",
+    description: "Fundo escuro com acentos em verde esmeralda",
+    icon: Leaf,
+    preview: { bg: "#0a1a0f", accent: "#00e676", card: "#0f2318" },
+  },
+  {
+    id: "dark-purple",
+    name: "Roxo Escuro",
+    description: "Fundo escuro com acentos em violeta",
+    icon: Zap,
+    preview: { bg: "#0f0a1e", accent: "#a855f7", card: "#160f2a" },
+  },
+  {
+    id: "light",
+    name: "Claro",
+    description: "Tema claro com fundo branco e acentos em azul",
+    icon: Sun,
+    preview: { bg: "#f8fafc", accent: "#2563eb", card: "#ffffff" },
+  },
+  {
+    id: "ocean",
+    name: "Oceano",
+    description: "Tons de azul profundo inspirados no oceano",
+    icon: Waves,
+    preview: { bg: "#0c1445", accent: "#38bdf8", card: "#111c5c" },
+  },
+  {
+    id: "midnight",
+    name: "Meia-noite",
+    description: "Preto intenso com acentos em âmbar",
+    icon: Moon,
+    preview: { bg: "#0a0a0a", accent: "#f59e0b", card: "#141414" },
+  },
+];
+
+// CSS variables por tema
+const THEME_CSS: Record<string, string> = {
+  "dark-blue": `
+    --background: oklch(0.09 0.02 240);
+    --foreground: oklch(0.95 0.01 240);
+    --card: oklch(0.12 0.03 240);
+    --card-foreground: oklch(0.95 0.01 240);
+    --primary: oklch(0.75 0.18 200);
+    --primary-foreground: oklch(0.1 0.02 240);
+    --muted: oklch(0.18 0.02 240);
+    --muted-foreground: oklch(0.6 0.02 240);
+    --border: oklch(0.22 0.03 240);
+    --accent: oklch(0.75 0.18 200);
+    --accent-foreground: oklch(0.1 0.02 240);
+    --sidebar-background: oklch(0.08 0.03 240);
+    --sidebar-foreground: oklch(0.85 0.01 240);
+    --sidebar-border: oklch(0.18 0.03 240);
+    --sidebar-accent: oklch(0.14 0.04 240);
+    --sidebar-accent-foreground: oklch(0.95 0.01 240);
+    --sidebar-primary: oklch(0.75 0.18 200);
+    --sidebar-primary-foreground: oklch(0.1 0.02 240);
+  `,
+  "dark-green": `
+    --background: oklch(0.09 0.03 145);
+    --foreground: oklch(0.95 0.01 145);
+    --card: oklch(0.12 0.04 145);
+    --card-foreground: oklch(0.95 0.01 145);
+    --primary: oklch(0.75 0.2 145);
+    --primary-foreground: oklch(0.1 0.02 145);
+    --muted: oklch(0.18 0.03 145);
+    --muted-foreground: oklch(0.6 0.02 145);
+    --border: oklch(0.22 0.04 145);
+    --accent: oklch(0.75 0.2 145);
+    --accent-foreground: oklch(0.1 0.02 145);
+    --sidebar-background: oklch(0.08 0.04 145);
+    --sidebar-foreground: oklch(0.85 0.01 145);
+    --sidebar-border: oklch(0.18 0.04 145);
+    --sidebar-accent: oklch(0.14 0.05 145);
+    --sidebar-accent-foreground: oklch(0.95 0.01 145);
+    --sidebar-primary: oklch(0.75 0.2 145);
+    --sidebar-primary-foreground: oklch(0.1 0.02 145);
+  `,
+  "dark-purple": `
+    --background: oklch(0.09 0.03 290);
+    --foreground: oklch(0.95 0.01 290);
+    --card: oklch(0.12 0.04 290);
+    --card-foreground: oklch(0.95 0.01 290);
+    --primary: oklch(0.65 0.25 290);
+    --primary-foreground: oklch(0.98 0.01 290);
+    --muted: oklch(0.18 0.03 290);
+    --muted-foreground: oklch(0.6 0.02 290);
+    --border: oklch(0.22 0.04 290);
+    --accent: oklch(0.65 0.25 290);
+    --accent-foreground: oklch(0.98 0.01 290);
+    --sidebar-background: oklch(0.08 0.04 290);
+    --sidebar-foreground: oklch(0.85 0.01 290);
+    --sidebar-border: oklch(0.18 0.04 290);
+    --sidebar-accent: oklch(0.14 0.05 290);
+    --sidebar-accent-foreground: oklch(0.95 0.01 290);
+    --sidebar-primary: oklch(0.65 0.25 290);
+    --sidebar-primary-foreground: oklch(0.98 0.01 290);
+  `,
+  "light": `
+    --background: oklch(0.98 0.005 240);
+    --foreground: oklch(0.15 0.02 240);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.15 0.02 240);
+    --primary: oklch(0.5 0.2 240);
+    --primary-foreground: oklch(0.98 0.005 240);
+    --muted: oklch(0.94 0.01 240);
+    --muted-foreground: oklch(0.5 0.02 240);
+    --border: oklch(0.88 0.01 240);
+    --accent: oklch(0.5 0.2 240);
+    --accent-foreground: oklch(0.98 0.005 240);
+    --sidebar-background: oklch(0.96 0.01 240);
+    --sidebar-foreground: oklch(0.2 0.02 240);
+    --sidebar-border: oklch(0.88 0.01 240);
+    --sidebar-accent: oklch(0.92 0.02 240);
+    --sidebar-accent-foreground: oklch(0.15 0.02 240);
+    --sidebar-primary: oklch(0.5 0.2 240);
+    --sidebar-primary-foreground: oklch(0.98 0.005 240);
+  `,
+  "ocean": `
+    --background: oklch(0.1 0.06 240);
+    --foreground: oklch(0.95 0.01 200);
+    --card: oklch(0.13 0.07 240);
+    --card-foreground: oklch(0.95 0.01 200);
+    --primary: oklch(0.7 0.15 200);
+    --primary-foreground: oklch(0.1 0.05 240);
+    --muted: oklch(0.18 0.06 240);
+    --muted-foreground: oklch(0.6 0.03 220);
+    --border: oklch(0.22 0.07 240);
+    --accent: oklch(0.7 0.15 200);
+    --accent-foreground: oklch(0.1 0.05 240);
+    --sidebar-background: oklch(0.09 0.07 240);
+    --sidebar-foreground: oklch(0.85 0.01 200);
+    --sidebar-border: oklch(0.18 0.07 240);
+    --sidebar-accent: oklch(0.15 0.08 240);
+    --sidebar-accent-foreground: oklch(0.95 0.01 200);
+    --sidebar-primary: oklch(0.7 0.15 200);
+    --sidebar-primary-foreground: oklch(0.1 0.05 240);
+  `,
+  "midnight": `
+    --background: oklch(0.07 0 0);
+    --foreground: oklch(0.95 0.01 60);
+    --card: oklch(0.1 0 0);
+    --card-foreground: oklch(0.95 0.01 60);
+    --primary: oklch(0.75 0.18 75);
+    --primary-foreground: oklch(0.1 0 0);
+    --muted: oklch(0.16 0 0);
+    --muted-foreground: oklch(0.55 0.01 60);
+    --border: oklch(0.2 0 0);
+    --accent: oklch(0.75 0.18 75);
+    --accent-foreground: oklch(0.1 0 0);
+    --sidebar-background: oklch(0.06 0 0);
+    --sidebar-foreground: oklch(0.85 0.01 60);
+    --sidebar-border: oklch(0.16 0 0);
+    --sidebar-accent: oklch(0.13 0 0);
+    --sidebar-accent-foreground: oklch(0.95 0.01 60);
+    --sidebar-primary: oklch(0.75 0.18 75);
+    --sidebar-primary-foreground: oklch(0.1 0 0);
+  `,
+};
+
+function applyTheme(themeId: string) {
+  const css = THEME_CSS[themeId];
+  if (!css) return;
+  let styleEl = document.getElementById("dynamic-theme") as HTMLStyleElement | null;
+  if (!styleEl) {
+    styleEl = document.createElement("style");
+    styleEl.id = "dynamic-theme";
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = `:root { ${css} } .dark { ${css} }`;
+}
+
+export default function SystemSettingsPage() {
+  const { data: settings, refetch } = trpc.systemConfig.get.useQuery();
+  const saveMutation = trpc.systemConfig.save.useMutation();
+  const uploadLogoMutation = trpc.systemConfig.uploadLogo.useMutation();
+
+  const [systemName, setSystemName] = useState<string>("");
+  const [selectedTheme, setSelectedTheme] = useState<string>("");
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<{ base64: string; mimeType: string; filename: string } | null>(null);
+  const [isDraggingLogo, setIsDraggingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync state with loaded settings
+  const [initialized, setInitialized] = useState(false);
+  if (settings && !initialized) {
+    setSystemName(settings.systemName ?? "FiberDoc");
+    setSelectedTheme(settings.theme ?? "dark-blue");
+    setInitialized(true);
+  }
+
+  const handleLogoFile = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setLogoPreview(dataUrl);
+      const base64 = dataUrl.split(",")[1];
+      setLogoFile({ base64, mimeType: file.type, filename: file.name });
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handleLogoDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingLogo(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith("image/")) handleLogoFile(file);
+  };
+
+  const handleSave = async () => {
+    try {
+      let logoUrl = settings?.logoUrl;
+      if (logoFile) {
+        const res = await uploadLogoMutation.mutateAsync(logoFile);
+        logoUrl = res.url;
+      }
+      await saveMutation.mutateAsync({
+        systemName,
+        theme: selectedTheme,
+        ...(logoUrl ? { logoUrl } : {}),
+      });
+      applyTheme(selectedTheme);
+      await refetch();
+      setLogoFile(null);
+      toast.success("Configurações salvas com sucesso!");
+    } catch {
+      toast.error("Erro ao salvar configurações.");
+    }
+  };
+
+  const currentLogo = logoPreview ?? settings?.logoUrl ?? null;
+
+  return (
+    <DashboardLayout>
+      <div className="p-6 max-w-4xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-primary/10">
+            <Settings className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Configurações do Sistema</h1>
+            <p className="text-sm text-muted-foreground">Personalize nome, logomarca e aparência do sistema</p>
+          </div>
+        </div>
+
+        {/* Nome do Sistema */}
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base">Identidade do Sistema</CardTitle>
+            <CardDescription>Nome exibido no menu lateral e na aba do navegador</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              <Label htmlFor="systemName">Nome do Sistema</Label>
+              <Input
+                id="systemName"
+                value={systemName}
+                onChange={(e) => setSystemName(e.target.value)}
+                placeholder="FiberDoc"
+                className="max-w-sm"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Logomarca */}
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base">Logomarca</CardTitle>
+            <CardDescription>Imagem exibida no topo do menu lateral (PNG, SVG ou JPG recomendado)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-start gap-6">
+              {/* Preview */}
+              <div className="flex-shrink-0">
+                <div className="w-24 h-24 rounded-xl border-2 border-dashed border-border flex items-center justify-center bg-muted/30 overflow-hidden">
+                  {currentLogo ? (
+                    <img src={currentLogo} alt="Logo" className="w-full h-full object-contain p-2" />
+                  ) : (
+                    <div className="text-center text-muted-foreground">
+                      <Upload className="h-6 w-6 mx-auto mb-1" />
+                      <span className="text-xs">Logo</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Upload area */}
+              <div className="flex-1">
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDraggingLogo(true); }}
+                  onDragLeave={() => setIsDraggingLogo(false)}
+                  onDrop={handleLogoDrop}
+                  onClick={() => logoInputRef.current?.click()}
+                  className={cn(
+                    "border-2 border-dashed rounded-xl p-6 cursor-pointer transition-all text-center",
+                    isDraggingLogo
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:border-primary/50 hover:bg-muted/20"
+                  )}
+                >
+                  <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-sm font-medium text-foreground">Arraste ou clique para selecionar</p>
+                  <p className="text-xs text-muted-foreground mt-1">PNG, SVG, JPG — recomendado 200×200px</p>
+                  {logoFile && (
+                    <p className="text-xs text-primary mt-2 font-medium">✓ {logoFile.filename} selecionado</p>
+                  )}
+                </div>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleLogoFile(file);
+                  }}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Seletor de Temas */}
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Palette className="h-4 w-4" />
+              Tema Visual
+            </CardTitle>
+            <CardDescription>Escolha a aparência do sistema. A mudança é aplicada imediatamente.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {THEMES.map((theme) => {
+                const Icon = theme.icon;
+                const isSelected = selectedTheme === theme.id;
+                return (
+                  <button
+                    key={theme.id}
+                    onClick={() => {
+                      setSelectedTheme(theme.id);
+                      applyTheme(theme.id);
+                    }}
+                    className={cn(
+                      "relative rounded-xl border-2 p-4 text-left transition-all hover:scale-[1.02]",
+                      isSelected
+                        ? "border-primary shadow-lg shadow-primary/20"
+                        : "border-border hover:border-primary/40"
+                    )}
+                  >
+                    {/* Color preview */}
+                    <div
+                      className="w-full h-10 rounded-lg mb-3 flex items-center justify-center gap-1 overflow-hidden"
+                      style={{ backgroundColor: theme.preview.bg }}
+                    >
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: theme.preview.accent }} />
+                      <div className="w-8 h-2 rounded-full opacity-60" style={{ backgroundColor: theme.preview.card }} />
+                      <div className="w-4 h-2 rounded-full opacity-40" style={{ backgroundColor: theme.preview.accent }} />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Icon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm font-medium text-foreground">{theme.name}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 leading-tight">{theme.description}</p>
+
+                    {isSelected && (
+                      <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+                        <svg className="w-2.5 h-2.5 text-primary-foreground" fill="currentColor" viewBox="0 0 12 12">
+                          <path d="M10 3L5 8.5 2 5.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Botão Salvar */}
+        <div className="flex justify-end gap-3 pb-6">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setInitialized(false);
+              setLogoPreview(null);
+              setLogoFile(null);
+            }}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={saveMutation.isPending || uploadLogoMutation.isPending}
+          >
+            {saveMutation.isPending || uploadLogoMutation.isPending ? "Salvando..." : "Salvar Configurações"}
+          </Button>
+        </div>
+      </div>
+    </DashboardLayout>
+  );
+}

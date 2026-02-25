@@ -106,6 +106,7 @@ type EquipmentForm = {
   status: string;
   autoCreatePorts: boolean;
   portType: string;
+  imageUrl: string;
 };
 
 const defaultForm: EquipmentForm = {
@@ -124,6 +125,7 @@ const defaultForm: EquipmentForm = {
   status: "active",
   autoCreatePorts: false,
   portType: "lc",
+  imageUrl: "",
 };
 
 export default function Equipments() {
@@ -196,6 +198,7 @@ export default function Equipments() {
       status: eq.status,
       autoCreatePorts: false,
       portType: "lc",
+      imageUrl: (eq as any).imageUrl ?? "",
     });
     setDialogOpen(true);
   }
@@ -217,6 +220,7 @@ export default function Equipments() {
       status: form.status as any,
       autoCreatePorts: form.autoCreatePorts,
       portType: form.portType as any,
+      imageUrl: form.imageUrl || undefined,
     };
 
     if (editId) {
@@ -471,6 +475,26 @@ export default function Equipments() {
                 </div>
               </>
             )}
+            <div className="col-span-2 space-y-1.5">
+              <Label>URL da Imagem do Equipamento</Label>
+              <div className="flex gap-2 items-center">
+                <Input
+                  value={form.imageUrl}
+                  onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
+                  placeholder="https://exemplo.com/imagem-switch.png"
+                  className="bg-background border-border/50 font-mono text-xs"
+                />
+                {form.imageUrl && (
+                  <img
+                    src={form.imageUrl}
+                    alt="preview"
+                    className="w-10 h-10 object-contain rounded border border-border/50 bg-zinc-900 flex-shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">Cole a URL de uma imagem do equipamento. Ela aparecerá na topologia de racks.</p>
+            </div>
             <div className="col-span-2 space-y-1.5">
               <Label>Observações</Label>
               <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notas adicionais sobre o equipamento..." className="bg-background border-border/50 resize-none" rows={3} />

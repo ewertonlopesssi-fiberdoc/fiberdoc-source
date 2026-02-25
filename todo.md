@@ -135,3 +135,19 @@
 - [x] Seção de Histórico de Backups com lista, tamanho, status e botão de download
 - [x] Notificação ao admin após backup gerado automaticamente
 - [x] Testes unitários para as procedures de agendamento
+
+## Imagens de Equipamentos na Topologia
+- [x] Campo imageUrl na tabela equipments (migration)
+- [x] Upload de imagem no formulário de cadastro/edição de equipamento (S3)
+- [x] Exibição da imagem do equipamento na topologia de racks
+- [x] Fallback com ícone por tipo quando não há imagem
+
+## Menu Sistema (Configurações)
+- [x] Tabela system_settings no banco (chave/valor)
+- [x] Migration SQL
+- [x] Procedures tRPC: getSettings, saveSettings
+- [x] Upload de logomarca para S3
+- [x] Página de Configurações do Sistema (nome, logomarca, tema)
+- [x] Seletor de temas pré-configurados (dark padrão + 3 opções)
+- [x] Aplicação do tema selecionado globalmente via CSS variables
+- [x] Item "Sistema" no menu lateral (apenas admin)

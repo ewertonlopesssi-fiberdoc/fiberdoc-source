@@ -53,6 +53,9 @@ import {
   upsertBackupSchedule,
   getBackupHistory,
   deleteBackupHistoryEntry,
+  getSystemSettings,
+  setSystemSettings,
+  updateEquipmentImage,
   type BackupData,
   type BulkEquipmentRow,
   type BulkFiberRow,
@@ -177,6 +180,7 @@ export const appRouter = router({
         status: equipmentStatusEnum.optional(),
         autoCreatePorts: z.boolean().optional(),
         portType: portTypeEnum.optional(),
+        imageUrl: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { autoCreatePorts, portType, ...equipData } = input;
@@ -209,6 +213,7 @@ export const appRouter = router({
         totalPorts: z.number().optional(),
         notes: z.string().optional(),
         status: equipmentStatusEnum.optional(),
+        imageUrl: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
@@ -814,6 +819,67 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteBackupHistoryEntry(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ─── Configurações do Sistema ────────────────────────────────────────────────
+  systemConfig: router({
+    get: publicProcedure.query(async () => {
+      return getSystemSettings();
+    }),
+    save: adminProcedure
+      .input(z.object({
+        systemName: z.string().optional(),
+        logoUrl: z.string().optional(),
+        theme: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const settings: Record<string, string> = {};
+        if (input.systemName !== undefined) settings.systemName = input.systemName;
+        if (input.logoUrl !== undefined) settings.logoUrl = input.logoUrl;
+        if (input.theme !== undefined) settings.theme = input.theme;
+        await setSystemSettings(settings);
+        return { success: true };
+      }),
+    uploadLogo: adminProcedure
+      .input(z.object({
+        base64: z.string(),
+        mimeType: z.string().default("image/png"),
+        filename: z.string().default("logo.png"),
+      }))
+      .mutation(async ({ input }) => {
+        const { storagePut } = await import("./storage");
+        const buffer = Buffer.from(input.base64, "base64");
+        const key = `system/logo-${Date.now()}.${input.filename.split(".").pop()}`;
+        const { url } = await storagePut(key, buffer, input.mimeType);
+        await setSystemSettings({ logoUrl: url });
+        return { url };
+      }),
+  }),
+
+  // ─── Upload de Imagem de Equipamento ────────────────────────────────────────
+  equipmentImage: router({
+    upload: adminProcedure
+      .input(z.object({
+        equipmentId: z.number(),
+        base64: z.string(),
+        mimeType: z.string().default("image/jpeg"),
+        filename: z.string().default("equipment.jpg"),
+      }))
+      .mutation(async ({ input }) => {
+        const { storagePut } = await import("./storage");
+        const buffer = Buffer.from(input.base64, "base64");
+        const ext = input.filename.split(".").pop() ?? "jpg";
+        const key = `equipments/${input.equipmentId}-${Date.now()}.${ext}`;
+        const { url } = await storagePut(key, buffer, input.mimeType);
+        await updateEquipmentImage(input.equipmentId, url);
+        return { url };
+      }),
+    remove: adminProcedure
+      .input(z.object({ equipmentId: z.number() }))
+      .mutation(async ({ input }) => {
+        await updateEquipmentImage(input.equipmentId, null);
         return { success: true };
       }),
   }),

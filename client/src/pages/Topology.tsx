@@ -73,6 +73,7 @@ type Equipment = {
   manufacturer?: string | null;
   serialNumber?: string | null;
   roomId?: number | null;
+  imageUrl?: string | null;
 };
 
 type RackSlot = {
@@ -163,7 +164,16 @@ function RackColumn({
                 }}
                 title={`${eq.name} — ${EQUIPMENT_LABELS[eq.type] ?? eq.type} | ${eq.rackPosition ?? "?"}`}
               >
-                <Icon className="w-3 h-3 flex-shrink-0" />
+                {eq.imageUrl ? (
+                  <img
+                    src={eq.imageUrl}
+                    alt={eq.name}
+                    className="w-4 h-4 flex-shrink-0 object-contain rounded-sm"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                ) : (
+                  <Icon className="w-3 h-3 flex-shrink-0" />
+                )}
                 <span className="text-[10px] font-medium truncate leading-tight flex-1">{eq.name}</span>
                 {slot.sizeU >= 2 && (
                   <span className="text-[9px] opacity-50 flex-shrink-0 font-mono">{eq.rackPosition}</span>
@@ -201,9 +211,24 @@ function DetailPanel({ equipment, onClose }: { equipment: Equipment; onClose: ()
       <div className={`p-4 border-b border-zinc-700`}>
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
-            <div className={`p-2 rounded-lg border ${colorClass}`}>
-              <Icon className="w-4 h-4" />
-            </div>
+            {equipment.imageUrl ? (
+              <div className={`w-10 h-10 rounded-lg border overflow-hidden flex items-center justify-center ${colorClass}`}>
+                <img
+                  src={equipment.imageUrl}
+                  alt={equipment.name}
+                  className="w-full h-full object-contain p-1"
+                  onError={(e) => {
+                    const el = e.target as HTMLImageElement;
+                    el.style.display = 'none';
+                    el.parentElement!.innerHTML = `<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>`;
+                  }}
+                />
+              </div>
+            ) : (
+              <div className={`p-2 rounded-lg border ${colorClass}`}>
+                <Icon className="w-4 h-4" />
+              </div>
+            )}
             <div>
               <p className="text-sm font-semibold text-white leading-tight">{equipment.name}</p>
               <p className="text-xs text-zinc-400">{EQUIPMENT_LABELS[equipment.type] ?? equipment.type}</p>

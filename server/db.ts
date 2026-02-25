@@ -24,6 +24,8 @@ import {
   ports,
   rooms,
   users,
+  systemSettings,
+  InsertSystemSetting,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -955,4 +957,39 @@ export async function deleteOldBackupEntries(olderThanDays: number): Promise<num
     await db.delete(backupHistory).where(eq(backupHistory.id, entry.id));
   }
   return old.length;
+}
+
+// ─── Configurações do Sistema ────────────────────────────────────────────────
+export async function getSystemSettings(): Promise<Record<string, string>> {
+  const db = await getDb();
+  if (!db) return {};
+  const rows = await db.select().from(systemSettings);
+  return Object.fromEntries(rows.map((r) => [r.key, r.value ?? ""]));
+}
+
+export async function setSystemSetting(key: string, value: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db
+    .insert(systemSettings)
+    .values({ key, value })
+    .onDuplicateKeyUpdate({ set: { value } });
+}
+
+export async function setSystemSettings(settings: Record<string, string>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  for (const [key, value] of Object.entries(settings)) {
+    await db
+      .insert(systemSettings)
+      .values({ key, value })
+      .onDuplicateKeyUpdate({ set: { value } });
+  }
+}
+
+// ─── Imagem de Equipamento ────────────────────────────────────────────────────
+export async function updateEquipmentImage(id: number, imageUrl: string | null): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(equipments).set({ imageUrl }).where(eq(equipments.id, id));
 }

@@ -70,6 +70,7 @@ export const equipments = mysqlTable("equipments", {
   ipAddress: varchar("ipAddress", { length: 64 }),
   macAddress: varchar("macAddress", { length: 32 }),
   totalPorts: int("totalPorts").default(0),
+  imageUrl: text("imageUrl"),                  // URL da imagem do equipamento (S3)
   notes: text("notes"),
   status: mysqlEnum("status", ["active", "inactive", "maintenance"]).default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -256,3 +257,13 @@ export const backupHistory = mysqlTable("backup_history", {
 });
 export type BackupHistoryEntry = typeof backupHistory.$inferSelect;
 export type InsertBackupHistory = typeof backupHistory.$inferInsert;
+
+// ─── Configurações do Sistema ────────────────────────────────────────────────
+export const systemSettings = mysqlTable("system_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  key: varchar("key", { length: 64 }).notNull().unique(),
+  value: text("value"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type SystemSetting = typeof systemSettings.$inferSelect;
+export type InsertSystemSetting = typeof systemSettings.$inferInsert;
