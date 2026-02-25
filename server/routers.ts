@@ -6,7 +6,7 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   getCeos, getCeoById, createCeo, updateCeo, deleteCeo,
   getTubesByCeo, createCeoTube, updateCeoTube, deleteCeoTube,
-  getViasByTube, getViasByCeo, setViaFusion, clearViaFusion, updateVia,
+  getViasByTube, getViasByCeo, setViaFusion, clearViaFusion, updateVia, setViaFiber,
 } from "./db";
 import {
   createConnection,
@@ -694,6 +694,19 @@ export const appRouter = router({
         const { id, ...data } = input;
         await updateVia(id, data);
       }),
+
+    setFiber: protectedProcedure
+      .input(z.object({
+        viaId: z.number(),
+        fiberId: z.number().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        await setViaFiber(input.viaId, input.fiberId);
+      }),
+
+    clearFiber: protectedProcedure
+      .input(z.object({ viaId: z.number() }))
+      .mutation(async ({ input }) => setViaFiber(input.viaId, null)),
   }),
 });
 export type AppRouter = typeof appRouter;

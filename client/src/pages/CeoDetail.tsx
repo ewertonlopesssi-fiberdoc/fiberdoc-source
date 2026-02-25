@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Plus, Box, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer,
+  ArrowLeft, Plus, Box, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle,
 } from "lucide-react";
 import { CeoFusionPrint } from "@/components/CeoFusionPrint";
 import { cn } from "@/lib/utils";
@@ -29,23 +29,35 @@ type Tube = {
 };
 type Via = {
   id: number; tubeId: number; ceoId: number; viaNumber: number;
-  label: string | null; fusedToViaId: number | null; fusedToTubeId: number | null; notes: string | null;
+  label: string | null; fusedToViaId: number | null; fusedToTubeId: number | null;
+  fiberId: number | null; notes: string | null;
+};
+type Fiber = {
+  id: number; name: string;
+  originEquipmentId: number | null; destinationEquipmentId: number | null;
+  color: string | null; type: string | null;
+  cableId: string | null; notes: string | null;
 };
 
 // ─── Componente: Card de Via ──────────────────────────────────────────────────
 function ViaCard({
-  via, tubes, allVias, onSetFusion, onClearFusion, onEditLabel,
+  via, tubes, allVias, fibers,
+  onSetFusion, onClearFusion, onEditLabel, onSetFiber, onClearFiber,
 }: {
   via: Via;
   tubes: Tube[];
   allVias: Via[];
+  fibers: Fiber[];
   onSetFusion: (via: Via) => void;
   onClearFusion: (viaId: number) => void;
   onEditLabel: (via: Via) => void;
+  onSetFiber: (via: Via) => void;
+  onClearFiber: (viaId: number) => void;
 }) {
   const fused = via.fusedToViaId !== null;
   const fusedTube = fused ? tubes.find(t => t.id === via.fusedToTubeId) : null;
   const fusedVia = fused ? allVias.find(v => v.id === via.fusedToViaId) : null;
+  const fiber = via.fiberId ? (fibers as Fiber[]).find(f => f.id === via.fiberId) : null;
 
   return (
     <div
@@ -56,11 +68,11 @@ function ViaCard({
           : "border-border/40 bg-card hover:border-border/70"
       )}
     >
-      {/* Número da via */}
+      {/* Número da via + ações */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
           <span className={cn(
-            "text-xs font-bold w-7 h-7 rounded-md flex items-center justify-center border",
+            "text-xs font-bold w-7 h-7 rounded-md flex items-center justify-center border shrink-0",
             fused
               ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
               : "bg-muted text-muted-foreground border-border/40"
@@ -79,6 +91,25 @@ function ViaCard({
           >
             <Tag className="h-3 w-3" />
           </button>
+          {/* Associar fibra */}
+          {fiber ? (
+            <button
+              onClick={() => onClearFiber(via.id)}
+              className="h-5 w-5 rounded flex items-center justify-center text-emerald-400 hover:text-destructive hover:bg-destructive/10 transition-colors"
+              title="Remover fibra associada"
+            >
+              <XCircle className="h-3 w-3" />
+            </button>
+          ) : (
+            <button
+              onClick={() => onSetFiber(via)}
+              className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+              title="Associar fibra óptica"
+            >
+              <Cable className="h-3 w-3" />
+            </button>
+          )}
+          {/* Fusão */}
           {fused ? (
             <button
               onClick={() => onClearFusion(via.id)}
@@ -98,6 +129,15 @@ function ViaCard({
           )}
         </div>
       </div>
+
+      {/* Fibra associada */}
+      {fiber && (
+        <div className="text-[10px] text-emerald-300 bg-emerald-500/10 rounded px-2 py-1 border border-emerald-500/20 mb-1">
+          <span className="font-medium">FIBRA</span>
+          <span className="text-emerald-200/70 mx-1">→</span>
+          <span className="truncate">{fiber.name}</span>
+        </div>
+      )}
 
       {/* Fusão */}
       {fused && fusedTube && fusedVia ? (
@@ -121,25 +161,31 @@ function ViaCard({
 
 // ─── Componente: Painel de Tubo ───────────────────────────────────────────────
 function TubePanel({
-  tube, tubes, ceoId,
+  tube, tubes, ceoId, fibers,
+  onEditTube, onDeleteTube,
 }: {
   tube: Tube;
   tubes: Tube[];
   ceoId: number;
+  fibers: Fiber[];
+  onEditTube: (tube: Tube) => void;
+  onDeleteTube: (tubeId: number) => void;
 }) {
   const utils = trpc.useUtils();
   const [fusionDialog, setFusionDialog] = useState<Via | null>(null);
   const [labelDialog, setLabelDialog] = useState<Via | null>(null);
+  const [fiberDialog, setFiberDialog] = useState<Via | null>(null);
   const [fusionTubeId, setFusionTubeId] = useState<string>("");
   const [fusionViaNumber, setFusionViaNumber] = useState<string>("");
   const [labelValue, setLabelValue] = useState("");
   const [labelNotes, setLabelNotes] = useState("");
+  const [fiberSearch, setFiberSearch] = useState("");
+  const [selectedFiberId, setSelectedFiberId] = useState<string>("");
 
   const { data: vias = [], isLoading } = trpc.ceoVias.byTube.useQuery({ tubeId: tube.id });
   const { data: allVias = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId });
 
-  // Vias do tubo destino selecionado
-  const targetTubeVias = allVias.filter(v => v.tubeId === parseInt(fusionTubeId));
+  const targetTubeVias = (allVias as Via[]).filter(v => v.tubeId === parseInt(fusionTubeId));
 
   const setFusionMutation = trpc.ceoVias.setFusion.useMutation({
     onSuccess: () => {
@@ -171,6 +217,27 @@ function TubePanel({
     onError: e => toast.error("Erro: " + e.message),
   });
 
+  const setFiberMutation = trpc.ceoVias.setFiber.useMutation({
+    onSuccess: () => {
+      toast.success("Fibra associada!");
+      utils.ceoVias.byTube.invalidate({ tubeId: tube.id });
+      utils.ceoVias.byCeo.invalidate({ ceoId });
+      setFiberDialog(null);
+      setSelectedFiberId("");
+      setFiberSearch("");
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+
+  const clearFiberMutation = trpc.ceoVias.clearFiber.useMutation({
+    onSuccess: () => {
+      toast.success("Fibra desassociada!");
+      utils.ceoVias.byTube.invalidate({ tubeId: tube.id });
+      utils.ceoVias.byCeo.invalidate({ ceoId });
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+
   function handleSetFusion() {
     if (!fusionDialog || !fusionTubeId || !fusionViaNumber) return;
     const targetVia = targetTubeVias.find(v => v.viaNumber === parseInt(fusionViaNumber));
@@ -188,12 +255,25 @@ function TubePanel({
     setLabelNotes(via.notes ?? "");
   }
 
+  function openFiberDialog(via: Via) {
+    setFiberDialog(via);
+    setSelectedFiberId(via.fiberId ? String(via.fiberId) : "");
+    setFiberSearch("");
+  }
+
   const fusedCount = (vias as Via[]).filter(v => v.fusedToViaId !== null).length;
   const otherTubes = tubes.filter(t => t.id !== tube.id);
 
+  const filteredFibers = fibers.filter(f =>
+    fiberSearch === "" ||
+    f.name.toLowerCase().includes(fiberSearch.toLowerCase()) ||
+    (f.cableId ?? "").toLowerCase().includes(fiberSearch.toLowerCase()) ||
+    (f.notes ?? "").toLowerCase().includes(fiberSearch.toLowerCase())
+  );
+
   return (
     <div>
-      {/* Cabeçalho do tubo */}
+      {/* Cabeçalho do tubo com botões editar/excluir */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className={cn(
@@ -205,23 +285,45 @@ function TubePanel({
             <Layers className={cn("h-4 w-4", tube.type === "splitter" ? "text-violet-400" : "text-blue-400")} />
           </div>
           <div>
-            <h3 className="font-semibold text-sm text-foreground">{tube.identifier}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-sm text-foreground">{tube.identifier}</h3>
+              {tube.color && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-border/40">
+                  {tube.color}
+                </Badge>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               {tube.totalVias} vias · {fusedCount} fusionada{fusedCount !== 1 ? "s" : ""}
-              {tube.color && ` · Cor: ${tube.color}`}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-24 rounded-full bg-muted overflow-hidden">
+
+        {/* Botões editar/excluir — aparecem apenas neste tubo */}
+        <div className="flex items-center gap-1">
+          <div className="h-2 w-20 rounded-full bg-muted overflow-hidden mr-2">
             <div
               className="h-full bg-cyan-500 rounded-full transition-all"
               style={{ width: `${tube.totalVias > 0 ? (fusedCount / tube.totalVias) * 100 : 0}%` }}
             />
           </div>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs text-muted-foreground mr-3">
             {tube.totalVias > 0 ? Math.round((fusedCount / tube.totalVias) * 100) : 0}%
           </span>
+          <button
+            onClick={() => onEditTube(tube)}
+            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border/40"
+            title={`Editar ${tube.identifier}`}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => onDeleteTube(tube.id)}
+            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors border border-border/40"
+            title={`Remover ${tube.identifier}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
 
@@ -240,9 +342,12 @@ function TubePanel({
               via={via}
               tubes={tubes}
               allVias={allVias as Via[]}
+              fibers={fibers}
               onSetFusion={v => { setFusionDialog(v); setFusionTubeId(""); setFusionViaNumber(""); }}
               onClearFusion={id => clearFusionMutation.mutate({ viaId: id })}
               onEditLabel={openLabelDialog}
+              onSetFiber={openFiberDialog}
+              onClearFiber={id => clearFiberMutation.mutate({ viaId: id })}
             />
           ))}
         </div>
@@ -281,22 +386,16 @@ function TubePanel({
                   <SelectTrigger className="bg-background border-border/50">
                     <SelectValue placeholder="Selecione a via..." />
                   </SelectTrigger>
-                  <SelectContent className="max-h-48">
+                  <SelectContent>
                     <SelectItem value="__none__">Selecione...</SelectItem>
                     {targetTubeVias.map(v => (
                       <SelectItem key={v.id} value={String(v.viaNumber)}>
-                        VIA {v.viaNumber}{v.label ? ` — ${v.label}` : ""}{v.fusedToViaId ? " (já fusionada)" : ""}
+                        VIA {v.viaNumber}{v.label ? ` — ${v.label}` : ""}
+                        {v.fusedToViaId ? " (já fusionada)" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-            )}
-            {fusionTubeId && fusionViaNumber && (
-              <div className="rounded-lg bg-cyan-500/10 border border-cyan-500/20 p-3 text-sm text-cyan-300">
-                <span className="font-medium">VIA {fusionDialog?.viaNumber}</span>
-                <span className="text-cyan-200/70 mx-2">→</span>
-                <span>VIA {fusionViaNumber} do {otherTubes.find(t => t.id === parseInt(fusionTubeId))?.identifier}</span>
               </div>
             )}
           </div>
@@ -306,7 +405,7 @@ function TubePanel({
               onClick={handleSetFusion}
               disabled={!fusionTubeId || !fusionViaNumber || setFusionMutation.isPending}
             >
-              {setFusionMutation.isPending ? "Salvando..." : "Confirmar Fusão"}
+              {setFusionMutation.isPending ? "Salvando..." : "Identificar Fusão"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -324,7 +423,7 @@ function TubePanel({
               <Input
                 value={labelValue}
                 onChange={e => setLabelValue(e.target.value)}
-                placeholder="Ex: Fibra 01, Cliente João"
+                placeholder="Ex: Cliente João, Backbone Norte..."
                 className="bg-background border-border/50"
               />
             </div>
@@ -346,6 +445,75 @@ function TubePanel({
               disabled={updateLabelMutation.isPending}
             >
               {updateLabelMutation.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Associar Fibra Óptica */}
+      <Dialog open={fiberDialog !== null} onOpenChange={() => setFiberDialog(null)}>
+        <DialogContent className="bg-card border-border max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Associar Fibra — VIA {fiberDialog?.viaNumber}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Selecione a fibra óptica que passa por esta via para criar rastreabilidade completa.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Buscar fibra</Label>
+              <Input
+                value={fiberSearch}
+                onChange={e => setFiberSearch(e.target.value)}
+                placeholder="Nome, origem ou destino..."
+                className="bg-background border-border/50"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fibra óptica</Label>
+              <div className="max-h-48 overflow-y-auto rounded-md border border-border/50 bg-background">
+                {filteredFibers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">Nenhuma fibra encontrada</p>
+                ) : (
+                  filteredFibers.map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => setSelectedFiberId(String(f.id))}
+                      className={cn(
+                        "w-full text-left px-3 py-2.5 text-sm transition-colors border-b border-border/30 last:border-0",
+                        selectedFiberId === String(f.id)
+                          ? "bg-emerald-500/10 text-emerald-300"
+                          : "hover:bg-muted text-foreground"
+                      )}
+                    >
+                      <div className="font-medium">{f.name}</div>
+          {(f.originEquipmentId || f.destinationEquipmentId) && (
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {f.cableId ? `Cabo: ${f.cableId}` : `ID ${f.id}`}
+            </div>
+          )}
+                      {(f.color || f.type) && (
+                        <div className="text-[10px] text-muted-foreground/60 mt-0.5">
+                          {[f.color, f.type].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFiberDialog(null)} className="border-border/50">Cancelar</Button>
+            <Button
+              onClick={() => fiberDialog && selectedFiberId && setFiberMutation.mutate({
+                viaId: fiberDialog.id,
+                fiberId: parseInt(selectedFiberId),
+              })}
+              disabled={!selectedFiberId || setFiberMutation.isPending}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {setFiberMutation.isPending ? "Associando..." : "Associar Fibra"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -372,6 +540,7 @@ export default function CeoDetail() {
   const { data: ceo, isLoading: ceoLoading } = trpc.ceos.byId.useQuery({ id: ceoId }, { enabled: ceoId > 0 });
   const { data: tubes = [], isLoading: tubesLoading } = trpc.ceoTubes.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
   const { data: allVias = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
+  const { data: fibers = [] } = trpc.fibers.list.useQuery({});
 
   function handlePrint() {
     window.print();
@@ -437,8 +606,8 @@ export default function CeoDetail() {
     } else {
       createTubeMutation.mutate({
         ceoId,
-        type: tubeForm.type,
         identifier: tubeForm.identifier,
+        type: tubeForm.type,
         totalVias: parseInt(tubeForm.totalVias) || 12,
         color: tubeForm.color || undefined,
         notes: tubeForm.notes || undefined,
@@ -465,6 +634,7 @@ export default function CeoDetail() {
   }
 
   const tubeList = tubes as Tube[];
+  const fiberList = (fibers as unknown) as Fiber[];
 
   return (
     <div className="space-y-6 max-w-7xl">
@@ -510,6 +680,7 @@ export default function CeoDetail() {
           { label: "Tubos", value: tubeList.filter(t => t.type === "tube").length, color: "text-blue-400" },
           { label: "Splitters", value: tubeList.filter(t => t.type === "splitter").length, color: "text-violet-400" },
           { label: "Total de Vias", value: tubeList.reduce((s, t) => s + t.totalVias, 0), color: "text-foreground" },
+          { label: "Fusionadas", value: (allVias as Via[]).filter(v => v.fusedToViaId !== null).length, color: "text-cyan-400" },
         ].map(stat => (
           <Card key={stat.label} className="border-border/50 bg-card">
             <CardContent className="p-4">
@@ -537,7 +708,8 @@ export default function CeoDetail() {
         <Card className="border-border/50 bg-card">
           <CardContent className="p-0">
             <Tabs defaultValue={String(tubeList[0]?.id)}>
-              <div className="flex items-center justify-between border-b border-border/50 px-4 pt-3 pb-0 gap-2 flex-wrap">
+              {/* Apenas as abas de navegação — sem botões aqui */}
+              <div className="border-b border-border/50 px-4 pt-3 pb-0">
                 <TabsList className="bg-transparent h-auto gap-1 flex-wrap">
                   {tubeList.map(tube => (
                     <TabsTrigger
@@ -552,30 +724,18 @@ export default function CeoDetail() {
                     </TabsTrigger>
                   ))}
                 </TabsList>
-                <div className="flex items-center gap-1 pb-2">
-                  {tubeList.map(tube => (
-                    <div key={tube.id} className="flex items-center gap-1">
-                      <button
-                        onClick={() => openEditTube(tube)}
-                        className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                        title={`Editar ${tube.identifier}`}
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteTubeId(tube.id)}
-                        className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                        title={`Remover ${tube.identifier}`}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
               </div>
+              {/* Cada aba tem seu próprio TubePanel com os botões editar/excluir */}
               {tubeList.map(tube => (
                 <TabsContent key={tube.id} value={String(tube.id)} className="p-4 mt-0">
-                  <TubePanel tube={tube} tubes={tubeList} ceoId={ceoId} />
+                  <TubePanel
+                    tube={tube}
+                    tubes={tubeList}
+                    ceoId={ceoId}
+                    fibers={fiberList}
+                    onEditTube={openEditTube}
+                    onDeleteTube={id => setDeleteTubeId(id)}
+                  />
                 </TabsContent>
               ))}
             </Tabs>

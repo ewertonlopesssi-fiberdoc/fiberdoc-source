@@ -686,8 +686,14 @@ export async function clearViaFusion(viaId: number) {
     .where(eq(ceoVias.id, viaId));
 }
 
-export async function updateVia(id: number, data: { label?: string | null; notes?: string | null }) {
+export async function updateVia(id: number, data: { label?: string | null; notes?: string | null; fiberId?: number | null }) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   await db.update(ceoVias).set(data).where(eq(ceoVias.id, id));
+}
+
+export async function setViaFiber(viaId: number, fiberId: number | null) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ceoVias).set({ fiberId }).where(eq(ceoVias.id, viaId));
 }

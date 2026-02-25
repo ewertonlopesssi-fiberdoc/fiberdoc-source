@@ -215,6 +215,7 @@ export const ceoVias = mysqlTable("ceo_vias", {
   label: varchar("label", { length: 64 }),         // etiqueta opcional
   fusedToViaId: int("fusedToViaId"),               // id da via destino da fusão
   fusedToTubeId: int("fusedToTubeId"),             // id do tubo destino
+  fiberId: int("fiberId"),                         // fibra óptica associada a esta via
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

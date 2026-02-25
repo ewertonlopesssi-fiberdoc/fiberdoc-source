@@ -87,3 +87,8 @@
 - [x] Cabeçalho do relatório com nome da CEO, data e localização
 - [x] Tabela de cada tubo/splitter com colunas: Via, Etiqueta, Fusão, Observações
 - [x] Rodapé com data de geração e nome do sistema
+
+## Correções e Melhorias CEO
+- [x] Mover botões editar/excluir para dentro de cada aba (aparecer apenas no tubo ativo)
+- [x] Implementar associação de via a fibra óptica (dialog de seleção de fibra por via)
+- [x] Exibir fibra associada no card da via

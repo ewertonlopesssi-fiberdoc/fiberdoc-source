@@ -1,0 +1,1 @@
+ALTER TABLE `ceo_vias` ADD `fiberId` int;
