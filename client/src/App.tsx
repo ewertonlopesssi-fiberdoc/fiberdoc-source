@@ -16,6 +16,7 @@ import Import from "./pages/Import";
 import Ceos from "./pages/Ceos";
 import CeoDetail from "./pages/CeoDetail";
 import Users from "./pages/Users";
+import Backup from "./pages/Backup";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
@@ -35,6 +36,7 @@ function Router() {
         <Route path={"/ceo"} component={Ceos} />
         <Route path={"/ceo/:id"} component={CeoDetail} />
         <Route path={"/usuarios"} component={Users} />
+        <Route path={"/backup"} component={Backup} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

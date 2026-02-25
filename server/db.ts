@@ -752,3 +752,136 @@ export async function deleteUser(userId: number) {
   if (!db) throw new Error("DB not available");
   await db.delete(users).where(eq(users.id, userId));
 }
+
+// ─── Backup & Restauração ─────────────────────────────────────────────────────
+
+export interface BackupData {
+  version: string;
+  generatedAt: string;
+  counts: Record<string, number>;
+  data: {
+    rooms: Room[];
+    equipments: Equipment[];
+    equipmentSlots: EquipmentSlot[];
+    ports: Port[];
+    fibers: Fiber[];
+    connections: Connection[];
+    maintenanceHistory: MaintenanceHistory[];
+    ceos: any[];
+    ceoTubes: any[];
+    ceoVias: any[];
+  };
+}
+
+export async function exportFullBackup(): Promise<BackupData> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  const [
+    roomRows,
+    equipmentRows,
+    slotRows,
+    portRows,
+    fiberRows,
+    connectionRows,
+    historyRows,
+    ceoRows,
+    tubeRows,
+    viaRows,
+  ] = await Promise.all([
+    db.select().from(rooms),
+    db.select().from(equipments),
+    db.select().from(equipmentSlots),
+    db.select().from(ports),
+    db.select().from(fibers),
+    db.select().from(connections),
+    db.select().from(maintenanceHistory),
+    db.select().from(ceos),
+    db.select().from(ceoTubes),
+    db.select().from(ceoVias),
+  ]);
+
+  return {
+    version: "1.0",
+    generatedAt: new Date().toISOString(),
+    counts: {
+      rooms: roomRows.length,
+      equipments: equipmentRows.length,
+      equipmentSlots: slotRows.length,
+      ports: portRows.length,
+      fibers: fiberRows.length,
+      connections: connectionRows.length,
+      maintenanceHistory: historyRows.length,
+      ceos: ceoRows.length,
+      ceoTubes: tubeRows.length,
+      ceoVias: viaRows.length,
+    },
+    data: {
+      rooms: roomRows,
+      equipments: equipmentRows,
+      equipmentSlots: slotRows,
+      ports: portRows,
+      fibers: fiberRows,
+      connections: connectionRows,
+      maintenanceHistory: historyRows,
+      ceos: ceoRows,
+      ceoTubes: tubeRows,
+      ceoVias: viaRows,
+    },
+  };
+}
+
+export interface RestoreResult {
+  restored: Record<string, number>;
+  skipped: Record<string, number>;
+  errors: string[];
+}
+
+export async function restoreFromBackup(backup: BackupData): Promise<RestoreResult> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  const result: RestoreResult = {
+    restored: {},
+    skipped: {},
+    errors: [],
+  };
+
+  const dbInstance = db!;
+
+  // Helper: upsert genérico por ID
+  async function upsertRows<T extends { id: number }>(
+    table: any,
+    rows: T[],
+    label: string
+  ) {
+    let restored = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      try {
+        const { id, ...rest } = row as any;
+        await dbInstance.insert(table).values(row).onDuplicateKeyUpdate({ set: rest });
+        restored++;
+      } catch (e: any) {
+        skipped++;
+        result.errors.push(`${label}#${(row as any).id}: ${e?.message ?? e}`);
+      }
+    }
+    result.restored[label] = restored;
+    result.skipped[label] = skipped;
+  }
+
+  // Ordem respeita dependências de FK
+  await upsertRows(rooms, backup.data.rooms ?? [], "rooms");
+  await upsertRows(equipments, backup.data.equipments ?? [], "equipments");
+  await upsertRows(equipmentSlots, backup.data.equipmentSlots ?? [], "equipmentSlots");
+  await upsertRows(ports, backup.data.ports ?? [], "ports");
+  await upsertRows(fibers, backup.data.fibers ?? [], "fibers");
+  await upsertRows(connections, backup.data.connections ?? [], "connections");
+  await upsertRows(maintenanceHistory, backup.data.maintenanceHistory ?? [], "maintenanceHistory");
+  await upsertRows(ceos, backup.data.ceos ?? [], "ceos");
+  await upsertRows(ceoTubes, backup.data.ceoTubes ?? [], "ceoTubes");
+  await upsertRows(ceoVias, backup.data.ceoVias ?? [], "ceoVias");
+
+  return result;
+}

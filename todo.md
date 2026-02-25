@@ -111,3 +111,14 @@
 - [x] Badge de papel (Admin/Visualizador) no menu lateral
 - [x] Botões de criar/editar/excluir ocultos para visualizadores
 - [x] Testes unitários para o controle de acesso
+
+## Módulo de Backup e Atualização
+- [x] Procedure exportBackup: exporta todos os dados (salas, equipamentos, fibras, portas, conexões, CEOs, tubos, vias) em JSON
+- [x] Procedure importBackup: restaura dados a partir de um JSON de backup (merge seguro, sem apagar dados existentes)
+- [x] Página de Backup & Atualização (apenas admin)
+- [x] Seção de Backup: botão de download do JSON completo com data/hora
+- [x] Seção de Restauração: upload de arquivo JSON com preview e confirmação
+- [x] Seção de Atualização: instruções claras do fluxo seguro via Publish do Manus
+- [x] Histórico de backups gerados (data, tamanho, usuário)
+- [x] Item no menu lateral (apenas admin)
+- [x] Testes unitários para as procedures de backup

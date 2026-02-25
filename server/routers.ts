@@ -47,6 +47,9 @@ import {
   getAllUsers,
   updateUserRole,
   deleteUser,
+  exportFullBackup,
+  restoreFromBackup,
+  type BackupData,
   type BulkEquipmentRow,
   type BulkFiberRow,
 } from "./db";
@@ -736,6 +739,37 @@ export const appRouter = router({
           throw new Error("Você não pode remover sua própria conta.");
         }
         await deleteUser(input.userId);
+      }),
+  }),
+
+  // ─── Backup & Restauração (apenas admin) ───────────────────────────────────
+  backup: router({
+    export: adminProcedure.query(async () => {
+      return exportFullBackup();
+    }),
+
+    restore: adminProcedure
+      .input(z.object({
+        backup: z.object({
+          version: z.string(),
+          generatedAt: z.string(),
+          counts: z.record(z.string(), z.number()),
+          data: z.object({
+            rooms: z.array(z.any()),
+            equipments: z.array(z.any()),
+            equipmentSlots: z.array(z.any()),
+            ports: z.array(z.any()),
+            fibers: z.array(z.any()),
+            connections: z.array(z.any()),
+            maintenanceHistory: z.array(z.any()),
+            ceos: z.array(z.any()),
+            ceoTubes: z.array(z.any()),
+            ceoVias: z.array(z.any()),
+          }),
+        }),
+      }))
+      .mutation(async ({ input }) => {
+        return restoreFromBackup(input.backup as BackupData);
       }),
   }),
 });

@@ -30,6 +30,7 @@ import {
   Crown,
   Eye,
   GitBranch,
+  ShieldCheck,
   History,
   LayoutDashboard,
   LogOut,
@@ -60,6 +61,7 @@ const publicMenuItems = [
 
 const adminOnlyMenuItems = [
   { icon: UsersIcon, label: "Usuários", path: "/usuarios" },
+  { icon: ShieldCheck, label: "Backup & Atualização", path: "/backup" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
