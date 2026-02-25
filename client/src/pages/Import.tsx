@@ -79,9 +79,10 @@ const FIBER_STATUSES = ["active", "inactive", "reserved", "faulty"];
 // ─── CSV Templates ────────────────────────────────────────────────────────────
 const EQUIPMENT_CSV_TEMPLATE = `name,type,model,manufacturer,serialNumber,rack,rackPosition,ipAddress,macAddress,totalPorts,status,notes,roomName
 OLT Principal,olt,C300,Huawei,HW-001,RACK-01,1U,192.168.1.1,,16,active,OLT principal do POP,NOC Principal
-Switch Core,switch,SG3428X,TP-Link,TP-002,RACK-01,2U,192.168.1.2,AA:BB:CC:DD:EE:FF,28,active,Switch de núcleo,NOC Principal
-DGO Bairro Norte,dgo,,,DGO-003,,,,,8,active,DGO do Bairro Norte,
-Splitter 1x8,splitter,,,SPL-004,RACK-02,3U,,,8,active,,NOC Principal`;
+Switch Core 100G,switch,Nexus 9300,Cisco,CS-002,RACK-01,2U,192.168.1.2,AA:BB:CC:DD:EE:FF,32,active,Switch de núcleo 100G,NOC Principal
+Switch Borda 40G,switch,SG3428X,TP-Link,TP-003,RACK-02,1U,192.168.1.3,,28,active,Switch de borda 40G,NOC Principal
+DGO Bairro Norte,dgo,,,DGO-004,,,,,8,active,DGO do Bairro Norte,
+Splitter 1x8,splitter,,,SPL-005,RACK-02,3U,,,8,active,,NOC Principal`;
 
 const FIBER_CSV_TEMPLATE = `name,type,color,lengthMeters,cableId,tubeColor,attenuation,status,notes
 Fibra NOC-POP01,single_mode,blue,150,CAB-001,blue,0.3,active,Fibra principal backbone

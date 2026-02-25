@@ -50,3 +50,12 @@
 - [x] Templates CSV para download
 - [x] Integração com menu de navegação
 - [x] Testes unitários para as procedures de importação
+
+## Portas de Alta Velocidade (100G/40G)
+- [x] Adicionar tipos qsfp28 (100G), qsfp_plus_40g (40G), cfp (100G), cfp2 (100G) ao enum de portas no schema
+- [x] Gerar e aplicar migration SQL
+- [x] Atualizar enums no routers.ts
+- [x] Atualizar labels e badges de tipos de porta no frontend (Ports.tsx)
+- [x] Atualizar criação em lote de portas com novos tipos
+- [x] Atualizar template CSV de importação com novos tipos
+- [x] Atualizar testes unitários

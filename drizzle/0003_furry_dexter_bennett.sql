@@ -1,0 +1,2 @@
+ALTER TABLE `ports` MODIFY COLUMN `port_type` enum('sc','lc','fc','st','rj45','sfp','sfp_plus','qsfp','qsfp28','qsfp_dd','cfp','cfp2','cfp4','gpon','xgspon','dag','other') NOT NULL DEFAULT 'lc';--> statement-breakpoint
+ALTER TABLE `ports` ADD `port_speed` enum('1g','10g','25g','40g','100g','400g','other');

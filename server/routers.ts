@@ -42,7 +42,8 @@ import {
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
 const equipmentStatusEnum = z.enum(["active", "inactive", "maintenance"]);
-const portTypeEnum = z.enum(["sc", "lc", "fc", "st", "rj45", "sfp", "sfp_plus", "qsfp", "gpon", "xgspon", "other"]);
+const portTypeEnum = z.enum(["sc", "lc", "fc", "st", "rj45", "sfp", "sfp_plus", "qsfp", "qsfp28", "qsfp_dd", "cfp", "cfp2", "cfp4", "gpon", "xgspon", "dag", "other"]);
+const portSpeedEnum = z.enum(["1g", "10g", "25g", "40g", "100g", "400g", "other"]);
 const portStatusEnum = z.enum(["free", "occupied", "reserved", "faulty"]);
 const fiberColorEnum = z.enum(["blue", "orange", "green", "brown", "slate", "white", "red", "black", "yellow", "violet", "rose", "aqua"]);
 const fiberTypeEnum = z.enum(["single_mode", "multi_mode", "armored", "aerial", "underground"]);
@@ -223,6 +224,7 @@ export const appRouter = router({
         portNumber: z.string().min(1),
         label: z.string().optional(),
         type: portTypeEnum.optional(),
+        speed: portSpeedEnum.optional(),
         status: portStatusEnum.optional(),
         notes: z.string().optional(),
       }))
@@ -236,9 +238,9 @@ export const appRouter = router({
       }),
 
     bulkCreate: protectedProcedure
-      .input(z.object({ equipmentId: z.number(), count: z.number().min(1).max(256), type: portTypeEnum.optional() }))
+      .input(z.object({ equipmentId: z.number(), count: z.number().min(1).max(256), type: portTypeEnum.optional(), speed: portSpeedEnum.optional() }))
       .mutation(async ({ input, ctx }) => {
-        await bulkCreatePorts(input.equipmentId, input.count, input.type ?? "lc");
+        await bulkCreatePorts(input.equipmentId, input.count, input.type ?? "lc", input.speed ?? undefined);
         await createMaintenanceRecord({
           entityType: "port", entityId: input.equipmentId, action: "created",
           description: `${input.count} portas criadas em lote no equipamento #${input.equipmentId}`, performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
@@ -251,6 +253,7 @@ export const appRouter = router({
         id: z.number(),
         label: z.string().optional(),
         type: portTypeEnum.optional(),
+        speed: portSpeedEnum.optional(),
         status: portStatusEnum.optional(),
         notes: z.string().optional(),
       }))

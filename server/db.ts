@@ -188,13 +188,14 @@ export async function deletePort(id: number) {
   await db.delete(ports).where(eq(ports.id, id));
 }
 
-export async function bulkCreatePorts(equipmentId: number, count: number, type: Port["type"]) {
+export async function bulkCreatePorts(equipmentId: number, count: number, type: Port["type"], speed?: Port["speed"]) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   const portData: InsertPort[] = Array.from({ length: count }, (_, i) => ({
     equipmentId,
     portNumber: String(i + 1).padStart(2, "0"),
     type,
+    speed: speed ?? null,
     status: "free" as const,
   }));
   await db.insert(ports).values(portData);
