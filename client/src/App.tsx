@@ -12,6 +12,7 @@ import Connections from "./pages/Connections";
 import Topology from "./pages/Topology";
 import History from "./pages/History";
 import Rooms from "./pages/Rooms";
+import Import from "./pages/Import";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
@@ -27,6 +28,7 @@ function Router() {
         <Route path={"/topologia"} component={Topology} />
         <Route path={"/historico"} component={History} />
         <Route path={"/salas"} component={Rooms} />
+        <Route path={"/importar"} component={Import} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

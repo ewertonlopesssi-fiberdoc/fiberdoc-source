@@ -32,6 +32,7 @@ import {
   Network,
   PanelLeft,
   Server,
+  Upload,
   Wifi,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -48,6 +49,7 @@ const menuItems = [
   { icon: Network, label: "Topologia", path: "/topologia" },
   { icon: History, label: "Histórico", path: "/historico" },
   { icon: Wifi, label: "Salas / Locais", path: "/salas" },
+  { icon: Upload, label: "Importar CSV", path: "/importar" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

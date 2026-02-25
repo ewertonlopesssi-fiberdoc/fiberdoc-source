@@ -39,3 +39,14 @@
 ## Testes
 - [x] Testes unitários de procedures tRPC (22 testes passando)
 - [x] Validação de formulários
+
+## Importação em Massa via CSV
+- [x] Procedure tRPC para importação em lote de equipamentos
+- [x] Procedure tRPC para importação em lote de fibras
+- [x] Página de Importação com upload de arquivo CSV
+- [x] Preview dos dados antes de confirmar importação
+- [x] Validação de campos obrigatórios e tipos
+- [x] Relatório de erros por linha
+- [x] Templates CSV para download
+- [x] Integração com menu de navegação
+- [x] Testes unitários para as procedures de importação

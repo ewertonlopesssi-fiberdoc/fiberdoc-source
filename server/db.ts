@@ -375,3 +375,137 @@ export async function getDashboardStats() {
     recentHistory,
   };
 }
+
+// ─── Bulk Import ──────────────────────────────────────────────────────────────
+export type BulkEquipmentRow = {
+  name: string;
+  type: Equipment["type"];
+  model?: string;
+  manufacturer?: string;
+  serialNumber?: string;
+  rack?: string;
+  rackPosition?: string;
+  ipAddress?: string;
+  macAddress?: string;
+  totalPorts?: number;
+  status?: Equipment["status"];
+  notes?: string;
+  roomName?: string;
+};
+
+export type BulkFiberRow = {
+  name: string;
+  type?: Fiber["type"];
+  color?: Fiber["color"];
+  lengthMeters?: number;
+  cableId?: string;
+  tubeColor?: string;
+  attenuation?: number;
+  status?: Fiber["status"];
+  notes?: string;
+};
+
+export type BulkImportResult = {
+  imported: number;
+  skipped: number;
+  errors: Array<{ row: number; message: string }>;
+};
+
+export async function bulkImportEquipments(
+  rows: BulkEquipmentRow[],
+  userId: number,
+  performedBy?: string
+): Promise<BulkImportResult> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  const result: BulkImportResult = { imported: 0, skipped: 0, errors: [] };
+
+  // Pre-fetch rooms for name lookup
+  const allRooms = await db.select({ id: rooms.id, name: rooms.name }).from(rooms);
+  const roomMap = new Map(allRooms.map((r) => [r.name.toLowerCase().trim(), r.id]));
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    try {
+      const roomId = row.roomName ? roomMap.get(row.roomName.toLowerCase().trim()) : undefined;
+      await db.insert(equipments).values({
+        name: row.name,
+        type: row.type,
+        model: row.model || null,
+        manufacturer: row.manufacturer || null,
+        serialNumber: row.serialNumber || null,
+        rack: row.rack || null,
+        rackPosition: row.rackPosition || null,
+        ipAddress: row.ipAddress || null,
+        macAddress: row.macAddress || null,
+        totalPorts: row.totalPorts ?? 0,
+        status: row.status ?? "active",
+        notes: row.notes || null,
+        roomId: roomId ?? null,
+      });
+      result.imported++;
+    } catch (err: any) {
+      result.errors.push({ row: i + 2, message: err?.message ?? "Erro desconhecido" });
+      result.skipped++;
+    }
+  }
+
+  if (result.imported > 0) {
+    await createMaintenanceRecord({
+      entityType: "equipment",
+      entityId: 0,
+      action: "created",
+      description: `Importação em massa: ${result.imported} equipamento(s) importado(s) via CSV`,
+      performedBy,
+      userId,
+    });
+  }
+
+  return result;
+}
+
+export async function bulkImportFibers(
+  rows: BulkFiberRow[],
+  userId: number,
+  performedBy?: string
+): Promise<BulkImportResult> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  const result: BulkImportResult = { imported: 0, skipped: 0, errors: [] };
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    try {
+      await db.insert(fibers).values({
+        name: row.name,
+        type: row.type ?? "single_mode",
+        color: row.color ?? null,
+        lengthMeters: row.lengthMeters ?? null,
+        cableId: row.cableId ?? null,
+        tubeColor: row.tubeColor ?? null,
+        attenuation: row.attenuation ?? null,
+        status: row.status ?? "active",
+        notes: row.notes ?? null,
+      });
+      result.imported++;
+    } catch (err: any) {
+      result.errors.push({ row: i + 2, message: err?.message ?? "Erro desconhecido" });
+      result.skipped++;
+    }
+  }
+
+  if (result.imported > 0) {
+    await createMaintenanceRecord({
+      entityType: "fiber",
+      entityId: 0,
+      action: "created",
+      description: `Importação em massa: ${result.imported} fibra(s) importada(s) via CSV`,
+      performedBy,
+      userId,
+    });
+  }
+
+  return result;
+}

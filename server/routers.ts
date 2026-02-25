@@ -33,6 +33,10 @@ import {
   updatePort,
   updateRoom,
   bulkCreatePorts,
+  bulkImportEquipments,
+  bulkImportFibers,
+  type BulkEquipmentRow,
+  type BulkFiberRow,
 } from "./db";
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
@@ -427,10 +431,60 @@ export const appRouter = router({
       }),
   }),
 
-  // ─── Dashboard ─────────────────────────────────────────────────────────────
+   // ─── Dashboard ─────────────────────────────────────────────────────────────
   dashboard: router({
     stats: publicProcedure.query(() => getDashboardStats()),
   }),
-});
 
+  // ─── CSV Import ────────────────────────────────────────────────────────────
+  import: router({
+    equipments: protectedProcedure
+      .input(z.object({
+        rows: z.array(z.object({
+          name: z.string().min(1),
+          type: equipmentTypeEnum,
+          model: z.string().optional(),
+          manufacturer: z.string().optional(),
+          serialNumber: z.string().optional(),
+          rack: z.string().optional(),
+          rackPosition: z.string().optional(),
+          ipAddress: z.string().optional(),
+          macAddress: z.string().optional(),
+          totalPorts: z.number().optional(),
+          status: equipmentStatusEnum.optional(),
+          notes: z.string().optional(),
+          roomName: z.string().optional(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        return bulkImportEquipments(
+          input.rows as BulkEquipmentRow[],
+          ctx.user.id,
+          ctx.user.name ?? undefined
+        );
+      }),
+
+    fibers: protectedProcedure
+      .input(z.object({
+        rows: z.array(z.object({
+          name: z.string().min(1),
+          type: fiberTypeEnum.optional(),
+          color: fiberColorEnum.optional(),
+          lengthMeters: z.number().optional(),
+          cableId: z.string().optional(),
+          tubeColor: z.string().optional(),
+          attenuation: z.number().optional(),
+          status: fiberStatusEnum.optional(),
+          notes: z.string().optional(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        return bulkImportFibers(
+          input.rows as BulkFiberRow[],
+          ctx.user.id,
+          ctx.user.name ?? undefined
+        );
+      }),
+  }),
+});
 export type AppRouter = typeof appRouter;
