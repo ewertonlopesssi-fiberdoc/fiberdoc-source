@@ -1,393 +1,496 @@
-import { useEffect, useRef, useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { Network, ZoomIn, ZoomOut, RotateCcw, Server, Info } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import {
+  Server, Wifi, Network, Box, Router, HardDrive, LayoutGrid,
+  X, Layers, Activity, Cable, Info,
+} from "lucide-react";
 
-const EQUIPMENT_TYPE_LABELS: Record<string, string> = {
-  switch: "Switch",
-  olt: "OLT",
-  dgo: "DGO",
-  splitter: "Splitter",
-  router: "Roteador",
-  server: "Servidor",
-  patch_panel: "Patch Panel",
-  amplifier: "Amplificador",
-  other: "Outro",
+// ─── Constantes ───────────────────────────────────────────────────────────────
+const RACK_UNITS = 44;
+const U_HEIGHT_PX = 22;
+const RACK_WIDTH_PX = 260;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const EQUIPMENT_ICONS: Record<string, React.ElementType> = {
+  switch: Network, olt: Wifi, dgo: Box, splitter: Layers,
+  router: Router, server: Server, patch_panel: LayoutGrid,
+  amplifier: Activity, other: HardDrive,
 };
 
 const EQUIPMENT_COLORS: Record<string, string> = {
-  switch: "#3b82f6",
-  olt: "#22c55e",
-  dgo: "#f97316",
-  splitter: "#8b5cf6",
-  router: "#06b6d4",
-  server: "#ec4899",
-  patch_panel: "#eab308",
-  amplifier: "#ef4444",
-  other: "#64748b",
+  switch:      "bg-blue-500/20 border-blue-500/50 text-blue-300",
+  olt:         "bg-emerald-500/20 border-emerald-500/50 text-emerald-300",
+  dgo:         "bg-amber-500/20 border-amber-500/50 text-amber-300",
+  splitter:    "bg-purple-500/20 border-purple-500/50 text-purple-300",
+  router:      "bg-cyan-500/20 border-cyan-500/50 text-cyan-300",
+  server:      "bg-rose-500/20 border-rose-500/50 text-rose-300",
+  patch_panel: "bg-slate-500/20 border-slate-500/50 text-slate-300",
+  amplifier:   "bg-orange-500/20 border-orange-500/50 text-orange-300",
+  other:       "bg-zinc-500/20 border-zinc-500/50 text-zinc-300",
 };
 
-type Node = {
+const EQUIPMENT_LABELS: Record<string, string> = {
+  switch: "Switch", olt: "OLT", dgo: "DGO", splitter: "Splitter",
+  router: "Roteador", server: "Servidor", patch_panel: "Patch Panel",
+  amplifier: "Amplificador", other: "Outro",
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  active: "bg-emerald-500",
+  inactive: "bg-zinc-500",
+  maintenance: "bg-amber-500",
+};
+
+/** Extrai o número U de strings como "1U", "3U", "12U" */
+function parseU(val?: string | null): number {
+  if (!val) return 0;
+  const m = val.match(/(\d+)/);
+  return m ? Math.max(1, parseInt(m[1], 10)) : 0;
+}
+
+/** Extrai o tamanho em U de strings como "2U", "4U" — padrão 1U */
+function parseSizeU(model?: string | null): number {
+  if (!model) return 1;
+  const m = model.match(/(\d+)\s*[Uu]/);
+  return m ? Math.min(parseInt(m[1], 10), 6) : 1;
+}
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+type Equipment = {
   id: number;
   name: string;
   type: string;
-  model: string | null;
+  model?: string | null;
+  rack?: string | null;
+  rackPosition?: string | null;
   status: string;
-  rack: string | null;
-  roomName: string | null;
-  x: number;
-  y: number;
+  ipAddress?: string | null;
+  totalPorts?: number | null;
+  manufacturer?: string | null;
+  serialNumber?: string | null;
+  roomId?: number | null;
 };
 
-type Edge = {
-  id: number;
-  name: string | null;
-  status: string;
-  type: string;
-  sourceEquipmentId: number | undefined;
-  targetEquipmentId: number | undefined;
-  sourcePortId: number;
-  targetPortId: number;
+type RackSlot = {
+  u: number;           // posição 1..44 (1 = baixo, 44 = topo)
+  equipment: Equipment | null;
+  sizeU: number;
+  continuation: boolean; // slot ocupado por equipamento acima
 };
 
-function layoutNodes(nodes: Omit<Node, "x" | "y">[], edges: Edge[]): Node[] {
-  if (nodes.length === 0) return [];
-
-  const centerX = 500;
-  const centerY = 350;
-  const radius = Math.min(280, Math.max(120, nodes.length * 35));
-
-  return nodes.map((node, i) => {
-    const angle = (2 * Math.PI * i) / nodes.length - Math.PI / 2;
-    return {
-      ...node,
-      x: centerX + radius * Math.cos(angle),
-      y: centerY + radius * Math.sin(angle),
-    };
-  });
-}
-
-export default function Topology() {
-  const { data, isLoading } = trpc.topology.data.useQuery();
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-
-  const nodes: Node[] = layoutNodes(data?.nodes ?? [], data?.edges ?? []);
-  const edges: Edge[] = (data?.edges ?? []).filter(
-    (e) => e.sourceEquipmentId && e.targetEquipmentId && e.sourceEquipmentId !== e.targetEquipmentId
-  );
-
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-
-  function handleWheel(e: React.WheelEvent) {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom((z) => Math.min(3, Math.max(0.3, z * delta)));
-  }
-
-  function handleMouseDown(e: React.MouseEvent) {
-    if ((e.target as SVGElement).closest(".node-group")) return;
-    setDragging(true);
-    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-  }
-
-  function handleMouseMove(e: React.MouseEvent) {
-    if (!dragging) return;
-    setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
-  }
-
-  function handleMouseUp() {
-    setDragging(false);
-  }
-
-  function resetView() {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  }
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6 max-w-7xl">
-        <div>
-          <Skeleton className="h-8 w-48 mb-2" />
-          <Skeleton className="h-4 w-80" />
-        </div>
-        <Skeleton className="h-[600px] rounded-xl" />
-      </div>
-    );
-  }
+// ─── RackColumn ───────────────────────────────────────────────────────────────
+function RackColumn({
+  rackName,
+  slots,
+  onSelect,
+  selectedId,
+}: {
+  rackName: string;
+  slots: RackSlot[];
+  onSelect: (eq: Equipment) => void;
+  selectedId: number | null;
+}) {
+  const equipCount = slots.filter(s => s.equipment && !s.continuation).length;
 
   return (
-    <div className="space-y-6 max-w-7xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Topologia de Rede</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Diagrama visual de equipamentos e conexões
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" className="h-8 w-8 border-border/50" onClick={() => setZoom((z) => Math.min(3, z * 1.2))}>
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="icon" className="h-8 w-8 border-border/50" onClick={() => setZoom((z) => Math.max(0.3, z * 0.8))}>
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="icon" className="h-8 w-8 border-border/50" onClick={resetView}>
-            <RotateCcw className="h-4 w-4" />
-          </Button>
+    <div className="flex-shrink-0" style={{ width: RACK_WIDTH_PX }}>
+      {/* Cabeçalho */}
+      <div className="mb-2 text-center">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-zinc-800 border border-zinc-700">
+          <Server className="w-3.5 h-3.5 text-zinc-400" />
+          <span className="text-xs font-semibold text-zinc-200 tracking-wide uppercase">{rackName}</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* SVG Topology */}
-        <div className="lg:col-span-3">
-          <Card className="border-border/50 bg-card overflow-hidden">
-            <CardContent className="p-0">
-              {nodes.length === 0 ? (
-                <div className="h-[560px] flex flex-col items-center justify-center text-muted-foreground">
-                  <Network className="h-16 w-16 mb-4 opacity-20" />
-                  <p className="font-medium">Nenhum equipamento cadastrado</p>
-                  <p className="text-sm opacity-60 mt-1">Cadastre equipamentos para visualizar a topologia</p>
-                </div>
-              ) : (
-                <svg
-                  ref={svgRef}
-                  width="100%"
-                  height="560"
-                  viewBox="0 0 1000 700"
-                  className="cursor-grab active:cursor-grabbing select-none"
-                  style={{ background: "transparent" }}
-                  onWheel={handleWheel}
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  onMouseLeave={handleMouseUp}
-                >
-                  <defs>
-                    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-                      <polygon points="0 0, 8 3, 0 6" fill="oklch(0.65 0.18 210 / 0.6)" />
-                    </marker>
-                    <filter id="glow">
-                      <feGaussianBlur stdDeviation="3" result="coloredBlur" />
-                      <feMerge>
-                        <feMergeNode in="coloredBlur" />
-                        <feMergeNode in="SourceGraphic" />
-                      </feMerge>
-                    </filter>
-                  </defs>
-
-                  <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-                    {/* Edges */}
-                    {edges.map((edge) => {
-                      const src = nodeMap.get(edge.sourceEquipmentId!);
-                      const tgt = nodeMap.get(edge.targetEquipmentId!);
-                      if (!src || !tgt) return null;
-                      const isActive = edge.status === "active";
-                      return (
-                        <line
-                          key={edge.id}
-                          x1={src.x}
-                          y1={src.y}
-                          x2={tgt.x}
-                          y2={tgt.y}
-                          stroke={isActive ? "oklch(0.65 0.18 210 / 0.5)" : "oklch(0.55 0.02 240 / 0.4)"}
-                          strokeWidth={isActive ? 1.5 : 1}
-                          strokeDasharray={isActive ? "none" : "4 4"}
-                          markerEnd="url(#arrowhead)"
-                        />
-                      );
-                    })}
-
-                    {/* Nodes */}
-                    {nodes.map((node) => {
-                      const color = EQUIPMENT_COLORS[node.type] ?? "#64748b";
-                      const isSelected = selectedNode?.id === node.id;
-                      const isActive = node.status === "active";
-                      return (
-                        <g
-                          key={node.id}
-                          className="node-group"
-                          transform={`translate(${node.x}, ${node.y})`}
-                          onClick={() => setSelectedNode(isSelected ? null : node)}
-                          style={{ cursor: "pointer" }}
-                        >
-                          {/* Glow ring for selected */}
-                          {isSelected && (
-                            <circle r="30" fill="none" stroke={color} strokeWidth="2" opacity="0.4" filter="url(#glow)" />
-                          )}
-                          {/* Status ring */}
-                          <circle
-                            r="24"
-                            fill={`${color}15`}
-                            stroke={color}
-                            strokeWidth={isSelected ? 2 : 1.5}
-                            opacity={isActive ? 1 : 0.5}
-                          />
-                          {/* Icon background */}
-                          <circle r="18" fill={`${color}25`} />
-                          {/* Server icon (simplified) */}
-                          <rect x="-7" y="-8" width="14" height="5" rx="1.5" fill={color} opacity={isActive ? 0.9 : 0.5} />
-                          <rect x="-7" y="-1" width="14" height="5" rx="1.5" fill={color} opacity={isActive ? 0.7 : 0.4} />
-                          <rect x="-7" y="6" width="14" height="5" rx="1.5" fill={color} opacity={isActive ? 0.5 : 0.3} />
-                          {/* Status dot */}
-                          <circle
-                            cx="16"
-                            cy="-16"
-                            r="4"
-                            fill={isActive ? "#22c55e" : node.status === "maintenance" ? "#f59e0b" : "#64748b"}
-                            stroke="oklch(0.10 0.015 240)"
-                            strokeWidth="1.5"
-                          />
-                          {/* Label */}
-                          <text
-                            y="36"
-                            textAnchor="middle"
-                            fontSize="10"
-                            fontFamily="Inter, sans-serif"
-                            fontWeight="500"
-                            fill="oklch(0.85 0.01 240)"
-                          >
-                            {node.name.length > 16 ? node.name.slice(0, 14) + "…" : node.name}
-                          </text>
-                          <text
-                            y="48"
-                            textAnchor="middle"
-                            fontSize="8"
-                            fontFamily="Inter, sans-serif"
-                            fill="oklch(0.55 0.02 240)"
-                          >
-                            {EQUIPMENT_TYPE_LABELS[node.type] ?? node.type}
-                          </text>
-                        </g>
-                      );
-                    })}
-                  </g>
-                </svg>
-              )}
-            </CardContent>
-          </Card>
+      {/* Corpo do rack */}
+      <div
+        className="relative rounded-lg border border-zinc-700 bg-zinc-900/60 overflow-hidden"
+        style={{ width: RACK_WIDTH_PX }}
+      >
+        {/* Numeração lateral */}
+        <div className="absolute left-0 top-0 bottom-0 w-8 bg-zinc-800/80 border-r border-zinc-700 z-10 flex flex-col">
+          {Array.from({ length: RACK_UNITS }, (_, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-center text-[9px] text-zinc-500 font-mono border-b border-zinc-700/40 select-none"
+              style={{ height: U_HEIGHT_PX }}
+            >
+              {RACK_UNITS - i}
+            </div>
+          ))}
         </div>
 
-        {/* Legend + Info Panel */}
-        <div className="space-y-4">
-          {/* Legend */}
-          <Card className="border-border/50 bg-card">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Legenda</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {Object.entries(EQUIPMENT_COLORS).map(([type, color]) => (
-                <div key={type} className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                  <span>{EQUIPMENT_TYPE_LABELS[type] ?? type}</span>
-                </div>
-              ))}
-              <div className="pt-2 border-t border-border/30 space-y-1.5">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <div className="h-2 w-2 rounded-full bg-emerald-400" />
-                  <span>Ativo</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <div className="h-2 w-2 rounded-full bg-amber-400" />
-                  <span>Manutenção</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <div className="h-2 w-2 rounded-full bg-slate-500" />
-                  <span>Inativo</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        {/* Área de equipamentos */}
+        <div className="ml-8 relative" style={{ height: RACK_UNITS * U_HEIGHT_PX }}>
+          {slots.map((slot) => {
+            // Slot vazio ou continuação
+            if (slot.continuation || !slot.equipment) {
+              return (
+                <div
+                  key={`empty-${slot.u}`}
+                  className="absolute left-0 right-0 border-b border-zinc-800/30"
+                  style={{
+                    top: (RACK_UNITS - slot.u) * U_HEIGHT_PX,
+                    height: U_HEIGHT_PX,
+                  }}
+                />
+              );
+            }
 
-          {/* Selected Node Info */}
-          {selectedNode ? (
-            <Card className="border-primary/30 bg-primary/5">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1">
-                  <Info className="h-3 w-3" /> Detalhes
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-xs">
-                <div>
-                  <p className="text-muted-foreground">Nome</p>
-                  <p className="font-medium text-foreground">{selectedNode.name}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Tipo</p>
-                  <p className="font-medium text-foreground">{EQUIPMENT_TYPE_LABELS[selectedNode.type] ?? selectedNode.type}</p>
-                </div>
-                {selectedNode.model && (
-                  <div>
-                    <p className="text-muted-foreground">Modelo</p>
-                    <p className="font-medium text-foreground">{selectedNode.model}</p>
-                  </div>
+            const eq = slot.equipment;
+            const Icon = EQUIPMENT_ICONS[eq.type] ?? HardDrive;
+            const colorClass = EQUIPMENT_COLORS[eq.type] ?? EQUIPMENT_COLORS.other;
+            const isSelected = selectedId === eq.id;
+            const heightPx = slot.sizeU * U_HEIGHT_PX;
+
+            return (
+              <button
+                key={`eq-${eq.id}-u${slot.u}`}
+                onClick={() => onSelect(eq)}
+                className={`
+                  absolute left-1 right-1 rounded border cursor-pointer transition-all duration-150
+                  flex items-center gap-1.5 px-2 overflow-hidden
+                  ${colorClass}
+                  ${isSelected ? "ring-2 ring-white/30 brightness-125" : "hover:brightness-110"}
+                `}
+                style={{
+                  top: (RACK_UNITS - slot.u) * U_HEIGHT_PX + 1,
+                  height: heightPx - 2,
+                }}
+                title={`${eq.name} — ${EQUIPMENT_LABELS[eq.type] ?? eq.type} | ${eq.rackPosition ?? "?"}`}
+              >
+                <Icon className="w-3 h-3 flex-shrink-0" />
+                <span className="text-[10px] font-medium truncate leading-tight flex-1">{eq.name}</span>
+                {slot.sizeU >= 2 && (
+                  <span className="text-[9px] opacity-50 flex-shrink-0 font-mono">{eq.rackPosition}</span>
                 )}
-                {selectedNode.roomName && (
-                  <div>
-                    <p className="text-muted-foreground">Sala</p>
-                    <p className="font-medium text-foreground">{selectedNode.roomName}</p>
-                  </div>
-                )}
-                {selectedNode.rack && (
-                  <div>
-                    <p className="text-muted-foreground">Rack</p>
-                    <p className="font-medium text-foreground">{selectedNode.rack}</p>
-                  </div>
-                )}
-                <div>
-                  <p className="text-muted-foreground">Status</p>
-                  <Badge variant="outline" className={`text-xs border mt-0.5 ${selectedNode.status === "active" ? "status-active" : selectedNode.status === "maintenance" ? "status-maintenance" : "status-inactive"}`}>
-                    {selectedNode.status === "active" ? "Ativo" : selectedNode.status === "maintenance" ? "Manutenção" : "Inativo"}
-                  </Badge>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Rodapé */}
+      <div className="mt-1 text-center text-[10px] text-zinc-500">
+        {equipCount} equipamento{equipCount !== 1 ? "s" : ""}
+      </div>
+    </div>
+  );
+}
+
+// ─── DetailPanel ──────────────────────────────────────────────────────────────
+function DetailPanel({ equipment, onClose }: { equipment: Equipment; onClose: () => void }) {
+  const { data: ports } = trpc.ports.byEquipment.useQuery({ equipmentId: equipment.id });
+  const { data: slots } = trpc.slots.byEquipment.useQuery({ equipmentId: equipment.id });
+
+  const Icon = EQUIPMENT_ICONS[equipment.type] ?? HardDrive;
+  const colorClass = EQUIPMENT_COLORS[equipment.type] ?? EQUIPMENT_COLORS.other;
+
+  const freePorts   = ports?.filter(p => p.status === "free").length ?? 0;
+  const occupied    = ports?.filter(p => p.status === "occupied").length ?? 0;
+  const total       = ports?.length ?? 0;
+  const pct         = total > 0 ? Math.round((occupied / total) * 100) : 0;
+
+  return (
+    <div className="w-80 flex-shrink-0 bg-zinc-900 border border-zinc-700 rounded-xl flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className={`p-4 border-b border-zinc-700`}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className={`p-2 rounded-lg border ${colorClass}`}>
+              <Icon className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white leading-tight">{equipment.name}</p>
+              <p className="text-xs text-zinc-400">{EQUIPMENT_LABELS[equipment.type] ?? equipment.type}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors mt-0.5">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-4">
+          {/* Status */}
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[equipment.status] ?? "bg-zinc-500"}`} />
+            <span className="text-xs text-zinc-300 capitalize">
+              {equipment.status === "active" ? "Ativo" : equipment.status === "inactive" ? "Inativo" : "Manutenção"}
+            </span>
+          </div>
+
+          {/* Posição no rack */}
+          <div className="rounded-lg bg-zinc-800/60 border border-zinc-700 p-3 space-y-2">
+            <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+              <Server className="w-3 h-3" /> Posição no Rack
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] text-zinc-500">Rack</p>
+                <p className="text-xs font-mono text-zinc-200">{equipment.rack ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Posição (U)</p>
+                <p className="text-xs font-mono text-zinc-200">{equipment.rackPosition ?? "—"}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Informações gerais */}
+          <div className="rounded-lg bg-zinc-800/60 border border-zinc-700 p-3 space-y-2">
+            <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+              <Info className="w-3 h-3" /> Informações
+            </p>
+            {([
+              ["Modelo",      equipment.model],
+              ["Fabricante",  equipment.manufacturer],
+              ["Nº de Série", equipment.serialNumber],
+              ["IP",          equipment.ipAddress],
+            ] as [string, string | null | undefined][]).map(([label, value]) =>
+              value ? (
+                <div key={label} className="flex justify-between">
+                  <span className="text-[10px] text-zinc-500">{label}</span>
+                  <span className="text-[10px] font-mono text-zinc-300">{value}</span>
                 </div>
-                <div>
-                  <p className="text-muted-foreground">Conexões</p>
-                  <p className="font-medium text-foreground">
-                    {edges.filter((e) => e.sourceEquipmentId === selectedNode.id || e.targetEquipmentId === selectedNode.id).length} conexões
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="border-border/50 bg-card">
-              <CardContent className="py-6 text-center text-xs text-muted-foreground">
-                <Server className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                Clique em um nó para ver os detalhes
-              </CardContent>
-            </Card>
+              ) : null
+            )}
+          </div>
+
+          {/* Ocupação de portas */}
+          {total > 0 && (
+            <div className="rounded-lg bg-zinc-800/60 border border-zinc-700 p-3 space-y-2">
+              <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                <Cable className="w-3 h-3" /> Portas ({total})
+              </p>
+              <div className="w-full bg-zinc-700 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all"
+                  style={{ width: `${100 - pct}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[10px]">
+                <span className="text-emerald-400">{freePorts} livres</span>
+                <span className="text-rose-400">{occupied} ocupadas</span>
+                <span className="text-zinc-400">{pct}% uso</span>
+              </div>
+            </div>
           )}
 
-          {/* Stats */}
-          <Card className="border-border/50 bg-card">
-            <CardContent className="p-4 space-y-2 text-xs">
-              <div className="flex justify-between text-muted-foreground">
-                <span>Equipamentos</span>
-                <span className="font-medium text-foreground">{nodes.length}</span>
-              </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>Conexões</span>
-                <span className="font-medium text-foreground">{edges.length}</span>
-              </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>Ativos</span>
-                <span className="font-medium text-emerald-400">{nodes.filter((n) => n.status === "active").length}</span>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Slots */}
+          {slots && slots.length > 0 && (
+            <div className="rounded-lg bg-zinc-800/60 border border-zinc-700 p-3 space-y-2">
+              <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                <Layers className="w-3 h-3" /> Slots ({slots.length})
+              </p>
+              {slots.map(slot => (
+                <div key={slot.id} className="flex items-center justify-between py-1 border-b border-zinc-700/50 last:border-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono font-bold text-zinc-300">
+                      Slot {slot.slotNumber}
+                    </span>
+                    {slot.label && (
+                      <span className="text-[10px] text-zinc-500 truncate max-w-[80px]">— {slot.label}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {slot.speed && (
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 border-violet-500/50 text-violet-300">
+                        {slot.speed.toUpperCase()}
+                      </Badge>
+                    )}
+                    <span className="text-[10px] text-zinc-400">{slot.totalPorts}p</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+// ─── Página Principal ──────────────────────────────────────────────────────────
+export default function Topology() {
+  const [selectedRoomId, setSelectedRoomId] = useState<string>("all");
+  const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null);
+
+  const { data: equipments = [], isLoading } = trpc.equipments.list.useQuery({});
+  const { data: rooms = [] } = trpc.rooms.list.useQuery();
+
+  // Filtrar por sala
+  const filtered = useMemo(() => {
+    if (selectedRoomId === "all") return equipments as Equipment[];
+    const rid = parseInt(selectedRoomId, 10);
+    return (equipments as Equipment[]).filter(e => e.roomId === rid);
+  }, [equipments, selectedRoomId]);
+
+  // Agrupar por rack
+  const rackGroups = useMemo(() => {
+    const groups: Record<string, Equipment[]> = {};
+    for (const eq of filtered) {
+      const key = eq.rack?.trim() || "Sem Rack";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(eq);
+    }
+    return groups;
+  }, [filtered]);
+
+  // Construir array de 44 slots para um rack
+  const buildSlots = (eqs: Equipment[]): RackSlot[] => {
+    // Inicializa todos os slots como vazios (U44 no topo, U1 na base)
+    const slots: RackSlot[] = Array.from({ length: RACK_UNITS }, (_, i) => ({
+      u: RACK_UNITS - i,   // U44 → idx 0, U1 → idx 43
+      equipment: null,
+      sizeU: 1,
+      continuation: false,
+    }));
+
+    // Equipamentos com posição definida
+    const withPos = eqs.filter(e => parseU(e.rackPosition) > 0);
+    // Equipamentos sem posição (serão empilhados no topo livre)
+    const withoutPos = eqs.filter(e => parseU(e.rackPosition) === 0);
+
+    // Posicionar equipamentos com U definido
+    for (const eq of withPos) {
+      const uPos  = parseU(eq.rackPosition);           // ex: 3 → U3
+      const sizeU = parseSizeU(eq.model);
+      // idx no array: U44 = idx 0, U1 = idx 43
+      const idx   = RACK_UNITS - uPos;
+      if (idx < 0 || idx >= RACK_UNITS) continue;
+
+      slots[idx] = { u: uPos, equipment: eq, sizeU, continuation: false };
+      for (let s = 1; s < sizeU && idx + s < RACK_UNITS; s++) {
+        slots[idx + s] = { u: uPos - s, equipment: null, sizeU: 1, continuation: true };
+      }
+    }
+
+    // Equipamentos sem posição: preencher slots livres de baixo para cima
+    let fillIdx = RACK_UNITS - 1; // começa no U1 (base)
+    for (const eq of withoutPos) {
+      while (fillIdx >= 0 && (slots[fillIdx].equipment || slots[fillIdx].continuation)) fillIdx--;
+      if (fillIdx < 0) break;
+      slots[fillIdx] = { u: RACK_UNITS - fillIdx, equipment: eq, sizeU: 1, continuation: false };
+      fillIdx--;
+    }
+
+    return slots;
+  };
+
+  const rackNames = Object.keys(rackGroups).sort((a, b) => {
+    if (a === "Sem Rack") return 1;
+    if (b === "Sem Rack") return -1;
+    return a.localeCompare(b, "pt-BR", { numeric: true });
+  });
+
+  const totalEquipments   = filtered.length;
+  const rackedEquipments  = filtered.filter(e => e.rack).length;
+
+  return (
+    <div className="flex flex-col h-full min-h-0 gap-4 p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-shrink-0 flex-wrap gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-white">Topologia de Racks</h1>
+          <p className="text-sm text-zinc-400 mt-0.5">
+            Racks de 44U — {rackedEquipments} de {totalEquipments} equipamentos posicionados
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Legenda compacta */}
+          <div className="hidden xl:flex items-center gap-3 flex-wrap">
+            {(["switch","olt","dgo","splitter","router","server","patch_panel"] as const).map(type => {
+              const Icon = EQUIPMENT_ICONS[type] ?? HardDrive;
+              const cls  = EQUIPMENT_COLORS[type] ?? "";
+              const textCls = cls.split(" ").find(c => c.startsWith("text-")) ?? "text-zinc-400";
+              return (
+                <div key={type} className={`flex items-center gap-1 text-[10px] ${textCls}`}>
+                  <Icon className="w-3 h-3" />
+                  <span>{EQUIPMENT_LABELS[type]}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <Separator orientation="vertical" className="h-6 bg-zinc-700 hidden xl:block" />
+
+          {/* Filtro por sala */}
+          <Select value={selectedRoomId} onValueChange={v => { setSelectedRoomId(v); setSelectedEquipment(null); }}>
+            <SelectTrigger className="w-44 h-8 text-xs bg-zinc-800 border-zinc-700 text-zinc-200">
+              <SelectValue placeholder="Todas as salas" />
+            </SelectTrigger>
+            <SelectContent className="bg-zinc-800 border-zinc-700">
+              <SelectItem value="all" className="text-xs text-zinc-200">Todas as salas</SelectItem>
+              {(rooms as { id: number; name: string }[]).map(r => (
+                <SelectItem key={r.id} value={String(r.id)} className="text-xs text-zinc-200">
+                  {r.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground/50 text-center">
-        Use scroll para zoom · Arraste para mover · Clique em um nó para detalhes
-      </p>
+      {/* Conteúdo */}
+      <div className="flex gap-4 flex-1 min-h-0">
+        {/* Racks */}
+        <div className="flex-1 min-w-0">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64 text-zinc-500 text-sm">
+              Carregando equipamentos...
+            </div>
+          ) : rackNames.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-64 text-zinc-500 gap-2">
+              <Server className="w-10 h-10 opacity-30" />
+              <p className="text-sm">Nenhum equipamento encontrado</p>
+              <p className="text-xs text-zinc-600">Cadastre equipamentos com rack e posição para visualizá-los aqui</p>
+            </div>
+          ) : (
+            <ScrollArea className="h-full">
+              <div
+                className="flex gap-6 pb-6 pr-4"
+                style={{ minHeight: RACK_UNITS * U_HEIGHT_PX + 80 }}
+              >
+                {rackNames.map(rackName => (
+                  <RackColumn
+                    key={rackName}
+                    rackName={rackName}
+                    slots={buildSlots(rackGroups[rackName] ?? [])}
+                    onSelect={setSelectedEquipment}
+                    selectedId={selectedEquipment?.id ?? null}
+                  />
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+        </div>
+
+        {/* Painel de detalhes */}
+        {selectedEquipment && (
+          <DetailPanel
+            equipment={selectedEquipment}
+            onClose={() => setSelectedEquipment(null)}
+          />
+        )}
+      </div>
+
+      {/* Rodapé */}
+      <div className="flex-shrink-0 flex items-center gap-3 text-[10px] text-zinc-600 border-t border-zinc-800 pt-3 flex-wrap">
+        <span>Clique em um equipamento para ver detalhes</span>
+        <span>•</span>
+        <span>Cada coluna = 1 rack de 44U</span>
+        <span>•</span>
+        <span>Numeração U: 44 no topo → 1 na base</span>
+        <span>•</span>
+        <span>Equipamentos sem posição são exibidos na base do rack</span>
+      </div>
     </div>
   );
 }

@@ -3,9 +3,11 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   Connection,
   Equipment,
+  EquipmentSlot,
   Fiber,
   InsertConnection,
   InsertEquipment,
+  InsertEquipmentSlot,
   InsertFiber,
   InsertMaintenanceHistory,
   InsertPort,
@@ -15,6 +17,7 @@ import {
   Port,
   Room,
   connections,
+  equipmentSlots,
   equipments,
   fibers,
   maintenanceHistory,
@@ -188,17 +191,67 @@ export async function deletePort(id: number) {
   await db.delete(ports).where(eq(ports.id, id));
 }
 
-export async function bulkCreatePorts(equipmentId: number, count: number, type: Port["type"], speed?: Port["speed"]) {
+export async function bulkCreatePorts(
+  equipmentId: number,
+  count: number,
+  type: Port["type"],
+  speed?: Port["speed"],
+  slotId?: number,
+  startIndex?: number,
+) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+  const base = startIndex ?? 1;
   const portData: InsertPort[] = Array.from({ length: count }, (_, i) => ({
     equipmentId,
-    portNumber: String(i + 1).padStart(2, "0"),
+    portNumber: String(base + i).padStart(2, "0"),
     type,
     speed: speed ?? null,
+    slotId: slotId ?? null,
     status: "free" as const,
   }));
   await db.insert(ports).values(portData);
+}
+
+// ─── Equipment Slots ─────────────────────────────────────────────────────
+export async function getSlotsByEquipment(equipmentId: number): Promise<EquipmentSlot[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(equipmentSlots).where(eq(equipmentSlots.equipmentId, equipmentId)).orderBy(equipmentSlots.slotNumber);
+}
+
+export async function getSlotById(id: number): Promise<EquipmentSlot | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(equipmentSlots).where(eq(equipmentSlots.id, id)).limit(1);
+  return rows[0];
+}
+
+export async function createSlot(data: InsertEquipmentSlot): Promise<{ id: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(equipmentSlots).values(data);
+  return { id: (result as any)[0]?.insertId ?? 0 };
+}
+
+export async function updateSlot(id: number, data: Partial<InsertEquipmentSlot>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(equipmentSlots).set({ ...data, updatedAt: new Date() }).where(eq(equipmentSlots.id, id));
+}
+
+export async function deleteSlot(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  // Desassociar portas do slot antes de remover
+  await db.update(ports).set({ slotId: null }).where(eq(ports.slotId, id));
+  await db.delete(equipmentSlots).where(eq(equipmentSlots.id, id));
+}
+
+export async function getPortsBySlot(slotId: number): Promise<Port[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ports).where(eq(ports.slotId, slotId)).orderBy(ports.portNumber);
 }
 
 // ─── Fibers ──────────────────────────────────────────────────────────────────

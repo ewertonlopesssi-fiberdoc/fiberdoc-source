@@ -79,12 +79,30 @@ export const equipments = mysqlTable("equipments", {
 export type Equipment = typeof equipments.$inferSelect;
 export type InsertEquipment = typeof equipments.$inferInsert;
 
+// ─── Slots de Equipamentos ─────────────────────────────────────────────────
+export const equipmentSlots = mysqlTable("equipment_slots", {
+  id: int("id").autoincrement().primaryKey(),
+  equipmentId: int("equipmentId").notNull(),
+  slotNumber: varchar("slotNumber", { length: 16 }).notNull(), // ex: "A", "B", "1", "2"
+  label: varchar("label", { length: 64 }),                    // ex: "Slot A — LC 12 portas"
+  portType: mysqlEnum("slot_port_type", ["sc", "lc", "fc", "st", "rj45", "sfp", "sfp_plus", "qsfp", "qsfp28", "qsfp_dd", "cfp", "cfp2", "cfp4", "gpon", "xgspon", "dag", "other"]).default("lc"),
+  speed: mysqlEnum("slot_speed", ["1g", "10g", "25g", "40g", "100g", "400g", "other"]),
+  totalPorts: int("totalPorts").default(0),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type EquipmentSlot = typeof equipmentSlots.$inferSelect;
+export type InsertEquipmentSlot = typeof equipmentSlots.$inferInsert;
+
 // ─── Portas ──────────────────────────────────────────────────────────────────
 export const ports = mysqlTable("ports", {
   id: int("id").autoincrement().primaryKey(),
   equipmentId: int("equipmentId").notNull(),
   portNumber: varchar("portNumber", { length: 32 }).notNull(),
   label: varchar("label", { length: 64 }),
+  slotId: int("slotId"),                                        // null = porta sem slot
   type: mysqlEnum("port_type", ["sc", "lc", "fc", "st", "rj45", "sfp", "sfp_plus", "qsfp", "qsfp28", "qsfp_dd", "cfp", "cfp2", "cfp4", "gpon", "xgspon", "dag", "other"]).default("lc").notNull(),
   speed: mysqlEnum("port_speed", ["1g", "10g", "25g", "40g", "100g", "400g", "other"]),
   status: mysqlEnum("port_status", ["free", "occupied", "reserved", "faulty"]).default("free").notNull(),

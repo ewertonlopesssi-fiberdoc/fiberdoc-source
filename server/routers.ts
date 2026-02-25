@@ -35,6 +35,10 @@ import {
   bulkCreatePorts,
   bulkImportEquipments,
   bulkImportFibers,
+  getSlotsByEquipment,
+  createSlot,
+  updateSlot,
+  deleteSlot,
   type BulkEquipmentRow,
   type BulkFiberRow,
 } from "./db";
@@ -238,12 +242,20 @@ export const appRouter = router({
       }),
 
     bulkCreate: protectedProcedure
-      .input(z.object({ equipmentId: z.number(), count: z.number().min(1).max(256), type: portTypeEnum.optional(), speed: portSpeedEnum.optional() }))
+      .input(z.object({
+        equipmentId: z.number(),
+        count: z.number().min(1).max(256),
+        type: portTypeEnum.optional(),
+        speed: portSpeedEnum.optional(),
+        slotId: z.number().optional(),
+        startIndex: z.number().optional(),
+      }))
       .mutation(async ({ input, ctx }) => {
-        await bulkCreatePorts(input.equipmentId, input.count, input.type ?? "lc", input.speed ?? undefined);
+        await bulkCreatePorts(input.equipmentId, input.count, input.type ?? "lc", input.speed ?? undefined, input.slotId ?? undefined, input.startIndex ?? undefined);
+        const slotInfo = input.slotId ? ` no Slot #${input.slotId}` : "";
         await createMaintenanceRecord({
           entityType: "port", entityId: input.equipmentId, action: "created",
-          description: `${input.count} portas criadas em lote no equipamento #${input.equipmentId}`, performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
+          description: `${input.count} portas criadas em lote no equipamento #${input.equipmentId}${slotInfo}`, performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
         });
         return { success: true };
       }),
@@ -271,6 +283,64 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         await deletePort(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ─── Slots ─────────────────────────────────────────────────────────────────
+  slots: router({
+    byEquipment: publicProcedure
+      .input(z.object({ equipmentId: z.number() }))
+      .query(({ input }) => getSlotsByEquipment(input.equipmentId)),
+
+    create: protectedProcedure
+      .input(z.object({
+        equipmentId: z.number(),
+        slotNumber: z.string().min(1).max(16),
+        label: z.string().optional(),
+        portType: z.enum(["sc","lc","fc","st","rj45","sfp","sfp_plus","qsfp","qsfp28","qsfp_dd","cfp","cfp2","cfp4","gpon","xgspon","dag","other"]).optional(),
+        speed: z.enum(["1g","10g","25g","40g","100g","400g","other"]).optional(),
+        totalPorts: z.number().min(0).max(256).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const result = await createSlot({
+          equipmentId: input.equipmentId,
+          slotNumber: input.slotNumber,
+          label: input.label ?? null,
+          portType: input.portType ?? "lc",
+          speed: input.speed ?? null,
+          totalPorts: input.totalPorts ?? 0,
+          notes: input.notes ?? null,
+        });
+        await createMaintenanceRecord({
+          entityType: "equipment", entityId: input.equipmentId, action: "updated",
+          description: `Slot ${input.slotNumber} adicionado ao equipamento #${input.equipmentId}`,
+          performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
+        });
+        return result;
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        slotNumber: z.string().min(1).max(16).optional(),
+        label: z.string().optional(),
+        portType: z.enum(["sc","lc","fc","st","rj45","sfp","sfp_plus","qsfp","qsfp28","qsfp_dd","cfp","cfp2","cfp4","gpon","xgspon","dag","other"]).optional(),
+        speed: z.enum(["1g","10g","25g","40g","100g","400g","other"]).optional(),
+        totalPorts: z.number().min(0).max(256).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateSlot(id, data);
+        return { success: true };
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteSlot(input.id);
         return { success: true };
       }),
   }),

@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `equipment_slots` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`equipmentId` int NOT NULL,\n\t`slotNumber` varchar(16) NOT NULL,\n\t`label` varchar(64),\n\t`slot_port_type` enum('sc','lc','fc','st','rj45','sfp','sfp_plus','qsfp','qsfp28','qsfp_dd','cfp','cfp2','cfp4','gpon','xgspon','dag','other') DEFAULT 'lc',\n\t`slot_speed` enum('1g','10g','25g','40g','100g','400g','other'),\n\t`totalPorts` int DEFAULT 0,\n\t`notes` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `equipment_slots_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `ports` ADD `slotId` int;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute CREATE TABLE `equipment_slots` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`equipmentId` int NOT NULL,\n\t`slotNumber` varchar(16) NOT NULL,\n\t`label` varchar(64),\n\t`slot_port_type` enum('sc','lc','fc','st','rj45','sfp','sfp_plus','qsfp','qsfp28','qsfp_dd','cfp','cfp2','cfp4','gpon','xgspon','dag','other') DEFAULT 'lc',\n\t`slot_speed` enum('1g','10g','25g','40g','100g','400g','other'),\n\t`totalPorts` int DEFAULT 0,\n\t`notes` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `equipment_slots_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `ports` ADD `slotId` int;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 287
+}

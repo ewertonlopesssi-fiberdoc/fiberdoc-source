@@ -29,6 +29,13 @@
       "when": 1772042988945,
       "tag": "0003_furry_dexter_bennett",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1772043834070,
+      "tag": "0004_curly_kang",
+      "breakpoints": true
     }
   ]
 }
