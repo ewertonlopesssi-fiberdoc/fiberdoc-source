@@ -4,34 +4,42 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
+import Dashboard from "./pages/Dashboard";
+import Equipments from "./pages/Equipments";
+import Fibers from "./pages/Fibers";
+import Ports from "./pages/Ports";
+import Connections from "./pages/Connections";
+import Topology from "./pages/Topology";
+import History from "./pages/History";
+import Rooms from "./pages/Rooms";
+import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
-    <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
-      <Route component={NotFound} />
-    </Switch>
+    <DashboardLayout>
+      <Switch>
+        <Route path={"/"} component={Dashboard} />
+        <Route path={"/equipamentos"} component={Equipments} />
+        <Route path={"/fibras"} component={Fibers} />
+        <Route path={"/portas"} component={Ports} />
+        <Route path={"/portas/:equipmentId"} component={Ports} />
+        <Route path={"/conexoes"} component={Connections} />
+        <Route path={"/topologia"} component={Topology} />
+        <Route path={"/historico"} component={History} />
+        <Route path={"/salas"} component={Rooms} />
+        <Route path={"/404"} component={NotFound} />
+        <Route component={NotFound} />
+      </Switch>
+    </DashboardLayout>
   );
 }
-
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
 
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
+      <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
-          <Toaster />
+          <Toaster richColors theme="dark" />
           <Router />
         </TooltipProvider>
       </ThemeProvider>
