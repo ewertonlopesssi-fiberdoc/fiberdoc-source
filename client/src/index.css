@@ -157,3 +157,161 @@
     }
   }
 }
+/* ─── Estilos de Impressão — Mapa de Fusões CEO ────────────────────────────── */
+@media print {
+  /* Ocultar tudo exceto o mapa de fusões */
+  body > * { display: none !important; }
+  #ceo-fusion-print { display: block !important; }
+
+  /* Reset para impressão */
+  #ceo-fusion-print {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background: white !important;
+    color: black !important;
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.4;
+    padding: 0;
+    margin: 0;
+  }
+
+  #ceo-fusion-print .print-page {
+    padding: 16mm 14mm;
+    page-break-after: always;
+  }
+
+  #ceo-fusion-print .print-page:last-child {
+    page-break-after: avoid;
+  }
+
+  /* Tabelas */
+  #ceo-fusion-print table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 6mm;
+    font-size: 9pt;
+  }
+
+  #ceo-fusion-print th {
+    background: #1a1a2e !important;
+    color: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    padding: 4px 8px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid #333;
+  }
+
+  #ceo-fusion-print td {
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    vertical-align: middle;
+  }
+
+  #ceo-fusion-print tr:nth-child(even) td {
+    background: #f8f9fa !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #ceo-fusion-print .fused-cell {
+    color: #0891b2 !important;
+    font-weight: 600;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #ceo-fusion-print .empty-cell {
+    color: #9ca3af !important;
+    font-style: italic;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Cabeçalho */
+  #ceo-fusion-print .print-header {
+    border-bottom: 2px solid #1a1a2e;
+    padding-bottom: 6mm;
+    margin-bottom: 6mm;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  /* Rodapé */
+  #ceo-fusion-print .print-footer {
+    border-top: 1px solid #ddd;
+    padding-top: 4mm;
+    margin-top: 6mm;
+    font-size: 7pt;
+    color: #6b7280 !important;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* Seção de tubo */
+  #ceo-fusion-print .tube-section {
+    margin-bottom: 8mm;
+    page-break-inside: avoid;
+  }
+
+  #ceo-fusion-print .tube-title {
+    font-size: 10pt;
+    font-weight: 700;
+    margin-bottom: 2mm;
+    padding: 3px 8px;
+    background: #e8f4f8 !important;
+    border-left: 4px solid #0891b2;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #ceo-fusion-print .splitter-title {
+    background: #f3e8ff !important;
+    border-left-color: #7c3aed;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Estatísticas */
+  #ceo-fusion-print .stats-row {
+    display: flex;
+    gap: 8mm;
+    margin-bottom: 6mm;
+    font-size: 9pt;
+  }
+
+  #ceo-fusion-print .stat-box {
+    border: 1px solid #ddd;
+    padding: 3mm 5mm;
+    text-align: center;
+    min-width: 25mm;
+  }
+
+  #ceo-fusion-print .stat-value {
+    font-size: 14pt;
+    font-weight: 700;
+    color: #1a1a2e !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #ceo-fusion-print .stat-label {
+    font-size: 7pt;
+    color: #6b7280 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+}

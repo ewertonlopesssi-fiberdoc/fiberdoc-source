@@ -17,8 +17,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Plus, Box, Layers, Pencil, Trash2, Link2, Link2Off, Tag,
+  ArrowLeft, Plus, Box, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer,
 } from "lucide-react";
+import { CeoFusionPrint } from "@/components/CeoFusionPrint";
 import { cn } from "@/lib/utils";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -370,6 +371,11 @@ export default function CeoDetail() {
   const utils = trpc.useUtils();
   const { data: ceo, isLoading: ceoLoading } = trpc.ceos.byId.useQuery({ id: ceoId }, { enabled: ceoId > 0 });
   const { data: tubes = [], isLoading: tubesLoading } = trpc.ceoTubes.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
+  const { data: allVias = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
+
+  function handlePrint() {
+    window.print();
+  }
 
   const createTubeMutation = trpc.ceoTubes.create.useMutation({
     onSuccess: () => {
@@ -478,7 +484,16 @@ export default function CeoDetail() {
             )}
           </div>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handlePrint}
+            className="gap-2 border-border/50"
+            title="Imprimir mapa de fusões"
+          >
+            <Printer className="h-4 w-4" />
+            Imprimir Mapa
+          </Button>
           <Button
             onClick={() => { setEditTube(null); resetTubeForm(); setTubeDialog(true); }}
             className="gap-2"
@@ -669,6 +684,13 @@ export default function CeoDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Componente de impressão — invisível na tela, visível apenas ao imprimir */}
+      <CeoFusionPrint
+        ceo={ceo as any}
+        tubes={tubeList as any}
+        allVias={allVias as any}
+      />
     </div>
   );
 }

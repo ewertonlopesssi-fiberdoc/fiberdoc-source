@@ -79,3 +79,11 @@
 - [x] Dialog de identificação de fusão: selecionar tubo destino + número da via
 - [x] Navegação no menu lateral
 - [x] Testes unitários para o módulo CEO
+
+## Impressão do Mapa de Fusões (CEO)
+- [x] Estilos CSS de impressão (@media print) no index.css
+- [x] Componente CeoFusionMap.tsx com layout imprimível (tabela por tubo, vias e fusões)
+- [x] Botão "Imprimir Mapa" na página de detalhes do CEO
+- [x] Cabeçalho do relatório com nome da CEO, data e localização
+- [x] Tabela de cada tubo/splitter com colunas: Via, Etiqueta, Fusão, Observações
+- [x] Rodapé com data de geração e nome do sistema
