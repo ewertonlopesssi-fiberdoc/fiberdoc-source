@@ -92,3 +92,7 @@
 - [x] Mover botões editar/excluir para dentro de cada aba (aparecer apenas no tubo ativo)
 - [x] Implementar associação de via a fibra óptica (dialog de seleção de fibra por via)
 - [x] Exibir fibra associada no card da via
+
+## Fusão Bidirecional (CEO)
+- [x] setViaFusion grava nos dois sentidos (VIA A → VIA B e VIA B → VIA A)
+- [x] clearViaFusion remove a fusão nos dois sentidos

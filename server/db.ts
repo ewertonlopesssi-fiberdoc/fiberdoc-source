@@ -673,17 +673,44 @@ export async function setViaFusion(
 ) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+
+  // Buscar o tubo da via de origem para registrar a volta
+  const originRows = await db.select().from(ceoVias).where(eq(ceoVias.id, viaId)).limit(1);
+  const origin = originRows[0];
+  if (!origin) throw new Error("Via de origem não encontrada");
+
+  // Gravar: via origem aponta para via destino
   await db.update(ceoVias)
     .set({ fusedToTubeId, fusedToViaId, notes: notes ?? null })
     .where(eq(ceoVias.id, viaId));
+
+  // Gravar: via destino aponta de volta para via origem (bidirecional)
+  if (fusedToViaId !== null && fusedToTubeId !== null) {
+    await db.update(ceoVias)
+      .set({ fusedToTubeId: origin.tubeId, fusedToViaId: viaId })
+      .where(eq(ceoVias.id, fusedToViaId));
+  }
 }
 
 export async function clearViaFusion(viaId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+
+  // Buscar a via para saber qual é a via destino (para limpar nos dois sentidos)
+  const rows = await db.select().from(ceoVias).where(eq(ceoVias.id, viaId)).limit(1);
+  const via = rows[0];
+
+  // Limpar a via de origem
   await db.update(ceoVias)
     .set({ fusedToTubeId: null, fusedToViaId: null })
     .where(eq(ceoVias.id, viaId));
+
+  // Limpar a via destino (bidirecional)
+  if (via?.fusedToViaId) {
+    await db.update(ceoVias)
+      .set({ fusedToTubeId: null, fusedToViaId: null })
+      .where(eq(ceoVias.id, via.fusedToViaId));
+  }
 }
 
 export async function updateVia(id: number, data: { label?: string | null; notes?: string | null; fiberId?: number | null }) {
