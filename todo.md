@@ -98,10 +98,10 @@
 - [x] clearViaFusion remove a fusão nos dois sentidos
 
 ## Impressão Mapa de Fusões (Atualização)
-- [ ] Layout espelhado: pares de tubos lado a lado com setas bidirecionais
-- [ ] Tabela com colunas: VIA (tubo A) | Etiqueta | ↔ | Etiqueta | VIA (tubo B)
-- [ ] Resumo de ocupação por tubo no cabeçalho de cada bloco
-- [ ] Vias sem fusão exibidas com traço (—) em cinza
+- [x] Layout espelhado: pares de tubos lado a lado com setas bidirecionais
+- [x] Tabela com colunas: VIA (tubo A) | Etiqueta | ↔ | Etiqueta | VIA (tubo B)
+- [x] Resumo de ocupação por tubo no cabeçalho de cada bloco
+- [x] Vias sem fusão exibidas com traço (—) em cinza
 
 ## Controle de Acesso por Grupo
 - [x] adminProcedure no backend (bloqueia role != admin)
@@ -151,3 +151,10 @@
 - [x] Seletor de temas pré-configurados (dark padrão + 3 opções)
 - [x] Aplicação do tema selecionado globalmente via CSS variables
 - [x] Item "Sistema" no menu lateral (apenas admin)
+
+## Mapa de Fusões Espelhado (Impressão)
+- [x] Layout lado a lado: pares de tubos em colunas espelhadas
+- [x] Colunas: VIA (tubo A) | Etiqueta | ↔ | Etiqueta | VIA (tubo B)
+- [x] Vias livres exibidas com traço (—) em cinza
+- [x] Resumo de ocupação por tubo no cabeçalho de cada bloco
+- [x] Índice de tubos no início do relatório
