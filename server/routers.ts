@@ -72,6 +72,7 @@ import {
   getIpBlocks, getIpBlockById, createIpBlock, updateIpBlock, deleteIpBlock,
   getIpAddressesByBlock, allocateIpAddress, releaseIpAddress, updateIpAddress, deleteIpAddress,
   getIpBlockStats, getIpDashboardSummary, parseCidr,
+  getPrimaryIpByEquipment, getPrimaryIpsByEquipments,
 } from "./ipdb";
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
@@ -196,6 +197,11 @@ export const appRouter = router({
         powerType: z.enum(["ac", "dc"]).optional(),
         powerSource: z.enum(["rectifier", "inverter", "ups", "grid", "other"]).optional(),
         powerSourceLabel: z.string().optional(),
+        // Campos de rede
+        vlan: z.number().int().min(1).max(4094).optional().nullable(),
+        interfaceIp: z.string().optional().nullable(),
+        ipBlockId: z.number().optional().nullable(),
+        serviceDescription: z.string().max(255).optional().nullable(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { autoCreatePorts, portType, ...equipData } = input;
@@ -232,6 +238,11 @@ export const appRouter = router({
         powerType: z.enum(["ac", "dc"]).optional().nullable(),
         powerSource: z.enum(["rectifier", "inverter", "ups", "grid", "other"]).optional().nullable(),
         powerSourceLabel: z.string().optional().nullable(),
+        // Campos de rede
+        vlan: z.number().int().min(1).max(4094).optional().nullable(),
+        interfaceIp: z.string().optional().nullable(),
+        ipBlockId: z.number().optional().nullable(),
+        serviceDescription: z.string().max(255).optional().nullable(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
@@ -1110,6 +1121,50 @@ export const appRouter = router({
         await deleteIpAddress(input.id);
         return { success: true };
       }),
+
+    importCsv: protectedProcedure
+      .input(z.object({
+        blockId: z.number(),
+        rows: z.array(z.object({
+          address: z.string().min(7),
+          hostname: z.string().optional().nullable(),
+          owner: z.string().optional().nullable(),
+          mac: z.string().optional().nullable(),
+          description: z.string().optional().nullable(),
+          status: z.enum(["allocated","reserved","dhcp","free"]).optional(),
+        })),
+      }))
+      .mutation(async ({ input }) => {
+        let imported = 0;
+        let skipped = 0;
+        const errors: string[] = [];
+        for (const row of input.rows) {
+          try {
+            await allocateIpAddress({
+              blockId: input.blockId,
+              address: row.address.trim(),
+              status: row.status ?? "allocated",
+              hostname: row.hostname ?? null,
+              owner: row.owner ?? null,
+              macAddress: row.mac ?? null,
+              description: row.description ?? null,
+            });
+            imported++;
+          } catch (e: any) {
+            skipped++;
+            errors.push(`${row.address}: ${e.message}`);
+          }
+        }
+        return { success: true, imported, skipped, errors };
+      }),
+
+    primaryByEquipment: protectedProcedure
+      .input(z.object({ equipmentId: z.number() }))
+      .query(({ input }) => getPrimaryIpByEquipment(input.equipmentId)),
+
+    primaryByEquipments: protectedProcedure
+      .input(z.object({ equipmentIds: z.array(z.number()) }))
+      .query(({ input }) => getPrimaryIpsByEquipments(input.equipmentIds)),
   }),
 });
 export type AppRouter = typeof appRouter;

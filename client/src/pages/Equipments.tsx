@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useRole } from "@/hooks/useRole";
-import { Zap } from "lucide-react";
+import { Zap, Globe } from "lucide-react";
 import EquipmentQRCode from "@/components/EquipmentQRCode";
 
 const POWER_TYPES = [
@@ -126,6 +126,11 @@ type EquipmentForm = {
   powerType: string;
   powerSource: string;
   powerSourceLabel: string;
+  // Campos de rede
+  vlan: string;
+  interfaceIp: string;
+  ipBlockId: string;
+  serviceDescription: string;
 };
 
 const defaultForm: EquipmentForm = {
@@ -148,6 +153,10 @@ const defaultForm: EquipmentForm = {
   powerType: "",
   powerSource: "",
   powerSourceLabel: "",
+  vlan: "",
+  interfaceIp: "",
+  ipBlockId: "",
+  serviceDescription: "",
 };
 
 export default function Equipments() {
@@ -225,6 +234,10 @@ export default function Equipments() {
       powerType: (eq as any).powerType ?? "",
       powerSource: (eq as any).powerSource ?? "",
       powerSourceLabel: (eq as any).powerSourceLabel ?? "",
+      vlan: (eq as any).vlan?.toString() ?? "",
+      interfaceIp: (eq as any).interfaceIp ?? "",
+      ipBlockId: (eq as any).ipBlockId?.toString() ?? "",
+      serviceDescription: (eq as any).serviceDescription ?? "",
     });
     setDialogOpen(true);
   }
@@ -250,6 +263,10 @@ export default function Equipments() {
       powerType: form.powerType as any || undefined,
       powerSource: form.powerSource as any || undefined,
       powerSourceLabel: form.powerSourceLabel || undefined,
+      vlan: form.vlan ? parseInt(form.vlan) : undefined,
+      interfaceIp: form.interfaceIp || undefined,
+      ipBlockId: form.ipBlockId ? parseInt(form.ipBlockId) : undefined,
+      serviceDescription: form.serviceDescription || undefined,
     };
 
     if (editId) {
@@ -388,6 +405,22 @@ export default function Equipments() {
                         {POWER_SOURCES.find((p) => p.value === (eq as any).powerSource)?.label ?? ""}
                         {(eq as any).powerSourceLabel ? ` (${(eq as any).powerSourceLabel})` : ""}
                       </span>
+                    </div>
+                  )}
+                  {((eq as any).vlan || (eq as any).interfaceIp) && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Globe className="h-3 w-3 shrink-0 text-blue-400" />
+                      <span className="font-mono truncate">
+                        {(eq as any).vlan ? `VLAN ${(eq as any).vlan}` : ""}
+                        {(eq as any).vlan && (eq as any).interfaceIp ? " · " : ""}
+                        {(eq as any).interfaceIp ?? ""}
+                      </span>
+                    </div>
+                  )}
+                  {(eq as any).serviceDescription && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="text-blue-400/60 shrink-0">Serv</span>
+                      <span className="truncate italic">{(eq as any).serviceDescription}</span>
                     </div>
                   )}
                 </div>
@@ -586,6 +619,45 @@ export default function Equipments() {
               </div>
               <p className="text-[11px] text-muted-foreground">Cole a URL de uma imagem do equipamento. Ela aparecerá na topologia de racks.</p>
             </div>
+            {/* Rede */}
+            <div className="col-span-2">
+              <div className="flex items-center gap-2 mb-3 mt-1">
+                <Globe className="h-4 w-4 text-blue-400" />
+                <span className="text-sm font-medium text-foreground">Rede</span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>VLAN ID</Label>
+              <Input
+                type="number" min={1} max={4094}
+                value={form.vlan}
+                onChange={(e) => setForm({ ...form, vlan: e.target.value })}
+                placeholder="Ex: 100"
+                className="bg-background border-border/50"
+              />
+              <p className="text-[11px] text-muted-foreground">ID da VLAN (1–4094)</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Interface / IP de Gerência</Label>
+              <Input
+                value={form.interfaceIp}
+                onChange={(e) => setForm({ ...form, interfaceIp: e.target.value })}
+                placeholder="Ex: 10.0.0.1/24"
+                className="bg-background border-border/50 font-mono text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground">IP da interface de gerência com máscara</p>
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Descrição do Serviço</Label>
+              <Input
+                value={form.serviceDescription}
+                onChange={(e) => setForm({ ...form, serviceDescription: e.target.value })}
+                placeholder="Ex: Core MPLS, Acesso cliente FTTH, Backbone 10G, Gerência OLT..."
+                className="bg-background border-border/50"
+              />
+              <p className="text-[11px] text-muted-foreground">Finalidade ou serviço ao qual este equipamento está destinado</p>
+            </div>
+
             <div className="col-span-2 space-y-1.5">
               <Label>Observações</Label>
               <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notas adicionais sobre o equipamento..." className="bg-background border-border/50 resize-none" rows={3} />

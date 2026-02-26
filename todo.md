@@ -276,3 +276,20 @@
 - [x] Relatórios de utilização de blocos IP
 - [x] Navegação: adicionar IP DOC ao sidebar
 - [x] Testes vitest para procedures de IP DOC
+
+## Melhorias IP DOC — Rodada 2
+
+- [x] Reposicionar IP DOC no sidebar: abaixo de Equipamentos
+- [x] Importação CSV em massa de IPs (address;hostname;owner;mac) no detalhe do bloco
+- [x] Procedure tRPC: ipDoc.importCsv
+- [x] Procedure tRPC: ipDoc.primaryByEquipment (IP alocado por equipmentId)
+- [x] Testes vitest para importCsv
+
+## Equipamentos — Campos VLAN, Interface/IP e Serviço
+
+- [x] Schema: adicionar vlan, interfaceIp, ipBlockId, serviceDescription na tabela equipments
+- [x] Migration SQL aplicada
+- [x] Procedure tRPC: atualizar equipments.create e equipments.update com novos campos
+- [x] Formulário de cadastro/edição: seção "Rede" com VLAN, Interface/IP e Descrição do Serviço
+- [x] Listagem de equipamentos: exibir VLAN e IP principal no card
+- [x] Importação CSV de IPs: botão no detalhe do bloco IP

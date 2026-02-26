@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db";
 import { ipBlocks, ipAddresses, equipments } from "../drizzle/schema";
 
@@ -290,4 +290,54 @@ export async function getIpDashboardSummary() {
     utilizationPct: totalHosts > 0 ? Math.round(((totalAllocated + totalReserved) / totalHosts) * 100) : 0,
     blocks: blocksWithStats,
   };
+}
+
+// ─── IP Principal por Equipamento ────────────────────────────────────────────
+
+export async function getPrimaryIpByEquipment(equipmentId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select({
+      id: ipAddresses.id,
+      address: ipAddresses.address,
+      blockId: ipAddresses.blockId,
+      status: ipAddresses.status,
+      hostname: ipAddresses.hostname,
+    })
+    .from(ipAddresses)
+    .where(and(eq(ipAddresses.equipmentId, equipmentId), eq(ipAddresses.status, "allocated")))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getPrimaryIpsByEquipments(equipmentIds: number[]) {
+  if (equipmentIds.length === 0) return {};
+  const db = await getDb();
+  if (!db) return {};
+  const rows = await db
+    .select({
+      id: ipAddresses.id,
+      address: ipAddresses.address,
+      blockId: ipAddresses.blockId,
+      status: ipAddresses.status,
+      hostname: ipAddresses.hostname,
+      equipmentId: ipAddresses.equipmentId,
+    })
+    .from(ipAddresses)
+    .where(and(inArray(ipAddresses.equipmentId, equipmentIds), eq(ipAddresses.status, "allocated")));
+
+  // Retorna um mapa equipmentId -> primeiro IP alocado
+  const map: Record<number, { id: number; address: string; blockId: number; hostname: string | null }> = {};
+  for (const row of rows) {
+    if (row.equipmentId && !map[row.equipmentId]) {
+      map[row.equipmentId] = {
+        id: row.id,
+        address: row.address,
+        blockId: row.blockId,
+        hostname: row.hostname,
+      };
+    }
+  }
+  return map;
 }

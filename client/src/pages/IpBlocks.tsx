@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { toast } from "sonner";
 import {
   Network, Plus, Edit2, Trash2, Search, Filter, ChevronLeft,
-  Globe, Server, Wifi, CheckCircle, XCircle, Clock, Cpu,
+  Globe, Server, Wifi, CheckCircle, XCircle, Clock, Cpu, Upload, FileText, Download,
 } from "lucide-react";
 
 const TYPE_OPTIONS = [
@@ -292,6 +292,10 @@ export default function IpBlocks() {
   const [showIpForm, setShowIpForm] = useState(false);
   const [editingIp, setEditingIp] = useState<any>(null);
   const [deletingIp, setDeletingIp] = useState<any>(null);
+  const [showCsvImport, setShowCsvImport] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  const [csvPreview, setCsvPreview] = useState<any[]>([]);
+  const [csvErrors, setCsvErrors] = useState<string[]>([]);
   const [ipSearch, setIpSearch] = useState("");
   const [ipFilterStatus, setIpFilterStatus] = useState("all");
 
@@ -331,6 +335,37 @@ export default function IpBlocks() {
   const deleteAddress = trpc.ipDoc.deleteAddress.useMutation({
     onSuccess: () => { utils.ipDoc.addressesByBlock.invalidate(); utils.ipDoc.dashboard.invalidate(); setDeletingIp(null); toast.success("Registro excluído"); },
   });
+  const importCsv = trpc.ipDoc.importCsv.useMutation({
+    onSuccess: (r) => {
+      utils.ipDoc.addressesByBlock.invalidate();
+      utils.ipDoc.dashboard.invalidate();
+      setShowCsvImport(false);
+      setCsvText("");
+      setCsvPreview([]);
+      toast.success(`Importados: ${r.imported} IPs${r.skipped > 0 ? ` | ${r.skipped} ignorados` : ""}`);
+    },
+    onError: (e) => toast.error("Erro na importação: " + e.message),
+  });
+
+  const parseCsvText = (text: string) => {
+    const lines = text.trim().split("\n").filter(Boolean);
+    const rows: any[] = [];
+    const errs: string[] = [];
+    const firstLine = lines[0]?.toLowerCase() ?? "";
+    const hasHeader = firstLine.includes("address") || firstLine.includes("ip");
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+    for (const line of dataLines) {
+      const sep = line.includes(";") ? ";" : ",";
+      const cols = line.split(sep).map((c) => c.trim().replace(/^"|"$/g, ""));
+      const address = cols[0];
+      if (!address || !address.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
+        errs.push(`Linha ignorada (IP inválido): "${line.slice(0, 40)}"`); continue;
+      }
+      rows.push({ address, hostname: cols[1] || null, owner: cols[2] || null, mac: cols[3] || null, description: cols[4] || null });
+    }
+    setCsvPreview(rows);
+    setCsvErrors(errs);
+  };
 
   const isAdmin = user?.role === "admin";
 
@@ -380,9 +415,12 @@ export default function IpBlocks() {
             {block.description && <p className="text-sm text-muted-foreground mt-1">{block.description}</p>}
           </div>
           {isAdmin && (
-            <div className="flex gap-2 shrink-0">
+            <div className="flex gap-2 shrink-0 flex-wrap">
               <Button variant="outline" size="sm" className="gap-1" onClick={() => setEditingBlock(block)}>
                 <Edit2 className="h-3 w-3" /> Editar
+              </Button>
+              <Button variant="outline" size="sm" className="gap-1" onClick={() => { setShowCsvImport(true); setCsvText(""); setCsvPreview([]); setCsvErrors([]); }}>
+                <Upload className="h-3 w-3" /> Importar CSV
               </Button>
               <Button size="sm" className="gap-1" onClick={() => setShowIpForm(true)}>
                 <Plus className="h-3 w-3" /> Alocar IP
@@ -693,6 +731,97 @@ export default function IpBlocks() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Dialog de Importação CSV */}
+      <Dialog open={showCsvImport} onOpenChange={(o) => { if (!o) { setShowCsvImport(false); setCsvText(""); setCsvPreview([]); setCsvErrors([]); } }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-4 w-4 text-primary" />
+              Importar IPs via CSV
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-muted/30 rounded-lg p-3 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground">Formato esperado (separador: <code className="font-mono">,</code> ou <code className="font-mono">;</code>):</p>
+              <code className="block font-mono text-xs bg-background rounded px-2 py-1">address;hostname;owner;mac;description</code>
+              <p>A primeira linha pode ser um cabeçalho (será ignorado automaticamente). Apenas o campo <strong>address</strong> é obrigatório.</p>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>Cole o conteúdo CSV aqui</Label>
+                <label className="cursor-pointer">
+                  <span className="text-xs text-primary hover:underline flex items-center gap-1">
+                    <FileText className="h-3 w-3" /> Carregar arquivo
+                  </span>
+                  <input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      const text = ev.target?.result as string;
+                      setCsvText(text);
+                      parseCsvText(text);
+                    };
+                    reader.readAsText(file, "UTF-8");
+                  }} />
+                </label>
+              </div>
+              <Textarea
+                value={csvText}
+                onChange={(e) => { setCsvText(e.target.value); parseCsvText(e.target.value); }}
+                placeholder={`192.168.1.1;router-core;Infraestrutura;AA:BB:CC:DD:EE:FF;Gateway principal\n192.168.1.2;sw-acesso-01;TI;00:11:22:33:44:55;Switch de acesso`}
+                className="bg-background border-border/50 font-mono text-xs resize-none"
+                rows={6}
+              />
+            </div>
+            {csvPreview.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-foreground">{csvPreview.length} endereço{csvPreview.length !== 1 ? "s" : ""} válido{csvPreview.length !== 1 ? "s" : ""} encontrado{csvPreview.length !== 1 ? "s" : ""}:</p>
+                <div className="max-h-40 overflow-y-auto rounded border border-border/50">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/40 sticky top-0">
+                      <tr>
+                        <th className="text-left px-2 py-1.5 font-medium">IP</th>
+                        <th className="text-left px-2 py-1.5 font-medium">Hostname</th>
+                        <th className="text-left px-2 py-1.5 font-medium">Responsável</th>
+                        <th className="text-left px-2 py-1.5 font-medium">MAC</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csvPreview.slice(0, 50).map((row, i) => (
+                        <tr key={i} className="border-t border-border/30">
+                          <td className="px-2 py-1 font-mono">{row.address}</td>
+                          <td className="px-2 py-1 text-muted-foreground">{row.hostname ?? "—"}</td>
+                          <td className="px-2 py-1 text-muted-foreground">{row.owner ?? "—"}</td>
+                          <td className="px-2 py-1 font-mono text-muted-foreground">{row.mac ?? "—"}</td>
+                        </tr>
+                      ))}
+                      {csvPreview.length > 50 && <tr><td colSpan={4} className="px-2 py-1 text-center text-muted-foreground">... e mais {csvPreview.length - 50} registros</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            {csvErrors.length > 0 && (
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 space-y-1">
+                <p className="text-xs font-medium text-yellow-400">{csvErrors.length} linha{csvErrors.length !== 1 ? "s" : ""} ignorada{csvErrors.length !== 1 ? "s" : ""}:</p>
+                {csvErrors.slice(0, 5).map((e, i) => <p key={i} className="text-xs text-muted-foreground font-mono">{e}</p>)}
+                {csvErrors.length > 5 && <p className="text-xs text-muted-foreground">... e mais {csvErrors.length - 5}</p>}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowCsvImport(false); setCsvText(""); setCsvPreview([]); setCsvErrors([]); }}>Cancelar</Button>
+            <Button
+              disabled={csvPreview.length === 0 || importCsv.isPending}
+              onClick={() => blockId && importCsv.mutate({ blockId, rows: csvPreview })}
+            >
+              {importCsv.isPending ? "Importando..." : `Importar ${csvPreview.length} IPs`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

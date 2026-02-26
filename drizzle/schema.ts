@@ -76,6 +76,11 @@ export const equipments = mysqlTable("equipments", {
   powerSource: mysqlEnum("power_source", ["rectifier", "inverter", "ups", "grid", "other"]),  // Fonte de alimentação
   powerSourceLabel: varchar("powerSourceLabel", { length: 128 }),      // Identificação da fonte (ex: "Retificadora R1")
   notes: text("notes"),
+  // Campos de rede
+  vlan: int("vlan"),                                                          // VLAN ID (ex: 100)
+  interfaceIp: varchar("interfaceIp", { length: 64 }),                        // IP da interface de gerência (ex: 10.0.0.1/24)
+  ipBlockId: int("ipBlockId"),                                                // FK para ip_blocks (bloco IP associado)
+  serviceDescription: varchar("serviceDescription", { length: 255 }),        // Descrição do serviço (ex: "Core MPLS", "Acesso cliente")
   status: mysqlEnum("status", ["active", "inactive", "maintenance"]).default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

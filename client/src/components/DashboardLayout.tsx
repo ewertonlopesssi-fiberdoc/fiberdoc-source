@@ -53,6 +53,7 @@ const publicMenuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Wifi, label: "Salas / Locais", path: "/salas" },
   { icon: Server, label: "Equipamentos", path: "/equipamentos" },
+  { icon: Globe, label: "IP DOC", path: "/ip-doc" },
   { icon: Network, label: "Topologia", path: "/topologia" },
   { icon: Box, label: "CEO", path: "/ceo" },
   { icon: Cable, label: "Fibras Ópticas", path: "/fibras" },
@@ -61,7 +62,6 @@ const publicMenuItems = [
   { icon: History, label: "Histórico", path: "/historico" },
   { icon: Upload, label: "Importar CSV", path: "/importar" },
   { icon: FileBarChart, label: "Relatório de Ocupação", path: "/relatorio-ocupacao" },
-  { icon: Globe, label: "IP DOC", path: "/ip-doc" },
 ];
 
 const adminOnlyMenuItems = [
