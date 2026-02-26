@@ -20,12 +20,18 @@ import Users from "./pages/Users";
 import Backup from "./pages/Backup";
 import SystemSettings from "./pages/SystemSettings";
 import OccupancyReport from "./pages/OccupancyReport";
+import Welcome from "./pages/Welcome";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
   // Rota do PWA mobile — sem DashboardLayout
   if (window.location.pathname.startsWith("/mobile")) {
     return <MobileApp />;
+  }
+
+  // Rota de boas-vindas — sem DashboardLayout
+  if (window.location.pathname === "/bem-vindo") {
+    return <Welcome />;
   }
 
   return (
