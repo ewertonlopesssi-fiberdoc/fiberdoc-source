@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `tuya_readings` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`deviceId` int NOT NULL,\n\t`temperature` float,\n\t`humidity` float,\n\t`co2` float,\n\t`power` float,\n\t`voltage` float,\n\t`current` float,\n\t`rawData` text,\n\t`collectedAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `tuya_readings_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `tuya_readings` ADD CONSTRAINT `tuya_readings_deviceId_tuya_devices_id_fk` FOREIGN KEY (`deviceId`) REFERENCES `tuya_devices`(`id`) ON DELETE cascade ON UPDATE no action;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute CREATE TABLE `tuya_readings` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`deviceId` int NOT NULL,\n\t`temperature` float,\n\t`humidity` float,\n\t`co2` float,\n\t`power` float,\n\t`voltage` float,\n\t`current` float,\n\t`rawData` text,\n\t`collectedAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `tuya_readings_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `tuya_readings` ADD CONSTRAINT `tuya_readings_deviceId_tuya_devices_id_fk` FOREIGN KEY (`deviceId`) REFERENCES `tuya_devices`(`id`) ON DELETE cascade ON UPDATE no action;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 914
+}

@@ -463,3 +463,30 @@
 - [x] Seção Contas Tuya IoT na página de Sistema com CRUD e botão Testar conexão
 - [x] Item "Sensores Tuya" no menu lateral
 - [x] 156 testes passando (15 arquivos)
+
+## Dashboard Tuya, Histórico de Leituras e Sensores nas Salas
+
+- [ ] Tabela tuya_readings (id, deviceId, temperature, humidity, co2, power, rawData, collectedAt)
+- [ ] Migration SQL aplicada
+- [ ] DB helpers: createTuyaReading, getTuyaReadingsByDevice (últimas 24h)
+- [ ] tuyaPoller: salvar leitura no histórico após cada coleta bem-sucedida
+- [ ] Procedure tRPC: tuyaDevices.readings (últimas N leituras por device)
+- [ ] Procedure tRPC: tuyaDevices.latestAll (último valor de todos os sensores ativos)
+- [ ] Card de sensores Tuya no Dashboard (temperatura, umidade, CO2 por sensor)
+- [ ] Gráfico de linha 24h na página /sensores-tuya (temperatura e umidade)
+- [ ] Campo roomId (FK) na tabela tuya_devices para associar sensor à sala
+- [ ] Migration SQL do campo roomId
+- [ ] Seletor de sala no formulário de cadastro de sensor Tuya
+- [ ] Exibir temperatura/umidade do sensor na página de Salas/Locais
+- [ ] Exibir temperatura/umidade do sensor na Topologia de Racks
+
+## Dashboard Tuya, Histórico de Leituras e Sensores nas Salas
+
+- [x] Tabela tuya_readings para histórico de leituras (migration 0021 aplicada)
+- [x] tuyaPoller atualizado para salvar cada leitura no histórico
+- [x] DB helpers: createTuyaReading, getTuyaReadingsByDevice, getLatestTuyaReadings
+- [x] Procedures tRPC: tuyaDevices.readings e tuyaDevices.latestAll
+- [x] Card de sensores Tuya no Dashboard com temperatura, umidade e CO₂ em tempo real
+- [x] Modal de histórico com gráficos de área (temperatura, umidade, CO₂, potência) — períodos 6h/12h/24h/48h/7d
+- [x] Temperatura e umidade do sensor exibidos nos cards de Salas e Locais
+- [x] 156 testes passando (15 arquivos)

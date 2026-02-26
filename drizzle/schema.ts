@@ -510,3 +510,19 @@ export const tuyaAccounts = mysqlTable("tuya_accounts", {
 });
 export type TuyaAccount = typeof tuyaAccounts.$inferSelect;
 export type InsertTuyaAccount = typeof tuyaAccounts.$inferInsert;
+
+// ─── Histórico de Leituras Tuya ───────────────────────────────────────────────
+export const tuyaReadings = mysqlTable("tuya_readings", {
+  id: int("id").autoincrement().primaryKey(),
+  deviceId: int("deviceId").notNull().references(() => tuyaDevices.id, { onDelete: "cascade" }),
+  temperature: float("temperature"),
+  humidity: float("humidity"),
+  co2: float("co2"),
+  power: float("power"),
+  voltage: float("voltage"),
+  current: float("current"),
+  rawData: text("rawData"), // JSON com todos os DPs coletados
+  collectedAt: timestamp("collectedAt").defaultNow().notNull(),
+});
+export type TuyaReading = typeof tuyaReadings.$inferSelect;
+export type InsertTuyaReading = typeof tuyaReadings.$inferInsert;

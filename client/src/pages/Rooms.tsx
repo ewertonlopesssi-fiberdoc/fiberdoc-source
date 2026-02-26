@@ -22,7 +22,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Plus, Search, Building2, Edit, Trash2, MapPin, Server, QrCode } from "lucide-react";
+import { Plus, Search, Building2, Edit, Trash2, MapPin, Server, QrCode, Thermometer, Droplets } from "lucide-react";
 import { useRole } from "@/hooks/useRole";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -69,6 +69,12 @@ export default function Rooms() {
   const utils = trpc.useUtils();
 
   const { data: rooms, isLoading } = trpc.rooms.list.useQuery();
+  const { data: tuyaSensors = [] } = trpc.tuyaDevices.latestAll.useQuery(undefined, { refetchInterval: 60_000 });
+  type SensorSummary = { roomId?: number | null; id: number; name: string; lastTemperature?: number | null; lastHumidity?: number | null; status: string };
+  const sensorsByRoom = (tuyaSensors as SensorSummary[]).reduce<Record<number, SensorSummary[]>>((acc, s) => {
+    if (s.roomId) { if (!acc[s.roomId]) acc[s.roomId] = []; acc[s.roomId].push(s); }
+    return acc;
+  }, {});
 
   const createMutation = trpc.rooms.create.useMutation({
     onSuccess: () => {
@@ -224,7 +230,23 @@ export default function Rooms() {
                       <span className="truncate">{room.location}</span>
                     </div>
                   )}
-
+                  {/* Sensores Tuya associados à sala */}
+                  {(sensorsByRoom[room.id] ?? []).map((s: any) => (
+                    <div key={s.id} className="flex items-center gap-2 text-xs mt-1">
+                      <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${s.status === 'online' ? 'bg-emerald-400' : 'bg-muted-foreground/40'}`} />
+                      <span className="text-muted-foreground truncate flex-1">{s.name}</span>
+                      {s.lastTemperature != null && (
+                        <span className="flex items-center gap-0.5 text-orange-400 font-medium shrink-0">
+                          <Thermometer className="h-3 w-3" />{Number(s.lastTemperature).toFixed(1)}°C
+                        </span>
+                      )}
+                      {s.lastHumidity != null && (
+                        <span className="flex items-center gap-0.5 text-blue-400 font-medium shrink-0">
+                          <Droplets className="h-3 w-3" />{Number(s.lastHumidity).toFixed(0)}%
+                        </span>
+                      )}
+                    </div>
+                  ))}
                 </div>
 
                 <div className="flex items-center gap-2 pt-3 border-t border-border/30">

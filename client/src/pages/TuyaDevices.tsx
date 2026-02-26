@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+} from "recharts";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
@@ -111,6 +114,20 @@ export default function TuyaDevices() {
   const [form, setForm] = useState<DeviceForm>(EMPTY_FORM);
   const [tab, setTab] = useState("geral");
   const [pollingId, setPollingId] = useState<number | null>(null);
+  const [historyDeviceId, setHistoryDeviceId] = useState<number | null>(null);
+  const [historyHours, setHistoryHours] = useState(24);
+  const { data: readings = [] } = trpc.tuyaDevices.readings.useQuery(
+    { id: historyDeviceId!, hours: historyHours },
+    { enabled: historyDeviceId !== null, refetchInterval: 60_000 }
+  );
+  const historyDevice = useMemo(() => devices.find((d) => d.id === historyDeviceId), [devices, historyDeviceId]);
+  const chartData = useMemo(() => readings.map((r) => ({
+    time: new Date(r.collectedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+    temp: r.temperature !== null ? Number(r.temperature) : undefined,
+    hum: r.humidity !== null ? Number(r.humidity) : undefined,
+    co2: r.co2 !== null ? Number(r.co2) : undefined,
+    power: r.power !== null ? Number(r.power) : undefined,
+  })), [readings]);
 
   const utils = trpc.useUtils();
 
@@ -333,6 +350,9 @@ export default function TuyaDevices() {
                         >
                           <RefreshCw className={`w-3.5 h-3.5 mr-1 ${pollingId === d.id ? "animate-spin" : ""}`} />
                           {pollingId === d.id ? "Coletando..." : "Coletar agora"}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setHistoryDeviceId(d.id)} title="Ver histórico">
+                          <ChevronRight className="w-3.5 h-3.5" />
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => openEdit(d)}>
                           <Pencil className="w-3.5 h-3.5" />
@@ -560,6 +580,101 @@ export default function TuyaDevices() {
               {editId ? "Salvar alterações" : "Cadastrar sensor"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de histórico de leituras */}
+      <Dialog open={historyDeviceId !== null} onOpenChange={(o) => !o && setHistoryDeviceId(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Histórico — {historyDevice?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-sm text-muted-foreground">Período:</span>
+            {[6, 12, 24, 48, 168].map((h) => (
+              <button
+                key={h}
+                onClick={() => setHistoryHours(h)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  historyHours === h
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/40 text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                {h < 24 ? `${h}h` : h === 168 ? "7d" : `${h / 24}d`}
+              </button>
+            ))}
+          </div>
+          {chartData.length === 0 ? (
+            <div className="py-16 text-center text-muted-foreground text-sm">
+              <Cpu className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              Nenhuma leitura registrada no período selecionado
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {chartData.some((d) => d.temp !== undefined) && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Temperatura (°C)</p>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                      <defs><linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="oklch(0.65 0.18 30)" stopOpacity={0.3} /><stop offset="95%" stopColor="oklch(0.65 0.18 30)" stopOpacity={0} /></linearGradient></defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.22 0.02 240)" />
+                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: "oklch(0.55 0.02 240)" }} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10, fill: "oklch(0.55 0.02 240)" }} />
+                      <Tooltip contentStyle={{ backgroundColor: "oklch(0.13 0.018 240)", border: "1px solid oklch(0.22 0.02 240)", borderRadius: "8px", color: "oklch(0.95 0.01 240)" }} />
+                      <Area type="monotone" dataKey="temp" name="Temperatura" stroke="oklch(0.65 0.18 30)" fill="url(#tempGrad)" dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {chartData.some((d) => d.hum !== undefined) && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Umidade (%)</p>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                      <defs><linearGradient id="humGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="oklch(0.65 0.18 210)" stopOpacity={0.3} /><stop offset="95%" stopColor="oklch(0.65 0.18 210)" stopOpacity={0} /></linearGradient></defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.22 0.02 240)" />
+                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: "oklch(0.55 0.02 240)" }} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10, fill: "oklch(0.55 0.02 240)" }} />
+                      <Tooltip contentStyle={{ backgroundColor: "oklch(0.13 0.018 240)", border: "1px solid oklch(0.22 0.02 240)", borderRadius: "8px", color: "oklch(0.95 0.01 240)" }} />
+                      <Area type="monotone" dataKey="hum" name="Umidade" stroke="oklch(0.65 0.18 210)" fill="url(#humGrad)" dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {chartData.some((d) => d.co2 !== undefined) && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">CO₂ (ppm)</p>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                      <defs><linearGradient id="co2Grad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="oklch(0.60 0.18 145)" stopOpacity={0.3} /><stop offset="95%" stopColor="oklch(0.60 0.18 145)" stopOpacity={0} /></linearGradient></defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.22 0.02 240)" />
+                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: "oklch(0.55 0.02 240)" }} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10, fill: "oklch(0.55 0.02 240)" }} />
+                      <Tooltip contentStyle={{ backgroundColor: "oklch(0.13 0.018 240)", border: "1px solid oklch(0.22 0.02 240)", borderRadius: "8px", color: "oklch(0.95 0.01 240)" }} />
+                      <Area type="monotone" dataKey="co2" name="CO₂" stroke="oklch(0.60 0.18 145)" fill="url(#co2Grad)" dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {chartData.some((d) => d.power !== undefined) && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Potência (W)</p>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                      <defs><linearGradient id="powerGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="oklch(0.75 0.18 75)" stopOpacity={0.3} /><stop offset="95%" stopColor="oklch(0.75 0.18 75)" stopOpacity={0} /></linearGradient></defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.22 0.02 240)" />
+                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: "oklch(0.55 0.02 240)" }} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10, fill: "oklch(0.55 0.02 240)" }} />
+                      <Tooltip contentStyle={{ backgroundColor: "oklch(0.13 0.018 240)", border: "1px solid oklch(0.22 0.02 240)", borderRadius: "8px", color: "oklch(0.95 0.01 240)" }} />
+                      <Area type="monotone" dataKey="power" name="Potência" stroke="oklch(0.75 0.18 75)" fill="url(#powerGrad)" dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground text-right">{readings.length} leituras no período</p>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </DashboardLayout>

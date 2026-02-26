@@ -15,6 +15,10 @@ import {
   Clock,
   AlertTriangle,
   ChevronRight,
+  Thermometer,
+  Droplets,
+  Wind,
+  Cpu,
 } from "lucide-react";
 import {
   BarChart,
@@ -117,6 +121,7 @@ function StatCard({
 
 export default function Dashboard() {
   const { data: stats, isLoading } = trpc.dashboard.stats.useQuery();
+  const { data: tuyaSensors } = trpc.tuyaDevices.latestAll.useQuery(undefined, { refetchInterval: 60_000 });
   const [, setLocation] = useLocation();
 
   if (isLoading) {
@@ -378,6 +383,75 @@ export default function Dashboard() {
                     </span>
                     <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sensores Tuya */}
+      {(tuyaSensors ?? []).length > 0 && (
+        <Card className="border-border/50 bg-card">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center">
+                  <Cpu className="h-3.5 w-3.5 text-cyan-400" />
+                </div>
+                <CardTitle className="text-sm font-semibold text-foreground">Sensores Tuya</CardTitle>
+                <span className="text-xs text-cyan-400 bg-cyan-400/10 border border-cyan-400/20 px-1.5 py-0.5 rounded-md font-medium">
+                  {(tuyaSensors ?? []).length} online
+                </span>
+              </div>
+              <button
+                onClick={() => setLocation("/sensores-tuya")}
+                className="text-xs text-primary hover:text-primary/80 transition-colors"
+              >
+                Ver todos
+              </button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {(tuyaSensors ?? []).map((sensor) => (
+                <div
+                  key={sensor.id}
+                  className="flex flex-col gap-2 p-3 rounded-lg border border-border/30 bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer"
+                  onClick={() => setLocation("/sensores-tuya")}
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-foreground truncate">{sensor.name}</p>
+                    <div className="h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
+                  </div>
+                  {sensor.notes && (
+                    <p className="text-xs text-muted-foreground truncate">{sensor.notes}</p>
+                  )}
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {sensor.lastTemperature !== null && sensor.lastTemperature !== undefined && (
+                      <div className="flex items-center gap-1 text-xs">
+                        <Thermometer className="h-3 w-3 text-orange-400" />
+                        <span className="text-foreground font-medium">{Number(sensor.lastTemperature).toFixed(1)}°C</span>
+                      </div>
+                    )}
+                    {sensor.lastHumidity !== null && sensor.lastHumidity !== undefined && (
+                      <div className="flex items-center gap-1 text-xs">
+                        <Droplets className="h-3 w-3 text-blue-400" />
+                        <span className="text-foreground font-medium">{Number(sensor.lastHumidity).toFixed(0)}%</span>
+                      </div>
+                    )}
+                    {sensor.lastCo2 !== null && sensor.lastCo2 !== undefined && (
+                      <div className="flex items-center gap-1 text-xs">
+                        <Wind className="h-3 w-3 text-green-400" />
+                        <span className="text-foreground font-medium">{Number(sensor.lastCo2)} ppm</span>
+                      </div>
+                    )}
+                  </div>
+                  {sensor.latestReading && (
+                    <p className="text-xs text-muted-foreground">
+                      {formatDistanceToNow(new Date(sensor.latestReading.collectedAt), { addSuffix: true, locale: ptBR })}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

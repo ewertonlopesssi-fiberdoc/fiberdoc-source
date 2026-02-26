@@ -20,6 +20,7 @@ import {
   createSnmpAlert,
   getSystemSettings,
   getTuyaAccountById,
+  createTuyaReading,
 } from "./db";
 import { sendTelegramMessage, TelegramConfig } from "./telegram";
 
@@ -360,6 +361,18 @@ export async function pollSingleTuyaDevice(deviceId: number): Promise<void> {
       lastCurrent: values.current,
       lastRawData: rawData,
     });
+
+    // Salvar leitura no histórico
+    await createTuyaReading({
+      deviceId,
+      temperature: values.temperature ?? undefined,
+      humidity: values.humidity ?? undefined,
+      co2: values.co2 ?? undefined,
+      power: values.power ?? undefined,
+      voltage: values.voltage ?? undefined,
+      current: values.current ?? undefined,
+      rawData,
+    }).catch(console.error);
 
     // Avaliar alertas
     const telegramConfig: TelegramConfig | null =

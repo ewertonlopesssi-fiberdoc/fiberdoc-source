@@ -148,6 +148,13 @@
       "when": 1772144208568,
       "tag": "0020_little_wendell_rand",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1772144994574,
+      "tag": "0021_curly_mysterio",
+      "breakpoints": true
     }
   ]
 }

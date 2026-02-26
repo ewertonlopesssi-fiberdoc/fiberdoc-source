@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   Connection,
@@ -38,6 +38,9 @@ import {
   tuyaAccounts,
   TuyaAccount,
   InsertTuyaAccount,
+  tuyaReadings,
+  TuyaReading,
+  InsertTuyaReading,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1558,4 +1561,64 @@ export async function deleteTuyaAccount(id: number): Promise<void> {
   const db = await getDb();
   if (!db) return;
   await db.delete(tuyaAccounts).where(eq(tuyaAccounts.id, id));
+}
+
+// ─── Tuya Readings (histórico de leituras) ────────────────────────────────────
+export async function createTuyaReading(data: Omit<InsertTuyaReading, "id" | "collectedAt">): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(tuyaReadings).values(data as InsertTuyaReading);
+  // Manter apenas as últimas 2880 leituras por dispositivo (~24h com polling de 30s ou ~10 dias com 5min)
+  const countRows = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(tuyaReadings)
+    .where(eq(tuyaReadings.deviceId, data.deviceId as number));
+  const count = Number(countRows[0]?.count ?? 0);
+  if (count > 2880) {
+    // Deletar as mais antigas além do limite
+    const oldest = await db
+      .select({ id: tuyaReadings.id })
+      .from(tuyaReadings)
+      .where(eq(tuyaReadings.deviceId, data.deviceId as number))
+      .orderBy(tuyaReadings.collectedAt)
+      .limit(count - 2880);
+    if (oldest.length > 0) {
+      const ids = oldest.map((r) => r.id);
+      await db.delete(tuyaReadings).where(inArray(tuyaReadings.id, ids));
+    }
+  }
+}
+
+export async function getTuyaReadingsByDevice(deviceId: number, hours = 24): Promise<TuyaReading[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+  return db
+    .select()
+    .from(tuyaReadings)
+    .where(and(eq(tuyaReadings.deviceId, deviceId), gte(tuyaReadings.collectedAt, since)))
+    .orderBy(tuyaReadings.collectedAt);
+}
+
+export async function getLatestTuyaReadings(): Promise<Array<TuyaDevice & { latestReading: TuyaReading | null }>> {
+  const db = await getDb();
+  if (!db) return [];
+  const devices = await db
+    .select()
+    .from(tuyaDevices)
+    .where(eq(tuyaDevices.status, "online"))
+    .orderBy(tuyaDevices.name);
+  // Para cada dispositivo, buscar a leitura mais recente
+  const result = await Promise.all(
+    devices.map(async (device) => {
+      const readings = await db
+        .select()
+        .from(tuyaReadings)
+        .where(eq(tuyaReadings.deviceId, device.id))
+        .orderBy(desc(tuyaReadings.collectedAt))
+        .limit(1);
+      return { ...device, latestReading: readings[0] ?? null };
+    })
+  );
+  return result;
 }

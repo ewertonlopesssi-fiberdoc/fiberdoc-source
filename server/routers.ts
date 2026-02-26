@@ -85,6 +85,7 @@ import { sendTelegramMessage } from "./telegram";
 import {
   getTuyaDevices, getTuyaDeviceById, createTuyaDevice, updateTuyaDevice, deleteTuyaDevice,
   getTuyaAccounts, getTuyaAccountById, createTuyaAccount, updateTuyaAccount, deleteTuyaAccount,
+  getTuyaReadingsByDevice, getLatestTuyaReadings,
 } from "./db";
 import { pollSingleTuyaDevice, testTuyaConnection, scheduleTuyaDevice, unscheduleTuyaDevice } from "./tuyaPoller";
 
@@ -1526,6 +1527,11 @@ export const appRouter = router({
     pollNow: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input }) => pollSingleTuyaDevice(input.id)),
+    readings: protectedProcedure
+      .input(z.object({ id: z.number(), hours: z.number().int().min(1).max(168).default(24) }))
+      .query(({ input }) => getTuyaReadingsByDevice(input.id, input.hours)),
+    latestAll: protectedProcedure
+      .query(() => getLatestTuyaReadings()),
     testConnection: adminProcedure
       .input(z.object({ accessId: z.string(), accessSecret: z.string(), region: z.enum(["us", "eu", "cn", "in"]) }))
       .mutation(({ input }) => testTuyaConnection(input)),
