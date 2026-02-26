@@ -42,6 +42,7 @@ import {
   Users as UsersIcon,
   Wifi,
   FileBarChart,
+  Globe,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -60,6 +61,7 @@ const publicMenuItems = [
   { icon: History, label: "Histórico", path: "/historico" },
   { icon: Upload, label: "Importar CSV", path: "/importar" },
   { icon: FileBarChart, label: "Relatório de Ocupação", path: "/relatorio-ocupacao" },
+  { icon: Globe, label: "IP DOC", path: "/ip-doc" },
 ];
 
 const adminOnlyMenuItems = [
@@ -143,6 +145,7 @@ function DashboardLayoutContent({
   const activeMenuItem = allMenuItems.find((item) => {
     if (item.path === "/") return location === "/";
     if (item.path === "/portas") return location.startsWith("/portas");
+    if (item.path === "/ip-doc") return location.startsWith("/ip-doc");
     return location.startsWith(item.path);
   });
 

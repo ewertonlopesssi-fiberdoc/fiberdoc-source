@@ -22,6 +22,9 @@ import SystemSettings from "./pages/SystemSettings";
 import OccupancyReport from "./pages/OccupancyReport";
 import RoomReport from "./pages/RoomReport";
 import Welcome from "./pages/Welcome";
+import IpDashboard from "./pages/IpDashboard";
+import IpBlocks from "./pages/IpBlocks";
+import IpReports from "./pages/IpReports";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
@@ -63,6 +66,10 @@ function Router() {
         <Route path={"/usuarios"} component={Users} />
         <Route path={"/backup"} component={Backup} />
         <Route path={"/sistema"} component={SystemSettings} />
+        <Route path={"/ip-doc"} component={IpDashboard} />
+        <Route path={"/ip-doc/blocos"} component={IpBlocks} />
+        <Route path={"/ip-doc/blocos/:id"} component={IpBlocks} />
+        <Route path={"/ip-doc/relatorios"} component={IpReports} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

@@ -78,6 +78,13 @@
       "when": 1772060674281,
       "tag": "0010_workable_harry_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1772131364972,
+      "tag": "0011_fast_power_pack",
+      "breakpoints": true
     }
   ]
 }

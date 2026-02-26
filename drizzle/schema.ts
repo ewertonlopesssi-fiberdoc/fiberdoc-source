@@ -271,3 +271,45 @@ export const systemSettings = mysqlTable("system_settings", {
 });
 export type SystemSetting = typeof systemSettings.$inferSelect;
 export type InsertSystemSetting = typeof systemSettings.$inferInsert;
+
+// ─── IP DOC — Blocos IP ──────────────────────────────────────────────────────
+export const ipBlocks = mysqlTable("ip_blocks", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  cidr: varchar("cidr", { length: 43 }).notNull(),          // ex: 192.168.1.0/24
+  networkAddress: varchar("networkAddress", { length: 39 }).notNull(), // primeiro IP
+  broadcastAddress: varchar("broadcastAddress", { length: 39 }).notNull(), // último IP
+  totalHosts: int("totalHosts").notNull(),
+  gateway: varchar("gateway", { length: 39 }),
+  dns1: varchar("dns1", { length: 39 }),
+  dns2: varchar("dns2", { length: 39 }),
+  vlan: int("vlan"),
+  type: mysqlEnum("ip_block_type", ["infrastructure", "clients", "management", "transit", "loopback", "reserved", "other"]).default("other").notNull(),
+  status: mysqlEnum("ip_block_status", ["active", "inactive", "reserved"]).default("active").notNull(),
+  description: text("description"),
+  roomId: int("roomId").references(() => rooms.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type IpBlock = typeof ipBlocks.$inferSelect;
+export type InsertIpBlock = typeof ipBlocks.$inferInsert;
+
+// ─── IP DOC — Endereços IP ───────────────────────────────────────────────────
+export const ipAddresses = mysqlTable("ip_addresses", {
+  id: int("id").autoincrement().primaryKey(),
+  blockId: int("blockId").notNull().references(() => ipBlocks.id, { onDelete: "cascade" }),
+  address: varchar("address", { length: 39 }).notNull(),    // ex: 192.168.1.10
+  status: mysqlEnum("ip_address_status", ["free", "allocated", "reserved", "dhcp"]).default("free").notNull(),
+  hostname: varchar("hostname", { length: 255 }),
+  description: text("description"),
+  equipmentId: int("equipmentId").references(() => equipments.id, { onDelete: "set null" }),
+  macAddress: varchar("macAddress", { length: 17 }),
+  owner: varchar("owner", { length: 128 }),                 // cliente ou setor
+  lastSeen: timestamp("lastSeen"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type IpAddress = typeof ipAddresses.$inferSelect;
+export type InsertIpAddress = typeof ipAddresses.$inferInsert;

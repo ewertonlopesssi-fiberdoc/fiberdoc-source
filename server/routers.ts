@@ -68,6 +68,11 @@ import {
   type BulkFiberRow,
 } from "./db";
 import { runBackup, calcNextRun } from "./backupScheduler";
+import {
+  getIpBlocks, getIpBlockById, createIpBlock, updateIpBlock, deleteIpBlock,
+  getIpAddressesByBlock, allocateIpAddress, releaseIpAddress, updateIpAddress, deleteIpAddress,
+  getIpBlockStats, getIpDashboardSummary, parseCidr,
+} from "./ipdb";
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
@@ -973,5 +978,139 @@ export const appRouter = router({
 
     listUsers: adminProcedure.query(() => listUsersForAdmin()),
   }),
+
+  // ─── IP DOC ────────────────────────────────────────────────────────────────
+  ipDoc: router({
+    // Dashboard
+    dashboard: protectedProcedure.query(() => getIpDashboardSummary()),
+
+    // Blocos
+    listBlocks: protectedProcedure
+      .input(z.object({
+        type: z.string().optional(),
+        status: z.string().optional(),
+        roomId: z.number().optional(),
+      }).optional())
+      .query(({ input }) => getIpBlocks(input ?? {})),
+
+    blockById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => getIpBlockById(input.id)),
+
+    createBlock: protectedProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        cidr: z.string().min(7),
+        gateway: z.string().optional().nullable(),
+        dns1: z.string().optional().nullable(),
+        dns2: z.string().optional().nullable(),
+        vlan: z.number().optional().nullable(),
+        type: z.enum(["infrastructure","clients","management","transit","loopback","reserved","other"]).optional(),
+        status: z.enum(["active","inactive","reserved"]).optional(),
+        description: z.string().optional().nullable(),
+        roomId: z.number().optional().nullable(),
+        notes: z.string().optional().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const id = await createIpBlock(input);
+          return { success: true, id };
+        } catch (e: any) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+        }
+      }),
+
+    updateBlock: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        gateway: z.string().optional().nullable(),
+        dns1: z.string().optional().nullable(),
+        dns2: z.string().optional().nullable(),
+        vlan: z.number().optional().nullable(),
+        type: z.enum(["infrastructure","clients","management","transit","loopback","reserved","other"]).optional(),
+        status: z.enum(["active","inactive","reserved"]).optional(),
+        description: z.string().optional().nullable(),
+        roomId: z.number().optional().nullable(),
+        notes: z.string().optional().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateIpBlock(id, data);
+        return { success: true };
+      }),
+
+    deleteBlock: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteIpBlock(input.id);
+        return { success: true };
+      }),
+
+    parseCidr: protectedProcedure
+      .input(z.object({ cidr: z.string() }))
+      .query(({ input }) => {
+        try { return { success: true, data: parseCidr(input.cidr) }; }
+        catch (e: any) { return { success: false, error: e.message }; }
+      }),
+
+    // Endereços
+    addressesByBlock: protectedProcedure
+      .input(z.object({ blockId: z.number() }))
+      .query(({ input }) => getIpAddressesByBlock(input.blockId)),
+
+    blockStats: protectedProcedure
+      .input(z.object({ blockId: z.number() }))
+      .query(({ input }) => getIpBlockStats(input.blockId)),
+
+    allocate: protectedProcedure
+      .input(z.object({
+        blockId: z.number(),
+        address: z.string(),
+        status: z.enum(["allocated","reserved","dhcp","free"]).optional(),
+        hostname: z.string().optional().nullable(),
+        description: z.string().optional().nullable(),
+        equipmentId: z.number().optional().nullable(),
+        macAddress: z.string().optional().nullable(),
+        owner: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await allocateIpAddress(input);
+        return { success: true, id };
+      }),
+
+    updateAddress: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["free","allocated","reserved","dhcp"]).optional(),
+        hostname: z.string().optional().nullable(),
+        description: z.string().optional().nullable(),
+        equipmentId: z.number().optional().nullable(),
+        macAddress: z.string().optional().nullable(),
+        owner: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateIpAddress(id, data);
+        return { success: true };
+      }),
+
+    releaseAddress: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await releaseIpAddress(input.id);
+        return { success: true };
+      }),
+
+    deleteAddress: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteIpAddress(input.id);
+        return { success: true };
+      }),
+  }),
 });
 export type AppRouter = typeof appRouter;
+

@@ -263,3 +263,16 @@
 - [x] Botão QR Code em cada bloco de equipamento na página /relatorio-sala/:id
 - [x] Dialog com QR Code que gera deep-link /mobile?eq=ID para o app mobile
 - [x] Botão Imprimir e Abrir no Mobile no dialog do QR Code
+
+## Módulo IP DOC
+- [x] Schema: tabelas ip_blocks e ip_addresses no banco de dados
+- [x] Migration SQL aplicada
+- [x] DB helpers: CRUD de blocos e endereços IP
+- [x] tRPC procedures: ipBlocks (list, create, update, delete, byId, summary)
+- [x] tRPC procedures: ipAddresses (byBlock, allocate, update, release)
+- [x] Dashboard de Blocos IP com KPIs e gráficos de utilização
+- [x] Gerenciamento de Blocos IP (CRUD + visualização de IPs por bloco)
+- [x] Alocação e liberação de endereços IP individuais
+- [x] Relatórios de utilização de blocos IP
+- [x] Navegação: adicionar IP DOC ao sidebar
+- [x] Testes vitest para procedures de IP DOC
