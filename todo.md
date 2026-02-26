@@ -311,3 +311,14 @@
 - [x] Endpoint /api/equipment-report-pdf com PDFKit (A4 landscape)
 - [x] Botão "Exportar PDF" na tela de Equipamentos
 - [x] 112 testes passando (11 arquivos)
+
+## Módulo de Atualização Remota (Upload via Browser)
+
+- [x] Instalar multer para upload de arquivos no servidor
+- [x] Endpoint POST /api/system/update — recebe ZIP, valida, extrai e aplica
+- [x] Endpoint GET /api/system/version — retorna versão atual e histórico
+- [x] Endpoint GET /api/system/update-status — retorna progresso em tempo real (SSE)
+- [x] Tela de Atualização do Sistema na página de Configurações (admin only)
+- [x] Exibir versão atual, histórico de atualizações e botão de upload
+- [x] Barra de progresso em tempo real durante a aplicação
+- [x] 123 testes passando (12 arquivos)

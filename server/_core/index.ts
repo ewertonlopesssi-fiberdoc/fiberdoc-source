@@ -10,6 +10,8 @@ import { serveStatic, setupVite } from "./vite";
 import { startBackupScheduler } from "../backupScheduler";
 import { generateIpReportPdf } from "../ipReportPdf";
 import { generateEquipmentReportPdf } from "../equipmentReportPdf";
+import multer from "multer";
+import { applyUpdate, getUpdateStatus, getCurrentVersion, getUpdateHistory } from "../systemUpdate";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -62,6 +64,51 @@ async function startServer() {
       if (!res.headersSent) {
         res.status(500).json({ error: "Erro ao gerar PDF" });
       }
+    }
+  });
+
+  // ─── Atualização Remota ───────────────────────────────────────────────────
+  const uploadStorage = multer({ dest: "/tmp/fiberdoc-uploads/", limits: { fileSize: 500 * 1024 * 1024 } });
+
+  // Versão atual
+  app.get("/api/system/version", async (_req, res) => {
+    try {
+      const [version, history] = await Promise.all([getCurrentVersion(), getUpdateHistory()]);
+      res.json({ version, history });
+    } catch (err) {
+      res.status(500).json({ error: "Erro ao obter versão" });
+    }
+  });
+
+  // Status da atualização em andamento (SSE)
+  app.get("/api/system/update-status", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+
+    const send = () => {
+      const status = getUpdateStatus();
+      res.write(`data: ${JSON.stringify(status)}\n\n`);
+      if (!status.running && (status.completedAt || status.error)) {
+        clearInterval(timer);
+        res.end();
+      }
+    };
+    send();
+    const timer = setInterval(send, 800);
+    req.on("close", () => clearInterval(timer));
+  });
+
+  // Upload e aplicação de atualização
+  app.post("/api/system/update", uploadStorage.single("update"), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Nenhum arquivo enviado" });
+    try {
+      // Aplicar em background
+      applyUpdate(req.file.path, req.file.originalname).catch(console.error);
+      res.json({ ok: true, message: "Atualização iniciada" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

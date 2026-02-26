@@ -570,8 +570,7 @@ export default function IpBlocks() {
               )}
             </CardContent>
           </Card>
-        ) : (
-        <>
+        ) : (<>
         {/* Filtros de endereços */}
         <div className="flex gap-2 flex-wrap">
           <div className="relative flex-1 min-w-48">

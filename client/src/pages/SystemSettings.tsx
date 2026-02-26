@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves, Bell } from "lucide-react";
+import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves, Bell, RefreshCw, CheckCircle2, XCircle, Clock, History, PackageOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const THEMES = [
@@ -202,6 +202,83 @@ export default function SystemSettingsPage() {
   const [logoFile, setLogoFile] = useState<{ base64: string; mimeType: string; filename: string } | null>(null);
   const [isDraggingLogo, setIsDraggingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // ─── Atualização Remota ──────────────────────────────────────────────────────
+  const [updateFile, setUpdateFile] = useState<File | null>(null);
+  const [isDraggingUpdate, setIsDraggingUpdate] = useState(false);
+  const [updateRunning, setUpdateRunning] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState(0);
+  const [updateLog, setUpdateLog] = useState<string[]>([]);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updateDone, setUpdateDone] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<{ version: string; buildDate: string; description: string } | null>(null);
+  const [updateHistory, setUpdateHistory] = useState<Array<{ version: string; appliedAt: string; description: string }>>([]);
+  const updateFileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch("/api/system/version")
+      .then((r) => r.json())
+      .then((d) => {
+        setVersionInfo(d.version);
+        setUpdateHistory(d.history ?? []);
+      })
+      .catch(() => {});
+  }, [updateDone]);
+
+  const handleUpdateFile = (file: File) => {
+    if (!file.name.endsWith(".zip")) { toast.error("Selecione um arquivo .zip"); return; }
+    setUpdateFile(file);
+    setUpdateError(null);
+    setUpdateDone(false);
+    setUpdateLog([]);
+    setUpdateProgress(0);
+  };
+
+  const startUpdate = async () => {
+    if (!updateFile) return;
+    setUpdateRunning(true);
+    setUpdateError(null);
+    setUpdateLog([]);
+    setUpdateProgress(0);
+
+    const formData = new FormData();
+    formData.append("update", updateFile);
+
+    try {
+      const res = await fetch("/api/system/update", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao iniciar atualização");
+
+      // Acompanhar progresso via SSE
+      const evtSource = new EventSource("/api/system/update-status");
+      evtSource.onmessage = (e) => {
+        const status = JSON.parse(e.data);
+        setUpdateProgress(status.progress);
+        setUpdateLog(status.log ?? []);
+        if (!status.running) {
+          evtSource.close();
+          setUpdateRunning(false);
+          if (status.error) {
+            setUpdateError(status.error);
+            toast.error("Erro na atualização: " + status.error);
+          } else {
+            setUpdateDone(true);
+            setUpdateFile(null);
+            toast.success("Sistema atualizado com sucesso!");
+          }
+        }
+      };
+      evtSource.onerror = () => {
+        evtSource.close();
+        setUpdateRunning(false);
+        setUpdateError("Conexão perdida com o servidor");
+      };
+    } catch (err: any) {
+      setUpdateRunning(false);
+      setUpdateError(err.message);
+      toast.error(err.message);
+    }
+  };
 
   // Sync state with loaded settings
   const [initialized, setInitialized] = useState(false);
@@ -443,6 +520,137 @@ export default function SystemSettingsPage() {
                 );
               })}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* ─── Atualização Remota ─── */}
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <PackageOpen className="h-4 w-4" />
+              Atualização do Sistema
+            </CardTitle>
+            <CardDescription>
+              Envie um pacote .zip com os arquivos atualizados para aplicar uma nova versão sem acesso SSH
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Versão atual */}
+            {versionInfo && (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border border-border/40">
+                <div className="p-1.5 rounded-md bg-primary/10">
+                  <PackageOpen className="h-4 w-4 text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Versão atual: <span className="text-primary font-mono">{versionInfo.version}</span></p>
+                  <p className="text-xs text-muted-foreground">{versionInfo.description} — build {versionInfo.buildDate}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Upload area */}
+            {!updateRunning && !updateDone && (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setIsDraggingUpdate(true); }}
+                onDragLeave={() => setIsDraggingUpdate(false)}
+                onDrop={(e) => { e.preventDefault(); setIsDraggingUpdate(false); const f = e.dataTransfer.files[0]; if (f) handleUpdateFile(f); }}
+                onClick={() => updateFileRef.current?.click()}
+                className={cn(
+                  "border-2 border-dashed rounded-xl p-6 cursor-pointer transition-all text-center",
+                  isDraggingUpdate ? "border-primary bg-primary/10" : "border-border hover:border-primary/50 hover:bg-muted/20"
+                )}
+              >
+                <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm font-medium text-foreground">Arraste ou clique para selecionar o pacote</p>
+                <p className="text-xs text-muted-foreground mt-1">Apenas arquivos .zip gerados pelo FiberDoc</p>
+                {updateFile && (
+                  <p className="text-xs text-primary mt-2 font-medium">✓ {updateFile.name} ({(updateFile.size / 1024 / 1024).toFixed(1)} MB)</p>
+                )}
+              </div>
+            )}
+            <input ref={updateFileRef} type="file" accept=".zip" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpdateFile(f); }} />
+
+            {/* Botão iniciar */}
+            {updateFile && !updateRunning && !updateDone && (
+              <Button onClick={startUpdate} className="w-full gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Aplicar Atualização
+              </Button>
+            )}
+
+            {/* Progresso */}
+            {updateRunning && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground flex items-center gap-2">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    Aplicando atualização...
+                  </span>
+                  <span className="font-mono text-primary">{updateProgress}%</span>
+                </div>
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-primary transition-all duration-500" style={{ width: `${updateProgress}%` }} />
+                </div>
+                {updateLog.length > 0 && (
+                  <div className="bg-muted/30 rounded-lg p-3 max-h-40 overflow-y-auto font-mono text-xs space-y-0.5">
+                    {updateLog.map((line, i) => <div key={i} className="text-muted-foreground">{line}</div>)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Sucesso */}
+            {updateDone && (
+              <div className="flex items-center gap-3 p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                <CheckCircle2 className="h-5 w-5 text-emerald-400 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-emerald-400">Atualização aplicada com sucesso!</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Em ambientes de produção o serviço será reiniciado automaticamente.</p>
+                </div>
+                <Button size="sm" variant="outline" className="ml-auto" onClick={() => { setUpdateDone(false); setUpdateLog([]); }}>
+                  Nova atualização
+                </Button>
+              </div>
+            )}
+
+            {/* Erro */}
+            {updateError && (
+              <div className="flex items-start gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
+                <XCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-red-400">Falha na atualização</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 font-mono">{updateError}</p>
+                </div>
+                <Button size="sm" variant="outline" className="ml-auto" onClick={() => { setUpdateError(null); setUpdateFile(null); }}>
+                  Tentar novamente
+                </Button>
+              </div>
+            )}
+
+            {/* Histórico */}
+            {updateHistory.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <History className="h-3.5 w-3.5" />
+                  Histórico de Atualizações
+                </p>
+                <div className="space-y-1.5">
+                  {updateHistory.slice(0, 5).map((h, i) => (
+                    <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/20 border border-border/30">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                        <span className="text-xs font-mono text-foreground">v{h.version}</span>
+                        <span className="text-xs text-muted-foreground truncate max-w-48">{h.description}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground flex items-center gap-1 flex-shrink-0">
+                        <Clock className="h-3 w-3" />
+                        {new Date(h.appliedAt).toLocaleDateString("pt-BR")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
