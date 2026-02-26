@@ -517,7 +517,16 @@ export default function IpBlocks() {
                         <td className="px-4 py-2.5">{ipStatusBadge(addr.status)}</td>
                         <td className="px-4 py-2.5 text-muted-foreground font-mono text-xs">{addr.hostname ?? "—"}</td>
                         <td className="px-4 py-2.5 text-muted-foreground text-xs">{addr.owner ?? "—"}</td>
-                        <td className="px-4 py-2.5 text-muted-foreground text-xs">{(addr as any).equipmentName ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-xs">
+                          {(addr as any).equipmentId && (addr as any).equipmentName ? (
+                            <Link href={`/topologia?eq=${(addr as any).equipmentId}`} className="flex items-center gap-1 text-primary hover:underline">
+                              <Server className="h-3 w-3 shrink-0" />
+                              <span className="truncate max-w-[120px]">{(addr as any).equipmentName}</span>
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 font-mono text-muted-foreground text-xs">{addr.macAddress ?? "—"}</td>
                         {isAdmin && (
                           <td className="px-4 py-2.5 text-right">

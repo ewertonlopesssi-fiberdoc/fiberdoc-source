@@ -293,3 +293,12 @@
 - [x] Formulário de cadastro/edição: seção "Rede" com VLAN, Interface/IP e Descrição do Serviço
 - [x] Listagem de equipamentos: exibir VLAN e IP principal no card
 - [x] Importação CSV de IPs: botão no detalhe do bloco IP
+
+## Melhorias IP DOC — Rodada 3
+
+- [x] Seletor de equipamento no formulário de alocação de IP
+- [x] Coluna "Equipamento" na tabela de IPs do bloco com link para topologia
+- [x] Exportar relatório de IPs em PDF (endpoint /api/ip-report-pdf)
+- [x] Botão "Exportar PDF" na tela de Relatórios do IP DOC
+- [x] Filtro de busca por IP, VLAN e descrição de serviço na listagem de equipamentos
+- [x] 105 testes passando (10 arquivos)

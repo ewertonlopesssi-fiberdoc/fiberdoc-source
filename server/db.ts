@@ -107,11 +107,21 @@ export async function deleteRoom(id: number) {
 }
 
 // ─── Equipments ──────────────────────────────────────────────────────────────
-export async function getEquipments(search?: string, type?: string, roomId?: number, status?: string) {
+export async function getEquipments(search?: string, type?: string, roomId?: number, status?: string, ipSearch?: string) {
   const db = await getDb();
   if (!db) return [];
   const conditions = [];
-  if (search) conditions.push(or(like(equipments.name, `%${search}%`), like(equipments.model, `%${search}%`), like(equipments.manufacturer, `%${search}%`)));
+  if (search) conditions.push(or(
+    like(equipments.name, `%${search}%`),
+    like(equipments.model, `%${search}%`),
+    like(equipments.manufacturer, `%${search}%`),
+  ));
+  if (ipSearch) conditions.push(or(
+    like(equipments.ipAddress, `%${ipSearch}%`),
+    like(equipments.interfaceIp, `%${ipSearch}%`),
+    like(equipments.serviceDescription, `%${ipSearch}%`),
+    sql`cast(${equipments.vlan} as char) like ${`%${ipSearch}%`}`,
+  ));
   if (type) conditions.push(eq(equipments.type, type as Equipment["type"]));
   if (roomId) conditions.push(eq(equipments.roomId, roomId));
   if (status) conditions.push(eq(equipments.status, status as Equipment["status"]));
@@ -122,6 +132,11 @@ export async function getEquipments(search?: string, type?: string, roomId?: num
     ipAddress: equipments.ipAddress, macAddress: equipments.macAddress, totalPorts: equipments.totalPorts,
     notes: equipments.notes, status: equipments.status, createdAt: equipments.createdAt, updatedAt: equipments.updatedAt,
     roomName: rooms.name, imageUrl: equipments.imageUrl,
+    // Campos de rede
+    vlan: equipments.vlan, interfaceIp: equipments.interfaceIp,
+    ipBlockId: equipments.ipBlockId, serviceDescription: equipments.serviceDescription,
+    // Campos de energia
+    powerType: equipments.powerType, powerSource: equipments.powerSource, powerSourceLabel: equipments.powerSourceLabel,
   }).from(equipments).leftJoin(rooms, eq(equipments.roomId, rooms.id));
   const rows = conditions.length > 0
     ? await query.where(and(...conditions)).orderBy(equipments.name)

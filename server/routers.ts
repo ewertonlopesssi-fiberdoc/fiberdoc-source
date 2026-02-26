@@ -171,8 +171,9 @@ export const appRouter = router({
         type: z.string().optional(),
         roomId: z.number().optional(),
         status: z.string().optional(),
+        ipSearch: z.string().optional(),
       }).optional())
-      .query(({ input }) => getEquipments(input?.search, input?.type, input?.roomId, input?.status)),
+      .query(({ input }) => getEquipments(input?.search, input?.type, input?.roomId, input?.status, input?.ipSearch)),
 
     byId: publicProcedure.input(z.object({ id: z.number() })).query(({ input }) => getEquipmentById(input.id)),
 

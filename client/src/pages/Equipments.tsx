@@ -163,6 +163,7 @@ export default function Equipments() {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [ipSearch, setIpSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState<EquipmentForm>(defaultForm);
@@ -176,6 +177,7 @@ export default function Equipments() {
     search: search || undefined,
     type: filterType !== "all" ? filterType : undefined,
     status: filterStatus !== "all" ? filterStatus : undefined,
+    ipSearch: ipSearch || undefined,
   });
 
   const { data: rooms } = trpc.rooms.list.useQuery();
@@ -305,6 +307,15 @@ export default function Equipments() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 bg-card border-border/50"
+          />
+        </div>
+        <div className="relative flex-1 min-w-48">
+          <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por IP, VLAN ou serviço..."
+            value={ipSearch}
+            onChange={(e) => setIpSearch(e.target.value)}
+            className="pl-9 bg-card border-border/50 font-mono text-sm"
           />
         </div>
         <Select value={filterType} onValueChange={setFilterType}>

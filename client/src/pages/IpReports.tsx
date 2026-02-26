@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Network, BarChart3, Download, Printer, ChevronLeft, Globe, AlertTriangle, CheckCircle } from "lucide-react";
+import { Network, BarChart3, Download, Printer, ChevronLeft, Globe, AlertTriangle, CheckCircle, FileText } from "lucide-react";
 
 const TYPE_LABELS: Record<string, string> = {
   infrastructure: "Infraestrutura",
@@ -114,6 +114,19 @@ export default function IpReports() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="gap-2" onClick={handleExportCsv}>
             <Download className="h-4 w-4" /> Exportar CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => {
+              const a = document.createElement("a");
+              a.href = "/api/ip-report-pdf";
+              a.download = `fiberdoc-ip-report-${new Date().toISOString().slice(0, 10)}.pdf`;
+              a.click();
+            }}
+          >
+            <FileText className="h-4 w-4" /> Exportar PDF
           </Button>
           <Button variant="outline" size="sm" className="gap-2" onClick={handlePrint}>
             <Printer className="h-4 w-4" /> Imprimir
