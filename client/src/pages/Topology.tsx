@@ -1,13 +1,16 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Server, Wifi, Network, Box, Router, HardDrive, LayoutGrid,
-  X, Layers, Activity, Cable, Info,
+  X, Layers, Activity, Cable, Info, QrCode,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import EquipmentQRCode from "@/components/EquipmentQRCode";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -369,9 +372,9 @@ function DetailPanel({ equipment, onClose }: { equipment: Equipment; onClose: ()
 export default function Topology() {
   const [selectedRoomId, setSelectedRoomId] = useState<string>("all");
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null);
-
+  const [qrRoom, setQrRoom] = useState<{ id: number; name: string } | null>(null);
   const { data: equipments = [], isLoading } = trpc.equipments.list.useQuery({});
-  const { data: rooms = [] } = trpc.rooms.list.useQuery();
+  const { data: rooms = [] } = trpc.rooms.list.useQuery();;
 
   // Filtrar por sala
   const filtered = useMemo(() => {
@@ -442,6 +445,7 @@ export default function Topology() {
   const rackedEquipments  = filtered.filter(e => e.rack).length;
 
   return (
+    <>
     <div className="flex flex-col h-full min-h-0 gap-4 p-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0 flex-wrap gap-3">
@@ -484,6 +488,15 @@ export default function Topology() {
               ))}
             </SelectContent>
           </Select>
+          {selectedRoomId !== "all" && (() => {
+            const room = (rooms as { id: number; name: string }[]).find(r => String(r.id) === selectedRoomId);
+            return room ? (
+              <Button variant="outline" size="sm" className="h-8 px-2 bg-zinc-800 border-zinc-700 text-zinc-200 hover:bg-zinc-700" onClick={() => setQrRoom({ id: room.id, name: room.name })}>
+                <QrCode className="w-3.5 h-3.5 mr-1" />
+                <span className="text-xs">QR Code</span>
+              </Button>
+            ) : null;
+          })()}
         </div>
       </div>
 
@@ -541,5 +554,31 @@ export default function Topology() {
         <span>Equipamentos sem posição são exibidos na base do rack</span>
       </div>
     </div>
+
+    <Dialog open={qrRoom !== null} onOpenChange={() => setQrRoom(null)}>
+      <DialogContent className="bg-zinc-900 border-zinc-700 max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-zinc-100">
+            <QrCode className="h-4 w-4" />
+            QR Code — {qrRoom?.name}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col items-center gap-4 py-4">
+          {qrRoom && (
+            <>
+              <div className="p-4 bg-white rounded-xl">
+                <QRCodeSVG value={`${window.location.origin}/relatorio-sala/${qrRoom.id}`} size={200} level="H" includeMargin={false} />
+              </div>
+              <p className="text-xs text-zinc-400 text-center">Escaneie para abrir o relatório de ocupação desta sala</p>
+              <p className="text-xs font-mono text-zinc-600 break-all text-center">{window.location.origin}/relatorio-sala/{qrRoom.id}</p>
+              <Button variant="outline" className="w-full border-zinc-600 text-zinc-200 hover:bg-zinc-800" onClick={() => window.open(`${window.location.origin}/relatorio-sala/${qrRoom.id}`, "_blank")}>
+                Abrir Relatório
+              </Button>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

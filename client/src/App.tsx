@@ -20,6 +20,7 @@ import Users from "./pages/Users";
 import Backup from "./pages/Backup";
 import SystemSettings from "./pages/SystemSettings";
 import OccupancyReport from "./pages/OccupancyReport";
+import RoomReport from "./pages/RoomReport";
 import Welcome from "./pages/Welcome";
 import DashboardLayout from "./components/DashboardLayout";
 
@@ -32,6 +33,15 @@ function Router() {
   // Rota de boas-vindas — sem DashboardLayout
   if (window.location.pathname === "/bem-vindo") {
     return <Welcome />;
+  }
+
+  // Relatório de sala via QR Code — sem DashboardLayout (acesso público)
+  if (window.location.pathname.startsWith("/relatorio-sala")) {
+    return (
+      <Switch>
+        <Route path="/relatorio-sala/:id" component={RoomReport} />
+      </Switch>
+    );
   }
 
   return (

@@ -242,3 +242,19 @@
 - [x] Botão QR Code no DetailPanel da Topologia
 - [x] Deep-link /mobile?eq=ID abre diretamente o equipamento no app mobile
 - [x] Suporte a deep-link no MobileApp.tsx e MobileEquipments.tsx
+
+## Mecanismo de Atualização via ZIP
+- [x] Script fiberdoc-update.sh (aplica pacote ZIP no servidor sem perder dados)
+- [x] Script gerar-update.sh (empacota arquivos do projeto para distribuição)
+- [x] Guia completo de atualização com tutorial de envio (Windows/Mac/Linux/Pendrive)
+
+## QR Code de Rack/Sala com Relatório PDF
+- [x] Procedure reports.byRoom com portas e dados de energia por sala
+- [x] Página RoomReport acessível via /relatorio-sala/:id (QR Code)
+- [x] Tabela de portas: número, etiqueta, tipo, velocidade, status, observações
+- [x] Dados de energia por equipamento: tipo (DC/AC) e fonte (retificadora/inversora)
+- [x] Estatísticas de ocupação por sala e por equipamento
+- [x] Botão Imprimir/PDF com estilos @media print
+- [x] QR Code por sala na página de Salas (botão compacto em cada card)
+- [x] Botão QR Code na Topologia ao selecionar sala no filtro
+- [x] Dialog com QR Code, URL e botão Abrir Relatório

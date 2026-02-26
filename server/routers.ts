@@ -58,6 +58,7 @@ import {
   setSystemSettings,
   updateEquipmentImage,
   getOccupancyReport,
+  getRoomReport,
   getUserByEmail,
   setUserPassword,
   getUserById,
@@ -880,6 +881,9 @@ export const appRouter = router({
         equipmentId: z.number().optional(),
       }))
       .query(({ input }) => getOccupancyReport(input)),
+    byRoom: publicProcedure
+      .input(z.object({ roomId: z.number() }))
+      .query(({ input }) => getRoomReport(input.roomId)),
   }),
 
   // ─── Upload de Imagem de Equipamento ────────────────────────────────────────

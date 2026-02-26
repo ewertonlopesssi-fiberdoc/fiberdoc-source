@@ -22,8 +22,9 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Plus, Search, Building2, Edit, Trash2, MapPin, Server, Thermometer } from "lucide-react";
+import { Plus, Search, Building2, Edit, Trash2, MapPin, Server, QrCode } from "lucide-react";
 import { useRole } from "@/hooks/useRole";
+import { QRCodeSVG } from "qrcode.react";
 
 const ROOM_TYPES = [
   { value: "datacenter", label: "Data Center" },
@@ -62,6 +63,7 @@ export default function Rooms() {
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState<RoomForm>(defaultForm);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [qrRoom, setQrRoom] = useState<{ id: number; name: string } | null>(null);
 
   const { isAdmin } = useRole();
   const utils = trpc.useUtils();
@@ -226,6 +228,15 @@ export default function Rooms() {
                 </div>
 
                 <div className="flex items-center gap-2 pt-3 border-t border-border/30">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    title="QR Code do Relatório"
+                    onClick={() => setQrRoom({ id: room.id, name: room.name })}
+                  >
+                    <QrCode className="h-3.5 w-3.5" />
+                  </Button>
                   {isAdmin && (
                     <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={() => handleEdit(room)}>
                       <Edit className="h-3.5 w-3.5" />
@@ -294,6 +305,63 @@ export default function Rooms() {
               {isSubmitting ? "Salvando..." : editId ? "Salvar" : "Cadastrar"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog QR Code da Sala */}
+      <Dialog open={qrRoom !== null} onOpenChange={() => setQrRoom(null)}>
+        <DialogContent className="bg-card border-border max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="h-4 w-4" />
+              QR Code — {qrRoom?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4 py-4">
+            {qrRoom && (
+              <>
+                <div className="p-4 bg-white rounded-xl border">
+                  <QRCodeSVG
+                    value={`${window.location.origin}/relatorio-sala/${qrRoom.id}`}
+                    size={200}
+                    level="H"
+                    includeMargin={false}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground text-center">
+                  Escaneie para abrir o relatório de ocupação desta sala
+                </p>
+                <p className="text-xs font-mono text-muted-foreground/60 break-all text-center">
+                  {window.location.origin}/relatorio-sala/{qrRoom.id}
+                </p>
+                <div className="flex gap-2 w-full">
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-border/50"
+                    onClick={() => {
+                      const svg = document.querySelector("#qr-sala-svg") as SVGElement;
+                      if (!svg) return;
+                      const blob = new Blob([svg.outerHTML], { type: "image/svg+xml" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `QRCode-${qrRoom.name}.svg`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                  >
+                    Baixar SVG
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    onClick={() => window.open(`${window.location.origin}/relatorio-sala/${qrRoom.id}`, "_blank")}
+                  >
+                    Abrir Relatório
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

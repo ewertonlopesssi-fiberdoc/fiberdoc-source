@@ -1142,9 +1142,9 @@ export async function getOccupancyReport(filters?: {
         id: p.id,
         portNumber: p.portNumber,
         label: p.label ?? null,
-        type: p.type,
-        speed: p.speed ?? null,
-        status: p.status,
+        type: String(p.type),
+        speed: p.speed ? String(p.speed) : null,
+        status: String(p.status),
         notes: p.notes ?? null,
       })),
     });
@@ -1186,4 +1186,138 @@ export async function listUsersForAdmin() {
     createdAt: users.createdAt,
     lastSignedIn: users.lastSignedIn,
   }).from(users).orderBy(users.name);
+}
+
+// ─── Relatório por Sala (QR Code) ─────────────────────────────────────────────
+export interface RoomReportEquipment {
+  id: number;
+  name: string;
+  type: string;
+  model: string | null;
+  manufacturer: string | null;
+  rack: string | null;
+  rackPosition: string | null;
+  status: string;
+  powerType: "ac" | "dc" | null;
+  powerSource: "rectifier" | "inverter" | "ups" | "grid" | "other" | null;
+  powerSourceLabel: string | null;
+  totalPorts: number;
+  freePorts: number;
+  occupiedPorts: number;
+  reservedPorts: number;
+  faultyPorts: number;
+  occupancyRate: number;
+  ports: {
+    id: number;
+    portNumber: string;
+    label: string | null;
+    type: string;
+    speed: string | null;
+    status: string;
+    notes: string | null;
+  }[];
+}
+
+export interface RoomReportData {
+  roomId: number;
+  roomName: string;
+  roomLocation: string | null;
+  roomNotes: string | null;
+  totalEquipments: number;
+  totalPorts: number;
+  freePorts: number;
+  occupiedPorts: number;
+  occupancyRate: number;
+  equipments: RoomReportEquipment[];
+  generatedAt: Date;
+}
+
+export async function getRoomReport(roomId: number): Promise<RoomReportData | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  // Buscar dados da sala
+  const roomRows = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
+  if (!roomRows.length) return null;
+  const room = roomRows[0];
+
+  // Buscar equipamentos da sala com campos de energia
+  const equipRows = await db.select({
+    id: equipments.id,
+    name: equipments.name,
+    type: equipments.type,
+    model: equipments.model,
+    manufacturer: equipments.manufacturer,
+    rack: equipments.rack,
+    rackPosition: equipments.rackPosition,
+    status: equipments.status,
+    totalPorts: equipments.totalPorts,
+    powerType: equipments.powerType,
+    powerSource: equipments.powerSource,
+    powerSourceLabel: equipments.powerSourceLabel,
+  }).from(equipments).where(eq(equipments.roomId, roomId)).orderBy(equipments.rack, equipments.rackPosition, equipments.name);
+
+  const reportEquipments: RoomReportEquipment[] = [];
+  let totalPortsAll = 0;
+  let freePortsAll = 0;
+  let occupiedPortsAll = 0;
+
+  for (const equip of equipRows) {
+    const portRows = await db.select().from(ports).where(eq(ports.equipmentId, equip.id)).orderBy(ports.portNumber);
+    const total = portRows.length;
+    const free = portRows.filter((p) => p.status === "free").length;
+    const occupied = portRows.filter((p) => p.status === "occupied").length;
+    const reserved = portRows.filter((p) => p.status === "reserved").length;
+    const faulty = portRows.filter((p) => p.status === "faulty").length;
+    const rate = total > 0 ? Math.round((occupied / total) * 100) : 0;
+
+    totalPortsAll += total;
+    freePortsAll += free;
+    occupiedPortsAll += occupied;
+
+    reportEquipments.push({
+      id: equip.id,
+      name: equip.name,
+      type: equip.type,
+      model: equip.model ?? null,
+      manufacturer: equip.manufacturer ?? null,
+      rack: equip.rack ?? null,
+      rackPosition: equip.rackPosition ?? null,
+      status: equip.status ?? "active",
+      powerType: equip.powerType ?? null,
+      powerSource: equip.powerSource ?? null,
+      powerSourceLabel: equip.powerSourceLabel ?? null,
+      totalPorts: total,
+      freePorts: free,
+      occupiedPorts: occupied,
+      reservedPorts: reserved,
+      faultyPorts: faulty,
+      occupancyRate: rate,
+      ports: portRows.map((p) => ({
+        id: p.id,
+        portNumber: p.portNumber,
+        label: p.label ?? null,
+        type: String(p.type),
+        speed: p.speed ? String(p.speed) : null,
+        status: String(p.status),
+        notes: p.notes ?? null,
+      })),
+    });
+  }
+
+  const globalRate = totalPortsAll > 0 ? Math.round((occupiedPortsAll / totalPortsAll) * 100) : 0;
+
+  return {
+    roomId: room.id,
+    roomName: room.name,
+    roomLocation: (room as any).location ?? null,
+    roomNotes: (room as any).notes ?? null,
+    totalEquipments: equipRows.length,
+    totalPorts: totalPortsAll,
+    freePorts: freePortsAll,
+    occupiedPorts: occupiedPortsAll,
+    occupancyRate: globalRate,
+    equipments: reportEquipments,
+    generatedAt: new Date(),
+  };
 }
