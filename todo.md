@@ -369,3 +369,48 @@
 - [x] Componente de upload de imagem com preview e botão remover no formulário de equipamentos
 - [x] Item "Fontes de Energia" no menu lateral
 - [x] 133 testes passando (13 arquivos)
+
+## Sistema de Alertas SNMP para Fontes de Energia
+
+- [ ] Schema: tabela snmp_alerts (id, powerSourceId, alertType, severity, message, currentValue, thresholdValue, acknowledgedAt, resolvedAt, createdAt)
+- [ ] Schema: campos de threshold na tabela power_sources (alertTempMax, alertVoltageMin, alertVoltageMax, alertBatteryMin, alertBatteryMax, alertCurrentMax, alertLoadMax, alertsEnabled)
+- [ ] Migration SQL aplicada
+- [ ] Lógica de avaliação de alertas no snmpPoller após cada coleta
+- [ ] Notificação ao proprietário via notifyOwner quando alerta crítico é gerado
+- [ ] tRPC procedures: alerts.list, alerts.acknowledge, alerts.resolve, alerts.history, alerts.activeCount
+- [ ] Aba "Alertas" no formulário de fontes com configuração de thresholds
+- [ ] Página /alertas com alertas ativos, histórico e botão de reconhecimento
+- [ ] Badge de alertas ativos no menu lateral (item Fontes de Energia)
+- [ ] Testes vitest para a lógica de avaliação de alertas
+
+## Notificações via Telegram para Alertas SNMP
+
+- [ ] Módulo server/telegram.ts com helper sendTelegramMessage(token, chatId, text)
+- [ ] Chaves telegram_bot_token e telegram_chat_id na tabela system_settings
+- [ ] Migration SQL para novas chaves (ou inserção via upsert)
+- [ ] Lógica de avaliação de thresholds no snmpPoller após cada coleta
+- [ ] Envio de mensagem Telegram formatada quando alerta é gerado/resolvido
+- [ ] tRPC procedures: alerts.list, alerts.acknowledge, alerts.resolve, alerts.activeCount
+- [ ] Aba "Alertas" no formulário de fontes com configuração de thresholds
+- [ ] Página /alertas com alertas ativos, histórico e botão de reconhecimento
+- [ ] Badge de alertas ativos no item "Fontes de Energia" no menu lateral
+- [ ] Seção Telegram na página de Sistema (bot token + chat ID + botão testar)
+- [ ] Testes vitest para a lógica de avaliação de alertas e helper Telegram
+
+## Sistema de Alertas SNMP e Notificações Telegram
+
+- [x] Tabela snmp_alerts (id, powerSourceId, alertType, severity, status, currentValue, thresholdValue, message, triggeredAt, acknowledgedAt, acknowledgedBy, resolvedAt, notifiedTelegram)
+- [x] Campos de threshold na tabela power_sources (alertsEnabled, alertTempMax, alertVoltageMin, alertVoltageMax, alertBatteryMin, alertBatteryMax, alertCurrentMax, alertLoadMax, alertAcFail)
+- [x] Migrations SQL aplicadas (0017 snmp_alerts, 0018 threshold fields)
+- [x] DB helpers: getSnmpAlerts, getActiveSnmpAlerts, createSnmpAlert, acknowledgeSnmpAlert, resolveSnmpAlert, getActiveAlertCount
+- [x] Módulo telegram.ts com sendTelegramMessage (suporte a HTML parse_mode, retry, tratamento de erro)
+- [x] snmpPoller.ts atualizado com avaliação de thresholds após cada coleta
+- [x] Alertas gerados para: temperatura alta, tensão baixa/alta, bateria baixa/alta, corrente alta, carga alta, falta de AC, SNMP inacessível
+- [x] Notificação Telegram enviada na criação de cada alerta (com emoji, nome da fonte, valor e limite)
+- [x] tRPC procedures: alerts.list, alerts.activeCount, alerts.acknowledge, alerts.resolve, alerts.testTelegram
+- [x] Aba "Alertas" no formulário de fontes de energia com toggle de habilitação e campos de threshold
+- [x] Página /alertas com abas Ativos e Histórico, cards de alerta com botões Reconhecer/Resolver
+- [x] Badge de contagem de alertas ativos no item "Alertas" do menu lateral (atualiza a cada 30s)
+- [x] Seção Telegram na página de Sistema com campos Bot Token e Chat ID, botão de teste e salvar
+- [x] systemConfig.save aceita telegram_bot_token e telegram_chat_id
+- [x] 145 testes passando (14 arquivos)

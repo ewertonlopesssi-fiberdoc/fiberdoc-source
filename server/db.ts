@@ -29,6 +29,9 @@ import {
   powerSources,
   PowerSource,
   InsertPowerSource,
+  snmpAlerts,
+  SnmpAlert,
+  InsertSnmpAlert,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1388,4 +1391,82 @@ export async function updatePowerSourceSnmpData(id: number, data: {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   await db.update(powerSources).set(data as any).where(eq(powerSources.id, id));
+}
+
+// ─── Alertas SNMP ─────────────────────────────────────────────────────────────
+export async function getSnmpAlerts(opts?: {
+  powerSourceId?: number;
+  onlyActive?: boolean;
+  limit?: number;
+}): Promise<SnmpAlert[]> {
+  const db = await getDb();
+  if (!db) return [];
+  let q = db.select().from(snmpAlerts).$dynamic();
+  const conds = [];
+  if (opts?.powerSourceId) conds.push(eq(snmpAlerts.powerSourceId, opts.powerSourceId));
+  if (opts?.onlyActive) conds.push(sql`${snmpAlerts.resolvedAt} IS NULL`);
+  if (conds.length) q = q.where(and(...conds)) as any;
+  q = q.orderBy(desc(snmpAlerts.createdAt)) as any;
+  if (opts?.limit) q = q.limit(opts.limit) as any;
+  return q;
+}
+
+export async function countActiveSnmpAlerts(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(snmpAlerts)
+    .where(sql`${snmpAlerts.resolvedAt} IS NULL`);
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function createSnmpAlert(data: Omit<InsertSnmpAlert, "id" | "createdAt" | "updatedAt">): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(snmpAlerts).values(data as InsertSnmpAlert);
+  return (result[0] as any).insertId;
+}
+
+export async function acknowledgeSnmpAlert(id: number, acknowledgedBy: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(snmpAlerts)
+    .set({ acknowledgedAt: new Date(), acknowledgedBy })
+    .where(eq(snmpAlerts.id, id));
+}
+
+export async function resolveSnmpAlert(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(snmpAlerts)
+    .set({ resolvedAt: new Date() })
+    .where(eq(snmpAlerts.id, id));
+}
+
+export async function resolveAlertsByTypeAndSource(powerSourceId: number, alertType: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(snmpAlerts)
+    .set({ resolvedAt: new Date() })
+    .where(and(
+      eq(snmpAlerts.powerSourceId, powerSourceId),
+      eq(snmpAlerts.alertType as any, alertType),
+      sql`${snmpAlerts.resolvedAt} IS NULL`
+    ));
+}
+
+export async function hasActiveAlertOfType(powerSourceId: number, alertType: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ id: snmpAlerts.id })
+    .from(snmpAlerts)
+    .where(and(
+      eq(snmpAlerts.powerSourceId, powerSourceId),
+      eq(snmpAlerts.alertType as any, alertType),
+      sql`${snmpAlerts.resolvedAt} IS NULL`
+    ))
+    .limit(1);
+  return rows.length > 0;
 }

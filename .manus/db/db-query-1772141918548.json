@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `power_sources` ADD `alertsEnabled` boolean DEFAULT false NOT NULL;\nALTER TABLE `power_sources` ADD `alertTempMax` float;\nALTER TABLE `power_sources` ADD `alertVoltageMin` float;\nALTER TABLE `power_sources` ADD `alertVoltageMax` float;\nALTER TABLE `power_sources` ADD `alertBatteryMin` float;\nALTER TABLE `power_sources` ADD `alertBatteryMax` float;\nALTER TABLE `power_sources` ADD `alertCurrentMax` float;\nALTER TABLE `power_sources` ADD `alertLoadMax` float;\nALTER TABLE `power_sources` ADD `alertAcFailEnabled` boolean DEFAULT false NOT NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute ALTER TABLE `power_sources` ADD `alertsEnabled` boolean DEFAULT false NOT NULL;\nALTER TABLE `power_sources` ADD `alertTempMax` float;\nALTER TABLE `power_sources` ADD `alertVoltageMin` float;\nALTER TABLE `power_sources` ADD `alertVoltageMax` float;\nALTER TABLE `power_sources` ADD `alertBatteryMin` float;\nALTER TABLE `power_sources` ADD `alertBatteryMax` float;\nALTER TABLE `power_sources` ADD `alertCurrentMax` float;\nALTER TABLE `power_sources` ADD `alertLoadMax` float;\nALTER TABLE `power_sources` ADD `alertAcFailEnabled` boolean DEFAULT false NOT NULL;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1978
+}

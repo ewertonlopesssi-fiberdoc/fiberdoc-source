@@ -401,12 +401,50 @@ export const powerSources = mysqlTable("power_sources", {
   lastBatteryLevel: float("lastBatteryLevel"),
   lastLoadPercent: float("lastLoadPercent"),
   lastPollError: text("lastPollError"),
-
+  // ─── Thresholds de alerta ─────────────────────────────────────────────────
+  alertsEnabled: boolean("alertsEnabled").default(false).notNull(),
+  alertTempMax: float("alertTempMax"),          // °C — acima dispara alerta
+  alertVoltageMin: float("alertVoltageMin"),    // V — abaixo dispara alerta
+  alertVoltageMax: float("alertVoltageMax"),    // V — acima dispara alerta
+  alertBatteryMin: float("alertBatteryMin"),    // V ou % — abaixo dispara alerta
+  alertBatteryMax: float("alertBatteryMax"),    // V ou % — acima dispara alerta
+  alertCurrentMax: float("alertCurrentMax"),    // A — acima dispara alerta
+  alertLoadMax: float("alertLoadMax"),          // % — acima dispara alerta
+  alertAcFailEnabled: boolean("alertAcFailEnabled").default(false).notNull(), // monitorar falta de AC
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 export type PowerSource = typeof powerSources.$inferSelect;
-export type InsertPowerSource = typeof powerSources.$inferInsert;
+export type InsertPowerSource = typeof powerSources.$inferInsert;;
 
 // ─── Equipamentos — FK para fonte de energia cadastrada ───────────────────────
 
+
+// ─── Alertas SNMP ─────────────────────────────────────────────────────────────
+export const snmpAlerts = mysqlTable("snmp_alerts", {
+  id: int("id").autoincrement().primaryKey(),
+  powerSourceId: int("powerSourceId").notNull().references(() => powerSources.id, { onDelete: "cascade" }),
+  alertType: mysqlEnum("alert_type", [
+    "temp_high",          // Temperatura acima do limite
+    "voltage_low",        // Tensão de saída abaixo do mínimo
+    "voltage_high",       // Tensão de saída acima do máximo
+    "battery_low",        // Bateria abaixo do mínimo
+    "battery_high",       // Bateria acima do máximo (sobrecarga)
+    "current_high",       // Corrente acima do máximo
+    "load_high",          // Carga acima do máximo
+    "ac_fail",            // Falha na rede AC (tensão = 0 ou alarme ativo)
+    "snmp_unreachable",   // Equipamento não responde ao SNMP
+  ]).notNull(),
+  severity: mysqlEnum("alert_severity", ["warning", "critical"]).notNull().default("warning"),
+  message: text("message").notNull(),
+  currentValue: float("currentValue"),      // Valor coletado que disparou o alerta
+  thresholdValue: float("thresholdValue"),  // Threshold configurado
+  // Ciclo de vida do alerta
+  acknowledgedAt: timestamp("acknowledgedAt"),
+  acknowledgedBy: varchar("acknowledgedBy", { length: 128 }),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type SnmpAlert = typeof snmpAlerts.$inferSelect;
+export type InsertSnmpAlert = typeof snmpAlerts.$inferInsert;

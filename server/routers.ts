@@ -78,8 +78,10 @@ import {
 } from "./ipdb";
 import {
   getPowerSources, getPowerSourceById, createPowerSource, updatePowerSource, deletePowerSource,
+  getSnmpAlerts, countActiveSnmpAlerts, acknowledgeSnmpAlert, resolveSnmpAlert,
 } from "./db";
 import { pollSinglePowerSource } from "./snmpPoller";
+import { sendTelegramMessage } from "./telegram";
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
@@ -886,6 +888,8 @@ export const appRouter = router({
         logoUrl: z.string().optional(),
         theme: z.string().optional(),
         capacityAlertThreshold: z.number().min(1).max(100).optional(),
+        telegram_bot_token: z.string().optional(),
+        telegram_chat_id: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const settings: Record<string, string> = {};
@@ -893,6 +897,8 @@ export const appRouter = router({
         if (input.logoUrl !== undefined) settings.logoUrl = input.logoUrl;
         if (input.theme !== undefined) settings.theme = input.theme;
         if (input.capacityAlertThreshold !== undefined) settings.capacityAlertThreshold = String(input.capacityAlertThreshold);
+        if (input.telegram_bot_token !== undefined) settings.telegram_bot_token = input.telegram_bot_token;
+        if (input.telegram_chat_id !== undefined) settings.telegram_chat_id = input.telegram_chat_id;
         await setSystemSettings(settings);
         return { success: true };
       }),
@@ -1351,6 +1357,16 @@ export const appRouter = router({
         oidBatteryLevel: z.string().max(128).optional(),
         oidLoadPercent: z.string().max(128).optional(),
         snmpPollInterval: z.number().int().default(300),
+        // Thresholds de alerta
+        alertsEnabled: z.boolean().default(false),
+        alertTempMax: z.number().nullable().optional(),
+        alertVoltageMin: z.number().nullable().optional(),
+        alertVoltageMax: z.number().nullable().optional(),
+        alertBatteryMin: z.number().nullable().optional(),
+        alertBatteryMax: z.number().nullable().optional(),
+        alertCurrentMax: z.number().nullable().optional(),
+        alertLoadMax: z.number().nullable().optional(),
+        alertAcFailEnabled: z.boolean().default(false),
       }))
       .mutation(({ input }) => createPowerSource(input as any)),
     update: adminProcedure
@@ -1382,6 +1398,16 @@ export const appRouter = router({
         oidBatteryLevel: z.string().max(128).nullable().optional(),
         oidLoadPercent: z.string().max(128).nullable().optional(),
         snmpPollInterval: z.number().int().optional(),
+        // Thresholds de alerta
+        alertsEnabled: z.boolean().optional(),
+        alertTempMax: z.number().nullable().optional(),
+        alertVoltageMin: z.number().nullable().optional(),
+        alertVoltageMax: z.number().nullable().optional(),
+        alertBatteryMin: z.number().nullable().optional(),
+        alertBatteryMax: z.number().nullable().optional(),
+        alertCurrentMax: z.number().nullable().optional(),
+        alertLoadMax: z.number().nullable().optional(),
+        alertAcFailEnabled: z.boolean().optional(),
       }))
       .mutation(({ input }) => {
         const { id, ...data } = input;
@@ -1393,6 +1419,41 @@ export const appRouter = router({
     pollNow: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input }) => pollSinglePowerSource(input.id)),
+  }),
+
+  // ─── Alertas SNMP ──────────────────────────────────────────────────────────
+  alerts: router({
+    list: protectedProcedure
+      .input(z.object({
+        powerSourceId: z.number().optional(),
+        onlyActive: z.boolean().optional(),
+        limit: z.number().int().max(200).optional(),
+      }))
+      .query(({ input }) => getSnmpAlerts(input)),
+
+    activeCount: protectedProcedure
+      .query(() => countActiveSnmpAlerts()),
+
+    acknowledge: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input, ctx }) =>
+        acknowledgeSnmpAlert(input.id, ctx.user.name ?? ctx.user.openId)
+      ),
+
+    resolve: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input }) => resolveSnmpAlert(input.id)),
+
+    testTelegram: adminProcedure
+      .input(z.object({ botToken: z.string(), chatId: z.string() }))
+      .mutation(async ({ input }) => {
+        const result = await sendTelegramMessage(
+          { botToken: input.botToken, chatId: input.chatId },
+          `✅ <b>FiberDoc — Teste de notificação</b>\n\nIntegração com Telegram configurada com sucesso!\n🕐 ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}`
+        );
+        if (!result.ok) throw new TRPCError({ code: "BAD_REQUEST", message: result.error ?? "Falha ao enviar" });
+        return { ok: true };
+      }),
   }),
 });
 export type AppRouter = typeof appRouter;

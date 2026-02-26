@@ -44,11 +44,25 @@ import {
   FileBarChart,
   Globe,
   Zap,
+  Bell,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
+import { trpc } from "@/lib/trpc";
+
+function AlertsBadge() {
+  const { data: count = 0 } = trpc.alerts.activeCount.useQuery(undefined, {
+    refetchInterval: 30_000,
+  });
+  if (!count) return null;
+  return (
+    <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
 
 const publicMenuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
@@ -64,6 +78,7 @@ const publicMenuItems = [
   { icon: Upload, label: "Importar CSV", path: "/importar" },
   { icon: FileBarChart, label: "Relatório de Ocupação", path: "/relatorio-ocupacao" },
   { icon: Zap, label: "Fontes de Energia", path: "/fontes-energia" },
+  { icon: Bell, label: "Alertas", path: "/alertas" },
 ];
 
 const adminOnlyMenuItems = [
@@ -218,7 +233,8 @@ function DashboardLayoutContent({
                       className={`h-9 transition-all font-normal text-sm ${isActive ? "bg-sidebar-accent text-sidebar-primary font-medium" : "text-sidebar-foreground/70 hover:text-sidebar-foreground"}`}
                     >
                       <item.icon className={`h-4 w-4 ${isActive ? "text-primary" : ""}`} />
-                      <span>{item.label}</span>
+                      <span className="flex-1">{item.label}</span>
+                      {item.path === "/alertas" && <AlertsBadge />}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );

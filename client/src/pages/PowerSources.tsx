@@ -24,7 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Zap, Plus, Pencil, Trash2, Wifi, WifiOff, RefreshCw,
-  Thermometer, Activity, Battery, Gauge, AlertTriangle, CheckCircle,
+  Thermometer, Activity, Battery, BatteryLow, Gauge, AlertTriangle, CheckCircle, Bell,
 } from "lucide-react";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -107,9 +107,18 @@ const EMPTY_FORM = {
   oidBatteryLevel: "",
   oidLoadPercent: "",
   snmpPollInterval: "300",
+  // Thresholds de alerta
+  alertsEnabled: false,
+  alertTempMax: "" as string,
+  alertVoltageMin: "" as string,
+  alertVoltageMax: "" as string,
+  alertBatteryMin: "" as string,
+  alertBatteryMax: "" as string,
+  alertCurrentMax: "" as string,
+  alertLoadMax: "" as string,
+  alertAcFailEnabled: false,
 };
-
-type FormState = typeof EMPTY_FORM;
+type FormState = typeof EMPTY_FORM;;
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function PowerSources() {
@@ -181,6 +190,16 @@ export default function PowerSources() {
       oidBatteryLevel: ps.oidBatteryLevel ?? "",
       oidLoadPercent: ps.oidLoadPercent ?? "",
       snmpPollInterval: String(ps.snmpPollInterval ?? 300),
+      // Thresholds de alerta
+      alertsEnabled: ps.alertsEnabled ?? false,
+      alertTempMax: ps.alertTempMax != null ? String(ps.alertTempMax) : "",
+      alertVoltageMin: ps.alertVoltageMin != null ? String(ps.alertVoltageMin) : "",
+      alertVoltageMax: ps.alertVoltageMax != null ? String(ps.alertVoltageMax) : "",
+      alertBatteryMin: ps.alertBatteryMin != null ? String(ps.alertBatteryMin) : "",
+      alertBatteryMax: ps.alertBatteryMax != null ? String(ps.alertBatteryMax) : "",
+      alertCurrentMax: ps.alertCurrentMax != null ? String(ps.alertCurrentMax) : "",
+      alertLoadMax: ps.alertLoadMax != null ? String(ps.alertLoadMax) : "",
+      alertAcFailEnabled: ps.alertAcFailEnabled ?? false,
     });
     setShowForm(true);
   }
@@ -228,6 +247,16 @@ export default function PowerSources() {
       oidBatteryLevel: form.oidBatteryLevel || undefined,
       oidLoadPercent: form.oidLoadPercent || undefined,
       snmpPollInterval: parseInt(form.snmpPollInterval) || 300,
+      // Thresholds de alerta
+      alertsEnabled: form.alertsEnabled,
+      alertTempMax: form.alertTempMax ? parseFloat(form.alertTempMax) : null,
+      alertVoltageMin: form.alertVoltageMin ? parseFloat(form.alertVoltageMin) : null,
+      alertVoltageMax: form.alertVoltageMax ? parseFloat(form.alertVoltageMax) : null,
+      alertBatteryMin: form.alertBatteryMin ? parseFloat(form.alertBatteryMin) : null,
+      alertBatteryMax: form.alertBatteryMax ? parseFloat(form.alertBatteryMax) : null,
+      alertCurrentMax: form.alertCurrentMax ? parseFloat(form.alertCurrentMax) : null,
+      alertLoadMax: form.alertLoadMax ? parseFloat(form.alertLoadMax) : null,
+      alertAcFailEnabled: form.alertAcFailEnabled,
     };
     if (editId) updateMut.mutate({ id: editId, ...payload });
     else createMut.mutate(payload);
@@ -434,6 +463,10 @@ export default function PowerSources() {
               <TabsTrigger value="snmp" className="flex-1 gap-1">
                 {form.snmpEnabled ? <Wifi className="h-3.5 w-3.5 text-cyan-400" /> : <WifiOff className="h-3.5 w-3.5" />}
                 SNMP
+              </TabsTrigger>
+              <TabsTrigger value="alertas" className="flex-1 gap-1">
+                {form.alertsEnabled ? <Bell className="h-3.5 w-3.5 text-orange-400" /> : <Bell className="h-3.5 w-3.5" />}
+                Alertas
               </TabsTrigger>
             </TabsList>
 
@@ -650,9 +683,125 @@ export default function PowerSources() {
                   </div>
                 </div>
               )}
+             </TabsContent>
+
+            {/* Aba Alertas */}
+            <TabsContent value="alertas" className="space-y-4 mt-4">
+              <div className="space-y-4">
+                {/* Habilitar alertas */}
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/30">
+                  <div>
+                    <p className="text-sm font-medium">Habilitar alertas</p>
+                    <p className="text-xs text-muted-foreground">Avalia os valores coletados via SNMP e envia notificações quando os limites são ultrapassados</p>
+                  </div>
+                  <Switch
+                    checked={form.alertsEnabled}
+                    onCheckedChange={(v) => setForm({ ...form, alertsEnabled: v })}
+                  />
+                </div>
+
+                {form.alertsEnabled && (
+                  <div className="space-y-3">
+                    {/* Temperatura */}
+                    <div className="p-3 rounded-lg border border-orange-500/20 bg-orange-500/5 space-y-2">
+                      <p className="text-xs font-semibold text-orange-400 flex items-center gap-1">
+                        <Thermometer className="h-3.5 w-3.5" /> Temperatura
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Label className="w-32 text-xs text-muted-foreground">Máxima (°C)</Label>
+                        <Input
+                          type="number" step="0.1"
+                          value={form.alertTempMax}
+                          onChange={(e) => setForm({ ...form, alertTempMax: e.target.value })}
+                          placeholder="ex: 55"
+                          className="bg-background border-border/50 h-7 text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Tensão de saída */}
+                    <div className="p-3 rounded-lg border border-blue-500/20 bg-blue-500/5 space-y-2">
+                      <p className="text-xs font-semibold text-blue-400 flex items-center gap-1">
+                        <Zap className="h-3.5 w-3.5" /> Tensão de saída (V)
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex items-center gap-2">
+                          <Label className="w-16 text-xs text-muted-foreground">Mínima</Label>
+                          <Input type="number" step="0.1" value={form.alertVoltageMin}
+                            onChange={(e) => setForm({ ...form, alertVoltageMin: e.target.value })}
+                            placeholder="ex: 44" className="bg-background border-border/50 h-7 text-sm" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Label className="w-16 text-xs text-muted-foreground">Máxima</Label>
+                          <Input type="number" step="0.1" value={form.alertVoltageMax}
+                            onChange={(e) => setForm({ ...form, alertVoltageMax: e.target.value })}
+                            placeholder="ex: 58" className="bg-background border-border/50 h-7 text-sm" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bateria */}
+                    <div className="p-3 rounded-lg border border-green-500/20 bg-green-500/5 space-y-2">
+                      <p className="text-xs font-semibold text-green-400 flex items-center gap-1">
+                        <BatteryLow className="h-3.5 w-3.5" /> Bateria (V)
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex items-center gap-2">
+                          <Label className="w-16 text-xs text-muted-foreground">Mínima</Label>
+                          <Input type="number" step="0.1" value={form.alertBatteryMin}
+                            onChange={(e) => setForm({ ...form, alertBatteryMin: e.target.value })}
+                            placeholder="ex: 42" className="bg-background border-border/50 h-7 text-sm" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Label className="w-16 text-xs text-muted-foreground">Máxima</Label>
+                          <Input type="number" step="0.1" value={form.alertBatteryMax}
+                            onChange={(e) => setForm({ ...form, alertBatteryMax: e.target.value })}
+                            placeholder="ex: 58" className="bg-background border-border/50 h-7 text-sm" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Corrente e Carga */}
+                    <div className="p-3 rounded-lg border border-yellow-500/20 bg-yellow-500/5 space-y-2">
+                      <p className="text-xs font-semibold text-yellow-400 flex items-center gap-1">
+                        <Activity className="h-3.5 w-3.5" /> Corrente e Carga
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex items-center gap-2">
+                          <Label className="w-24 text-xs text-muted-foreground">Corrente máx (A)</Label>
+                          <Input type="number" step="0.1" value={form.alertCurrentMax}
+                            onChange={(e) => setForm({ ...form, alertCurrentMax: e.target.value })}
+                            placeholder="ex: 80" className="bg-background border-border/50 h-7 text-sm" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Label className="w-24 text-xs text-muted-foreground">Carga máx (%)</Label>
+                          <Input type="number" step="1" min="1" max="100" value={form.alertLoadMax}
+                            onChange={(e) => setForm({ ...form, alertLoadMax: e.target.value })}
+                            placeholder="ex: 85" className="bg-background border-border/50 h-7 text-sm" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Falta de AC */}
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-red-500/20 bg-red-500/5">
+                      <div>
+                        <p className="text-sm font-medium text-red-400">Alerta de falta de tensão AC</p>
+                        <p className="text-xs text-muted-foreground">Dispara quando a tensão de saída cair para zero ou o status de alarme indicar falha AC</p>
+                      </div>
+                      <Switch
+                        checked={form.alertAcFailEnabled}
+                        onCheckedChange={(v) => setForm({ ...form, alertAcFailEnabled: v })}
+                      />
+                    </div>
+
+                    <p className="text-xs text-muted-foreground bg-muted/30 p-2 rounded">
+                      💡 Deixe o campo em branco para desativar o threshold correspondente. As notificações são enviadas via Telegram (configure em <strong>Sistema → Telegram</strong>).
+                    </p>
+                  </div>
+                )}
+              </div>
             </TabsContent>
           </Tabs>
-
           <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
             <Button onClick={handleSave} disabled={isBusy || !form.name.trim()}

@@ -280,12 +280,26 @@ export default function SystemSettingsPage() {
     }
   };
 
+  // ─── Telegram ────────────────────────────────────────────────────────────────
+  const [telegramToken, setTelegramToken] = useState("");
+  const [telegramChatId, setTelegramChatId] = useState("");
+  const testTelegramMut = trpc.alerts.testTelegram.useMutation({
+    onSuccess: () => toast.success("Mensagem de teste enviada com sucesso!"),
+    onError: (e) => toast.error(`Falha: ${e.message}`),
+  });
+  const saveTelegramMut = trpc.systemConfig.save.useMutation({
+    onSuccess: () => toast.success("Configuração Telegram salva!"),
+    onError: () => toast.error("Erro ao salvar configuração Telegram."),
+  });
+
   // Sync state with loaded settings
   const [initialized, setInitialized] = useState(false);
   if (settings && !initialized) {
     setSystemName(settings.systemName ?? "FiberDoc");
     setSelectedTheme(settings.theme ?? "dark-blue");
     setAlertThreshold(parseInt((settings as any).capacityAlertThreshold ?? "80", 10) || 80);
+    setTelegramToken((settings as any).telegram_bot_token ?? "");
+    setTelegramChatId((settings as any).telegram_chat_id ?? "");
     setInitialized(true);
   }
 
@@ -649,6 +663,77 @@ export default function SystemSettingsPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Telegram */}
+        <Card className="border-border/50 border-blue-500/20">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Bell className="h-4 w-4 text-blue-400" />
+              Notificações via Telegram
+            </CardTitle>
+            <CardDescription>
+              Configure um bot do Telegram para receber alertas SNMP. Crie um bot em <a href="https://t.me/BotFather" target="_blank" rel="noopener" className="text-primary underline">@BotFather</a> e obtenha o token. Para o Chat ID, envie uma mensagem ao bot e acesse <code className="font-mono text-xs">https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code>.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="telegramToken">Bot Token</Label>
+                <Input
+                  id="telegramToken"
+                  type="password"
+                  value={telegramToken}
+                  onChange={(e) => setTelegramToken(e.target.value)}
+                  placeholder="123456789:AABBcc..."
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">Obtido em @BotFather ao criar o bot</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="telegramChatId">Chat ID</Label>
+                <Input
+                  id="telegramChatId"
+                  value={telegramChatId}
+                  onChange={(e) => setTelegramChatId(e.target.value)}
+                  placeholder="-100123456789 ou 123456789"
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">ID do chat ou grupo que receberá os alertas</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                disabled={testTelegramMut.isPending || !telegramToken || !telegramChatId}
+                onClick={() => testTelegramMut.mutate({ botToken: telegramToken, chatId: telegramChatId })}
+              >
+                <Bell className="h-3.5 w-3.5" />
+                {testTelegramMut.isPending ? "Enviando..." : "Enviar mensagem de teste"}
+              </Button>
+              <Button
+                size="sm"
+                className="gap-2"
+                disabled={saveTelegramMut.isPending}
+                onClick={() => saveTelegramMut.mutate({
+                  telegram_bot_token: telegramToken,
+                  telegram_chat_id: telegramChatId,
+                } as any)}
+              >
+                {saveTelegramMut.isPending ? "Salvando..." : "Salvar configuração Telegram"}
+              </Button>
+            </div>
+            {(telegramToken || telegramChatId) && (
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                <Bell className="h-3.5 w-3.5 text-blue-400 flex-shrink-0" />
+                <p className="text-xs text-blue-400">
+                  Telegram configurado. Alertas SNMP serão enviados automaticamente quando os thresholds forem ultrapassados.
+                </p>
               </div>
             )}
           </CardContent>

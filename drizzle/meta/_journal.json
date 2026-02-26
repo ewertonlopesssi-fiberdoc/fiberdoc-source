@@ -120,6 +120,20 @@
       "when": 1772140503133,
       "tag": "0016_clumsy_romulus",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1772141868503,
+      "tag": "0017_strong_chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1772141907358,
+      "tag": "0018_past_sheva_callister",
+      "breakpoints": true
     }
   ]
 }
