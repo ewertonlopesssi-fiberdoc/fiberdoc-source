@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useRole } from "@/hooks/useRole";
-import { Zap, Globe } from "lucide-react";
+import { Zap, Globe, FileDown } from "lucide-react";
 import EquipmentQRCode from "@/components/EquipmentQRCode";
 
 const POWER_TYPES = [
@@ -290,12 +290,27 @@ export default function Equipments() {
             Gerencie switches, OLTs, DGOs e demais equipamentos de rede
           </p>
         </div>
-        {isAdmin && (
-          <Button onClick={() => { setEditId(null); setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Novo Equipamento
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => {
+              const a = document.createElement("a");
+              a.href = "/api/equipment-report-pdf";
+              a.download = `FiberDoc_Equipamentos_${new Date().toISOString().slice(0,10)}.pdf`;
+              a.click();
+            }}
+          >
+            <FileDown className="h-4 w-4" />
+            Exportar PDF
           </Button>
-        )}
+          {isAdmin && (
+            <Button onClick={() => { setEditId(null); setForm(defaultForm); setDialogOpen(true); }} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Novo Equipamento
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}

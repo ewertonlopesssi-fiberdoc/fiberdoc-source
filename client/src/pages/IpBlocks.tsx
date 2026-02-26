@@ -298,6 +298,7 @@ export default function IpBlocks() {
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
   const [ipSearch, setIpSearch] = useState("");
   const [ipFilterStatus, setIpFilterStatus] = useState("all");
+  const [activeTab, setActiveTab] = useState<"addresses" | "audit">("addresses");
 
   const { data: blocks = [], isLoading: loadingBlocks } = trpc.ipDoc.listBlocks.useQuery({});
   const { data: rooms = [] } = trpc.rooms.list.useQuery();
@@ -309,6 +310,10 @@ export default function IpBlocks() {
   const { data: addresses = [], isLoading: loadingAddresses } = trpc.ipDoc.addressesByBlock.useQuery(
     { blockId: blockId! },
     { enabled: !!blockId }
+  );
+  const { data: auditLog = [], isLoading: loadingAudit } = trpc.ipDoc.auditByBlock.useQuery(
+    { blockId: blockId!, limit: 200 },
+    { enabled: !!blockId && activeTab === "audit" }
   );
 
   const createBlock = trpc.ipDoc.createBlock.useMutation({
@@ -466,6 +471,107 @@ export default function IpBlocks() {
           </div>
         </div>
 
+        {/* Abas: Endereços | Histórico */}
+        <div className="flex gap-1 border-b border-border/50">
+          <button
+            onClick={() => setActiveTab("addresses")}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "addresses"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Endereços
+          </button>
+          <button
+            onClick={() => setActiveTab("audit")}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "audit"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Histórico de Alterações
+          </button>
+        </div>
+
+        {activeTab === "audit" ? (
+          <Card className="border-border/50">
+            <CardContent className="p-0">
+              {loadingAudit ? (
+                <div className="p-6 text-center text-muted-foreground text-sm">Carregando histórico...</div>
+              ) : auditLog.length === 0 ? (
+                <div className="p-8 text-center">
+                  <p className="text-muted-foreground text-sm">Nenhuma alteração registrada neste bloco ainda.</p>
+                  <p className="text-muted-foreground/60 text-xs mt-1">As próximas alocações, edições e liberações aparecerão aqui.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border/50 bg-muted/20">
+                        <th className="text-left p-3 text-xs font-medium text-muted-foreground">Data/Hora</th>
+                        <th className="text-left p-3 text-xs font-medium text-muted-foreground">Endereço IP</th>
+                        <th className="text-left p-3 text-xs font-medium text-muted-foreground">Ação</th>
+                        <th className="text-left p-3 text-xs font-medium text-muted-foreground">Status</th>
+                        <th className="text-left p-3 text-xs font-medium text-muted-foreground">Hostname / Proprietário</th>
+                        <th className="text-left p-3 text-xs font-medium text-muted-foreground">Usuário</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLog.map((entry) => {
+                        const actionColors: Record<string, string> = {
+                          allocated: "text-emerald-400 bg-emerald-400/10",
+                          released: "text-yellow-400 bg-yellow-400/10",
+                          updated: "text-blue-400 bg-blue-400/10",
+                          deleted: "text-red-400 bg-red-400/10",
+                          imported: "text-purple-400 bg-purple-400/10",
+                        };
+                        const actionLabels: Record<string, string> = {
+                          allocated: "Alocado",
+                          released: "Liberado",
+                          updated: "Editado",
+                          deleted: "Excluído",
+                          imported: "Importado",
+                        };
+                        return (
+                          <tr key={entry.id} className="border-b border-border/30 hover:bg-muted/10">
+                            <td className="p-3 text-xs text-muted-foreground whitespace-nowrap">
+                              {new Date(entry.createdAt).toLocaleString("pt-BR")}
+                            </td>
+                            <td className="p-3 font-mono text-xs font-medium">{entry.address}</td>
+                            <td className="p-3">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${actionColors[entry.action] ?? "text-muted-foreground"}`}>
+                                {actionLabels[entry.action] ?? entry.action}
+                              </span>
+                            </td>
+                            <td className="p-3 text-xs">
+                              {entry.previousStatus && entry.newStatus && entry.previousStatus !== entry.newStatus ? (
+                                <span className="text-muted-foreground">
+                                  <span className="line-through opacity-60">{entry.previousStatus}</span>
+                                  {" → "}
+                                  <span className="text-foreground">{entry.newStatus}</span>
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">{entry.newStatus ?? entry.previousStatus ?? "—"}</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-xs">
+                              <div>{entry.hostname ?? <span className="text-muted-foreground/50">—</span>}</div>
+                              {entry.owner && <div className="text-muted-foreground text-xs">{entry.owner}</div>}
+                            </td>
+                            <td className="p-3 text-xs text-muted-foreground">{entry.performedBy ?? "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+        <>
         {/* Filtros de endereços */}
         <div className="flex gap-2 flex-wrap">
           <div className="relative flex-1 min-w-48">
@@ -593,6 +699,8 @@ export default function IpBlocks() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        </>
+        )}
       </div>
     );
   }

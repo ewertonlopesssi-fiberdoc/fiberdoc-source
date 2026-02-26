@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `ip_audit_log` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`blockId` int NOT NULL,\n\t`addressId` int,\n\t`address` varchar(39) NOT NULL,\n\t`ip_audit_action` enum('allocated','released','updated','deleted','imported') NOT NULL,\n\t`previousStatus` varchar(32),\n\t`newStatus` varchar(32),\n\t`hostname` varchar(255),\n\t`owner` varchar(128),\n\t`equipmentId` int,\n\t`equipmentName` varchar(128),\n\t`performedBy` varchar(128),\n\t`userId` int,\n\t`notes` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `ip_audit_log_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `ip_audit_log` ADD CONSTRAINT `ip_audit_log_blockId_ip_blocks_id_fk` FOREIGN KEY (`blockId`) REFERENCES `ip_blocks`(`id`) ON DELETE cascade ON UPDATE no action;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute CREATE TABLE `ip_audit_log` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`blockId` int NOT NULL,\n\t`addressId` int,\n\t`address` varchar(39) NOT NULL,\n\t`ip_audit_action` enum('allocated','released','updated','deleted','imported') NOT NULL,\n\t`previousStatus` varchar(32),\n\t`newStatus` varchar(32),\n\t`hostname` varchar(255),\n\t`owner` varchar(128),\n\t`equipmentId` int,\n\t`equipmentName` varchar(128),\n\t`performedBy` varchar(128),\n\t`userId` int,\n\t`notes` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `ip_audit_log_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `ip_audit_log` ADD CONSTRAINT `ip_audit_log_blockId_ip_blocks_id_fk` FOREIGN KEY (`blockId`) REFERENCES `ip_blocks`(`id`) ON DELETE cascade ON UPDATE no action;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 747
+}

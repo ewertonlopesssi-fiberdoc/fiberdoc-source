@@ -73,6 +73,7 @@ import {
   getIpAddressesByBlock, allocateIpAddress, releaseIpAddress, updateIpAddress, deleteIpAddress,
   getIpBlockStats, getIpDashboardSummary, parseCidr,
   getPrimaryIpByEquipment, getPrimaryIpsByEquipments,
+  addIpAuditLog, getIpAuditByBlock,
 } from "./ipdb";
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
@@ -1087,8 +1088,20 @@ export const appRouter = router({
         owner: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const id = await allocateIpAddress(input);
+        await addIpAuditLog({
+          blockId: input.blockId,
+          addressId: id,
+          address: input.address,
+          action: "allocated",
+          newStatus: input.status ?? "allocated",
+          hostname: input.hostname ?? null,
+          owner: input.owner ?? null,
+          equipmentId: input.equipmentId ?? null,
+          performedBy: ctx.user.name ?? ctx.user.email ?? null,
+          userId: ctx.user.id,
+        });
         return { success: true, id };
       }),
 
@@ -1103,22 +1116,79 @@ export const appRouter = router({
         owner: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
+        // Buscar estado anterior para auditoria
+        const db = await (await import("./db")).getDb();
+        const { ipAddresses: ipAddr } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        const [prev] = db ? await db.select().from(ipAddr).where(eqOp(ipAddr.id, id)).limit(1) : [];
         await updateIpAddress(id, data);
+        if (prev) {
+          await addIpAuditLog({
+            blockId: prev.blockId,
+            addressId: id,
+            address: prev.address,
+            action: "updated",
+            previousStatus: prev.status,
+            newStatus: data.status ?? prev.status,
+            hostname: data.hostname ?? prev.hostname,
+            owner: data.owner ?? prev.owner,
+            equipmentId: data.equipmentId ?? prev.equipmentId,
+            performedBy: ctx.user.name ?? ctx.user.email ?? null,
+            userId: ctx.user.id,
+          });
+        }
         return { success: true };
       }),
 
     releaseAddress: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const db = await (await import("./db")).getDb();
+        const { ipAddresses: ipAddr } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        const [prev] = db ? await db.select().from(ipAddr).where(eqOp(ipAddr.id, input.id)).limit(1) : [];
         await releaseIpAddress(input.id);
+        if (prev) {
+          await addIpAuditLog({
+            blockId: prev.blockId,
+            addressId: input.id,
+            address: prev.address,
+            action: "released",
+            previousStatus: prev.status,
+            newStatus: "free",
+            hostname: prev.hostname,
+            owner: prev.owner,
+            equipmentId: prev.equipmentId,
+            performedBy: ctx.user.name ?? ctx.user.email ?? null,
+            userId: ctx.user.id,
+          });
+        }
         return { success: true };
       }),
 
     deleteAddress: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const db = await (await import("./db")).getDb();
+        const { ipAddresses: ipAddr } = await import("../drizzle/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        const [prev] = db ? await db.select().from(ipAddr).where(eqOp(ipAddr.id, input.id)).limit(1) : [];
+        if (prev) {
+          await addIpAuditLog({
+            blockId: prev.blockId,
+            addressId: null,
+            address: prev.address,
+            action: "deleted",
+            previousStatus: prev.status,
+            hostname: prev.hostname,
+            owner: prev.owner,
+            equipmentId: prev.equipmentId,
+            performedBy: ctx.user.name ?? ctx.user.email ?? null,
+            userId: ctx.user.id,
+          });
+        }
         await deleteIpAddress(input.id);
         return { success: true };
       }),
@@ -1135,13 +1205,13 @@ export const appRouter = router({
           status: z.enum(["allocated","reserved","dhcp","free"]).optional(),
         })),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         let imported = 0;
         let skipped = 0;
         const errors: string[] = [];
         for (const row of input.rows) {
           try {
-            await allocateIpAddress({
+            const id = await allocateIpAddress({
               blockId: input.blockId,
               address: row.address.trim(),
               status: row.status ?? "allocated",
@@ -1149,6 +1219,18 @@ export const appRouter = router({
               owner: row.owner ?? null,
               macAddress: row.mac ?? null,
               description: row.description ?? null,
+            });
+            await addIpAuditLog({
+              blockId: input.blockId,
+              addressId: id,
+              address: row.address.trim(),
+              action: "imported",
+              newStatus: row.status ?? "allocated",
+              hostname: row.hostname ?? null,
+              owner: row.owner ?? null,
+              performedBy: ctx.user.name ?? ctx.user.email ?? null,
+              userId: ctx.user.id,
+              notes: `Importado via CSV`,
             });
             imported++;
           } catch (e: any) {
@@ -1166,6 +1248,10 @@ export const appRouter = router({
     primaryByEquipments: protectedProcedure
       .input(z.object({ equipmentIds: z.array(z.number()) }))
       .query(({ input }) => getPrimaryIpsByEquipments(input.equipmentIds)),
+
+    auditByBlock: protectedProcedure
+      .input(z.object({ blockId: z.number(), limit: z.number().optional() }))
+      .query(({ input }) => getIpAuditByBlock(input.blockId, input.limit ?? 100)),
   }),
 });
 export type AppRouter = typeof appRouter;

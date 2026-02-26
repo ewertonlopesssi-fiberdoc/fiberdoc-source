@@ -318,3 +318,24 @@ export const ipAddresses = mysqlTable("ip_addresses", {
 });
 export type IpAddress = typeof ipAddresses.$inferSelect;
 export type InsertIpAddress = typeof ipAddresses.$inferInsert;
+
+// ─── IP DOC — Log de Auditoria ───────────────────────────────────────────────
+export const ipAuditLog = mysqlTable("ip_audit_log", {
+  id: int("id").autoincrement().primaryKey(),
+  blockId: int("blockId").notNull().references(() => ipBlocks.id, { onDelete: "cascade" }),
+  addressId: int("addressId"),                              // null se o IP foi deletado
+  address: varchar("address", { length: 39 }).notNull(),   // snapshot do IP no momento
+  action: mysqlEnum("ip_audit_action", ["allocated", "released", "updated", "deleted", "imported"]).notNull(),
+  previousStatus: varchar("previousStatus", { length: 32 }),
+  newStatus: varchar("newStatus", { length: 32 }),
+  hostname: varchar("hostname", { length: 255 }),
+  owner: varchar("owner", { length: 128 }),
+  equipmentId: int("equipmentId"),
+  equipmentName: varchar("equipmentName", { length: 128 }), // snapshot do nome
+  performedBy: varchar("performedBy", { length: 128 }),
+  userId: int("userId"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type IpAuditLog = typeof ipAuditLog.$inferSelect;
+export type InsertIpAuditLog = typeof ipAuditLog.$inferInsert;

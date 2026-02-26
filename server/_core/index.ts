@@ -9,6 +9,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startBackupScheduler } from "../backupScheduler";
 import { generateIpReportPdf } from "../ipReportPdf";
+import { generateEquipmentReportPdf } from "../equipmentReportPdf";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -43,6 +44,21 @@ async function startServer() {
       await generateIpReportPdf(res);
     } catch (err) {
       console.error("[ip-report-pdf] erro:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Erro ao gerar PDF" });
+      }
+    }
+  });
+
+  // Relatório de Equipamentos em PDF
+  app.get("/api/equipment-report-pdf", async (req, res) => {
+    try {
+      const pdfBuffer = await generateEquipmentReportPdf();
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="FiberDoc_Equipamentos_${new Date().toISOString().slice(0,10)}.pdf"`);
+      res.send(pdfBuffer);
+    } catch (err) {
+      console.error("[equipment-report-pdf] erro:", err);
       if (!res.headersSent) {
         res.status(500).json({ error: "Erro ao gerar PDF" });
       }

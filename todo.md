@@ -302,3 +302,12 @@
 - [x] Botão "Exportar PDF" na tela de Relatórios do IP DOC
 - [x] Filtro de busca por IP, VLAN e descrição de serviço na listagem de equipamentos
 - [x] 105 testes passando (10 arquivos)
+
+## Auditoria de IPs e Relatório PDF de Equipamentos
+
+- [x] Registrar log de auditoria em alocação, liberação e edição de IPs (procedures tRPC)
+- [x] Query getIpAuditByBlock para buscar histórico de um bloco
+- [x] Aba "Histórico de Alterações" no detalhe do bloco com tabela de eventos
+- [x] Endpoint /api/equipment-report-pdf com PDFKit (A4 landscape)
+- [x] Botão "Exportar PDF" na tela de Equipamentos
+- [x] 112 testes passando (11 arquivos)

@@ -1,6 +1,6 @@
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db";
-import { ipBlocks, ipAddresses, equipments } from "../drizzle/schema";
+import { ipBlocks, ipAddresses, equipments, ipAuditLog } from "../drizzle/schema";
 
 // ─── Utilitários de CIDR ─────────────────────────────────────────────────────
 
@@ -227,6 +227,53 @@ export async function deleteIpAddress(id: number) {
   const db = await getDb();
   if (!db) return;
   await db.delete(ipAddresses).where(eq(ipAddresses.id, id));
+}
+
+// ─── Auditoria de IPs ────────────────────────────────────────────────────────
+
+export async function addIpAuditLog(entry: {
+  blockId: number;
+  addressId?: number | null;
+  address: string;
+  action: "allocated" | "released" | "updated" | "deleted" | "imported";
+  previousStatus?: string | null;
+  newStatus?: string | null;
+  hostname?: string | null;
+  owner?: string | null;
+  equipmentId?: number | null;
+  equipmentName?: string | null;
+  performedBy?: string | null;
+  userId?: number | null;
+  notes?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(ipAuditLog).values({
+    blockId: entry.blockId,
+    addressId: entry.addressId ?? null,
+    address: entry.address,
+    action: entry.action,
+    previousStatus: entry.previousStatus ?? null,
+    newStatus: entry.newStatus ?? null,
+    hostname: entry.hostname ?? null,
+    owner: entry.owner ?? null,
+    equipmentId: entry.equipmentId ?? null,
+    equipmentName: entry.equipmentName ?? null,
+    performedBy: entry.performedBy ?? null,
+    userId: entry.userId ?? null,
+    notes: entry.notes ?? null,
+  });
+}
+
+export async function getIpAuditByBlock(blockId: number, limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(ipAuditLog)
+    .where(eq(ipAuditLog.blockId, blockId))
+    .orderBy(sql`${ipAuditLog.createdAt} DESC`)
+    .limit(limit);
 }
 
 // ─── Estatísticas ─────────────────────────────────────────────────────────────
