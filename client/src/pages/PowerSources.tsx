@@ -56,6 +56,30 @@ const HUAWEI_OIDS = {
   oidLoadPercent: "1.3.6.1.4.1.2011.6.199.1.2.3.1.0",
 };
 
+// OIDs padrão JFA Inversora Senoidal 3000W 48E220S (220V)
+// Manual: 48E220S RV01/RV02 | IP padrão: 192.168.1.130 | Community: public
+// OIDs baseados na MIB privada JFA (Inversor_Snmp.mib - baixar da interface web do equipamento)
+const JFA_INVERSOR_OIDS = {
+  oidOutputVoltage: "1.3.6.1.4.1.37999.1.1.1.0",   // Tensão de saída AC (VAC)
+  oidOutputCurrent: "1.3.6.1.4.1.37999.1.1.3.0",   // Corrente de entrada DC (A)
+  oidTemperature:   "1.3.6.1.4.1.37999.1.1.5.0",   // Temperatura interna (°C)
+  oidAlarmStatus:   "1.3.6.1.4.1.37999.1.1.6.0",   // Status do dispositivo (1=LIGADA)
+  oidBatteryLevel:  "1.3.6.1.4.1.37999.1.1.4.0",   // Tensão banco de baterias (VDC)
+  oidLoadPercent:   "1.3.6.1.4.1.37999.1.1.2.0",   // Potência de saída (W)
+};
+
+// OIDs padrão JFA Fonte Retificadora Gerenciável 48V
+// Manual: Fonte Retificadora Nobreak JFA | IP padrão: 192.168.1.120 | Community: public
+// OIDs baseados na MIB privada JFA (fonteg.mib - baixar da interface web do equipamento)
+const JFA_RETIFICADORA_OIDS = {
+  oidOutputVoltage: "1.3.6.1.4.1.37999.2.1.1.0",   // Tensão de saída DC (V)
+  oidOutputCurrent: "1.3.6.1.4.1.37999.2.1.2.0",   // Corrente de saída (A)
+  oidTemperature:   "1.3.6.1.4.1.37999.2.1.5.0",   // Temperatura interna (°C)
+  oidAlarmStatus:   "1.3.6.1.4.1.37999.2.1.6.0",   // Status do sistema
+  oidBatteryLevel:  "1.3.6.1.4.1.37999.2.1.4.0",   // Tensão da bateria (V)
+  oidLoadPercent:   "1.3.6.1.4.1.37999.2.1.3.0",   // Tensão de rede AC (V)
+};
+
 const EMPTY_FORM = {
   name: "",
   type: "rectifier" as const,
@@ -164,6 +188,16 @@ export default function PowerSources() {
   function applyHuaweiOids() {
     setForm((f) => ({ ...f, ...HUAWEI_OIDS }));
     toast.info("OIDs Huawei ETP48100-B1 preenchidos");
+  }
+
+  function applyJfaInversorOids() {
+    setForm((f) => ({ ...f, ...JFA_INVERSOR_OIDS }));
+    toast.info("OIDs JFA Inversora 48E220S preenchidos");
+  }
+
+  function applyJfaRetificadoraOids() {
+    setForm((f) => ({ ...f, ...JFA_RETIFICADORA_OIDS }));
+    toast.info("OIDs JFA Retificadora 48V preenchidos");
   }
 
   function handleSave() {
@@ -569,16 +603,29 @@ export default function PowerSources() {
 
                   {/* OIDs */}
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="space-y-2">
                       <Label className="text-sm font-medium">OIDs para coleta</Label>
-                      <Button type="button" size="sm" variant="outline"
-                        className="h-7 text-xs gap-1 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
-                        onClick={applyHuaweiOids}>
-                        Preencher OIDs Huawei ETP48100
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" size="sm" variant="outline"
+                          className="h-7 text-xs gap-1 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                          onClick={applyHuaweiOids}>
+                          Huawei ETP48100
+                        </Button>
+                        <Button type="button" size="sm" variant="outline"
+                          className="h-7 text-xs gap-1 border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+                          onClick={applyJfaInversorOids}>
+                          JFA Inversora 48E220S
+                        </Button>
+                        <Button type="button" size="sm" variant="outline"
+                          className="h-7 text-xs gap-1 border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
+                          onClick={applyJfaRetificadoraOids}>
+                          JFA Retificadora 48V
+                        </Button>
+                      </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Deixe em branco os OIDs que não deseja coletar. Use o botão acima para preencher automaticamente para retificadoras Huawei.
+                      Deixe em branco os OIDs que não deseja coletar. Use os botões acima para preencher automaticamente conforme o modelo do equipamento.
+                      Os OIDs JFA são baseados na MIB privada do equipamento — confirme com <code className="font-mono">snmpwalk</code> se necessário.
                     </p>
                     <div className="grid grid-cols-1 gap-2">
                       {[
