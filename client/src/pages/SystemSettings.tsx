@@ -6,7 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves, Bell, RefreshCw, CheckCircle2, XCircle, Clock, History, PackageOpen } from "lucide-react";
+import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves, Bell, RefreshCw, CheckCircle2, XCircle, Clock, History, PackageOpen, Cpu, Plus, Pencil, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 const THEMES = [
@@ -291,6 +294,36 @@ export default function SystemSettingsPage() {
     onSuccess: () => toast.success("Configuração Telegram salva!"),
     onError: () => toast.error("Erro ao salvar configuração Telegram."),
   });
+
+  // ─── Contas Tuya ─────────────────────────────────────────────────────────────
+  const { data: tuyaAccounts = [], refetch: refetchAccounts } = trpc.tuyaAccounts.list.useQuery();
+  const [tuyaOpen, setTuyaOpen] = useState(false);
+  const [tuyaEditId, setTuyaEditId] = useState<number | null>(null);
+  const [tuyaForm, setTuyaForm] = useState({ name: "", accessId: "", accessSecret: "", region: "us", notes: "" });
+  const [testingAccountId, setTestingAccountId] = useState<number | null>(null);
+  const createAccountMut = trpc.tuyaAccounts.create.useMutation({
+    onSuccess: () => { refetchAccounts(); setTuyaOpen(false); toast.success("Conta Tuya criada!"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateAccountMut = trpc.tuyaAccounts.update.useMutation({
+    onSuccess: () => { refetchAccounts(); setTuyaOpen(false); toast.success("Conta Tuya atualizada!"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteAccountMut = trpc.tuyaAccounts.delete.useMutation({
+    onSuccess: () => { refetchAccounts(); toast.success("Conta removida!"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const testAccountMut = trpc.tuyaAccounts.testConnection.useMutation({
+    onSuccess: () => { setTestingAccountId(null); toast.success("Conexão Tuya OK! Credenciais válidas."); },
+    onError: (e) => { setTestingAccountId(null); toast.error(`Falha: ${e.message}`); },
+  });
+  function openCreateAccount() { setTuyaEditId(null); setTuyaForm({ name: "", accessId: "", accessSecret: "", region: "us", notes: "" }); setTuyaOpen(true); }
+  function openEditAccount(a: typeof tuyaAccounts[0]) { setTuyaEditId(a.id); setTuyaForm({ name: a.name, accessId: a.accessId, accessSecret: a.accessSecret, region: a.region, notes: a.notes ?? "" }); setTuyaOpen(true); }
+  function saveAccount() {
+    if (!tuyaForm.name || !tuyaForm.accessId || !tuyaForm.accessSecret) { toast.error("Preencha nome, Access ID e Secret"); return; }
+    if (tuyaEditId) updateAccountMut.mutate({ id: tuyaEditId, ...tuyaForm, region: tuyaForm.region as any });
+    else createAccountMut.mutate({ ...tuyaForm, region: tuyaForm.region as any });
+  }
 
   // Sync state with loaded settings
   const [initialized, setInitialized] = useState(false);
@@ -739,6 +772,112 @@ export default function SystemSettingsPage() {
           </CardContent>
         </Card>
 
+        {/* Contas Tuya IoT */}
+        <Card className="border-border/50">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Cpu className="h-4 w-4 text-primary" /> Contas Tuya IoT
+                </CardTitle>
+                <CardDescription>Gerencie múltiplas contas da plataforma Tuya para monitorar sensores de diferentes projetos</CardDescription>
+              </div>
+              <Button size="sm" onClick={openCreateAccount}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Nova Conta
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {tuyaAccounts.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Cpu className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">Nenhuma conta Tuya cadastrada</p>
+                <p className="text-xs mt-1">Adicione as credenciais da API Tuya para monitorar sensores IoT</p>
+                <p className="text-xs mt-3 text-muted-foreground/70">
+                  Obtenha as credenciais em <a href="https://iot.tuya.com" target="_blank" rel="noopener" className="text-primary underline">iot.tuya.com</a> → Cloud → Criar Projeto
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {tuyaAccounts.map((a) => (
+                  <div key={a.id} className="flex items-center gap-3 p-3 rounded-lg border border-border/50 bg-muted/20">
+                    <Cpu className="h-4 w-4 text-primary shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{a.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {a.region.toUpperCase()} · ID: <span className="font-mono">{a.accessId.slice(0, 8)}…</span>
+                      </p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm" variant="outline"
+                        disabled={testingAccountId === a.id}
+                        onClick={() => { setTestingAccountId(a.id); testAccountMut.mutate({ accessId: a.accessId, accessSecret: a.accessSecret, region: a.region as any }); }}
+                      >
+                        <RefreshCw className={`h-3 w-3 mr-1 ${testingAccountId === a.id ? "animate-spin" : ""}`} />
+                        Testar
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => openEditAccount(a)}>
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="sm" variant="outline" className="text-destructive hover:bg-destructive/10"
+                        onClick={() => { if (confirm(`Remover conta "${a.name}"?`)) deleteAccountMut.mutate({ id: a.id }); }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Modal de conta Tuya */}
+        <Dialog open={tuyaOpen} onOpenChange={setTuyaOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>{tuyaEditId ? "Editar Conta Tuya" : "Nova Conta Tuya"}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <Label>Nome da conta *</Label>
+                <Input placeholder="Ex: Conta Principal, Cliente ABC" value={tuyaForm.name} onChange={(e) => setTuyaForm((p) => ({ ...p, name: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Access ID (Client ID) *</Label>
+                <Input placeholder="Ex: p7xxxxxxxxxxxxxxxxxx" value={tuyaForm.accessId} onChange={(e) => setTuyaForm((p) => ({ ...p, accessId: e.target.value }))} className="font-mono text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label>Access Secret *</Label>
+                <Input type="password" placeholder="Client Secret" value={tuyaForm.accessSecret} onChange={(e) => setTuyaForm((p) => ({ ...p, accessSecret: e.target.value }))} className="font-mono text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label>Região</Label>
+                <Select value={tuyaForm.region} onValueChange={(v) => setTuyaForm((p) => ({ ...p, region: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="us">América (us)</SelectItem>
+                    <SelectItem value="eu">Europa (eu)</SelectItem>
+                    <SelectItem value="cn">China (cn)</SelectItem>
+                    <SelectItem value="in">Índia (in)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>Observações</Label>
+                <Textarea placeholder="Projeto, cliente, descrição..." value={tuyaForm.notes} onChange={(e) => setTuyaForm((p) => ({ ...p, notes: e.target.value }))} rows={2} />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setTuyaOpen(false)}>Cancelar</Button>
+                <Button onClick={saveAccount} disabled={createAccountMut.isPending || updateAccountMut.isPending}>
+                  {tuyaEditId ? "Salvar" : "Criar conta"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
         {/* Botão Salvar */}
         <div className="flex justify-end gap-3 pb-6">
           <Button

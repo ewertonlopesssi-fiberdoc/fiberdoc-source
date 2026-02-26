@@ -448,3 +448,65 @@ export const snmpAlerts = mysqlTable("snmp_alerts", {
 });
 export type SnmpAlert = typeof snmpAlerts.$inferSelect;
 export type InsertSnmpAlert = typeof snmpAlerts.$inferInsert;
+
+// ─── Dispositivos Tuya IoT ─────────────────────────────────────────────────────
+export const tuyaDevices = mysqlTable("tuya_devices", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  deviceId: varchar("deviceId", { length: 128 }).notNull().unique(), // ID do dispositivo na plataforma Tuya
+  type: mysqlEnum("type", [
+    "temperature_humidity", // Sensor de temperatura e umidade
+    "temperature",          // Sensor de temperatura
+    "humidity",             // Sensor de umidade
+    "co2",                  // Sensor de CO₂
+    "smoke",                // Sensor de fumaça
+    "motion",               // Sensor de presença/movimento
+    "door",                 // Sensor de porta/janela
+    "power_meter",          // Medidor de energia (tomada inteligente)
+    "other",                // Outro tipo
+  ]).notNull().default("temperature_humidity"),
+  tuyaAccountId: int("tuyaAccountId").references(() => tuyaAccounts.id, { onDelete: "set null" }),
+  roomId: int("roomId").references(() => rooms.id, { onDelete: "set null" }),
+  powerSourceId: int("powerSourceId").references(() => powerSources.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  // Polling
+  pollInterval: int("pollInterval").default(300).notNull(), // segundos
+  lastPolledAt: timestamp("lastPolledAt"),
+  lastPollError: text("lastPollError"),
+  // Últimos valores coletados (cache)
+  lastTemperature: float("lastTemperature"),
+  lastHumidity: float("lastHumidity"),
+  lastCo2: float("lastCo2"),
+  lastPower: float("lastPower"),          // W
+  lastVoltage: float("lastVoltage"),      // V
+  lastCurrent: float("lastCurrent"),      // A
+  lastRawData: text("lastRawData"),       // JSON com todos os DPs coletados
+  // Status
+  status: mysqlEnum("status", ["online", "offline", "unknown"]).default("unknown").notNull(),
+  // Thresholds de alerta
+  alertsEnabled: boolean("alertsEnabled").default(false).notNull(),
+  alertTempMax: float("alertTempMax"),
+  alertTempMin: float("alertTempMin"),
+  alertHumidityMax: float("alertHumidityMax"),
+  alertHumidityMin: float("alertHumidityMin"),
+  alertCo2Max: float("alertCo2Max"),
+  alertPowerMax: float("alertPowerMax"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type TuyaDevice = typeof tuyaDevices.$inferSelect;
+export type InsertTuyaDevice = typeof tuyaDevices.$inferInsert;
+
+// ─── Contas Tuya IoT (múltiplas contas) ───────────────────────────────────────
+export const tuyaAccounts = mysqlTable("tuya_accounts", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),           // Ex: "Conta Principal", "Cliente ABC"
+  accessId: varchar("accessId", { length: 128 }).notNull(),   // Client ID do projeto Tuya
+  accessSecret: varchar("accessSecret", { length: 256 }).notNull(), // Client Secret
+  region: mysqlEnum("region", ["us", "eu", "cn", "in"]).notNull().default("us"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type TuyaAccount = typeof tuyaAccounts.$inferSelect;
+export type InsertTuyaAccount = typeof tuyaAccounts.$inferInsert;

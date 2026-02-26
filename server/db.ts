@@ -32,6 +32,12 @@ import {
   snmpAlerts,
   SnmpAlert,
   InsertSnmpAlert,
+  tuyaDevices,
+  TuyaDevice,
+  InsertTuyaDevice,
+  tuyaAccounts,
+  TuyaAccount,
+  InsertTuyaAccount,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1469,4 +1475,87 @@ export async function hasActiveAlertOfType(powerSourceId: number, alertType: str
     ))
     .limit(1);
   return rows.length > 0;
+}
+
+// ─── Dispositivos Tuya IoT ─────────────────────────────────────────────────────
+export async function getTuyaDevices(): Promise<TuyaDevice[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(tuyaDevices).orderBy(tuyaDevices.name);
+}
+
+export async function getTuyaDeviceById(id: number): Promise<TuyaDevice | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(tuyaDevices).where(eq(tuyaDevices.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createTuyaDevice(data: Omit<InsertTuyaDevice, "id" | "createdAt" | "updatedAt">): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const result = await db.insert(tuyaDevices).values(data as InsertTuyaDevice);
+  return (result as any)[0]?.insertId ?? 0;
+}
+
+export async function updateTuyaDevice(id: number, data: Partial<InsertTuyaDevice>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(tuyaDevices).set(data as any).where(eq(tuyaDevices.id, id));
+}
+
+export async function deleteTuyaDevice(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(tuyaDevices).where(eq(tuyaDevices.id, id));
+}
+
+export async function updateTuyaDeviceStatus(id: number, data: {
+  status: "online" | "offline" | "unknown";
+  lastPolledAt?: Date;
+  lastPollError?: string | null;
+  lastTemperature?: number | null;
+  lastHumidity?: number | null;
+  lastCo2?: number | null;
+  lastPower?: number | null;
+  lastVoltage?: number | null;
+  lastCurrent?: number | null;
+  lastRawData?: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(tuyaDevices).set(data as any).where(eq(tuyaDevices.id, id));
+}
+
+// ─── Contas Tuya IoT ──────────────────────────────────────────────────────────
+export async function getTuyaAccounts(): Promise<TuyaAccount[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(tuyaAccounts).orderBy(tuyaAccounts.name);
+}
+
+export async function getTuyaAccountById(id: number): Promise<TuyaAccount | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(tuyaAccounts).where(eq(tuyaAccounts.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createTuyaAccount(data: Omit<InsertTuyaAccount, "id" | "createdAt" | "updatedAt">): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const result = await db.insert(tuyaAccounts).values(data as InsertTuyaAccount);
+  return (result as any)[0]?.insertId ?? 0;
+}
+
+export async function updateTuyaAccount(id: number, data: Partial<InsertTuyaAccount>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(tuyaAccounts).set(data as any).where(eq(tuyaAccounts.id, id));
+}
+
+export async function deleteTuyaAccount(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(tuyaAccounts).where(eq(tuyaAccounts.id, id));
 }

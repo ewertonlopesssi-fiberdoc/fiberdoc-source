@@ -82,6 +82,11 @@ import {
 } from "./db";
 import { pollSinglePowerSource } from "./snmpPoller";
 import { sendTelegramMessage } from "./telegram";
+import {
+  getTuyaDevices, getTuyaDeviceById, createTuyaDevice, updateTuyaDevice, deleteTuyaDevice,
+  getTuyaAccounts, getTuyaAccountById, createTuyaAccount, updateTuyaAccount, deleteTuyaAccount,
+} from "./db";
+import { pollSingleTuyaDevice, testTuyaConnection, scheduleTuyaDevice, unscheduleTuyaDevice } from "./tuyaPoller";
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
@@ -1454,6 +1459,118 @@ export const appRouter = router({
         if (!result.ok) throw new TRPCError({ code: "BAD_REQUEST", message: result.error ?? "Falha ao enviar" });
         return { ok: true };
       }),
+  }),
+  // ─── Dispositivos Tuya IoT ─────────────────────────────────────────────────
+  tuyaDevices: router({
+    list: protectedProcedure.query(() => getTuyaDevices()),
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => getTuyaDeviceById(input.id)),
+    create: adminProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        deviceId: z.string().min(1),
+        type: z.enum(["temperature_humidity", "temperature", "humidity", "co2", "smoke", "motion", "door", "power_meter", "other"]),
+        tuyaAccountId: z.number().optional(),
+        roomId: z.number().optional(),
+        powerSourceId: z.number().optional(),
+        notes: z.string().optional(),
+        pollInterval: z.number().int().min(30).max(86400).default(300),
+        alertsEnabled: z.boolean().default(false),
+        alertTempMax: z.number().optional(),
+        alertTempMin: z.number().optional(),
+        alertHumidityMax: z.number().optional(),
+        alertHumidityMin: z.number().optional(),
+        alertCo2Max: z.number().optional(),
+        alertPowerMax: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createTuyaDevice(input as any);
+        scheduleTuyaDevice(id, input.pollInterval);
+        return { id };
+      }),
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(1).optional(),
+        deviceId: z.string().min(1).optional(),
+        type: z.enum(["temperature_humidity", "temperature", "humidity", "co2", "smoke", "motion", "door", "power_meter", "other"]).optional(),
+        tuyaAccountId: z.number().nullable().optional(),
+        roomId: z.number().nullable().optional(),
+        powerSourceId: z.number().nullable().optional(),
+        notes: z.string().optional(),
+        pollInterval: z.number().int().min(30).max(86400).optional(),
+        alertsEnabled: z.boolean().optional(),
+        alertTempMax: z.number().nullable().optional(),
+        alertTempMin: z.number().nullable().optional(),
+        alertHumidityMax: z.number().nullable().optional(),
+        alertHumidityMin: z.number().nullable().optional(),
+        alertCo2Max: z.number().nullable().optional(),
+        alertPowerMax: z.number().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateTuyaDevice(id, data as any);
+        if (data.pollInterval !== undefined) {
+          scheduleTuyaDevice(id, data.pollInterval);
+        }
+        return { ok: true };
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        unscheduleTuyaDevice(input.id);
+        await deleteTuyaDevice(input.id);
+        return { ok: true };
+      }),
+    pollNow: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input }) => pollSingleTuyaDevice(input.id)),
+    testConnection: adminProcedure
+      .input(z.object({ accessId: z.string(), accessSecret: z.string(), region: z.enum(["us", "eu", "cn", "in"]) }))
+      .mutation(({ input }) => testTuyaConnection(input)),
+  }),
+  // ─── Contas Tuya IoT (múltiplas contas) ───────────────────────────────────────────
+  tuyaAccounts: router({
+    list: protectedProcedure.query(() => getTuyaAccounts()),
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => getTuyaAccountById(input.id)),
+    create: adminProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        accessId: z.string().min(1),
+        accessSecret: z.string().min(1),
+        region: z.enum(["us", "eu", "cn", "in"]).default("us"),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createTuyaAccount(input);
+        return { id };
+      }),
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(1).optional(),
+        accessId: z.string().min(1).optional(),
+        accessSecret: z.string().min(1).optional(),
+        region: z.enum(["us", "eu", "cn", "in"]).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateTuyaAccount(id, data);
+        return { ok: true };
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteTuyaAccount(input.id);
+        return { ok: true };
+      }),
+    testConnection: adminProcedure
+      .input(z.object({ accessId: z.string(), accessSecret: z.string(), region: z.enum(["us", "eu", "cn", "in"]) }))
+      .mutation(({ input }) => testTuyaConnection(input)),
   }),
 });
 export type AppRouter = typeof appRouter;

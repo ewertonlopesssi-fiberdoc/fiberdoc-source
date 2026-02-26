@@ -27,6 +27,7 @@ import IpBlocks from "./pages/IpBlocks";
 import IpReports from "./pages/IpReports";
 import PowerSources from "./pages/PowerSources";
 import Alerts from "./pages/Alerts";
+import TuyaDevices from "./pages/TuyaDevices";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
@@ -74,6 +75,7 @@ function Router() {
         <Route path={"/ip-doc/relatorios"} component={IpReports} />
         <Route path={"/fontes-energia"} component={PowerSources} />
         <Route path={"/alertas"} component={Alerts} />
+        <Route path={"/sensores-tuya"} component={TuyaDevices} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

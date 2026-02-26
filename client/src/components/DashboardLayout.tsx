@@ -45,6 +45,7 @@ import {
   Globe,
   Zap,
   Bell,
+  Cpu,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -79,6 +80,7 @@ const publicMenuItems = [
   { icon: FileBarChart, label: "Relatório de Ocupação", path: "/relatorio-ocupacao" },
   { icon: Zap, label: "Fontes de Energia", path: "/fontes-energia" },
   { icon: Bell, label: "Alertas", path: "/alertas" },
+  { icon: Cpu, label: "Sensores Tuya", path: "/sensores-tuya" },
 ];
 
 const adminOnlyMenuItems = [

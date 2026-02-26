@@ -414,3 +414,52 @@
 - [x] Seção Telegram na página de Sistema com campos Bot Token e Chat ID, botão de teste e salvar
 - [x] systemConfig.save aceita telegram_bot_token e telegram_chat_id
 - [x] 145 testes passando (14 arquivos)
+
+## Integração Tuya IoT (Sensores via Cloud API)
+
+- [ ] Tabela tuya_devices (id, name, deviceId, type, roomId, powerSourceId, alertsEnabled, thresholds, lastValue, lastPolledAt, status, notes)
+- [ ] Migration SQL aplicada
+- [ ] DB helpers: getTuyaDevices, getTuyaDeviceById, createTuyaDevice, updateTuyaDevice, deleteTuyaDevice, updateTuyaDeviceStatus
+- [ ] Módulo tuyaPoller.ts com autenticação HMAC-SHA256 na Tuya Cloud API
+- [ ] Suporte a regiões: us (América), eu (Europa), cn (China)
+- [ ] Coleta de status do dispositivo via GET /v1.0/devices/{deviceId}/status
+- [ ] Avaliação de thresholds e geração de alertas (reusa tabela snmp_alerts)
+- [ ] Notificação Telegram ao gerar alerta Tuya
+- [ ] Polling automático configurável por dispositivo
+- [ ] tRPC procedures: tuyaDevices (list, byId, create, update, delete, pollNow, testConnection)
+- [ ] Página /sensores-tuya com cards de status em tempo real
+- [ ] Formulário de cadastro com campos: nome, Device ID, tipo, sala, intervalo de polling, thresholds
+- [ ] Botão "Testar Conexão" no formulário
+- [ ] Item "Sensores Tuya" no menu lateral
+- [ ] Configuração global Tuya (Access ID, Secret, Região) na página de Sistema
+- [ ] Testes vitest para o módulo Tuya
+
+## Múltiplas Contas Tuya
+
+- [ ] Tabela tuya_accounts (id, name, accessId, accessSecret, region, notes, createdAt)
+- [ ] Campo tuyaAccountId (FK) na tabela tuya_devices
+- [ ] Migration SQL aplicada
+- [ ] DB helpers: getTuyaAccounts, createTuyaAccount, updateTuyaAccount, deleteTuyaAccount
+- [ ] tuyaPoller: usar credenciais da conta vinculada ao dispositivo (fallback para config global)
+- [ ] tRPC procedures: tuyaAccounts (list, create, update, delete, testConnection)
+- [ ] Atualizar procedure tuyaDevices.create/update para aceitar tuyaAccountId
+- [ ] Seletor de conta no formulário de dispositivos Tuya
+- [ ] Seção "Contas Tuya" na página de Sistema com CRUD de contas
+- [ ] Testes vitest para múltiplas contas
+
+## Integração Tuya IoT (Sensores)
+
+- [x] Tabela tuya_accounts (id, name, accessId, accessSecret, region, notes)
+- [x] Tabela tuya_devices (id, name, deviceId, type, tuyaAccountId, thresholds, enabled, pollingInterval)
+- [x] Campo tuyaAccountId (FK) na tabela tuya_devices
+- [x] Migrations SQL aplicadas (0019 tuya_devices, 0020 tuya_accounts + FK)
+- [x] DB helpers: getTuyaAccounts, getTuyaAccountById, createTuyaAccount, updateTuyaAccount, deleteTuyaAccount
+- [x] DB helpers: getTuyaDevices, getTuyaDeviceById, createTuyaDevice, updateTuyaDevice, deleteTuyaDevice
+- [x] Módulo tuyaPoller.ts com autenticação HMAC-SHA256, coleta via Tuya Cloud API e polling automático
+- [x] Avaliação de thresholds (temperatura, umidade, CO2, potência) com geração de alertas e notificação Telegram
+- [x] tRPC procedures: tuyaAccounts (list, create, update, delete, testConnection)
+- [x] tRPC procedures: tuyaDevices (list, create, update, delete, pollNow)
+- [x] Página /sensores-tuya com CRUD de dispositivos, seletor de conta, thresholds e status em tempo real
+- [x] Seção Contas Tuya IoT na página de Sistema com CRUD e botão Testar conexão
+- [x] Item "Sensores Tuya" no menu lateral
+- [x] 156 testes passando (15 arquivos)
