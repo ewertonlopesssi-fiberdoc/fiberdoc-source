@@ -251,7 +251,7 @@ function IpForm({
           <Select value={form.equipmentId} onValueChange={(v) => set("equipmentId", v)}>
             <SelectTrigger><SelectValue placeholder="Selecionar equipamento..." /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Nenhum</SelectItem>
+              <SelectItem value="__none__">Nenhum</SelectItem>
               {equipments.map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -267,7 +267,7 @@ function IpForm({
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
-        <Button onClick={() => onSave({ ...form, blockId, equipmentId: form.equipmentId ? parseInt(form.equipmentId) : null })} disabled={!form.address.trim()}>
+        <Button onClick={() => onSave({ ...form, blockId, equipmentId: (form.equipmentId && form.equipmentId !== '__none__') ? parseInt(form.equipmentId) : null })} disabled={!form.address.trim()}>
           {initial ? "Salvar" : "Alocar IP"}
         </Button>
       </DialogFooter>

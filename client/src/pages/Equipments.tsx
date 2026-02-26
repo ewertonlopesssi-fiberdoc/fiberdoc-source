@@ -174,8 +174,13 @@ function IfaceForm({ initial, equipmentId: _eqId, onSave, onClose }: {
     serviceDescription: initial?.serviceDescription ?? "",
     isPrimary: initial?.isPrimary ?? false,
     notes: initial?.notes ?? "",
+    ipBlockId: initial?.ipBlockId ? String(initial.ipBlockId) : "__none__",
   });
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Buscar lista de blocos IP para o seletor
+  const { data: ipBlocks = [] } = trpc.ipDoc.listBlocks.useQuery({});
+
   const handleSubmit = () => {
     if (!form.name.trim()) return;
     onSave({
@@ -186,6 +191,7 @@ function IfaceForm({ initial, equipmentId: _eqId, onSave, onClose }: {
       serviceDescription: form.serviceDescription || null,
       isPrimary: form.isPrimary,
       notes: form.notes || null,
+      ipBlockId: (form.ipBlockId && form.ipBlockId !== "__none__") ? parseInt(form.ipBlockId) : null,
     });
   };
   return (
@@ -216,6 +222,28 @@ function IfaceForm({ initial, equipmentId: _eqId, onSave, onClose }: {
         <Label>Descrição do Serviço</Label>
         <Input value={form.serviceDescription} onChange={(e) => set("serviceDescription", e.target.value)}
           placeholder="Ex: Core MPLS, Gerência, Clientes FTTH" />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Bloco IP (IP DOC)</Label>
+        <Select value={form.ipBlockId} onValueChange={(v) => set("ipBlockId", v)}>
+          <SelectTrigger>
+            <SelectValue placeholder="Selecionar bloco IP..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">Nenhum</SelectItem>
+            {ipBlocks.map((b: any) => (
+              <SelectItem key={b.id} value={String(b.id)}>
+                <span className="font-mono text-xs">{b.cidr}</span>
+                <span className="ml-2 text-muted-foreground">{b.name}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {form.ipBlockId && form.ipBlockId !== "__none__" && (
+          <p className="text-xs text-muted-foreground">
+            Bloco vinculado — o IP desta interface será associado ao bloco selecionado no IP DOC.
+          </p>
+        )}
       </div>
       <div className="flex items-center gap-2">
         <input type="checkbox" id="isPrimary" checked={form.isPrimary}
