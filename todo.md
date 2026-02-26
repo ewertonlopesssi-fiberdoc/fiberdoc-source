@@ -258,3 +258,8 @@
 - [x] QR Code por sala na página de Salas (botão compacto em cada card)
 - [x] Botão QR Code na Topologia ao selecionar sala no filtro
 - [x] Dialog com QR Code, URL e botão Abrir Relatório
+
+## QR Code Individual por Equipamento no Relatório de Sala
+- [x] Botão QR Code em cada bloco de equipamento na página /relatorio-sala/:id
+- [x] Dialog com QR Code que gera deep-link /mobile?eq=ID para o app mobile
+- [x] Botão Imprimir e Abrir no Mobile no dialog do QR Code

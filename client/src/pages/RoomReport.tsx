@@ -3,8 +3,10 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Printer, Download, Wifi, WifiOff, Zap, ZapOff } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Printer, Zap, QrCode } from "lucide-react";
 import { useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 
 const STATUS_LABEL: Record<string, string> = {
   free: "Livre",
@@ -53,6 +55,7 @@ export default function RoomReport() {
   const { id } = useParams<{ id: string }>();
   const roomId = parseInt(id ?? "0", 10);
   const [expandedEquipments, setExpandedEquipments] = useState<Set<number>>(new Set());
+  const [qrEquipment, setQrEquipment] = useState<{ id: number; name: string } | null>(null);
 
   const { data: report, isLoading } = trpc.reports.byRoom.useQuery(
     { roomId },
@@ -224,14 +227,24 @@ export default function RoomReport() {
                         )}
                       </div>
 
-                      <div className="text-right shrink-0 min-w-[120px]">
+                      <div className="text-right shrink-0 min-w-[140px]">
                         <OccupancyBar rate={equip.occupancyRate} />
                         <p className="text-xs text-gray-500 mt-1">
                           {equip.occupiedPorts}/{equip.totalPorts} portas
                         </p>
-                        <p className="text-xs text-blue-600 mt-1 no-print">
-                          {isExpanded ? "▲ Recolher" : "▼ Ver portas"}
-                        </p>
+                        <div className="flex items-center justify-end gap-2 mt-2 no-print">
+                          <button
+                            className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 transition-colors"
+                            title="QR Code deste equipamento"
+                            onClick={(e) => { e.stopPropagation(); setQrEquipment({ id: equip.id, name: equip.name }); }}
+                          >
+                            <QrCode className="h-3.5 w-3.5" />
+                            <span>QR</span>
+                          </button>
+                          <span className="text-xs text-blue-600">
+                            {isExpanded ? "▲ Recolher" : "▼ Ver portas"}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </CardHeader>
@@ -286,13 +299,78 @@ export default function RoomReport() {
             })}
           </div>
 
-          {/* Rodapé */}
+           {/* Rodapé */}
           <div className="text-center text-xs text-gray-400 py-4 border-t">
             FiberDoc — Sistema de Documentação de Fibras e Equipamentos •{" "}
             {generatedAt.toLocaleString("pt-BR")}
           </div>
         </div>
       </div>
+
+      {/* Dialog QR Code do Equipamento */}
+      <Dialog open={qrEquipment !== null} onOpenChange={() => setQrEquipment(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="h-4 w-4" />
+              QR Code — {qrEquipment?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4 py-4">
+            {qrEquipment && (
+              <>
+                <div className="p-4 bg-white rounded-xl border border-gray-200 shadow-sm">
+                  <QRCodeSVG
+                    value={`${window.location.origin}/mobile?eq=${qrEquipment.id}`}
+                    size={200}
+                    level="H"
+                    includeMargin={false}
+                  />
+                </div>
+                <p className="text-xs text-gray-500 text-center">
+                  Escaneie para abrir este equipamento diretamente no app mobile
+                </p>
+                <p className="text-xs font-mono text-gray-400 break-all text-center">
+                  {window.location.origin}/mobile?eq={qrEquipment.id}
+                </p>
+                <div className="flex gap-2 w-full">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      const win = window.open("", "_blank");
+                      if (!win) return;
+                      win.document.write(`
+                        <html><head><title>QR Code — ${qrEquipment.name}</title>
+                        <style>body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;gap:12px;}
+                        h2{font-size:16px;margin:0;} p{font-size:11px;color:#666;margin:0;} @media print{button{display:none}}</style>
+                        </head><body>
+                        <h2>${qrEquipment.name}</h2>
+                        <div id="qr"></div>
+                        <p>${window.location.origin}/mobile?eq=${qrEquipment.id}</p>
+                        <button onclick="window.print()">Imprimir</button>
+                        <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"><\/script>
+                        <script>QRCode.toCanvas(document.createElement('canvas'),'${window.location.origin}/mobile?eq=${qrEquipment.id}',{width:200},function(err,canvas){if(!err)document.getElementById('qr').appendChild(canvas);});<\/script>
+                        </body></html>
+                      `);
+                      win.document.close();
+                    }}
+                  >
+                    <Printer className="h-4 w-4 mr-2" />
+                    Imprimir
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    onClick={() => window.open(`${window.location.origin}/mobile?eq=${qrEquipment.id}`, "_blank")}
+                  >
+                    Abrir no Mobile
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
