@@ -13,8 +13,11 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Users as UsersIcon, ShieldCheck, Eye, Trash2, UserCog, Crown, Clock,
+  Smartphone, KeyRound, RefreshCw, CheckCircle2,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -37,6 +40,10 @@ export default function Users() {
   const [roleDialog, setRoleDialog] = useState<UserRow | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<UserRow | null>(null);
   const [newRole, setNewRole] = useState<"admin" | "user">("user");
+  const [passwordDialog, setPasswordDialog] = useState<UserRow | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSet, setPasswordSet] = useState(false);
 
   const utils = trpc.useUtils();
   const { data: users = [], isLoading } = trpc.users.list.useQuery(undefined, {
@@ -48,6 +55,14 @@ export default function Users() {
       toast.success("Papel atualizado com sucesso!");
       utils.users.list.invalidate();
       setRoleDialog(null);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const setPasswordMutation = trpc.mobileAuth.setPassword.useMutation({
+    onSuccess: () => {
+      setPasswordSet(true);
+      toast.success("Senha mobile definida com sucesso!");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -85,6 +100,27 @@ export default function Users() {
   function openRoleDialog(user: UserRow) {
     setRoleDialog(user);
     setNewRole(user.role);
+  }
+
+  function openPasswordDialog(user: UserRow) {
+    setPasswordDialog(user);
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordSet(false);
+  }
+
+  function generatePassword() {
+    const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789@#!";
+    const pwd = Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    setNewPassword(pwd);
+    setConfirmPassword(pwd);
+  }
+
+  function handleSetPassword() {
+    if (!passwordDialog) return;
+    if (newPassword.length < 6) { toast.error("Senha deve ter no mínimo 6 caracteres."); return; }
+    if (newPassword !== confirmPassword) { toast.error("As senhas não coincidem."); return; }
+    setPasswordMutation.mutate({ userId: passwordDialog.id, password: newPassword });
   }
 
   function formatDate(date: Date) {
@@ -224,6 +260,15 @@ export default function Users() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        className="h-7 w-7 text-cyan-500/60 hover:text-cyan-400"
+                        onClick={() => openPasswordDialog(user)}
+                        title="Definir senha mobile"
+                      >
+                        <Smartphone className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-foreground"
                         onClick={() => openRoleDialog(user)}
                         disabled={isSelf}
@@ -332,6 +377,112 @@ export default function Users() {
               {updateRoleMutation.isPending ? "Salvando..." : "Salvar"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Definir Senha Mobile */}
+      <Dialog open={passwordDialog !== null} onOpenChange={(open) => { if (!open) setPasswordDialog(null); }}>
+        <DialogContent className="bg-card border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Smartphone className="h-4 w-4 text-cyan-400" />
+              Definir Senha Mobile
+            </DialogTitle>
+          </DialogHeader>
+
+          {passwordSet ? (
+            <div className="py-6 flex flex-col items-center gap-3 text-center">
+              <div className="h-14 w-14 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center">
+                <CheckCircle2 className="h-7 w-7 text-green-400" />
+              </div>
+              <p className="font-semibold text-foreground">Senha definida com sucesso!</p>
+              <p className="text-sm text-muted-foreground">
+                <strong>{passwordDialog?.name ?? passwordDialog?.email}</strong> já pode fazer login no app mobile
+                com o e-mail <strong>{passwordDialog?.email}</strong> e a nova senha.
+              </p>
+              <div className="w-full rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3 text-left">
+                <p className="text-xs font-semibold text-cyan-400 mb-1 flex items-center gap-1">
+                  <Smartphone className="h-3 w-3" /> Como acessar o app mobile
+                </p>
+                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                  <li>Abra o navegador no celular e acesse o endereço do servidor</li>
+                  <li>Adicione “/mobile” ao final da URL</li>
+                  <li>Toque em “Entrar com senha local”</li>
+                  <li>Use o e-mail e a senha recém definida</li>
+                </ol>
+              </div>
+              <Button className="w-full mt-2" onClick={() => setPasswordDialog(null)}>Fechar</Button>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-4 py-2">
+                <p className="text-sm text-muted-foreground">
+                  Defina uma senha local para <strong className="text-foreground">{passwordDialog?.name ?? passwordDialog?.email}</strong> acessar o app mobile sem internet.
+                </p>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wider">Nova Senha</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Mínimo 6 caracteres"
+                      className="bg-background border-border/50 font-mono"
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0 border-border/50"
+                      onClick={generatePassword}
+                      title="Gerar senha aleatória"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wider">Confirmar Senha</Label>
+                  <Input
+                    type="text"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Repita a senha"
+                    className="bg-background border-border/50 font-mono"
+                  />
+                </div>
+
+                {newPassword && confirmPassword && newPassword !== confirmPassword && (
+                  <p className="text-xs text-destructive">As senhas não coincidem.</p>
+                )}
+
+                <div className="rounded-lg border border-border/40 bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1">
+                    <KeyRound className="h-3 w-3 text-cyan-400" />
+                    <span className="font-medium text-cyan-400">Autenticação local (offline)</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Esta senha permite login no app mobile mesmo sem acesso à internet ou ao servidor OAuth. Útil para técnicos de campo em redes isoladas.
+                  </p>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPasswordDialog(null)} className="border-border/50">
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleSetPassword}
+                  disabled={setPasswordMutation.isPending || !newPassword || !confirmPassword}
+                  className="gap-2"
+                >
+                  <Smartphone className="h-4 w-4" />
+                  {setPasswordMutation.isPending ? "Salvando..." : "Definir Senha"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

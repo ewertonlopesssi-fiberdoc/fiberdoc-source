@@ -322,3 +322,11 @@
 - [x] Exibir versão atual, histórico de atualizações e botão de upload
 - [x] Barra de progresso em tempo real durante a aplicação
 - [x] 123 testes passando (12 arquivos)
+
+## Senha Mobile — Melhoria de Usabilidade
+
+- [x] Botão "Definir Senha Mobile" (ícone smartphone ciano) em cada usuário na tela de Usuários
+- [x] Dialog com campo de nova senha + confirmação e botão gerar senha aleatória (12 chars)
+- [x] Tela de sucesso com instruções passo a passo de acesso ao app mobile
+- [x] Explicação sobre autenticação offline no dialog
+- [x] 123 testes passando (12 arquivos)
