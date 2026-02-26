@@ -103,7 +103,7 @@ function BlockForm({
       type: form.type,
       status: form.status,
       description: form.description || null,
-      roomId: form.roomId ? parseInt(form.roomId) : null,
+      roomId: (form.roomId && form.roomId !== '__none__') ? parseInt(form.roomId) : null,
       notes: form.notes || null,
     });
   };
@@ -172,7 +172,7 @@ function BlockForm({
           <Select value={form.roomId} onValueChange={(v) => set("roomId", v)}>
             <SelectTrigger><SelectValue placeholder="Selecionar sala..." /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Nenhuma</SelectItem>
+              <SelectItem value="__none__">Nenhuma</SelectItem>
               {rooms.map((r) => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)}
             </SelectContent>
           </Select>

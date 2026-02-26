@@ -74,6 +74,7 @@ import {
   getIpBlockStats, getIpDashboardSummary, parseCidr,
   getPrimaryIpByEquipment, getPrimaryIpsByEquipments,
   addIpAuditLog, getIpAuditByBlock,
+  getInterfacesByEquipment, createInterface, updateInterface, deleteInterface,
 } from "./ipdb";
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
@@ -1252,6 +1253,49 @@ export const appRouter = router({
     auditByBlock: protectedProcedure
       .input(z.object({ blockId: z.number(), limit: z.number().optional() }))
       .query(({ input }) => getIpAuditByBlock(input.blockId, input.limit ?? 100)),
+
+    // ─── Equipment Interfaces ───────────────────────────────────────────────
+    interfaces: {
+      byEquipment: protectedProcedure
+        .input(z.object({ equipmentId: z.number() }))
+        .query(({ input }) => getInterfacesByEquipment(input.equipmentId)),
+
+      create: protectedProcedure
+        .input(z.object({
+          equipmentId: z.number(),
+          name: z.string().min(1).max(64),
+          vlan: z.number().int().min(1).max(4094).nullable().optional(),
+          ipAddress: z.string().max(43).nullable().optional(),
+          macAddress: z.string().max(17).nullable().optional(),
+          ipBlockId: z.number().nullable().optional(),
+          serviceDescription: z.string().max(255).nullable().optional(),
+          isPrimary: z.boolean().optional(),
+          notes: z.string().nullable().optional(),
+        }))
+        .mutation(({ input }) => createInterface(input)),
+
+      update: protectedProcedure
+        .input(z.object({
+          id: z.number(),
+          equipmentId: z.number(),
+          name: z.string().min(1).max(64).optional(),
+          vlan: z.number().int().min(1).max(4094).nullable().optional(),
+          ipAddress: z.string().max(43).nullable().optional(),
+          macAddress: z.string().max(17).nullable().optional(),
+          ipBlockId: z.number().nullable().optional(),
+          serviceDescription: z.string().max(255).nullable().optional(),
+          isPrimary: z.boolean().optional(),
+          notes: z.string().nullable().optional(),
+        }))
+        .mutation(({ input }) => {
+          const { id, ...data } = input;
+          return updateInterface(id, data);
+        }),
+
+      delete: protectedProcedure
+        .input(z.object({ id: z.number() }))
+        .mutation(({ input }) => deleteInterface(input.id)),
+    },
   }),
 });
 export type AppRouter = typeof appRouter;

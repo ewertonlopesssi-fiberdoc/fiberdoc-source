@@ -159,6 +159,84 @@ const defaultForm: EquipmentForm = {
   serviceDescription: "",
 };
 
+// ─── Formulário de Interface de Rede ────────────────────────────────────────
+function IfaceForm({ initial, equipmentId: _eqId, onSave, onClose }: {
+  initial?: any;
+  equipmentId: number;
+  onSave: (data: any) => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: initial?.name ?? "",
+    vlan: initial?.vlan ? String(initial.vlan) : "",
+    ipAddress: initial?.ipAddress ?? "",
+    macAddress: initial?.macAddress ?? "",
+    serviceDescription: initial?.serviceDescription ?? "",
+    isPrimary: initial?.isPrimary ?? false,
+    notes: initial?.notes ?? "",
+  });
+  const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  const handleSubmit = () => {
+    if (!form.name.trim()) return;
+    onSave({
+      name: form.name.trim(),
+      vlan: form.vlan ? parseInt(form.vlan) : null,
+      ipAddress: form.ipAddress || null,
+      macAddress: form.macAddress || null,
+      serviceDescription: form.serviceDescription || null,
+      isPrimary: form.isPrimary,
+      notes: form.notes || null,
+    });
+  };
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <Label>Nome da Interface *</Label>
+        <Input value={form.name} onChange={(e) => set("name", e.target.value)}
+          placeholder="Ex: eth0, GigabitEthernet0/1, Vlan100" className="font-mono" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label>VLAN ID</Label>
+          <Input type="number" min={1} max={4094} value={form.vlan}
+            onChange={(e) => set("vlan", e.target.value)} placeholder="Ex: 100" />
+        </div>
+        <div className="space-y-1.5">
+          <Label>IP / Máscara</Label>
+          <Input value={form.ipAddress} onChange={(e) => set("ipAddress", e.target.value)}
+            placeholder="Ex: 10.0.0.1/24" className="font-mono text-xs" />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label>Endereço MAC</Label>
+        <Input value={form.macAddress} onChange={(e) => set("macAddress", e.target.value)}
+          placeholder="Ex: AA:BB:CC:DD:EE:FF" className="font-mono text-xs" />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Descrição do Serviço</Label>
+        <Input value={form.serviceDescription} onChange={(e) => set("serviceDescription", e.target.value)}
+          placeholder="Ex: Core MPLS, Gerência, Clientes FTTH" />
+      </div>
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="isPrimary" checked={form.isPrimary}
+          onChange={(e) => set("isPrimary", e.target.checked)} className="h-4 w-4 accent-primary" />
+        <Label htmlFor="isPrimary" className="cursor-pointer text-sm">Interface principal (gerência)</Label>
+      </div>
+      <div className="space-y-1.5">
+        <Label>Observações</Label>
+        <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)}
+          placeholder="Notas sobre esta interface..." rows={2} className="resize-none" />
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onClose}>Cancelar</Button>
+        <Button onClick={handleSubmit} disabled={!form.name.trim()}>
+          {initial ? "Salvar Alterações" : "Adicionar Interface"}
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
 export default function Equipments() {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -168,6 +246,8 @@ export default function Equipments() {
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState<EquipmentForm>(defaultForm);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [showIfaceForm, setShowIfaceForm] = useState(false);
+  const [editingIface, setEditingIface] = useState<any>(null);
   const [, setLocation] = useLocation();
   const { isAdmin } = useRole();
 
@@ -181,6 +261,23 @@ export default function Equipments() {
   });
 
   const { data: rooms } = trpc.rooms.list.useQuery();
+  const { data: interfaces, refetch: refetchInterfaces } = trpc.ipDoc.interfaces.byEquipment.useQuery(
+    { equipmentId: editId! },
+    { enabled: !!editId }
+  );
+
+  const createIface = trpc.ipDoc.interfaces.create.useMutation({
+    onSuccess: () => { refetchInterfaces(); toast.success("Interface adicionada!"); setShowIfaceForm(false); setEditingIface(null); },
+    onError: (e) => toast.error("Erro: " + e.message),
+  });
+  const updateIface = trpc.ipDoc.interfaces.update.useMutation({
+    onSuccess: () => { refetchInterfaces(); toast.success("Interface atualizada!"); setShowIfaceForm(false); setEditingIface(null); },
+    onError: (e) => toast.error("Erro: " + e.message),
+  });
+  const deleteIface = trpc.ipDoc.interfaces.delete.useMutation({
+    onSuccess: () => { refetchInterfaces(); toast.success("Interface removida!"); },
+    onError: (e) => toast.error("Erro: " + e.message),
+  });
 
   const createMutation = trpc.equipments.create.useMutation({
     onSuccess: () => {
@@ -645,43 +742,58 @@ export default function Equipments() {
               </div>
               <p className="text-[11px] text-muted-foreground">Cole a URL de uma imagem do equipamento. Ela aparecerá na topologia de racks.</p>
             </div>
-            {/* Rede */}
+            {/* Rede — Múltiplas Interfaces */}
             <div className="col-span-2">
-              <div className="flex items-center gap-2 mb-3 mt-1">
-                <Globe className="h-4 w-4 text-blue-400" />
-                <span className="text-sm font-medium text-foreground">Rede</span>
+              <div className="flex items-center justify-between mb-3 mt-1">
+                <div className="flex items-center gap-2">
+                  <Globe className="h-4 w-4 text-blue-400" />
+                  <span className="text-sm font-medium text-foreground">Interfaces de Rede</span>
+                  {editId && interfaces && interfaces.length > 0 && (
+                    <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">{interfaces.length}</span>
+                  )}
+                </div>
+                {editId && (
+                  <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                    onClick={() => setShowIfaceForm(true)}>
+                    <Plus className="h-3 w-3" /> Adicionar Interface
+                  </Button>
+                )}
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>VLAN ID</Label>
-              <Input
-                type="number" min={1} max={4094}
-                value={form.vlan}
-                onChange={(e) => setForm({ ...form, vlan: e.target.value })}
-                placeholder="Ex: 100"
-                className="bg-background border-border/50"
-              />
-              <p className="text-[11px] text-muted-foreground">ID da VLAN (1–4094)</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Interface / IP de Gerência</Label>
-              <Input
-                value={form.interfaceIp}
-                onChange={(e) => setForm({ ...form, interfaceIp: e.target.value })}
-                placeholder="Ex: 10.0.0.1/24"
-                className="bg-background border-border/50 font-mono text-xs"
-              />
-              <p className="text-[11px] text-muted-foreground">IP da interface de gerência com máscara</p>
-            </div>
-            <div className="col-span-2 space-y-1.5">
-              <Label>Descrição do Serviço</Label>
-              <Input
-                value={form.serviceDescription}
-                onChange={(e) => setForm({ ...form, serviceDescription: e.target.value })}
-                placeholder="Ex: Core MPLS, Acesso cliente FTTH, Backbone 10G, Gerência OLT..."
-                className="bg-background border-border/50"
-              />
-              <p className="text-[11px] text-muted-foreground">Finalidade ou serviço ao qual este equipamento está destinado</p>
+              {!editId && (
+                <p className="text-xs text-muted-foreground bg-muted/30 rounded p-2">
+                  Salve o equipamento primeiro para adicionar múltiplas interfaces de rede.
+                </p>
+              )}
+              {editId && interfaces && interfaces.length > 0 && (
+                <div className="space-y-2">
+                  {interfaces.map((iface: any) => (
+                    <div key={iface.id} className="flex items-start justify-between bg-muted/30 rounded p-2.5 border border-border/30">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-xs font-medium text-foreground">{iface.name}</span>
+                          {iface.isPrimary && <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">Principal</span>}
+                          {iface.vlan && <span className="text-[10px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">VLAN {iface.vlan}</span>}
+                        </div>
+                        {iface.ipAddress && <p className="font-mono text-[11px] text-muted-foreground mt-0.5">{iface.ipAddress}</p>}
+                        {iface.serviceDescription && <p className="text-[11px] text-muted-foreground mt-0.5">{iface.serviceDescription}</p>}
+                      </div>
+                      <div className="flex gap-1 ml-2 flex-shrink-0">
+                        <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                          onClick={() => { setEditingIface(iface); setShowIfaceForm(true); }}>
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                          onClick={() => deleteIface.mutate({ id: iface.id })}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {editId && (!interfaces || interfaces.length === 0) && (
+                <p className="text-xs text-muted-foreground">Nenhuma interface cadastrada. Clique em "Adicionar Interface" para criar.</p>
+              )}
             </div>
 
             <div className="col-span-2 space-y-1.5">
@@ -695,6 +807,24 @@ export default function Equipments() {
               {isSubmitting ? "Salvando..." : editId ? "Salvar Alterações" : "Cadastrar"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de Interface de Rede */}
+      <Dialog open={showIfaceForm} onOpenChange={(open) => { setShowIfaceForm(open); if (!open) setEditingIface(null); }}>
+        <DialogContent className="bg-card border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingIface ? "Editar Interface" : "Adicionar Interface de Rede"}</DialogTitle>
+          </DialogHeader>
+          <IfaceForm
+            initial={editingIface}
+            equipmentId={editId!}
+            onSave={(data) => {
+              if (editingIface) updateIface.mutate({ id: editingIface.id, ...data });
+              else createIface.mutate({ equipmentId: editId!, ...data });
+            }}
+            onClose={() => { setShowIfaceForm(false); setEditingIface(null); }}
+          />
         </DialogContent>
       </Dialog>
 

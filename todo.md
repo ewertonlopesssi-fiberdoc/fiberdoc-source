@@ -330,3 +330,26 @@
 - [x] Tela de sucesso com instruções passo a passo de acesso ao app mobile
 - [x] Explicação sobre autenticação offline no dialog
 - [x] 123 testes passando (12 arquivos)
+
+## Correções e Múltiplas Interfaces
+
+- [ ] Corrigir erro ao cadastrar bloco IP
+- [ ] Tabela equipment_interfaces (id, equipmentId, vlan, interfaceIp, description, isPrimary)
+- [ ] Migration SQL aplicada
+- [ ] Procedures tRPC: interfaces.byEquipment, interfaces.create, interfaces.update, interfaces.delete
+- [ ] Formulário de equipamentos: seção "Interfaces/VLANs" com lista dinâmica (adicionar/remover)
+- [ ] Exibir interfaces no card do equipamento e na topologia
+- [ ] Manter campos legados vlan/interfaceIp/serviceDescription para compatibilidade
+- [ ] Testes vitest para as novas procedures
+
+## Correções e Múltiplas Interfaces por Equipamento
+
+- [x] Corrigir erro SelectItem value="" no formulário de bloco IP (roomId __none__)
+- [x] Tabela equipment_interfaces no schema e migration aplicada
+- [x] DB helpers: CRUD de interfaces (create, update, delete, byEquipment)
+- [x] Procedures tRPC: ipDoc.interfaces (byEquipment, create, update, delete)
+- [x] Formulário de equipamentos: seção "Interfaces de Rede" com lista de interfaces
+- [x] Componente IfaceForm: campos nome, VLAN, IP/máscara, MAC, descrição, isPrimary, notas
+- [x] Botão "Adicionar Interface" visível ao editar equipamento existente
+- [x] Edição e exclusão de interfaces individuais inline
+- [x] 123 testes passando (12 arquivos)

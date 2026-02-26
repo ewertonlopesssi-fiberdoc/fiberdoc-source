@@ -1,6 +1,6 @@
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db";
-import { ipBlocks, ipAddresses, equipments, ipAuditLog } from "../drizzle/schema";
+import { ipBlocks, ipAddresses, equipments, ipAuditLog, equipmentInterfaces } from "../drizzle/schema";
 
 // ─── Utilitários de CIDR ─────────────────────────────────────────────────────
 
@@ -387,4 +387,86 @@ export async function getPrimaryIpsByEquipments(equipmentIds: number[]) {
     }
   }
   return map;
+}
+
+// ─── Equipment Interfaces ─────────────────────────────────────────────────────
+
+export async function getInterfacesByEquipment(equipmentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(equipmentInterfaces)
+    .where(eq(equipmentInterfaces.equipmentId, equipmentId))
+    .orderBy(equipmentInterfaces.isPrimary, equipmentInterfaces.name);
+}
+
+export async function createInterface(data: {
+  equipmentId: number;
+  name: string;
+  vlan?: number | null;
+  ipAddress?: string | null;
+  macAddress?: string | null;
+  ipBlockId?: number | null;
+  serviceDescription?: string | null;
+  isPrimary?: boolean;
+  notes?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  // Se isPrimary, desmarcar as outras
+  if (data.isPrimary) {
+    await db.update(equipmentInterfaces)
+      .set({ isPrimary: false })
+      .where(eq(equipmentInterfaces.equipmentId, data.equipmentId));
+  }
+  const [result] = await db.insert(equipmentInterfaces).values({
+    equipmentId: data.equipmentId,
+    name: data.name,
+    vlan: data.vlan ?? null,
+    ipAddress: data.ipAddress ?? null,
+    macAddress: data.macAddress ?? null,
+    ipBlockId: data.ipBlockId ?? null,
+    serviceDescription: data.serviceDescription ?? null,
+    isPrimary: data.isPrimary ?? false,
+    notes: data.notes ?? null,
+  });
+  return (result as any).insertId as number;
+}
+
+export async function updateInterface(id: number, data: {
+  name?: string;
+  vlan?: number | null;
+  ipAddress?: string | null;
+  macAddress?: string | null;
+  ipBlockId?: number | null;
+  serviceDescription?: string | null;
+  isPrimary?: boolean;
+  notes?: string | null;
+  equipmentId?: number;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  // Se isPrimary, desmarcar as outras do mesmo equipamento
+  if (data.isPrimary && data.equipmentId) {
+    await db.update(equipmentInterfaces)
+      .set({ isPrimary: false })
+      .where(eq(equipmentInterfaces.equipmentId, data.equipmentId));
+  }
+  const { equipmentId: _eq, ...updateData } = data;
+  await db.update(equipmentInterfaces).set(updateData as any).where(eq(equipmentInterfaces.id, id));
+}
+
+export async function deleteInterface(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(equipmentInterfaces).where(eq(equipmentInterfaces.id, id));
+}
+
+export async function getPrimaryInterfaceByEquipment(equipmentId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(equipmentInterfaces)
+    .where(eq(equipmentInterfaces.equipmentId, equipmentId))
+    .orderBy(equipmentInterfaces.isPrimary)
+    .limit(1);
+  return row ?? null;
 }

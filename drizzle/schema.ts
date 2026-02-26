@@ -339,3 +339,21 @@ export const ipAuditLog = mysqlTable("ip_audit_log", {
 });
 export type IpAuditLog = typeof ipAuditLog.$inferSelect;
 export type InsertIpAuditLog = typeof ipAuditLog.$inferInsert;
+
+// ─── Equipamentos — Interfaces/VLANs ─────────────────────────────────────────
+export const equipmentInterfaces = mysqlTable("equipment_interfaces", {
+  id: int("id").autoincrement().primaryKey(),
+  equipmentId: int("equipmentId").notNull().references(() => equipments.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 64 }).notNull(),          // ex: eth0, GigabitEthernet0/1
+  vlan: int("vlan"),                                        // VLAN ID 1-4094
+  ipAddress: varchar("ipAddress", { length: 43 }),          // ex: 192.168.1.1/24
+  macAddress: varchar("macAddress", { length: 17 }),
+  ipBlockId: int("ipBlockId").references(() => ipBlocks.id, { onDelete: "set null" }),
+  serviceDescription: varchar("serviceDescription", { length: 255 }), // ex: "Core MPLS", "Clientes"
+  isPrimary: boolean("isPrimary").default(false).notNull(), // true = interface principal
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type EquipmentInterface = typeof equipmentInterfaces.$inferSelect;
+export type InsertEquipmentInterface = typeof equipmentInterfaces.$inferInsert;
