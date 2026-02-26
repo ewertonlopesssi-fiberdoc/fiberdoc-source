@@ -353,3 +353,19 @@
 - [x] Botão "Adicionar Interface" visível ao editar equipamento existente
 - [x] Edição e exclusão de interfaces individuais inline
 - [x] 123 testes passando (12 arquivos)
+
+## Fonte de Energia Cadastrada e Upload de Imagem
+
+- [x] Schema: tabela power_sources com campos SNMP completos (SNMPv1/v2c/v3, OIDs configuráveis)
+- [x] Campo powerSourceId (FK) na tabela equipments
+- [x] Migration SQL aplicada (0015 power_sources, 0016 powerSourceId)
+- [x] DB helpers: getPowerSources, getPowerSourceById, createPowerSource, updatePowerSource, deletePowerSource
+- [x] tRPC procedures: powerSources (list, byId, create, update, delete, pollNow)
+- [x] Módulo snmpPoller.ts com coleta SNMP (v1/v2c/v3) e polling automático por intervalo
+- [x] Página /fontes-energia com cards de status SNMP em tempo real
+- [x] Formulário de fonte com abas Geral e SNMP (OIDs configuráveis, botão OIDs Huawei)
+- [x] Seletor de fonte cadastrada no formulário de equipamentos (com link para cadastrar nova)
+- [x] Procedure equipments.uploadImage (base64 → S3)
+- [x] Componente de upload de imagem com preview e botão remover no formulário de equipamentos
+- [x] Item "Fontes de Energia" no menu lateral
+- [x] 133 testes passando (13 arquivos)

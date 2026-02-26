@@ -73,8 +73,9 @@ export const equipments = mysqlTable("equipments", {
   totalPorts: int("totalPorts").default(0),
   imageUrl: text("imageUrl"),                  // URL da imagem do equipamento (S3)
   powerType: mysqlEnum("power_type", ["ac", "dc"]),                    // Tipo de energia: AC ou DC
-  powerSource: mysqlEnum("power_source", ["rectifier", "inverter", "ups", "grid", "other"]),  // Fonte de alimentação
-  powerSourceLabel: varchar("powerSourceLabel", { length: 128 }),      // Identificação da fonte (ex: "Retificadora R1")
+  powerSource: mysqlEnum("power_source", ["rectifier", "inverter", "ups", "grid", "other"]),  // Fonte de alimentação (legado)
+  powerSourceLabel: varchar("powerSourceLabel", { length: 128 }),      // Identificação da fonte (legado)
+  powerSourceId: int("powerSourceId"),                                 // FK para power_sources cadastradas
   notes: text("notes"),
   // Campos de rede
   vlan: int("vlan"),                                                          // VLAN ID (ex: 100)
@@ -357,3 +358,55 @@ export const equipmentInterfaces = mysqlTable("equipment_interfaces", {
 });
 export type EquipmentInterface = typeof equipmentInterfaces.$inferSelect;
 export type InsertEquipmentInterface = typeof equipmentInterfaces.$inferInsert;
+
+// ─── Fontes de Energia Cadastráveis ──────────────────────────────────────────
+export const powerSources = mysqlTable("power_sources", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),          // ex: "Retificadora R1 - Huawei ETP48100"
+  type: mysqlEnum("ps_type", ["rectifier", "inverter", "ups", "grid", "generator", "other"]).notNull().default("rectifier"),
+  manufacturer: varchar("manufacturer", { length: 128 }),    // ex: "Huawei", "APC", "Powerware"
+  model: varchar("model", { length: 128 }),                  // ex: "ETP48100-B1", "Smart-UPS 3000"
+  roomId: int("roomId").references(() => rooms.id, { onDelete: "set null" }),
+  location: varchar("location", { length: 255 }),            // Localização física dentro da sala
+  outputVoltage: float("outputVoltage"),                     // Tensão de saída em Volts (ex: 48.0)
+  outputCurrentMax: float("outputCurrentMax"),               // Corrente máxima em Amperes
+  notes: text("notes"),
+
+  // ─── Configuração SNMP ────────────────────────────────────────────────────
+  snmpEnabled: boolean("snmpEnabled").default(false).notNull(),
+  snmpHost: varchar("snmpHost", { length: 128 }),            // IP ou hostname de gerência
+  snmpPort: int("snmpPort").default(161),
+  snmpVersion: mysqlEnum("snmp_version", ["v1", "v2c", "v3"]).default("v2c"),
+  snmpCommunity: varchar("snmpCommunity", { length: 128 }),  // Community string (v1/v2c)
+  // SNMPv3
+  snmpV3User: varchar("snmpV3User", { length: 128 }),
+  snmpV3AuthProto: mysqlEnum("snmpv3_auth_proto", ["MD5", "SHA"]),
+  snmpV3AuthKey: varchar("snmpV3AuthKey", { length: 255 }),
+  snmpV3PrivProto: mysqlEnum("snmpv3_priv_proto", ["DES", "AES"]),
+  snmpV3PrivKey: varchar("snmpV3PrivKey", { length: 255 }),
+  // OIDs configuráveis
+  oidOutputVoltage: varchar("oidOutputVoltage", { length: 128 }),    // ex: 1.3.6.1.4.1.2011.6.199.1.2.1.1.0
+  oidOutputCurrent: varchar("oidOutputCurrent", { length: 128 }),
+  oidTemperature: varchar("oidTemperature", { length: 128 }),
+  oidAlarmStatus: varchar("oidAlarmStatus", { length: 128 }),
+  oidBatteryLevel: varchar("oidBatteryLevel", { length: 128 }),
+  oidLoadPercent: varchar("oidLoadPercent", { length: 128 }),
+  snmpPollInterval: int("snmpPollInterval").default(300),             // Intervalo em segundos
+  // Último valor coletado (cache)
+  lastPollAt: timestamp("lastPollAt"),
+  lastVoltage: float("lastVoltage"),
+  lastCurrent: float("lastCurrent"),
+  lastTemperature: float("lastTemperature"),
+  lastAlarmStatus: varchar("lastAlarmStatus", { length: 64 }),
+  lastBatteryLevel: float("lastBatteryLevel"),
+  lastLoadPercent: float("lastLoadPercent"),
+  lastPollError: text("lastPollError"),
+
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type PowerSource = typeof powerSources.$inferSelect;
+export type InsertPowerSource = typeof powerSources.$inferInsert;
+
+// ─── Equipamentos — FK para fonte de energia cadastrada ───────────────────────
+

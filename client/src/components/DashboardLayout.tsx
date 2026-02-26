@@ -43,6 +43,7 @@ import {
   Wifi,
   FileBarChart,
   Globe,
+  Zap,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -62,6 +63,7 @@ const publicMenuItems = [
   { icon: History, label: "Histórico", path: "/historico" },
   { icon: Upload, label: "Importar CSV", path: "/importar" },
   { icon: FileBarChart, label: "Relatório de Ocupação", path: "/relatorio-ocupacao" },
+  { icon: Zap, label: "Fontes de Energia", path: "/fontes-energia" },
 ];
 
 const adminOnlyMenuItems = [

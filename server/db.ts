@@ -26,6 +26,9 @@ import {
   users,
   systemSettings,
   InsertSystemSetting,
+  powerSources,
+  PowerSource,
+  InsertPowerSource,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1335,4 +1338,54 @@ export async function getRoomReport(roomId: number): Promise<RoomReportData | nu
     equipments: reportEquipments,
     generatedAt: new Date(),
   };
+}
+
+// ─── Fontes de Energia (Power Sources) ───────────────────────────────────────
+export async function getPowerSources(): Promise<PowerSource[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(powerSources).orderBy(powerSources.name);
+}
+
+export async function getPowerSourceById(id: number): Promise<PowerSource | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(powerSources).where(eq(powerSources.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createPowerSource(data: Omit<InsertPowerSource, "id" | "createdAt" | "updatedAt">): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(powerSources).values(data as InsertPowerSource);
+  return (result[0] as any).insertId;
+}
+
+export async function updatePowerSource(id: number, data: Partial<InsertPowerSource>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(powerSources).set(data).where(eq(powerSources.id, id));
+}
+
+export async function deletePowerSource(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  // Desvincula equipamentos antes de excluir
+  await db.update(equipments).set({ powerSourceId: null } as any).where(eq((equipments as any).powerSourceId, id));
+  await db.delete(powerSources).where(eq(powerSources.id, id));
+}
+
+export async function updatePowerSourceSnmpData(id: number, data: {
+  lastPollAt: Date;
+  lastVoltage?: number | null;
+  lastCurrent?: number | null;
+  lastTemperature?: number | null;
+  lastAlarmStatus?: string | null;
+  lastBatteryLevel?: number | null;
+  lastLoadPercent?: number | null;
+  lastPollError?: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(powerSources).set(data as any).where(eq(powerSources.id, id));
 }

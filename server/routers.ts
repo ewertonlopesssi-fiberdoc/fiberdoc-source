@@ -76,6 +76,10 @@ import {
   addIpAuditLog, getIpAuditByBlock,
   getInterfacesByEquipment, createInterface, updateInterface, deleteInterface,
 } from "./ipdb";
+import {
+  getPowerSources, getPowerSourceById, createPowerSource, updatePowerSource, deletePowerSource,
+} from "./db";
+import { pollSinglePowerSource } from "./snmpPoller";
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
@@ -200,6 +204,7 @@ export const appRouter = router({
         powerType: z.enum(["ac", "dc"]).optional(),
         powerSource: z.enum(["rectifier", "inverter", "ups", "grid", "other"]).optional(),
         powerSourceLabel: z.string().optional(),
+        powerSourceId: z.number().optional().nullable(),
         // Campos de rede
         vlan: z.number().int().min(1).max(4094).optional().nullable(),
         interfaceIp: z.string().optional().nullable(),
@@ -241,6 +246,7 @@ export const appRouter = router({
         powerType: z.enum(["ac", "dc"]).optional().nullable(),
         powerSource: z.enum(["rectifier", "inverter", "ups", "grid", "other"]).optional().nullable(),
         powerSourceLabel: z.string().optional().nullable(),
+        powerSourceId: z.number().optional().nullable(),
         // Campos de rede
         vlan: z.number().int().min(1).max(4094).optional().nullable(),
         interfaceIp: z.string().optional().nullable(),
@@ -267,9 +273,23 @@ export const appRouter = router({
         });
         return { success: true };
       }),
+    uploadImage: protectedProcedure
+      .input(z.object({
+        base64: z.string(),
+        mimeType: z.string().default("image/jpeg"),
+        fileName: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { storagePut } = await import("./storage");
+        const buffer = Buffer.from(input.base64, "base64");
+        const ext = input.mimeType.split("/")[1] ?? "jpg";
+        const suffix = Math.random().toString(36).slice(2, 8);
+        const key = `equipment-images/${suffix}.${ext}`;
+        const { url } = await storagePut(key, buffer, input.mimeType);
+        return { url };
+      }),
   }),
-
-  // ─── Ports ─────────────────────────────────────────────────────────────────
+  // ─── Portss ─────────────────────────────────────────────────────────────────
   ports: router({
     byEquipment: publicProcedure.input(z.object({ equipmentId: z.number() })).query(({ input }) => getPortsByEquipment(input.equipmentId)),
 
@@ -1296,6 +1316,83 @@ export const appRouter = router({
         .input(z.object({ id: z.number() }))
         .mutation(({ input }) => deleteInterface(input.id)),
     },
+  }),
+  // ─── Fontes de Energia (Power Sources) ────────────────────────────────────
+  powerSources: router({
+    list: protectedProcedure.query(() => getPowerSources()),
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => getPowerSourceById(input.id)),
+    create: adminProcedure
+      .input(z.object({
+        name: z.string().min(1).max(128),
+        type: z.enum(["rectifier", "inverter", "ups", "grid", "generator", "other"]).default("rectifier"),
+        manufacturer: z.string().max(128).optional(),
+        model: z.string().max(128).optional(),
+        roomId: z.number().nullable().optional(),
+        location: z.string().max(255).optional(),
+        outputVoltage: z.number().optional(),
+        outputCurrentMax: z.number().optional(),
+        notes: z.string().optional(),
+        snmpEnabled: z.boolean().default(false),
+        snmpHost: z.string().max(128).optional(),
+        snmpPort: z.number().int().default(161),
+        snmpVersion: z.enum(["v1", "v2c", "v3"]).default("v2c"),
+        snmpCommunity: z.string().max(128).optional(),
+        snmpV3User: z.string().max(128).optional(),
+        snmpV3AuthProto: z.enum(["MD5", "SHA"]).optional(),
+        snmpV3AuthKey: z.string().max(255).optional(),
+        snmpV3PrivProto: z.enum(["DES", "AES"]).optional(),
+        snmpV3PrivKey: z.string().max(255).optional(),
+        oidOutputVoltage: z.string().max(128).optional(),
+        oidOutputCurrent: z.string().max(128).optional(),
+        oidTemperature: z.string().max(128).optional(),
+        oidAlarmStatus: z.string().max(128).optional(),
+        oidBatteryLevel: z.string().max(128).optional(),
+        oidLoadPercent: z.string().max(128).optional(),
+        snmpPollInterval: z.number().int().default(300),
+      }))
+      .mutation(({ input }) => createPowerSource(input as any)),
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(1).max(128).optional(),
+        type: z.enum(["rectifier", "inverter", "ups", "grid", "generator", "other"]).optional(),
+        manufacturer: z.string().max(128).nullable().optional(),
+        model: z.string().max(128).nullable().optional(),
+        roomId: z.number().nullable().optional(),
+        location: z.string().max(255).nullable().optional(),
+        outputVoltage: z.number().nullable().optional(),
+        outputCurrentMax: z.number().nullable().optional(),
+        notes: z.string().nullable().optional(),
+        snmpEnabled: z.boolean().optional(),
+        snmpHost: z.string().max(128).nullable().optional(),
+        snmpPort: z.number().int().optional(),
+        snmpVersion: z.enum(["v1", "v2c", "v3"]).optional(),
+        snmpCommunity: z.string().max(128).nullable().optional(),
+        snmpV3User: z.string().max(128).nullable().optional(),
+        snmpV3AuthProto: z.enum(["MD5", "SHA"]).nullable().optional(),
+        snmpV3AuthKey: z.string().max(255).nullable().optional(),
+        snmpV3PrivProto: z.enum(["DES", "AES"]).nullable().optional(),
+        snmpV3PrivKey: z.string().max(255).nullable().optional(),
+        oidOutputVoltage: z.string().max(128).nullable().optional(),
+        oidOutputCurrent: z.string().max(128).nullable().optional(),
+        oidTemperature: z.string().max(128).nullable().optional(),
+        oidAlarmStatus: z.string().max(128).nullable().optional(),
+        oidBatteryLevel: z.string().max(128).nullable().optional(),
+        oidLoadPercent: z.string().max(128).nullable().optional(),
+        snmpPollInterval: z.number().int().optional(),
+      }))
+      .mutation(({ input }) => {
+        const { id, ...data } = input;
+        return updatePowerSource(id, data as any);
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input }) => deletePowerSource(input.id)),
+    pollNow: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ input }) => pollSinglePowerSource(input.id)),
   }),
 });
 export type AppRouter = typeof appRouter;

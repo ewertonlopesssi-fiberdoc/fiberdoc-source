@@ -126,6 +126,7 @@ type EquipmentForm = {
   powerType: string;
   powerSource: string;
   powerSourceLabel: string;
+  powerSourceId: string;  // FK para fonte cadastrada
   // Campos de rede
   vlan: string;
   interfaceIp: string;
@@ -153,6 +154,7 @@ const defaultForm: EquipmentForm = {
   powerType: "",
   powerSource: "",
   powerSourceLabel: "",
+  powerSourceId: "",
   vlan: "",
   interfaceIp: "",
   ipBlockId: "",
@@ -289,6 +291,11 @@ export default function Equipments() {
   });
 
   const { data: rooms } = trpc.rooms.list.useQuery();
+  const { data: powerSources = [] } = trpc.powerSources.list.useQuery();
+  const uploadImageMut = trpc.equipments.uploadImage.useMutation({
+    onSuccess: (data) => setForm((f) => ({ ...f, imageUrl: data.url })),
+    onError: (e) => toast.error("Erro no upload: " + e.message),
+  });
   const { data: interfaces, refetch: refetchInterfaces } = trpc.ipDoc.interfaces.byEquipment.useQuery(
     { equipmentId: editId! },
     { enabled: !!editId }
@@ -361,6 +368,7 @@ export default function Equipments() {
       powerType: (eq as any).powerType ?? "",
       powerSource: (eq as any).powerSource ?? "",
       powerSourceLabel: (eq as any).powerSourceLabel ?? "",
+      powerSourceId: (eq as any).powerSourceId?.toString() ?? "",
       vlan: (eq as any).vlan?.toString() ?? "",
       interfaceIp: (eq as any).interfaceIp ?? "",
       ipBlockId: (eq as any).ipBlockId?.toString() ?? "",
@@ -390,6 +398,7 @@ export default function Equipments() {
       powerType: form.powerType as any || undefined,
       powerSource: form.powerSource as any || undefined,
       powerSourceLabel: form.powerSourceLabel || undefined,
+      powerSourceId: form.powerSourceId ? parseInt(form.powerSourceId) : undefined,
       vlan: form.vlan ? parseInt(form.vlan) : undefined,
       interfaceIp: form.interfaceIp || undefined,
       ipBlockId: form.ipBlockId ? parseInt(form.ipBlockId) : undefined,
@@ -730,45 +739,99 @@ export default function Equipments() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Fonte de Alimentação</Label>
-              <Select value={form.powerSource || "none"} onValueChange={(v) => setForm({ ...form, powerSource: v === "none" ? "" : v })}>
-                <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Não informado" /></SelectTrigger>
+              <Label className="flex items-center justify-between">
+                <span>Fonte de Alimentação Cadastrada</span>
+                <a href="/fontes-energia" target="_blank" rel="noopener noreferrer"
+                  className="text-[10px] text-yellow-400 hover:text-yellow-300 underline">
+                  + Cadastrar nova fonte
+                </a>
+              </Label>
+              <Select
+                value={form.powerSourceId || "__none__"}
+                onValueChange={(v) => setForm({ ...form, powerSourceId: v === "__none__" ? "" : v })}
+              >
+                <SelectTrigger className="bg-background border-border/50">
+                  <SelectValue placeholder="Selecionar fonte cadastrada..." />
+                </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Não informado</SelectItem>
-                  {POWER_SOURCES.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                  <SelectItem value="__none__">Nenhuma</SelectItem>
+                  {(powerSources as any[]).map((ps) => (
+                    <SelectItem key={ps.id} value={String(ps.id)}>
+                      {ps.name}{ps.manufacturer ? ` — ${ps.manufacturer}` : ""}{ps.model ? ` ${ps.model}` : ""}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="col-span-2 space-y-1.5">
-              <Label>Identificação da Fonte</Label>
-              <Input
-                value={form.powerSourceLabel}
-                onChange={(e) => setForm({ ...form, powerSourceLabel: e.target.value })}
-                placeholder="Ex: Retificadora R1, No-Break UPS-02, Quadro Q3"
-                className="bg-background border-border/50"
-              />
-              <p className="text-[11px] text-muted-foreground">Identificação da fonte de alimentação a que este equipamento está conectado.</p>
+              <p className="text-[11px] text-muted-foreground">
+                Vincule a uma fonte cadastrada para monitoramento SNMP. Cadastre fontes em{" "}
+                <a href="/fontes-energia" target="_blank" className="text-yellow-400 hover:underline">Fontes de Energia</a>.
+              </p>
             </div>
 
+            {/* Imagem do Equipamento — Upload */}
             <div className="col-span-2 space-y-1.5">
-              <Label>URL da Imagem do Equipamento</Label>
-              <div className="flex gap-2 items-center">
-                <Input
-                  value={form.imageUrl}
-                  onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
-                  placeholder="https://exemplo.com/imagem-switch.png"
-                  className="bg-background border-border/50 font-mono text-xs"
-                />
-                {form.imageUrl && (
-                  <img
-                    src={form.imageUrl}
-                    alt="preview"
-                    className="w-10 h-10 object-contain rounded border border-border/50 bg-zinc-900 flex-shrink-0"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              <Label>Imagem do Equipamento</Label>
+              <div className="flex gap-3 items-start">
+                {/* Área de upload */}
+                <label
+                  className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-lg cursor-pointer transition-colors min-h-[80px] ${
+                    uploadImageMut.isPending
+                      ? "border-yellow-500/50 bg-yellow-500/5"
+                      : "border-border/50 hover:border-yellow-500/40 hover:bg-yellow-500/5"
+                  }`}
+                >
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={uploadImageMut.isPending}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 5 * 1024 * 1024) {
+                        toast.error("Imagem muito grande. Máximo 5 MB.");
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const base64 = (ev.target?.result as string).split(",")[1];
+                        uploadImageMut.mutate({ base64, mimeType: file.type, fileName: file.name });
+                      };
+                      reader.readAsDataURL(file);
+                    }}
                   />
+                  {uploadImageMut.isPending ? (
+                    <span className="text-xs text-yellow-400 animate-pulse">Enviando...</span>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-muted-foreground/50 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <span className="text-xs text-muted-foreground">Clique para enviar imagem</span>
+                      <span className="text-[10px] text-muted-foreground/60">PNG, JPG, WebP — máx. 5 MB</span>
+                    </>
+                  )}
+                </label>
+                {/* Preview */}
+                {form.imageUrl && (
+                  <div className="relative flex-shrink-0">
+                    <img
+                      src={form.imageUrl}
+                      alt="preview"
+                      className="w-20 h-20 object-contain rounded-lg border border-border/50 bg-zinc-900"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, imageUrl: "" }))}
+                      className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center hover:bg-red-600"
+                    >
+                      ×
+                    </button>
+                  </div>
                 )}
               </div>
-              <p className="text-[11px] text-muted-foreground">Cole a URL de uma imagem do equipamento. Ela aparecerá na topologia de racks.</p>
+              <p className="text-[11px] text-muted-foreground">A imagem aparecerá na topologia de racks e no detalhe do equipamento.</p>
             </div>
             {/* Rede — Múltiplas Interfaces */}
             <div className="col-span-2">

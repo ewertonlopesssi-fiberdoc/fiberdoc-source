@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startBackupScheduler } from "../backupScheduler";
+import { startSnmpPoller } from "../snmpPoller";
 import { generateIpReportPdf } from "../ipReportPdf";
 import { generateEquipmentReportPdf } from "../equipmentReportPdf";
 import multer from "multer";
@@ -138,6 +139,8 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
     // Start backup scheduler after server is ready
     startBackupScheduler();
+    // Start SNMP poller for power sources
+    startSnmpPoller();
   });
 }
 

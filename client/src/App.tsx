@@ -25,6 +25,7 @@ import Welcome from "./pages/Welcome";
 import IpDashboard from "./pages/IpDashboard";
 import IpBlocks from "./pages/IpBlocks";
 import IpReports from "./pages/IpReports";
+import PowerSources from "./pages/PowerSources";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
@@ -70,6 +71,7 @@ function Router() {
         <Route path={"/ip-doc/blocos"} component={IpBlocks} />
         <Route path={"/ip-doc/blocos/:id"} component={IpBlocks} />
         <Route path={"/ip-doc/relatorios"} component={IpReports} />
+        <Route path={"/fontes-energia"} component={PowerSources} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

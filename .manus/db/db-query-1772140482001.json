@@ -1,0 +1,42 @@
+{
+  "query": "SHOW COLUMNS FROM equipments LIKE 'power%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SHOW COLUMNS FROM equipments LIKE 'power%';",
+  "rows": [
+    {
+      "Field": "power_type",
+      "Type": "enum('ac','dc')",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "power_source",
+      "Type": "enum('rectifier','inverter','ups','grid','other')",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "powerSourceLabel",
+      "Type": "varchar(128)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "powerSourceId",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "MUL",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\npower_type\tenum('ac','dc')\tYES\t\tNULL\t\npower_source\tenum('rectifier','inverter','ups','grid','other')\tYES\t\tNULL\t\npowerSourceLabel\tvarchar(128)\tYES\t\tNULL\t\npowerSourceId\tint\tYES\tMUL\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 140
+}
