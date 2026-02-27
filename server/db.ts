@@ -219,7 +219,39 @@ export async function deleteEquipment(id: number) {
 export async function getPortsByEquipment(equipmentId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(ports).where(eq(ports.equipmentId, equipmentId)).orderBy(ports.sortOrder, ports.portNumber);
+  // Alias para o equipamento vinculado e a porta vinculada
+  const connectedEquipment = { id: equipments.id, name: equipments.name };
+  const connectedPort = { id: ports.id, portNumber: ports.portNumber, label: ports.label };
+  const rows = await db
+    .select({
+      // Todos os campos da porta
+      id: ports.id,
+      equipmentId: ports.equipmentId,
+      slotId: ports.slotId,
+      portNumber: ports.portNumber,
+      label: ports.label,
+      type: ports.type,
+      speed: ports.speed,
+      status: ports.status,
+      notes: ports.notes,
+      sortOrder: ports.sortOrder,
+      connectedToEquipmentId: ports.connectedToEquipmentId,
+      connectedToPortId: ports.connectedToPortId,
+      createdAt: ports.createdAt,
+      // Campos do equipamento vinculado (via LEFT JOIN)
+      connectedEquipmentName: equipments.name,
+      connectedPortNumber: sql<string | null>`connected_port.portNumber`,
+      connectedPortLabel: sql<string | null>`connected_port.label`,
+    })
+    .from(ports)
+    .leftJoin(equipments, eq(ports.connectedToEquipmentId, equipments.id))
+    .leftJoin(
+      sql`${ports} AS connected_port`,
+      sql`connected_port.id = ${ports.connectedToPortId}`
+    )
+    .where(eq(ports.equipmentId, equipmentId))
+    .orderBy(ports.sortOrder, ports.portNumber);
+  return rows;
 }
 
 export async function getPortById(id: number) {

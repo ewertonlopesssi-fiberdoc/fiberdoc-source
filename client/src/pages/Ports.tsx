@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -158,35 +161,63 @@ function PortGrid({
   }
 
   return (
-    <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12 gap-2">
-      {ports.map(port => {
-        const portSpeed = (port as any).speed as string | null;
-        const isHighSpeed = portSpeed === "100g" || portSpeed === "400g" || portSpeed === "40g";
-        return (
-          <button
-            key={port.id}
-            className={`relative group rounded-lg border p-2 text-center transition-all cursor-pointer ${STATUS_COLORS[port.status] ?? "border-border/30 bg-muted/5"} ${isHighSpeed ? "ring-1 ring-inset ring-violet-500/20" : ""} ${port.connectedToPortId ? "ring-1 ring-inset ring-cyan-500/30" : ""}`}
-            onClick={() => onEdit(port)}
-            title={`Porta ${port.portNumber}${port.label ? ` - ${port.label}` : ""} · ${getPortTypeLabel(port.type)}${portSpeed ? ` · ${portSpeed.toUpperCase()}` : ""} · ${getStatusLabel(port.status)}${port.connectedToPortId ? " · Vinculada" : ""}`}
-          >
-            <div className={`absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full ${DOT_COLORS[port.status] ?? "bg-muted"}`} />
-            {port.connectedToPortId && (
-              <div className="absolute bottom-1 right-1 text-cyan-400" title="Porta vinculada">
-                <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-              </div>
-            )}
-            <p className="text-xs font-mono font-semibold text-foreground">{port.portNumber}</p>
-            {port.label && <p className="text-xs text-muted-foreground truncate mt-0.5">{port.label}</p>}
-            <p className="text-xs text-muted-foreground/60 mt-0.5">{getPortTypeLabel(port.type)}</p>
-            {portSpeed && (
-              <p className={`text-xs font-semibold mt-0.5 ${isHighSpeed ? "text-violet-300" : "text-muted-foreground/50"}`}>
-                {portSpeed.toUpperCase()}
-              </p>
-            )}
-          </button>
-        );
-      })}
-    </div>
+    <TooltipProvider delayDuration={300}>
+      <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12 gap-2">
+        {ports.map(port => {
+          const portSpeed = (port as any).speed as string | null;
+          const isHighSpeed = portSpeed === "100g" || portSpeed === "400g" || portSpeed === "40g";
+          const hasLink = !!(port as any).connectedToPortId;
+          const connEqName = (port as any).connectedEquipmentName as string | null;
+          const connPortNum = (port as any).connectedPortNumber as string | null;
+          const connPortLabel = (port as any).connectedPortLabel as string | null;
+
+          const portButton = (
+            <button
+              key={port.id}
+              className={`relative group rounded-lg border p-2 text-center transition-all cursor-pointer ${STATUS_COLORS[port.status] ?? "border-border/30 bg-muted/5"} ${isHighSpeed ? "ring-1 ring-inset ring-violet-500/20" : ""} ${hasLink ? "ring-1 ring-inset ring-cyan-500/40" : ""}`}
+              onClick={() => onEdit(port)}
+            >
+              <div className={`absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full ${DOT_COLORS[port.status] ?? "bg-muted"}`} />
+              {hasLink && (
+                <div className="absolute bottom-1 right-1 text-cyan-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                </div>
+              )}
+              <p className="text-xs font-mono font-semibold text-foreground">{port.portNumber}</p>
+              {port.label && <p className="text-xs text-muted-foreground truncate mt-0.5">{port.label}</p>}
+              <p className="text-xs text-muted-foreground/60 mt-0.5">{getPortTypeLabel(port.type)}</p>
+              {portSpeed && (
+                <p className={`text-xs font-semibold mt-0.5 ${isHighSpeed ? "text-violet-300" : "text-muted-foreground/50"}`}>
+                  {portSpeed.toUpperCase()}
+                </p>
+              )}
+            </button>
+          );
+
+          if (!hasLink) return portButton;
+
+          return (
+            <Tooltip key={port.id}>
+              <TooltipTrigger asChild>{portButton}</TooltipTrigger>
+              <TooltipContent side="top" className="bg-popover border border-cyan-500/30 text-popover-foreground max-w-[200px]">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-cyan-400 flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                    Vinculada a
+                  </p>
+                  {connEqName && <p className="text-xs font-medium text-foreground">{connEqName}</p>}
+                  {connPortNum && (
+                    <p className="text-xs text-muted-foreground font-mono">
+                      Porta {connPortNum}{connPortLabel ? ` — ${connPortLabel}` : ""}
+                    </p>
+                  )}
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </TooltipProvider>
   );
 }
 
