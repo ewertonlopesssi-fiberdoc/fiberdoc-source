@@ -1658,3 +1658,66 @@ export async function getLatestTuyaReadings(): Promise<Array<TuyaDevice & { late
   );
   return result;
 }
+
+/** Retorna todos os vínculos de portas entre equipamentos (para o mapa de conexões).
+ *  Cada linha representa uma conexão única (porta A → porta B, onde equipA.id < equipB.id
+ *  para evitar duplicatas). */
+export async function getAllPortLinks() {
+  const db = await getDb();
+  if (!db) return [];
+  // Busca todas as portas que têm vínculo definido
+  const rows = await db
+    .select({
+      portId: ports.id,
+      portNumber: ports.portNumber,
+      portLabel: ports.label,
+      equipmentId: ports.equipmentId,
+      equipmentName: equipments.name,
+      equipmentRack: equipments.rack,
+      equipmentRackPosition: equipments.rackPosition,
+      connectedToEquipmentId: ports.connectedToEquipmentId,
+      connectedToPortId: ports.connectedToPortId,
+    })
+    .from(ports)
+    .innerJoin(equipments, eq(ports.equipmentId, equipments.id))
+    .where(sql`${ports.connectedToEquipmentId} IS NOT NULL AND ${ports.connectedToPortId} IS NOT NULL`);
+
+  // Desduplicar: manter apenas pares onde equipmentId < connectedToEquipmentId
+  const seen = new Set<string>();
+  const links: Array<{
+    portId: number;
+    portNumber: string;
+    portLabel: string | null;
+    equipmentId: number;
+    equipmentName: string;
+    equipmentRack: string | null;
+    equipmentRackPosition: string | null;
+    connectedToEquipmentId: number;
+    connectedToPortId: number;
+  }> = [];
+
+  for (const row of rows) {
+    if (!row.connectedToEquipmentId || !row.connectedToPortId) continue;
+    const key = [
+      Math.min(row.equipmentId, row.connectedToEquipmentId),
+      Math.max(row.equipmentId, row.connectedToEquipmentId),
+      Math.min(row.portId, row.connectedToPortId),
+      Math.max(row.portId, row.connectedToPortId),
+    ].join('-');
+    if (!seen.has(key)) {
+      seen.add(key);
+      links.push({
+        portId: row.portId,
+        portNumber: row.portNumber,
+        portLabel: row.portLabel,
+        equipmentId: row.equipmentId,
+        equipmentName: row.equipmentName,
+        equipmentRack: row.equipmentRack,
+        equipmentRackPosition: row.equipmentRackPosition,
+        connectedToEquipmentId: row.connectedToEquipmentId,
+        connectedToPortId: row.connectedToPortId,
+      });
+    }
+  }
+  return links;
+}

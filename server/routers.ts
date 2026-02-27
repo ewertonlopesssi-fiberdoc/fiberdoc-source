@@ -63,6 +63,7 @@ import {
   setUserPassword,
   getUserById,
   listUsersForAdmin,
+  getAllPortLinks,
   type BackupData,
   type BulkEquipmentRow,
   type BulkFiberRow,
@@ -302,8 +303,8 @@ export const appRouter = router({
   // ─── Portss ─────────────────────────────────────────────────────────────────
   ports: router({
     byEquipment: publicProcedure.input(z.object({ equipmentId: z.number() })).query(({ input }) => getPortsByEquipment(input.equipmentId)),
-
     byId: publicProcedure.input(z.object({ id: z.number() })).query(({ input }) => getPortById(input.id)),
+    allLinks: publicProcedure.query(() => getAllPortLinks()),
 
     create: protectedProcedure
       .input(z.object({

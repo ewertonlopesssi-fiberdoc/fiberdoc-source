@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Server, Wifi, Network, Box, Router, HardDrive, LayoutGrid,
-  X, Layers, Activity, Cable, Info, QrCode,
+  X, Layers, Activity, Cable, Info, QrCode, GitBranch, LayoutTemplate,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import EquipmentQRCode from "@/components/EquipmentQRCode";
@@ -49,18 +49,17 @@ const STATUS_COLORS: Record<string, string> = {
   maintenance: "bg-amber-500",
 };
 
+// Cores para linhas de conexão no mapa
+const CONNECTION_COLORS = [
+  "#60a5fa", "#34d399", "#f59e0b", "#a78bfa", "#f87171",
+  "#22d3ee", "#fb923c", "#e879f9", "#4ade80", "#facc15",
+];
+
 /** Extrai o número U de strings como "1U", "3U", "12U" */
 function parseU(val?: string | null): number {
   if (!val) return 0;
   const m = val.match(/(\d+)/);
   return m ? Math.max(1, parseInt(m[1], 10)) : 0;
-}
-
-/** Extrai o tamanho em U de strings como "2U", "4U" — padrão 1U */
-function parseSizeU(model?: string | null): number {
-  if (!model) return 1;
-  const m = model.match(/(\d+)\s*[Uu]/);
-  return m ? Math.min(parseInt(m[1], 10), 6) : 1;
 }
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -71,6 +70,7 @@ type Equipment = {
   model?: string | null;
   rack?: string | null;
   rackPosition?: string | null;
+  rackUnits?: number | null;
   status: string;
   ipAddress?: string | null;
   totalPorts?: number | null;
@@ -167,7 +167,7 @@ function RackColumn({
                   top: (RACK_UNITS - slot.u) * U_HEIGHT_PX + 1,
                   height: heightPx - 2,
                 }}
-                title={`${eq.name} — ${EQUIPMENT_LABELS[eq.type] ?? eq.type} | ${eq.rackPosition ?? "?"}`}
+                title={`${eq.name} — ${EQUIPMENT_LABELS[eq.type] ?? eq.type} | ${eq.rackPosition ?? "?"}${slot.sizeU > 1 ? ` | ${slot.sizeU}U` : ""}`}
               >
                 {eq.imageUrl ? (
                   <img
@@ -181,6 +181,9 @@ function RackColumn({
                 )}
                 <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
                   <span className="text-[10px] font-medium truncate leading-tight">{eq.name}</span>
+                  {slot.sizeU >= 2 && (
+                    <span className="text-[9px] opacity-60 font-mono">{slot.sizeU}U</span>
+                  )}
                   {eq.portOccupancy && eq.portOccupancy.total > 0 && (
                     <div className="w-full bg-black/30 rounded-full h-1 overflow-hidden">
                       <div
@@ -273,7 +276,7 @@ function DetailPanel({ equipment, onClose }: { equipment: Equipment; onClose: ()
             <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
               <Server className="w-3 h-3" /> Posição no Rack
             </p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <div>
                 <p className="text-[10px] text-zinc-500">Rack</p>
                 <p className="text-xs font-mono text-zinc-200">{equipment.rack ?? "—"}</p>
@@ -281,6 +284,10 @@ function DetailPanel({ equipment, onClose }: { equipment: Equipment; onClose: ()
               <div>
                 <p className="text-[10px] text-zinc-500">Posição (U)</p>
                 <p className="text-xs font-mono text-zinc-200">{equipment.rackPosition ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-zinc-500">Altura</p>
+                <p className="text-xs font-mono text-zinc-200">{equipment.rackUnits ?? 1}U</p>
               </div>
             </div>
           </div>
@@ -368,13 +375,320 @@ function DetailPanel({ equipment, onClose }: { equipment: Equipment; onClose: ()
   );
 }
 
+// ─── ConnectionMap ─────────────────────────────────────────────────────────────
+type PortLink = {
+  portId: number;
+  portNumber: string;
+  portLabel: string | null;
+  equipmentId: number;
+  equipmentName: string;
+  equipmentRack: string | null;
+  equipmentRackPosition: string | null;
+  connectedToEquipmentId: number;
+  connectedToPortId: number;
+};
+
+type NodePos = { x: number; y: number; w: number; h: number };
+
+function ConnectionMap({
+  allEquipments,
+  links,
+}: {
+  allEquipments: Equipment[];
+  links: PortLink[];
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [hoveredLink, setHoveredLink] = useState<number | null>(null);
+
+  // Construir mapa de equipamentos envolvidos em conexões
+  const involvedIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const link of links) {
+      ids.add(link.equipmentId);
+      ids.add(link.connectedToEquipmentId);
+    }
+    return ids;
+  }, [links]);
+
+  // Filtrar apenas equipamentos com conexões
+  const nodes = useMemo(() => {
+    return allEquipments.filter(e => involvedIds.has(e.id));
+  }, [allEquipments, involvedIds]);
+
+  // Agrupar conexões entre pares de equipamentos
+  const pairLinks = useMemo(() => {
+    const pairMap = new Map<string, { eqA: number; eqB: number; ports: string[] }>();
+    for (const link of links) {
+      const key = [Math.min(link.equipmentId, link.connectedToEquipmentId), Math.max(link.equipmentId, link.connectedToEquipmentId)].join('-');
+      if (!pairMap.has(key)) {
+        pairMap.set(key, { eqA: Math.min(link.equipmentId, link.connectedToEquipmentId), eqB: Math.max(link.equipmentId, link.connectedToEquipmentId), ports: [] });
+      }
+      const portLabel = link.portLabel || link.portNumber;
+      pairMap.get(key)!.ports.push(portLabel);
+    }
+    return Array.from(pairMap.values());
+  }, [links]);
+
+  // Layout automático: posicionar nós em grade
+  const NODE_W = 160;
+  const NODE_H = 56;
+  const COL_GAP = 80;
+  const ROW_GAP = 60;
+  const COLS = Math.max(1, Math.ceil(Math.sqrt(nodes.length)));
+  const PADDING = 40;
+
+  const nodePositions = useMemo((): Map<number, NodePos> => {
+    const map = new Map<number, NodePos>();
+    nodes.forEach((node, idx) => {
+      const col = idx % COLS;
+      const row = Math.floor(idx / COLS);
+      map.set(node.id, {
+        x: PADDING + col * (NODE_W + COL_GAP),
+        y: PADDING + row * (NODE_H + ROW_GAP),
+        w: NODE_W,
+        h: NODE_H,
+      });
+    });
+    return map;
+  }, [nodes, COLS]);
+
+  const svgWidth = PADDING * 2 + COLS * (NODE_W + COL_GAP) - COL_GAP;
+  const svgRows = Math.ceil(nodes.length / COLS);
+  const svgHeight = PADDING * 2 + svgRows * (NODE_H + ROW_GAP) - ROW_GAP;
+
+  if (links.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-zinc-500 gap-3">
+        <GitBranch className="w-12 h-12 opacity-20" />
+        <p className="text-sm font-medium">Nenhuma conexão de porta encontrada</p>
+        <p className="text-xs text-zinc-600 text-center max-w-sm">
+          Vincule portas entre equipamentos na tela de Equipamentos para visualizar o mapa de conexões aqui.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-full h-full overflow-auto">
+      <svg
+        ref={svgRef}
+        width={Math.max(svgWidth, 400)}
+        height={Math.max(svgHeight, 300)}
+        className="block"
+        style={{ minWidth: svgWidth, minHeight: svgHeight }}
+      >
+        {/* Definições de marcadores de seta */}
+        <defs>
+          {CONNECTION_COLORS.map((color, i) => (
+            <marker
+              key={i}
+              id={`arrow-${i}`}
+              markerWidth="8"
+              markerHeight="8"
+              refX="6"
+              refY="3"
+              orient="auto"
+            >
+              <path d="M0,0 L0,6 L8,3 z" fill={color} opacity="0.8" />
+            </marker>
+          ))}
+        </defs>
+
+        {/* Linhas de conexão */}
+        {pairLinks.map((pair, idx) => {
+          const posA = nodePositions.get(pair.eqA);
+          const posB = nodePositions.get(pair.eqB);
+          if (!posA || !posB) return null;
+
+          const color = CONNECTION_COLORS[idx % CONNECTION_COLORS.length];
+          const isHovered = hoveredLink === idx;
+
+          // Pontos de conexão: centro direito de A → centro esquerdo de B (ou vice-versa)
+          const ax = posA.x + posA.w / 2;
+          const ay = posA.y + posA.h / 2;
+          const bx = posB.x + posB.w / 2;
+          const by = posB.y + posB.h / 2;
+
+          // Curva bezier
+          const mx = (ax + bx) / 2;
+          const my = (ay + by) / 2;
+          const dx = bx - ax;
+          const dy = by - ay;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          const offset = Math.min(len * 0.3, 60);
+          const cx1 = ax + offset * (dy / len || 0);
+          const cy1 = ay - offset * (dx / len || 0);
+          const cx2 = bx + offset * (dy / len || 0);
+          const cy2 = by - offset * (dx / len || 0);
+
+          const portCount = pair.ports.length;
+          const portText = portCount === 1
+            ? `Porta: ${pair.ports[0]}`
+            : `${portCount} portas: ${pair.ports.slice(0, 3).join(", ")}${portCount > 3 ? "..." : ""}`;
+
+          return (
+            <g key={idx}>
+              {/* Linha de fundo (mais larga para hover) */}
+              <path
+                d={`M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`}
+                fill="none"
+                stroke={color}
+                strokeWidth={isHovered ? 6 : 4}
+                strokeOpacity={isHovered ? 0.9 : 0.5}
+                strokeDasharray={isHovered ? "none" : "6 3"}
+                style={{ cursor: "pointer", transition: "stroke-width 0.15s, stroke-opacity 0.15s" }}
+                onMouseEnter={(e) => {
+                  setHoveredLink(idx);
+                  const rect = svgRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    setTooltip({
+                      x: e.clientX - rect.left,
+                      y: e.clientY - rect.top - 36,
+                      text: portText,
+                    });
+                  }
+                }}
+                onMouseMove={(e) => {
+                  const rect = svgRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    setTooltip({
+                      x: e.clientX - rect.left,
+                      y: e.clientY - rect.top - 36,
+                      text: portText,
+                    });
+                  }
+                }}
+                onMouseLeave={() => { setHoveredLink(null); setTooltip(null); }}
+              />
+              {/* Contador de portas no meio da linha */}
+              {portCount > 1 && (
+                <g transform={`translate(${mx}, ${my})`}>
+                  <circle r="10" fill="#1e1e2e" stroke={color} strokeWidth="1.5" strokeOpacity="0.7" />
+                  <text
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize="9"
+                    fill={color}
+                    fontWeight="bold"
+                  >
+                    {portCount}
+                  </text>
+                </g>
+              )}
+            </g>
+          );
+        })}
+
+        {/* Nós de equipamento */}
+        {nodes.map((node) => {
+          const pos = nodePositions.get(node.id);
+          if (!pos) return null;
+          const Icon = EQUIPMENT_ICONS[node.type] ?? HardDrive;
+          const colorClass = EQUIPMENT_COLORS[node.type] ?? EQUIPMENT_COLORS.other;
+          // Extrair cor de borda da classe
+          const borderColorMap: Record<string, string> = {
+            switch: "#3b82f6", olt: "#10b981", dgo: "#f59e0b", splitter: "#8b5cf6",
+            router: "#06b6d4", server: "#f43f5e", patch_panel: "#64748b",
+            amplifier: "#f97316", other: "#71717a",
+          };
+          const strokeColor = borderColorMap[node.type] ?? "#71717a";
+
+          // Contar conexões deste nó
+          const linkCount = links.filter(l => l.equipmentId === node.id || l.connectedToEquipmentId === node.id).length;
+
+          return (
+            <g key={node.id} transform={`translate(${pos.x}, ${pos.y})`}>
+              {/* Fundo do nó */}
+              <rect
+                x={0}
+                y={0}
+                width={pos.w}
+                height={pos.h}
+                rx={8}
+                fill="#18181b"
+                stroke={strokeColor}
+                strokeWidth="1.5"
+                strokeOpacity="0.6"
+              />
+              {/* Ícone (texto SVG simulado) */}
+              <circle cx={22} cy={pos.h / 2} r={14} fill={strokeColor} fillOpacity="0.15" />
+              {/* Badge de contagem de links */}
+              <rect x={pos.w - 28} y={4} width={24} height={16} rx={8} fill={strokeColor} fillOpacity="0.2" />
+              <text
+                x={pos.w - 16}
+                y={12}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize="9"
+                fill={strokeColor}
+                fontWeight="bold"
+              >
+                {linkCount}
+              </text>
+              {/* Nome do equipamento */}
+              <text
+                x={40}
+                y={pos.h / 2 - 8}
+                fontSize="11"
+                fontWeight="600"
+                fill="#e4e4e7"
+                dominantBaseline="central"
+              >
+                {node.name.length > 16 ? node.name.slice(0, 15) + "…" : node.name}
+              </text>
+              {/* Tipo */}
+              <text
+                x={40}
+                y={pos.h / 2 + 9}
+                fontSize="9"
+                fill="#a1a1aa"
+                dominantBaseline="central"
+              >
+                {EQUIPMENT_LABELS[node.type] ?? node.type}
+                {node.rack ? ` · ${node.rack}` : ""}
+                {node.rackPosition ? ` ${node.rackPosition}` : ""}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Tooltip */}
+      {tooltip && (
+        <div
+          className="absolute pointer-events-none z-50 bg-zinc-800 border border-zinc-600 text-zinc-200 text-xs rounded-md px-2.5 py-1.5 shadow-lg whitespace-nowrap"
+          style={{ left: tooltip.x, top: tooltip.y, transform: "translateX(-50%)" }}
+        >
+          {tooltip.text}
+        </div>
+      )}
+
+      {/* Legenda */}
+      <div className="absolute bottom-3 right-3 bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 text-[10px] text-zinc-400 space-y-1">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-0.5 bg-blue-400 opacity-60" style={{ borderTop: "2px dashed #60a5fa" }} />
+          <span>Conexão de portas</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-4 h-4 rounded-full bg-zinc-700 border border-zinc-500 flex items-center justify-center text-[8px] text-zinc-300 font-bold">N</div>
+          <span>Número de portas vinculadas</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Página Principal ──────────────────────────────────────────────────────────
 export default function Topology() {
   const [selectedRoomId, setSelectedRoomId] = useState<string>("all");
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null);
   const [qrRoom, setQrRoom] = useState<{ id: number; name: string } | null>(null);
+  const [activeTab, setActiveTab] = useState<"rack" | "map">("rack");
+
   const { data: equipments = [], isLoading } = trpc.equipments.list.useQuery({});
-  const { data: rooms = [] } = trpc.rooms.list.useQuery();;
+  const { data: rooms = [] } = trpc.rooms.list.useQuery();
+  const { data: portLinks = [] } = trpc.ports.allLinks.useQuery();
 
   // Filtrar por sala
   const filtered = useMemo(() => {
@@ -382,6 +696,13 @@ export default function Topology() {
     const rid = parseInt(selectedRoomId, 10);
     return (equipments as Equipment[]).filter(e => e.roomId === rid);
   }, [equipments, selectedRoomId]);
+
+  // Filtrar links pela sala selecionada
+  const filteredLinks = useMemo(() => {
+    if (selectedRoomId === "all") return portLinks as PortLink[];
+    const ids = new Set(filtered.map(e => e.id));
+    return (portLinks as PortLink[]).filter(l => ids.has(l.equipmentId) || ids.has(l.connectedToEquipmentId));
+  }, [portLinks, filtered, selectedRoomId]);
 
   // Agrupar por rack
   const rackGroups = useMemo(() => {
@@ -395,8 +716,8 @@ export default function Topology() {
   }, [filtered]);
 
   // Construir array de 44 slots para um rack
+  // CORREÇÃO v5.9: usa eq.rackUnits (campo do banco) em vez de parseSizeU(eq.model)
   const buildSlots = (eqs: Equipment[]): RackSlot[] => {
-    // Inicializa todos os slots como vazios (U44 no topo, U1 na base)
     const slots: RackSlot[] = Array.from({ length: RACK_UNITS }, (_, i) => ({
       u: RACK_UNITS - i,   // U44 → idx 0, U1 → idx 43
       equipment: null,
@@ -404,16 +725,13 @@ export default function Topology() {
       continuation: false,
     }));
 
-    // Equipamentos com posição definida
     const withPos = eqs.filter(e => parseU(e.rackPosition) > 0);
-    // Equipamentos sem posição (serão empilhados no topo livre)
     const withoutPos = eqs.filter(e => parseU(e.rackPosition) === 0);
 
-    // Posicionar equipamentos com U definido
     for (const eq of withPos) {
-      const uPos  = parseU(eq.rackPosition);           // ex: 3 → U3
-      const sizeU = parseSizeU(eq.model);
-      // idx no array: U44 = idx 0, U1 = idx 43
+      const uPos  = parseU(eq.rackPosition);
+      // Usar rackUnits do banco; fallback para 1 se não definido
+      const sizeU = Math.max(1, Math.min(eq.rackUnits ?? 1, RACK_UNITS));
       const idx   = RACK_UNITS - uPos;
       if (idx < 0 || idx >= RACK_UNITS) continue;
 
@@ -423,8 +741,7 @@ export default function Topology() {
       }
     }
 
-    // Equipamentos sem posição: preencher slots livres de baixo para cima
-    let fillIdx = RACK_UNITS - 1; // começa no U1 (base)
+    let fillIdx = RACK_UNITS - 1;
     for (const eq of withoutPos) {
       while (fillIdx >= 0 && (slots[fillIdx].equipment || slots[fillIdx].continuation)) fillIdx--;
       if (fillIdx < 0) break;
@@ -443,6 +760,7 @@ export default function Topology() {
 
   const totalEquipments   = filtered.length;
   const rackedEquipments  = filtered.filter(e => e.rack).length;
+  const totalLinks        = filteredLinks.length;
 
   return (
     <>
@@ -450,27 +768,63 @@ export default function Topology() {
       {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0 flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white">Topologia de Racks</h1>
+          <h1 className="text-xl font-bold text-white">Topologia de Rede</h1>
           <p className="text-sm text-zinc-400 mt-0.5">
-            Racks de 44U — {rackedEquipments} de {totalEquipments} equipamentos posicionados
+            {activeTab === "rack"
+              ? `Racks de 44U — ${rackedEquipments} de ${totalEquipments} equipamentos posicionados`
+              : `${totalLinks} conexão${totalLinks !== 1 ? "ões" : ""} de porta entre equipamentos`
+            }
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Legenda compacta */}
-          <div className="hidden xl:flex items-center gap-3 flex-wrap">
-            {(["switch","olt","dgo","splitter","router","server","patch_panel"] as const).map(type => {
-              const Icon = EQUIPMENT_ICONS[type] ?? HardDrive;
-              const cls  = EQUIPMENT_COLORS[type] ?? "";
-              const textCls = cls.split(" ").find(c => c.startsWith("text-")) ?? "text-zinc-400";
-              return (
-                <div key={type} className={`flex items-center gap-1 text-[10px] ${textCls}`}>
-                  <Icon className="w-3 h-3" />
-                  <span>{EQUIPMENT_LABELS[type]}</span>
-                </div>
-              );
-            })}
+          {/* Abas Rack / Mapa */}
+          <div className="flex items-center bg-zinc-800 border border-zinc-700 rounded-lg p-0.5">
+            <button
+              onClick={() => setActiveTab("rack")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                activeTab === "rack"
+                  ? "bg-zinc-600 text-white shadow-sm"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              <LayoutTemplate className="w-3.5 h-3.5" />
+              Rack
+            </button>
+            <button
+              onClick={() => setActiveTab("map")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                activeTab === "map"
+                  ? "bg-zinc-600 text-white shadow-sm"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              <GitBranch className="w-3.5 h-3.5" />
+              Mapa
+              {totalLinks > 0 && (
+                <span className="bg-cyan-500/30 text-cyan-300 text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                  {totalLinks}
+                </span>
+              )}
+            </button>
           </div>
+
+          {/* Legenda compacta (apenas na aba rack) */}
+          {activeTab === "rack" && (
+            <div className="hidden xl:flex items-center gap-3 flex-wrap">
+              {(["switch","olt","dgo","splitter","router","server","patch_panel"] as const).map(type => {
+                const Icon = EQUIPMENT_ICONS[type] ?? HardDrive;
+                const cls  = EQUIPMENT_COLORS[type] ?? "";
+                const textCls = cls.split(" ").find(c => c.startsWith("text-")) ?? "text-zinc-400";
+                return (
+                  <div key={type} className={`flex items-center gap-1 text-[10px] ${textCls}`}>
+                    <Icon className="w-3 h-3" />
+                    <span>{EQUIPMENT_LABELS[type]}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <Separator orientation="vertical" className="h-6 bg-zinc-700 hidden xl:block" />
 
@@ -488,7 +842,7 @@ export default function Topology() {
               ))}
             </SelectContent>
           </Select>
-          {selectedRoomId !== "all" && (() => {
+          {activeTab === "rack" && selectedRoomId !== "all" && (() => {
             const room = (rooms as { id: number; name: string }[]).find(r => String(r.id) === selectedRoomId);
             return room ? (
               <Button variant="outline" size="sm" className="h-8 px-2 bg-zinc-800 border-zinc-700 text-zinc-200 hover:bg-zinc-700" onClick={() => setQrRoom({ id: room.id, name: room.name })}>
@@ -501,57 +855,79 @@ export default function Topology() {
       </div>
 
       {/* Conteúdo */}
-      <div className="flex gap-4 flex-1 min-h-0">
-        {/* Racks */}
-        <div className="flex-1 min-w-0">
-          {isLoading ? (
-            <div className="flex items-center justify-center h-64 text-zinc-500 text-sm">
-              Carregando equipamentos...
-            </div>
-          ) : rackNames.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-zinc-500 gap-2">
-              <Server className="w-10 h-10 opacity-30" />
-              <p className="text-sm">Nenhum equipamento encontrado</p>
-              <p className="text-xs text-zinc-600">Cadastre equipamentos com rack e posição para visualizá-los aqui</p>
-            </div>
-          ) : (
-            <ScrollArea className="h-full">
-              <div
-                className="flex gap-6 pb-6 pr-4"
-                style={{ minHeight: RACK_UNITS * U_HEIGHT_PX + 80 }}
-              >
-                {rackNames.map(rackName => (
-                  <RackColumn
-                    key={rackName}
-                    rackName={rackName}
-                    slots={buildSlots(rackGroups[rackName] ?? [])}
-                    onSelect={setSelectedEquipment}
-                    selectedId={selectedEquipment?.id ?? null}
-                  />
-                ))}
+      {activeTab === "rack" ? (
+        <div className="flex gap-4 flex-1 min-h-0">
+          {/* Racks */}
+          <div className="flex-1 min-w-0">
+            {isLoading ? (
+              <div className="flex items-center justify-center h-64 text-zinc-500 text-sm">
+                Carregando equipamentos...
               </div>
-            </ScrollArea>
+            ) : rackNames.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-zinc-500 gap-2">
+                <Server className="w-10 h-10 opacity-30" />
+                <p className="text-sm">Nenhum equipamento encontrado</p>
+                <p className="text-xs text-zinc-600">Cadastre equipamentos com rack e posição para visualizá-los aqui</p>
+              </div>
+            ) : (
+              <ScrollArea className="h-full">
+                <div
+                  className="flex gap-6 pb-6 pr-4"
+                  style={{ minHeight: RACK_UNITS * U_HEIGHT_PX + 80 }}
+                >
+                  {rackNames.map(rackName => (
+                    <RackColumn
+                      key={rackName}
+                      rackName={rackName}
+                      slots={buildSlots(rackGroups[rackName] ?? [])}
+                      onSelect={setSelectedEquipment}
+                      selectedId={selectedEquipment?.id ?? null}
+                    />
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+          </div>
+
+          {/* Painel de detalhes */}
+          {selectedEquipment && (
+            <DetailPanel
+              equipment={selectedEquipment}
+              onClose={() => setSelectedEquipment(null)}
+            />
           )}
         </div>
-
-        {/* Painel de detalhes */}
-        {selectedEquipment && (
-          <DetailPanel
-            equipment={selectedEquipment}
-            onClose={() => setSelectedEquipment(null)}
+      ) : (
+        /* Aba Mapa de Conexões */
+        <div className="flex-1 min-h-0 bg-zinc-900/40 border border-zinc-700/50 rounded-xl overflow-hidden relative">
+          <ConnectionMap
+            allEquipments={filtered as Equipment[]}
+            links={filteredLinks as PortLink[]}
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Rodapé */}
       <div className="flex-shrink-0 flex items-center gap-3 text-[10px] text-zinc-600 border-t border-zinc-800 pt-3 flex-wrap">
-        <span>Clique em um equipamento para ver detalhes</span>
-        <span>•</span>
-        <span>Cada coluna = 1 rack de 44U</span>
-        <span>•</span>
-        <span>Numeração U: 44 no topo → 1 na base</span>
-        <span>•</span>
-        <span>Equipamentos sem posição são exibidos na base do rack</span>
+        {activeTab === "rack" ? (
+          <>
+            <span>Clique em um equipamento para ver detalhes</span>
+            <span>•</span>
+            <span>Cada coluna = 1 rack de 44U</span>
+            <span>•</span>
+            <span>Numeração U: 44 no topo → 1 na base</span>
+            <span>•</span>
+            <span>Altura em U respeitada conforme cadastro</span>
+          </>
+        ) : (
+          <>
+            <span>Passe o mouse sobre as linhas para ver as portas vinculadas</span>
+            <span>•</span>
+            <span>O número no centro da linha indica quantas portas estão conectadas</span>
+            <span>•</span>
+            <span>Apenas equipamentos com vínculos de porta são exibidos</span>
+          </>
+        )}
       </div>
     </div>
 

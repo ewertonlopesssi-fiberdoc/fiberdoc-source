@@ -512,3 +512,19 @@
 - [ ] Corrigir rackUnits voltando para 1 ao salvar
 - [ ] Vincular porta a porta de outro equipamento
 - [x] Vínculo bidirecional entre portas
+- [ ] Mapa de conexões na tela de topologia
+- [ ] Corrigir altura em U na topologia de rack
+
+## Melhorias v5.9
+- [x] Corrigir altura em U na topologia de rack (usar rackUnits do banco em vez de parseSizeU do modelo)
+- [x] Mapa de conexões na tela de topologia (aba "Mapa" com SVG mostrando linhas entre equipamentos vinculados)
+- [x] Procedure ports.allLinks no backend para buscar todas as conexões de portas
+- [x] Função getAllPortLinks no db.ts para retornar vínculos de portas entre equipamentos
+- [x] Tooltip nas linhas do mapa mostrando portas vinculadas
+- [x] Contador de portas no centro das linhas de conexão
+
+## Melhorias v5.9
+- [x] Corrigir altura em U na topologia de rack (usar rackUnits do banco)
+- [x] Mapa de conexoes na tela de topologia (aba Mapa com SVG)
+- [x] Procedure ports.allLinks no backend
+- [x] Funcao getAllPortLinks no db.ts
