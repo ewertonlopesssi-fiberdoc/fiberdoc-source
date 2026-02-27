@@ -41,6 +41,8 @@ import {
   tuyaReadings,
   TuyaReading,
   InsertTuyaReading,
+  topologyLayouts,
+  TopologyLayout,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1720,4 +1722,42 @@ export async function getAllPortLinks() {
     }
   }
   return links;
+}
+
+// ─── Topology Layout ──────────────────────────────────────────────────────────
+export async function getTopologyLayout(userId: number, roomFilter: string): Promise<TopologyLayout | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(topologyLayouts)
+    .where(and(eq(topologyLayouts.userId, userId), eq(topologyLayouts.roomFilter, roomFilter)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function saveTopologyLayout(
+  userId: number,
+  roomFilter: string,
+  nodePositions: Record<string, { x: number; y: number }>,
+  ctrlPoints: Record<string, { x: number; y: number }>,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await getTopologyLayout(userId, roomFilter);
+  const nodeJson = JSON.stringify(nodePositions);
+  const ctrlJson = JSON.stringify(ctrlPoints);
+  if (existing) {
+    await db
+      .update(topologyLayouts)
+      .set({ nodePositions: nodeJson, ctrlPoints: ctrlJson })
+      .where(eq(topologyLayouts.id, existing.id));
+  } else {
+    await db.insert(topologyLayouts).values({
+      userId,
+      roomFilter,
+      nodePositions: nodeJson,
+      ctrlPoints: ctrlJson,
+    });
+  }
 }

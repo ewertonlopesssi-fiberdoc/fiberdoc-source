@@ -531,3 +531,7 @@
 - [x] Mapa de conexões: drag-and-drop nos nós para reorganizar equipamentos
 - [x] Mapa: área SVG dinâmica (cresce conforme nós são movidos)
 - [x] Mapa: ponto de controle arrastável no meio das linhas de conexão
+- [x] Tabela topology_layout no schema e migration SQL
+- [x] DB helpers e procedures tRPC: topologyLayout.get e topologyLayout.save
+- [x] Auto-save do layout ao soltar nó/linha no mapa
+- [x] Restaurar layout ao abrir o mapa

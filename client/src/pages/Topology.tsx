@@ -393,9 +393,11 @@ type NodePos = { x: number; y: number; w: number; h: number };
 function ConnectionMap({
   allEquipments,
   links,
+  roomFilter = "all",
 }: {
   allEquipments: Equipment[];
   links: PortLink[];
+  roomFilter?: string;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
@@ -406,6 +408,46 @@ function ConnectionMap({
   // Pontos de controle das linhas: key = "eqA-eqB", valor = {x, y} do ponto de controle
   const [ctrlPoints, setCtrlPoints] = useState<Map<string, { x: number; y: number }>>(new Map());
   const draggingCtrl = useRef<{ key: string; startMouseX: number; startMouseY: number; startX: number; startY: number } | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const layoutLoaded = useRef(false);
+
+  // ─── Persistência: carregar layout salvo ───────────────────────────────────
+  const { data: savedLayout } = trpc.topology.layout.get.useQuery(
+    { roomFilter },
+    { retry: false, refetchOnWindowFocus: false }
+  );
+  const saveLayout = trpc.topology.layout.save.useMutation();
+
+  // Restaurar layout ao carregar dados do banco
+  const [overridesKey, setOverridesKey] = useState(0);
+  if (savedLayout && !layoutLoaded.current) {
+    layoutLoaded.current = true;
+    try {
+      const np = JSON.parse(savedLayout.nodePositions ?? "{}") as Record<string, { x: number; y: number }>;
+      const cp = JSON.parse(savedLayout.ctrlPoints ?? "{}") as Record<string, { x: number; y: number }>;
+      const newOverrides = new Map<number, { x: number; y: number }>();
+      for (const [k, v] of Object.entries(np)) newOverrides.set(Number(k), v);
+      const newCtrl = new Map<string, { x: number; y: number }>(Object.entries(cp));
+      // Aplicar via setState no próximo tick para evitar render durante render
+      setTimeout(() => {
+        setOverrides(newOverrides);
+        setCtrlPoints(newCtrl);
+        setOverridesKey(k => k + 1);
+      }, 0);
+    } catch { /* JSON inválido, ignorar */ }
+  }
+
+  // Auto-save com debounce de 1.5s após qualquer mudança de layout
+  const triggerSave = (newOverrides: Map<number, { x: number; y: number }>, newCtrl: Map<string, { x: number; y: number }>) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const nodePositions: Record<string, { x: number; y: number }> = {};
+      newOverrides.forEach((v, k) => { nodePositions[String(k)] = v; });
+      const ctrlObj: Record<string, { x: number; y: number }> = {};
+      newCtrl.forEach((v, k) => { ctrlObj[k] = v; });
+      saveLayout.mutate({ roomFilter, nodePositions, ctrlPoints: ctrlObj });
+    }, 1500);
+  };
 
   // Construir mapa de equipamentos envolvidos em conexões
   const involvedIds = useMemo(() => {
@@ -494,10 +536,16 @@ function ConnectionMap({
       const ny = Math.max(0, dragging.current.startNodeY + ev.clientY - dragging.current.startMouseY);
       setOverrides(prev => { const m = new Map(prev); m.set(dragging.current!.id, { x: nx, y: ny }); return m; });
     };
-    const onUp = () => { dragging.current = null; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    const onUp = () => {
+      dragging.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      // Auto-save após soltar o nó
+      setOverrides(prev => { triggerSave(prev, ctrlPoints); return prev; });
+    };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, []);
+  }, [ctrlPoints]);
 
   // Drag handler para ponto de controle da linha
   const handleCtrlMouseDown = useCallback((e: React.MouseEvent, key: string, cx: number, cy: number) => {
@@ -510,10 +558,16 @@ function ConnectionMap({
       const ny = draggingCtrl.current.startY + ev.clientY - draggingCtrl.current.startMouseY;
       setCtrlPoints(prev => { const m = new Map(prev); m.set(draggingCtrl.current!.key, { x: nx, y: ny }); return m; });
     };
-    const onUp = () => { draggingCtrl.current = null; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    const onUp = () => {
+      draggingCtrl.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      // Auto-save após soltar o ponto de controle
+      setCtrlPoints(prev => { triggerSave(overrides, prev); return prev; });
+    };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, []);
+  }, [overrides]);
 
   if (links.length === 0) {
     return (
@@ -742,7 +796,12 @@ function ConnectionMap({
       {(overrides.size > 0 || ctrlPoints.size > 0) && (
         <button
           className="absolute top-3 right-3 bg-zinc-800 border border-zinc-600 text-zinc-300 text-xs rounded-md px-2.5 py-1 hover:bg-zinc-700 transition-colors z-10"
-          onClick={() => { setOverrides(new Map()); setCtrlPoints(new Map()); }}
+          onClick={() => {
+            const empty = new Map();
+            setOverrides(empty);
+            setCtrlPoints(empty as Map<string, { x: number; y: number }>);
+            saveLayout.mutate({ roomFilter, nodePositions: {}, ctrlPoints: {} });
+          }}
         >
           Resetar layout
         </button>
@@ -992,6 +1051,7 @@ export default function Topology() {
           <ConnectionMap
             allEquipments={filtered as Equipment[]}
             links={filteredLinks as PortLink[]}
+            roomFilter={selectedRoomId}
           />
         </div>
       )}

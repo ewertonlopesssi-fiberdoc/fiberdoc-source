@@ -64,6 +64,8 @@ import {
   getUserById,
   listUsersForAdmin,
   getAllPortLinks,
+  getTopologyLayout,
+  saveTopologyLayout,
   type BackupData,
   type BulkEquipmentRow,
   type BulkFiberRow,
@@ -613,6 +615,20 @@ export const appRouter = router({
   // ─── Topology ──────────────────────────────────────────────────────────────
   topology: router({
     data: publicProcedure.query(() => getTopologyData()),
+    layout: router({
+      get: protectedProcedure
+        .input(z.object({ roomFilter: z.string().default("all") }))
+        .query(({ ctx, input }) => getTopologyLayout(ctx.user.id, input.roomFilter)),
+      save: protectedProcedure
+        .input(z.object({
+          roomFilter: z.string().default("all"),
+          nodePositions: z.record(z.string(), z.object({ x: z.number(), y: z.number() })),
+          ctrlPoints: z.record(z.string(), z.object({ x: z.number(), y: z.number() })),
+        }))
+        .mutation(({ ctx, input }) =>
+          saveTopologyLayout(ctx.user.id, input.roomFilter, input.nodePositions, input.ctrlPoints)
+        ),
+    }),
   }),
 
   // ─── Maintenance History ───────────────────────────────────────────────────

@@ -530,3 +530,15 @@ export const tuyaReadings = mysqlTable("tuya_readings", {
 });
 export type TuyaReading = typeof tuyaReadings.$inferSelect;
 export type InsertTuyaReading = typeof tuyaReadings.$inferInsert;
+
+// ─── Layout do Mapa de Topologia ──────────────────────────────────────────────
+export const topologyLayouts = mysqlTable("topology_layouts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),                        // FK para users.id
+  roomFilter: varchar("roomFilter", { length: 32 }).notNull().default("all"), // "all" ou roomId
+  nodePositions: text("nodePositions").notNull(),         // JSON: { [equipmentId]: { x, y } }
+  ctrlPoints: text("ctrlPoints").notNull().default("{}"), // JSON: { "eqA-eqB": { x, y } }
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type TopologyLayout = typeof topologyLayouts.$inferSelect;
+export type InsertTopologyLayout = typeof topologyLayouts.$inferInsert;
