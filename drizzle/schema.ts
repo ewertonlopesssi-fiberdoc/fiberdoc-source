@@ -121,6 +121,8 @@ export const ports = mysqlTable("ports", {
   status: mysqlEnum("port_status", ["free", "occupied", "reserved", "faulty"]).default("free").notNull(),
   notes: text("notes"),
   sortOrder: int("sortOrder").default(0).notNull(),
+  connectedToEquipmentId: int("connectedToEquipmentId"),      // Equipamento da porta vinculada
+  connectedToPortId: int("connectedToPortId"),                // Porta vinculada (patch/conexão direta)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

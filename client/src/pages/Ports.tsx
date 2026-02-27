@@ -115,10 +115,13 @@ type PortForm = {
   notes: string;
   slotId: string; // "" = sem slot
   sortOrder: string;
+  connectedToEquipmentId: string; // "" = sem vínculo
+  connectedToPortId: string;     // "" = sem vínculo
 };
 
 const defaultPortForm: PortForm = {
   portNumber: "", label: "", type: "lc", speed: "", status: "free", notes: "", slotId: "", sortOrder: "0",
+  connectedToEquipmentId: "", connectedToPortId: "",
 };
 
 type SlotForm = {
@@ -162,11 +165,16 @@ function PortGrid({
         return (
           <button
             key={port.id}
-            className={`relative group rounded-lg border p-2 text-center transition-all cursor-pointer ${STATUS_COLORS[port.status] ?? "border-border/30 bg-muted/5"} ${isHighSpeed ? "ring-1 ring-inset ring-violet-500/20" : ""}`}
+            className={`relative group rounded-lg border p-2 text-center transition-all cursor-pointer ${STATUS_COLORS[port.status] ?? "border-border/30 bg-muted/5"} ${isHighSpeed ? "ring-1 ring-inset ring-violet-500/20" : ""} ${port.connectedToPortId ? "ring-1 ring-inset ring-cyan-500/30" : ""}`}
             onClick={() => onEdit(port)}
-            title={`Porta ${port.portNumber}${port.label ? ` - ${port.label}` : ""} · ${getPortTypeLabel(port.type)}${portSpeed ? ` · ${portSpeed.toUpperCase()}` : ""} · ${getStatusLabel(port.status)}`}
+            title={`Porta ${port.portNumber}${port.label ? ` - ${port.label}` : ""} · ${getPortTypeLabel(port.type)}${portSpeed ? ` · ${portSpeed.toUpperCase()}` : ""} · ${getStatusLabel(port.status)}${port.connectedToPortId ? " · Vinculada" : ""}`}
           >
             <div className={`absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full ${DOT_COLORS[port.status] ?? "bg-muted"}`} />
+            {port.connectedToPortId && (
+              <div className="absolute bottom-1 right-1 text-cyan-400" title="Porta vinculada">
+                <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              </div>
+            )}
             <p className="text-xs font-mono font-semibold text-foreground">{port.portNumber}</p>
             {port.label && <p className="text-xs text-muted-foreground truncate mt-0.5">{port.label}</p>}
             <p className="text-xs text-muted-foreground/60 mt-0.5">{getPortTypeLabel(port.type)}</p>
@@ -220,6 +228,14 @@ export default function Ports() {
 
   const { data: slots = [], isLoading: slotsLoading } = trpc.slots.byEquipment.useQuery(
     { equipmentId }, { enabled: equipmentId > 0 }
+  );
+
+  // Para o seletor de vínculo de porta
+  const { data: allEquipments = [] } = trpc.equipments.list.useQuery({});
+  const connectedEquipmentId = portForm.connectedToEquipmentId ? parseInt(portForm.connectedToEquipmentId) : null;
+  const { data: connectedEquipmentPorts = [] } = trpc.ports.byEquipment.useQuery(
+    { equipmentId: connectedEquipmentId ?? 0 },
+    { enabled: !!connectedEquipmentId && connectedEquipmentId !== equipmentId }
   );
 
   // ─── Mutations de Porta ───────────────────────────────────────────────────
@@ -309,6 +325,8 @@ export default function Ports() {
       notes: port.notes ?? "",
       slotId: port.slotId ? String(port.slotId) : "",
       sortOrder: String(port.sortOrder ?? 0),
+      connectedToEquipmentId: port.connectedToEquipmentId ? String(port.connectedToEquipmentId) : "",
+      connectedToPortId: port.connectedToPortId ? String(port.connectedToPortId) : "",
     });
     setPortDialogOpen(true);
   }
@@ -316,6 +334,8 @@ export default function Ports() {
   function handleSubmitPort() {
     const speedVal = (portForm.speed && portForm.speed !== "__none__") ? portForm.speed : undefined;
     const slotIdVal = portForm.slotId ? parseInt(portForm.slotId) : undefined;
+    const connEqId = portForm.connectedToEquipmentId ? parseInt(portForm.connectedToEquipmentId) : null;
+    const connPortId = portForm.connectedToPortId ? parseInt(portForm.connectedToPortId) : null;
     if (editPortId) {
       updatePortMutation.mutate({
         id: editPortId,
@@ -326,7 +346,9 @@ export default function Ports() {
         status: portForm.status as any,
         notes: portForm.notes || undefined,
         sortOrder: portForm.sortOrder !== "" ? parseInt(portForm.sortOrder) : 0,
-      });
+        connectedToEquipmentId: connEqId,
+        connectedToPortId: connPortId,
+      } as any);
     } else {
       createPortMutation.mutate({
         equipmentId,
@@ -338,6 +360,8 @@ export default function Ports() {
         notes: portForm.notes || undefined,
         slotId: slotIdVal,
         sortOrder: portForm.sortOrder !== "" ? parseInt(portForm.sortOrder) : 0,
+        connectedToEquipmentId: connEqId,
+        connectedToPortId: connPortId,
       } as any);
     }
   }
@@ -636,6 +660,43 @@ export default function Ports() {
                 placeholder="0"
                 className="bg-background border-border/50 font-mono"
               />
+            </div>
+            {/* Vínculo com porta de outro equipamento */}
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5">
+                <CircuitBoard className="h-3.5 w-3.5 text-cyan-400" /> Conectado a
+                <span className="text-xs text-muted-foreground font-normal">(porta de outro equipamento)</span>
+              </Label>
+              <Select
+                value={portForm.connectedToEquipmentId || "__none__"}
+                onValueChange={v => setPortForm({ ...portForm, connectedToEquipmentId: v === "__none__" ? "" : v, connectedToPortId: "" })}
+              >
+                <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Nenhum equipamento" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Nenhum equipamento</SelectItem>
+                  {allEquipments.filter((eq: any) => eq.id !== equipmentId).map((eq: any) => (
+                    <SelectItem key={eq.id} value={String(eq.id)}>
+                      {eq.name}{eq.rack ? ` — ${eq.rack}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {portForm.connectedToEquipmentId && (
+                <Select
+                  value={portForm.connectedToPortId || "__none__"}
+                  onValueChange={v => setPortForm({ ...portForm, connectedToPortId: v === "__none__" ? "" : v })}
+                >
+                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione a porta" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Nenhuma porta</SelectItem>
+                    {connectedEquipmentPorts.map((p: any) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        Porta {p.portNumber}{p.label ? ` — ${p.label}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Observações</Label>

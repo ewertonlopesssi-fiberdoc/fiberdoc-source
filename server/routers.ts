@@ -315,6 +315,8 @@ export const appRouter = router({
         status: portStatusEnum.optional(),
         notes: z.string().optional(),
         sortOrder: z.number().optional(),
+        connectedToEquipmentId: z.number().optional().nullable(),
+        connectedToPortId: z.number().optional().nullable(),
       }))
       .mutation(async ({ input, ctx }) => {
         await createPort(input);
@@ -354,6 +356,8 @@ export const appRouter = router({
         status: portStatusEnum.optional(),
         notes: z.string().optional(),
         sortOrder: z.number().optional(),
+        connectedToEquipmentId: z.number().optional().nullable(),
+        connectedToPortId: z.number().optional().nullable(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;

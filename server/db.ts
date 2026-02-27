@@ -152,6 +152,9 @@ export async function getEquipments(search?: string, type?: string, roomId?: num
     ipBlockId: equipments.ipBlockId, serviceDescription: equipments.serviceDescription,
     // Campos de energia
     powerType: equipments.powerType, powerSource: equipments.powerSource, powerSourceLabel: equipments.powerSourceLabel,
+    powerSourceId: equipments.powerSourceId,
+    // Altura em rack
+    rackUnits: equipments.rackUnits,
   }).from(equipments).leftJoin(rooms, eq(equipments.roomId, rooms.id));
   const rows = conditions.length > 0
     ? await query.where(and(...conditions)).orderBy(equipments.name)

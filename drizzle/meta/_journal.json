@@ -176,6 +176,13 @@
       "when": 1772208797417,
       "tag": "0024_reflective_magus",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1772209480648,
+      "tag": "0025_marvelous_warpath",
+      "breakpoints": true
     }
   ]
 }
