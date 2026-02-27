@@ -497,3 +497,7 @@
 - [x] LocalLogin.tsx: simplificado — sem opção de criar conta, usa admin padrão seedado automaticamente
 - [x] Corrigir erro banco de dados (Access denied) no servidor do usuário — script fiberdoc-update-v5.sh
 - [x] Criar script de atualização v5 com as correções
+
+## Correções v5.1
+- [x] Corrigir erro "Não autenticado" na tela de troca de senha (cookie sameSite=lax em HTTP)
+- [x] Alterar subtítulo para "Sistema de Documentação de Redes" em LocalLogin, ChangePassword e DashboardLayout

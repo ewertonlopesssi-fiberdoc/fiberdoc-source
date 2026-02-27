@@ -126,7 +126,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               FiberDoc
             </h1>
             <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Sistema de Gestão de Infraestrutura de Rede Óptica. Faça login para acessar o painel.
+              Sistema de Documentação de Redes. Faça login para acessar o painel.
             </p>
           </div>
           <Button

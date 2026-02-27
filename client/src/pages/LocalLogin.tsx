@@ -63,7 +63,7 @@ export default function LocalLogin() {
           </div>
           <div className="text-center">
             <h1 className="text-2xl font-bold text-foreground">FiberDoc</h1>
-            <p className="text-sm text-muted-foreground">Sistema de Documentação de Fibras Ópticas</p>
+            <p className="text-sm text-muted-foreground">Sistema de Documentação de Redes</p>
           </div>
         </div>
 
