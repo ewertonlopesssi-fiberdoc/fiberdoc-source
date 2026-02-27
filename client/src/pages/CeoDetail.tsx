@@ -205,6 +205,8 @@ function TubePanel({
   const [labelNotes, setLabelNotes] = useState("");
   const [fiberSearch, setFiberSearch] = useState("");
   const [selectedFiberId, setSelectedFiberId] = useState<string>("");
+  const [viaColorFilter, setViaColorFilter] = useState<number | null>(null); // número da via (1-12) ou null = todas
+  const [viaStatusFilter, setViaStatusFilter] = useState<"all" | "fused" | "free">("all");
 
   const { data: vias = [], isLoading } = trpc.ceoVias.byTube.useQuery({ tubeId: tube.id });
   const { data: allVias = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId });
@@ -355,6 +357,67 @@ function TubePanel({
         </div>
       </div>
 
+      {/* Barra de filtros de vias */}
+      {!isLoading && tube.type === "tube" && (
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {/* Filtro por status */}
+          <div className="flex items-center gap-1 border border-border/40 rounded-lg p-1">
+            {(["all", "fused", "free"] as const).map(s => (
+              <button
+                key={s}
+                onClick={() => setViaStatusFilter(s)}
+                className={cn(
+                  "text-[10px] font-semibold px-2 py-0.5 rounded transition-colors",
+                  viaStatusFilter === s
+                    ? "bg-cyan-500/20 text-cyan-300"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {s === "all" ? "Todas" : s === "fused" ? "Fusionadas" : "Livres"}
+              </button>
+            ))}
+          </div>
+          {/* Filtro por cor */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <button
+              onClick={() => setViaColorFilter(null)}
+              className={cn(
+                "text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors",
+                viaColorFilter === null
+                  ? "border-foreground/40 bg-muted text-foreground"
+                  : "border-border/30 text-muted-foreground hover:border-border/60"
+              )}
+            >
+              Cor: Todas
+            </button>
+            {Object.entries(FIBER_VIA_COLORS).map(([num, c]) => (
+              <button
+                key={num}
+                onClick={() => setViaColorFilter(viaColorFilter === Number(num) ? null : Number(num))}
+                title={c.label}
+                className={cn(
+                  "w-6 h-6 rounded border-2 transition-all font-bold text-[9px] flex items-center justify-center",
+                  c.bg, c.text,
+                  viaColorFilter === Number(num)
+                    ? "border-white/70 scale-110 shadow-md"
+                    : "border-transparent opacity-70 hover:opacity-100 hover:scale-105"
+                )}
+              >
+                {num}
+              </button>
+            ))}
+          </div>
+          {(viaColorFilter !== null || viaStatusFilter !== "all") && (
+            <button
+              onClick={() => { setViaColorFilter(null); setViaStatusFilter("all"); }}
+              className="text-[10px] text-muted-foreground hover:text-destructive ml-1"
+            >
+              × Limpar filtros
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Grid de vias */}
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
@@ -362,24 +425,38 @@ function TubePanel({
             <Skeleton key={i} className="h-20 rounded-lg" />
           ))}
         </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
-          {(vias as Via[]).map(via => (
-            <ViaCard
-              key={via.id}
-              via={via}
-              tubes={tubes}
-              allVias={allVias as Via[]}
-              fibers={fibers}
-              onSetFusion={v => { setFusionDialog(v); setFusionTubeId(""); setFusionViaNumber(""); }}
-              onClearFusion={id => clearFusionMutation.mutate({ viaId: id })}
-              onEditLabel={openLabelDialog}
-              onSetFiber={openFiberDialog}
-              onClearFiber={id => clearFiberMutation.mutate({ viaId: id })}
-            />
-          ))}
-        </div>
-      )}
+      ) : (() => {
+        const filteredVias = (vias as Via[]).filter(v => {
+          const colorOk = viaColorFilter === null || v.viaNumber === viaColorFilter;
+          const statusOk = viaStatusFilter === "all"
+            || (viaStatusFilter === "fused" && v.fusedToViaId !== null)
+            || (viaStatusFilter === "free" && v.fusedToViaId === null);
+          return colorOk && statusOk;
+        });
+        return (
+          <>
+            {filteredVias.length === 0 && (
+              <p className="text-xs text-muted-foreground/50 italic py-2">Nenhuma via encontrada com os filtros selecionados.</p>
+            )}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
+              {filteredVias.map(via => (
+                <ViaCard
+                  key={via.id}
+                  via={via}
+                  tubes={tubes}
+                  allVias={allVias as Via[]}
+                  fibers={fibers}
+                  onSetFusion={v => { setFusionDialog(v); setFusionTubeId(""); setFusionViaNumber(""); }}
+                  onClearFusion={id => clearFusionMutation.mutate({ viaId: id })}
+                  onEditLabel={openLabelDialog}
+                  onSetFiber={openFiberDialog}
+                  onClearFiber={id => clearFiberMutation.mutate({ viaId: id })}
+                />
+              ))}
+            </div>
+          </>
+        );
+      })()}
 
       {/* Dialog: Identificar Fusão */}
       <Dialog open={fusionDialog !== null} onOpenChange={() => setFusionDialog(null)}>

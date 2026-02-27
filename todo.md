@@ -571,3 +571,6 @@
 ## v5.22
 - [x] Adicionar cor padrão de fibra óptica (grupo 1, vias 1-12) nos ViaCards na tela
 - [x] Adicionar cor padrão de fibra óptica na impressão do CEO
+
+## v5.23
+- [x] Filtro por cor de via e por status (fusionada/livre) no TubePanel do CEO
