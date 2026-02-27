@@ -528,3 +528,4 @@
 - [x] Mapa de conexoes na tela de topologia (aba Mapa com SVG)
 - [x] Procedure ports.allLinks no backend
 - [x] Funcao getAllPortLinks no db.ts
+- [x] Mapa de conexões: drag-and-drop nos nós para reorganizar equipamentos

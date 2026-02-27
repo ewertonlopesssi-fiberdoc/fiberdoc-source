@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -400,6 +400,9 @@ function ConnectionMap({
   const svgRef = useRef<SVGSVGElement>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
   const [hoveredLink, setHoveredLink] = useState<number | null>(null);
+  // Drag-and-drop: posições customizadas por nodeId
+  const [overrides, setOverrides] = useState<Map<number, { x: number; y: number }>>(new Map());
+  const dragging = useRef<{ id: number; startMouseX: number; startMouseY: number; startNodeX: number; startNodeY: number } | null>(null);
 
   // Construir mapa de equipamentos envolvidos em conexões
   const involvedIds = useMemo(() => {
@@ -443,19 +446,42 @@ function ConnectionMap({
     nodes.forEach((node, idx) => {
       const col = idx % COLS;
       const row = Math.floor(idx / COLS);
+      const ov = overrides.get(node.id);
       map.set(node.id, {
-        x: PADDING + col * (NODE_W + COL_GAP),
-        y: PADDING + row * (NODE_H + ROW_GAP),
+        x: ov ? ov.x : PADDING + col * (NODE_W + COL_GAP),
+        y: ov ? ov.y : PADDING + row * (NODE_H + ROW_GAP),
         w: NODE_W,
         h: NODE_H,
       });
     });
     return map;
-  }, [nodes, COLS]);
+  }, [nodes, COLS, overrides]);
 
   const svgWidth = PADDING * 2 + COLS * (NODE_W + COL_GAP) - COL_GAP;
   const svgRows = Math.ceil(nodes.length / COLS);
   const svgHeight = PADDING * 2 + svgRows * (NODE_H + ROW_GAP) - ROW_GAP;
+
+  // Drag handler
+  const handleNodeMouseDown = useCallback((e: React.MouseEvent, nodeId: number, pos: NodePos) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragging.current = {
+      id: nodeId,
+      startMouseX: e.clientX,
+      startMouseY: e.clientY,
+      startNodeX: pos.x,
+      startNodeY: pos.y,
+    };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return;
+      const nx = Math.max(0, dragging.current.startNodeX + ev.clientX - dragging.current.startMouseX);
+      const ny = Math.max(0, dragging.current.startNodeY + ev.clientY - dragging.current.startMouseY);
+      setOverrides(prev => { const m = new Map(prev); m.set(dragging.current!.id, { x: nx, y: ny }); return m; });
+    };
+    const onUp = () => { dragging.current = null; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
 
   if (links.length === 0) {
     return (
@@ -598,7 +624,12 @@ function ConnectionMap({
           const linkCount = links.filter(l => l.equipmentId === node.id || l.connectedToEquipmentId === node.id).length;
 
           return (
-            <g key={node.id} transform={`translate(${pos.x}, ${pos.y})`}>
+            <g
+              key={node.id}
+              transform={`translate(${pos.x}, ${pos.y})`}
+              style={{ cursor: "grab" }}
+              onMouseDown={(e) => handleNodeMouseDown(e, node.id, pos)}
+            >
               {/* Fundo do nó */}
               <rect
                 x={0}
@@ -664,6 +695,15 @@ function ConnectionMap({
         </div>
       )}
 
+      {/* Botão resetar posições */}
+      {overrides.size > 0 && (
+        <button
+          className="absolute top-3 right-3 bg-zinc-800 border border-zinc-600 text-zinc-300 text-xs rounded-md px-2.5 py-1 hover:bg-zinc-700 transition-colors z-10"
+          onClick={() => setOverrides(new Map())}
+        >
+          Resetar posições
+        </button>
+      )}
       {/* Legenda */}
       <div className="absolute bottom-3 right-3 bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 text-[10px] text-zinc-400 space-y-1">
         <div className="flex items-center gap-1.5">
@@ -673,6 +713,9 @@ function ConnectionMap({
         <div className="flex items-center gap-1.5">
           <div className="w-4 h-4 rounded-full bg-zinc-700 border border-zinc-500 flex items-center justify-center text-[8px] text-zinc-300 font-bold">N</div>
           <span>Número de portas vinculadas</span>
+        </div>
+        <div className="flex items-center gap-1.5 mt-1 pt-1 border-t border-zinc-700/60">
+          <span>↕ Arraste os nós para reorganizar</span>
         </div>
       </div>
     </div>
