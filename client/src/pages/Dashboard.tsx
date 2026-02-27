@@ -19,6 +19,9 @@ import {
   Droplets,
   Wind,
   Cpu,
+  Zap,
+  BatteryCharging,
+  Gauge,
 } from "lucide-react";
 import {
   BarChart,
@@ -122,6 +125,8 @@ function StatCard({
 export default function Dashboard() {
   const { data: stats, isLoading } = trpc.dashboard.stats.useQuery();
   const { data: tuyaSensors } = trpc.tuyaDevices.latestAll.useQuery(undefined, { refetchInterval: 60_000 });
+  const { data: powerSources } = trpc.powerSources.list.useQuery(undefined, { refetchInterval: 60_000 });
+  const snmpSources = (powerSources ?? []).filter((ps) => ps.snmpEnabled && ps.lastPollAt);
   const [, setLocation] = useLocation();
 
   if (isLoading) {
@@ -454,6 +459,103 @@ export default function Dashboard() {
                   )}
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Fontes de Energia SNMP */}
+      {snmpSources.length > 0 && (
+        <Card className="border-border/50 bg-card">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-yellow-500/15 border border-yellow-500/30 flex items-center justify-center">
+                  <Zap className="h-3.5 w-3.5 text-yellow-400" />
+                </div>
+                <CardTitle className="text-sm font-semibold text-foreground">Fontes de Energia (SNMP)</CardTitle>
+                <span className="text-xs text-yellow-400 bg-yellow-400/10 border border-yellow-400/20 px-1.5 py-0.5 rounded-md font-medium">
+                  {snmpSources.length} monitorada{snmpSources.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <button
+                onClick={() => setLocation("/fontes-energia")}
+                className="text-xs text-primary hover:text-primary/80 transition-colors"
+              >
+                Ver todas
+              </button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {snmpSources.map((ps) => {
+                const hasError = !!ps.lastPollError;
+                const hasData = !hasError && (ps.lastVoltage != null || ps.lastCurrent != null || ps.lastTemperature != null || ps.lastBatteryLevel != null || ps.lastLoadPercent != null);
+                return (
+                  <div
+                    key={ps.id}
+                    className="flex flex-col gap-2 p-3 rounded-lg border border-border/30 bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer"
+                    onClick={() => setLocation("/fontes-energia")}
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-foreground truncate">{ps.name}</p>
+                      <div className={`h-2 w-2 rounded-full shrink-0 ${hasError ? "bg-red-400" : "bg-emerald-400"}`} />
+                    </div>
+                    {ps.location && (
+                      <p className="text-xs text-muted-foreground truncate">{ps.location}</p>
+                    )}
+                    {hasError ? (
+                      <p className="text-xs text-red-400 truncate">{ps.lastPollError}</p>
+                    ) : hasData ? (
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                        {ps.lastVoltage != null && (
+                          <div className="flex items-center gap-1 text-xs">
+                            <Zap className="h-3 w-3 text-yellow-400" />
+                            <span className="text-foreground font-medium">{ps.lastVoltage}V</span>
+                          </div>
+                        )}
+                        {ps.lastCurrent != null && (
+                          <div className="flex items-center gap-1 text-xs">
+                            <Activity className="h-3 w-3 text-blue-400" />
+                            <span className="text-foreground font-medium">{ps.lastCurrent}A</span>
+                          </div>
+                        )}
+                        {ps.lastTemperature != null && (
+                          <div className="flex items-center gap-1 text-xs">
+                            <Thermometer className="h-3 w-3 text-orange-400" />
+                            <span className="text-foreground font-medium">{ps.lastTemperature}°C</span>
+                          </div>
+                        )}
+                        {ps.lastBatteryLevel != null && (
+                          <div className="flex items-center gap-1 text-xs">
+                            <BatteryCharging className="h-3 w-3 text-green-400" />
+                            <span className="text-foreground font-medium">{ps.lastBatteryLevel}%</span>
+                          </div>
+                        )}
+                        {ps.lastLoadPercent != null && (
+                          <div className="flex items-center gap-1 text-xs">
+                            <Gauge className="h-3 w-3 text-purple-400" />
+                            <span className="text-foreground font-medium">{ps.lastLoadPercent}%</span>
+                          </div>
+                        )}
+                        {ps.lastAlarmStatus != null && (
+                          <div className="flex items-center gap-1 text-xs">
+                            <AlertCircle className="h-3 w-3 text-red-400" />
+                            <span className="text-foreground font-medium">{ps.lastAlarmStatus}</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Aguardando primeira coleta...</p>
+                    )}
+                    {ps.lastPollAt && (
+                      <p className="text-xs text-muted-foreground">
+                        {formatDistanceToNow(new Date(ps.lastPollAt), { addSuffix: true, locale: ptBR })}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>

@@ -362,48 +362,113 @@ export default function PowerSources() {
                       )}
                     </div>
                     {ps.lastPollError ? (
-                      <p className="text-[11px] text-red-400">{ps.lastPollError}</p>
+                      <div className="flex items-center gap-1.5 p-2 rounded-md bg-red-500/10 border border-red-500/20">
+                        <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+                        <p className="text-[11px] text-red-400">{ps.lastPollError}</p>
+                      </div>
                     ) : (
-                      <div className="grid grid-cols-2 gap-1">
+                      <div className="space-y-2">
                         {ps.lastVoltage != null && (
-                          <div className="flex items-center gap-1 text-[11px]">
-                            <Activity className="h-3 w-3 text-blue-400" />
-                            <span className="text-muted-foreground">Tensão:</span>
-                            <span className="text-foreground font-medium">{ps.lastVoltage}V</span>
+                          <div className="space-y-0.5">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <div className="flex items-center gap-1 text-muted-foreground">
+                                <Activity className="h-3 w-3 text-blue-400" />
+                                <span>Tensão de Saída</span>
+                              </div>
+                              <span className="text-foreground font-bold">{ps.lastVoltage}V</span>
+                            </div>
+                            {(ps.alertVoltageMin != null || ps.alertVoltageMax != null) && (
+                              <div className="w-full h-1.5 bg-muted/40 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full transition-all ${
+                                  (ps.alertVoltageMin != null && ps.lastVoltage < ps.alertVoltageMin) ||
+                                  (ps.alertVoltageMax != null && ps.lastVoltage > ps.alertVoltageMax)
+                                    ? "bg-red-400" : "bg-blue-400"
+                                }`} style={{ width: `${Math.min(100, ps.alertVoltageMax ? (ps.lastVoltage / ps.alertVoltageMax) * 100 : 80)}%` }} />
+                              </div>
+                            )}
                           </div>
                         )}
                         {ps.lastCurrent != null && (
-                          <div className="flex items-center gap-1 text-[11px]">
-                            <Zap className="h-3 w-3 text-yellow-400" />
-                            <span className="text-muted-foreground">Corrente:</span>
-                            <span className="text-foreground font-medium">{ps.lastCurrent}A</span>
+                          <div className="space-y-0.5">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <div className="flex items-center gap-1 text-muted-foreground">
+                                <Zap className="h-3 w-3 text-yellow-400" />
+                                <span>Corrente</span>
+                              </div>
+                              <span className="text-foreground font-bold">{ps.lastCurrent}A</span>
+                            </div>
+                            {ps.alertCurrentMax != null && (
+                              <div className="w-full h-1.5 bg-muted/40 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full transition-all ${
+                                  ps.lastCurrent > ps.alertCurrentMax ? "bg-red-400" :
+                                  ps.lastCurrent > ps.alertCurrentMax * 0.8 ? "bg-orange-400" : "bg-yellow-400"
+                                }`} style={{ width: `${Math.min(100, (ps.lastCurrent / ps.alertCurrentMax) * 100)}%` }} />
+                              </div>
+                            )}
                           </div>
                         )}
                         {ps.lastTemperature != null && (
-                          <div className="flex items-center gap-1 text-[11px]">
-                            <Thermometer className="h-3 w-3 text-orange-400" />
-                            <span className="text-muted-foreground">Temp:</span>
-                            <span className="text-foreground font-medium">{ps.lastTemperature}°C</span>
+                          <div className="space-y-0.5">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <div className="flex items-center gap-1 text-muted-foreground">
+                                <Thermometer className="h-3 w-3 text-orange-400" />
+                                <span>Temperatura</span>
+                              </div>
+                              <span className={`font-bold ${
+                                ps.alertTempMax != null && ps.lastTemperature > ps.alertTempMax ? "text-red-400" : "text-foreground"
+                              }`}>{ps.lastTemperature}°C</span>
+                            </div>
+                            {ps.alertTempMax != null && (
+                              <div className="w-full h-1.5 bg-muted/40 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full transition-all ${
+                                  ps.lastTemperature > ps.alertTempMax ? "bg-red-400" :
+                                  ps.lastTemperature > ps.alertTempMax * 0.85 ? "bg-orange-400" : "bg-orange-300"
+                                }`} style={{ width: `${Math.min(100, (ps.lastTemperature / ps.alertTempMax) * 100)}%` }} />
+                              </div>
+                            )}
                           </div>
                         )}
                         {ps.lastBatteryLevel != null && (
-                          <div className="flex items-center gap-1 text-[11px]">
-                            <Battery className="h-3 w-3 text-green-400" />
-                            <span className="text-muted-foreground">Bateria:</span>
-                            <span className="text-foreground font-medium">{ps.lastBatteryLevel}%</span>
+                          <div className="space-y-0.5">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <div className="flex items-center gap-1 text-muted-foreground">
+                                <Battery className="h-3 w-3 text-green-400" />
+                                <span>Bateria</span>
+                              </div>
+                              <span className={`font-bold ${
+                                ps.alertBatteryMin != null && ps.lastBatteryLevel < ps.alertBatteryMin ? "text-red-400" : "text-foreground"
+                              }`}>{ps.lastBatteryLevel}%</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-muted/40 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full transition-all ${
+                                (ps.alertBatteryMin != null && ps.lastBatteryLevel < ps.alertBatteryMin) || ps.lastBatteryLevel < 20
+                                  ? "bg-red-400" : ps.lastBatteryLevel < 40 ? "bg-orange-400" : "bg-green-400"
+                              }`} style={{ width: `${Math.min(100, ps.lastBatteryLevel)}%` }} />
+                            </div>
                           </div>
                         )}
                         {ps.lastLoadPercent != null && (
-                          <div className="flex items-center gap-1 text-[11px]">
-                            <Gauge className="h-3 w-3 text-purple-400" />
-                            <span className="text-muted-foreground">Carga:</span>
-                            <span className="text-foreground font-medium">{ps.lastLoadPercent}%</span>
+                          <div className="space-y-0.5">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <div className="flex items-center gap-1 text-muted-foreground">
+                                <Gauge className="h-3 w-3 text-purple-400" />
+                                <span>Carga</span>
+                              </div>
+                              <span className={`font-bold ${
+                                ps.alertLoadMax != null && ps.lastLoadPercent > ps.alertLoadMax ? "text-red-400" : "text-foreground"
+                              }`}>{ps.lastLoadPercent}%</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-muted/40 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full transition-all ${
+                                ps.lastLoadPercent > 90 ? "bg-red-400" : ps.lastLoadPercent > 70 ? "bg-orange-400" : "bg-purple-400"
+                              }`} style={{ width: `${Math.min(100, ps.lastLoadPercent)}%` }} />
+                            </div>
                           </div>
                         )}
                         {ps.lastAlarmStatus != null && (
-                          <div className="flex items-center gap-1 text-[11px]">
-                            <AlertTriangle className="h-3 w-3 text-red-400" />
-                            <span className="text-muted-foreground">Alarme:</span>
+                          <div className="flex items-center gap-1.5 text-[11px] p-1.5 rounded bg-muted/30">
+                            <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />
+                            <span className="text-muted-foreground">Status:</span>
                             <span className="text-foreground font-medium">{ps.lastAlarmStatus}</span>
                           </div>
                         )}

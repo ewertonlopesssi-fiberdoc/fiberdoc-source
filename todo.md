@@ -537,3 +537,7 @@
 - [x] Restaurar layout ao abrir o mapa
 - [x] Mapa: botão Salvar layout manual
 - [x] CEO: remover item 2 da lista Atualização Segura do Sistema
+
+## Melhorias v5.14
+- [ ] Dashboard: widget de status SNMP das fontes de energia com dados em tempo real
+- [ ] PowerSources: tela de detalhes SNMP expandida com gauge/indicadores visuais
