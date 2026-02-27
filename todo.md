@@ -563,3 +563,7 @@
 
 ## v5.20
 - [x] Alterar impressão CEO: cada tubo individual com vias e associações de fusão
+
+## v5.21
+- [x] Badge de cor do tubo no cabeçalho de cada seção na impressão CEO
+- [x] Diálogo de filtro de tubos antes de imprimir CEO

@@ -541,6 +541,8 @@ export default function CeoDetail() {
     identifier: "", type: "tube" as "tube" | "splitter",
     totalVias: "12", color: "", notes: "",
   });
+  const [printFilterOpen, setPrintFilterOpen] = useState(false);
+  const [selectedTubeIds, setSelectedTubeIds] = useState<Set<number>>(new Set());
 
   const { isAdmin } = useRole();
   const utils = trpc.useUtils();
@@ -549,11 +551,18 @@ export default function CeoDetail() {
   const { data: allVias = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
   const { data: fibers = [] } = trpc.fibers.list.useQuery({});
 
-  function handlePrint() {
+  function handleOpenPrintFilter() {
+    // Pré-selecionar todos os tubos
+    setSelectedTubeIds(new Set((tubes as Tube[]).map(t => t.id)));
+    setPrintFilterOpen(true);
+  }
+
+  function handlePrint(tubesToPrint?: Tube[]) {
+    const printList = tubesToPrint ?? (tubes as Tube[]);
     const viaById: Record<number, any> = {};
     for (const v of allVias as any[]) viaById[v.id] = v;
     const tubeById: Record<number, any> = {};
-    for (const t of tubeList) tubeById[t.id] = t;
+    for (const t of printList) tubeById[t.id] = t;
     const viasByTube: Record<number, any[]> = {};
     for (const v of allVias as any[]) {
       if (!viasByTube[v.tubeId]) viasByTube[v.tubeId] = [];
@@ -563,9 +572,46 @@ export default function CeoDetail() {
       viasByTube[Number(k)].sort((a: any, b: any) => a.viaNumber - b.viaNumber);
     }
 
-    const totalVias = tubeList.reduce((s, t) => s + t.totalVias, 0);
-    const fusedVias = (allVias as any[]).filter((v: any) => v.fusedToViaId !== null).length;
+    const totalVias = printList.reduce((s: number, t: Tube) => s + t.totalVias, 0);
+    const fusedVias = (allVias as any[]).filter((v: any) =>
+      v.fusedToViaId !== null && printList.some((t: Tube) => t.id === v.tubeId)
+    ).length;
     const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+    // Mapeamento de cor de texto para cor CSS de badge
+    function getColorBadge(colorName: string | null): string {
+      if (!colorName) return "";
+      const map: Record<string, { bg: string; text: string; border: string }> = {
+        azul: { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
+        blue: { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
+        verde: { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
+        green: { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
+        amarelo: { bg: "#fef9c3", text: "#854d0e", border: "#fde047" },
+        yellow: { bg: "#fef9c3", text: "#854d0e", border: "#fde047" },
+        vermelho: { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" },
+        red: { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" },
+        laranja: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" },
+        orange: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" },
+        roxo: { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
+        purple: { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
+        violeta: { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
+        rosa: { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" },
+        pink: { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" },
+        branco: { bg: "#f9fafb", text: "#374151", border: "#d1d5db" },
+        white: { bg: "#f9fafb", text: "#374151", border: "#d1d5db" },
+        preto: { bg: "#1f2937", text: "#f9fafb", border: "#374151" },
+        black: { bg: "#1f2937", text: "#f9fafb", border: "#374151" },
+        cinza: { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" },
+        gray: { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" },
+        marrom: { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" },
+        brown: { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" },
+        ciano: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
+        cyan: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
+      };
+      const key = colorName.toLowerCase().trim();
+      const style = map[key] ?? { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" };
+      return "<span style='background:" + style.bg + ";color:" + style.text + ";border:1px solid " + style.border + ";padding:1px 6px;border-radius:3px;font-size:7pt;font-weight:700;margin-left:6mm'>" + colorName.toUpperCase() + "</span>";
+    }
 
     // Cada tubo é exibido individualmente
 
@@ -576,10 +622,12 @@ export default function CeoDetail() {
     function renderSoloHtml(tube: any): string {
       const vias = viasByTube[tube.id] ?? [];
       const fused = vias.filter((v: any) => v.fusedToViaId !== null).length;
+      const colorBadge = getColorBadge(tube.color);
       return `
         <div class="tube-section">
           <div class="tube-title${tube.type === "splitter" ? " splitter-title" : ""}">
             ${tube.type === "splitter" ? "SPLITTER" : "TUBO"} &mdash; ${escHtml(tube.identifier)}
+            ${colorBadge}
             <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${tube.totalVias} vias &middot; ${fused} fusionada${fused !== 1 ? "s" : ""}</span>
           </div>
           <table><thead><tr>
@@ -790,7 +838,7 @@ export default function CeoDetail() {
         <div className="ml-auto flex items-center gap-2">
           <Button
             variant="outline"
-            onClick={handlePrint}
+            onClick={handleOpenPrintFilter}
             className="gap-2 border-border/50"
             title="Imprimir mapa de fusões"
           >
@@ -976,6 +1024,81 @@ export default function CeoDetail() {
               disabled={deleteTubeMutation.isPending}
             >
               {deleteTubeMutation.isPending ? "Removendo..." : "Remover"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de filtro de tubos para impressão */}
+      <Dialog open={printFilterOpen} onOpenChange={setPrintFilterOpen}>
+        <DialogContent className="bg-card border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Printer className="h-4 w-4" />
+              Selecionar Tubos para Imprimir
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-muted-foreground">{selectedTubeIds.size} de {tubeList.length} selecionados</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSelectedTubeIds(new Set(tubeList.map(t => t.id)))}
+                  className="text-xs text-cyan-400 hover:underline"
+                >Todos</button>
+                <span className="text-muted-foreground/40">|</span>
+                <button
+                  onClick={() => setSelectedTubeIds(new Set())}
+                  className="text-xs text-muted-foreground hover:underline"
+                >Nenhum</button>
+              </div>
+            </div>
+            {tubeList.map(tube => {
+              const checked = selectedTubeIds.has(tube.id);
+              return (
+                <label
+                  key={tube.id}
+                  className={cn(
+                    "flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors",
+                    checked ? "border-cyan-500/40 bg-cyan-500/5" : "border-border/40 hover:bg-muted/30"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => {
+                      const next = new Set(selectedTubeIds);
+                      if (checked) next.delete(tube.id); else next.add(tube.id);
+                      setSelectedTubeIds(next);
+                    }}
+                    className="accent-cyan-500"
+                  />
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-medium truncate">{tube.identifier}</span>
+                    {tube.color && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-border/40 shrink-0">
+                        {tube.color}
+                      </Badge>
+                    )}
+                    <span className="text-xs text-muted-foreground shrink-0">{tube.totalVias} vias</span>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPrintFilterOpen(false)} className="border-border/50">Cancelar</Button>
+            <Button
+              disabled={selectedTubeIds.size === 0}
+              onClick={() => {
+                setPrintFilterOpen(false);
+                const filtered = tubeList.filter(t => selectedTubeIds.has(t.id));
+                handlePrint(filtered);
+              }}
+              className="gap-2"
+            >
+              <Printer className="h-4 w-4" />
+              Imprimir ({selectedTubeIds.size})
             </Button>
           </DialogFooter>
         </DialogContent>
