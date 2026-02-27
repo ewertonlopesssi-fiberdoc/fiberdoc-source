@@ -541,3 +541,10 @@
 ## Melhorias v5.14
 - [ ] Dashboard: widget de status SNMP das fontes de energia com dados em tempo real
 - [ ] PowerSources: tela de detalhes SNMP expandida com gauge/indicadores visuais
+
+## Melhorias v5.15
+- [ ] Tabela snmp_readings para histórico de leituras SNMP
+- [ ] Procedure powerSources.readings para buscar histórico SNMP
+- [ ] Gráfico de histórico SNMP na tela PowerSources (modal)
+- [ ] Exibir voltagem e amperagem nos sensores Tuya (power_meter)
+- [ ] Histórico de voltagem/corrente no modal de histórico Tuya

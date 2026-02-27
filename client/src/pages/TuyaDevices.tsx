@@ -318,10 +318,24 @@ export default function TuyaDevices() {
                         </div>
                       )}
                       {d.type === "power_meter" && (
-                        <div className="flex items-center gap-1.5 bg-muted/40 rounded px-2 py-1.5">
-                          <Zap className="w-3.5 h-3.5 text-yellow-400" />
-                          <span className="font-medium">{formatValue(d.lastPower, "W")}</span>
-                        </div>
+                        <>
+                          <div className="flex items-center gap-1.5 bg-muted/40 rounded px-2 py-1.5">
+                            <Zap className="w-3.5 h-3.5 text-yellow-400" />
+                            <span className="font-medium text-yellow-300">{formatValue(d.lastPower, "W")}</span>
+                          </div>
+                          {(d as any).lastVoltage != null && (
+                            <div className="flex items-center gap-1.5 bg-muted/40 rounded px-2 py-1.5">
+                              <span className="text-xs text-blue-400 font-bold">V</span>
+                              <span className="font-medium text-blue-300">{Number((d as any).lastVoltage).toFixed(1)} V</span>
+                            </div>
+                          )}
+                          {(d as any).lastCurrent != null && (
+                            <div className="flex items-center gap-1.5 bg-muted/40 rounded px-2 py-1.5">
+                              <span className="text-xs text-orange-400 font-bold">A</span>
+                              <span className="font-medium text-orange-300">{Number((d as any).lastCurrent).toFixed(2)} A</span>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
 

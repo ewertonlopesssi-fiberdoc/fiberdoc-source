@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
@@ -24,7 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Zap, Plus, Pencil, Trash2, Wifi, WifiOff, RefreshCw,
-  Thermometer, Activity, Battery, BatteryLow, Gauge, AlertTriangle, CheckCircle, Bell,
+  Thermometer, Activity, Battery, BatteryLow, Gauge, AlertTriangle, CheckCircle, Bell, History,
 } from "lucide-react";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -154,6 +155,29 @@ export default function PowerSources() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [pollingId, setPollingId] = useState<number | null>(null);
+  const [historySourceId, setHistorySourceId] = useState<number | null>(null);
+  const [historyHours, setHistoryHours] = useState(24);
+
+  const { data: snmpHistory = [], isLoading: historyLoading } = trpc.powerSources.readings.useQuery(
+    { id: historySourceId!, hours: historyHours },
+    { enabled: !!historySourceId, refetchInterval: 60_000 }
+  );
+
+  const historySource = useMemo(
+    () => (sources as any[]).find((s) => s.id === historySourceId),
+    [sources, historySourceId]
+  );
+
+  const chartData = useMemo(() => {
+    return (snmpHistory as any[]).map((r) => ({
+      time: new Date(r.collectedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+      voltage: r.voltage != null ? Number(r.voltage) : null,
+      current: r.current != null ? Number(r.current) : null,
+      temperature: r.temperature != null ? Number(r.temperature) : null,
+      battery: r.batteryLevel != null ? Number(r.batteryLevel) : null,
+      load: r.loadPercent != null ? Number(r.loadPercent) : null,
+    }));
+  }, [snmpHistory]);
 
   function openCreate() {
     setEditId(null);
@@ -483,18 +507,27 @@ export default function PowerSources() {
                 {isAdmin && (
                   <div className="flex gap-2 pt-1">
                     {ps.snmpEnabled && (
-                      <Button
-                        size="sm" variant="outline"
-                        className="h-7 text-xs gap-1 border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 flex-1"
-                        disabled={pollingId === ps.id || pollMut.isPending}
-                        onClick={() => {
-                          setPollingId(ps.id);
-                          pollMut.mutate({ id: ps.id }, { onSettled: () => setPollingId(null) });
-                        }}
-                      >
-                        <RefreshCw className={`h-3 w-3 ${pollingId === ps.id ? "animate-spin" : ""}`} />
-                        {pollingId === ps.id ? "Coletando..." : "Coletar agora"}
-                      </Button>
+                      <>
+                        <Button
+                          size="sm" variant="outline"
+                          className="h-7 text-xs gap-1 border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 flex-1"
+                          disabled={pollingId === ps.id || pollMut.isPending}
+                          onClick={() => {
+                            setPollingId(ps.id);
+                            pollMut.mutate({ id: ps.id }, { onSettled: () => setPollingId(null) });
+                          }}
+                        >
+                          <RefreshCw className={`h-3 w-3 ${pollingId === ps.id ? "animate-spin" : ""}`} />
+                          {pollingId === ps.id ? "Coletando..." : "Coletar agora"}
+                        </Button>
+                        <Button
+                          size="sm" variant="outline"
+                          className="h-7 text-xs gap-1 border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+                          onClick={() => { setHistorySourceId(ps.id); setHistoryHours(24); }}
+                        >
+                          <History className="h-3 w-3" /> Histórico
+                        </Button>
+                      </>
                     )}
                     <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-border/50 hover:bg-muted/50"
                       onClick={() => openEdit(ps)}>
@@ -874,6 +907,165 @@ export default function PowerSources() {
               {isBusy ? "Salvando..." : editId ? "Salvar alterações" : "Criar fonte"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Histórico SNMP */}
+      <Dialog open={!!historySourceId} onOpenChange={(o) => !o && setHistorySourceId(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-card border-border/50">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5 text-purple-400" />
+              Histórico SNMP — {historySource?.name ?? ""}
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Seletor de período */}
+          <div className="flex gap-2 flex-wrap">
+            {[1, 6, 24, 48, 168].map((h) => (
+              <Button key={h} size="sm" variant={historyHours === h ? "default" : "outline"}
+                className={`h-7 text-xs ${historyHours === h ? "bg-purple-600 hover:bg-purple-700" : "border-border/50"}`}
+                onClick={() => setHistoryHours(h)}>
+                {h === 1 ? "1h" : h === 6 ? "6h" : h === 24 ? "24h" : h === 48 ? "48h" : "7 dias"}
+              </Button>
+            ))}
+            <span className="ml-auto text-xs text-muted-foreground self-center">
+              {chartData.length} leituras
+            </span>
+          </div>
+
+          {historyLoading ? (
+            <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+              <RefreshCw className="h-4 w-4 animate-spin mr-2" /> Carregando...
+            </div>
+          ) : chartData.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+              <History className="h-10 w-10 mb-2 opacity-30" />
+              <p className="text-sm">Nenhuma leitura registrada neste período.</p>
+              <p className="text-xs mt-1">As leituras são salvas automaticamente a cada coleta SNMP.</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Tensão */}
+              {chartData.some((d) => d.voltage != null) && (
+                <div>
+                  <p className="text-xs font-semibold text-blue-400 mb-2 flex items-center gap-1">
+                    <Zap className="h-3.5 w-3.5" /> Tensão de Saída (V)
+                  </p>
+                  <ResponsiveContainer width="100%" height={140}>
+                    <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="gVoltage" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#888" }} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10, fill: "#888" }} width={36} />
+                      <Tooltip contentStyle={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 6, fontSize: 12 }} />
+                      <Area type="monotone" dataKey="voltage" stroke="#3b82f6" fill="url(#gVoltage)" strokeWidth={2} dot={false} name="Tensão (V)" connectNulls />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {/* Corrente */}
+              {chartData.some((d) => d.current != null) && (
+                <div>
+                  <p className="text-xs font-semibold text-yellow-400 mb-2 flex items-center gap-1">
+                    <Activity className="h-3.5 w-3.5" /> Corrente de Saída (A)
+                  </p>
+                  <ResponsiveContainer width="100%" height={140}>
+                    <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="gCurrent" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#eab308" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#888" }} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10, fill: "#888" }} width={36} />
+                      <Tooltip contentStyle={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 6, fontSize: 12 }} />
+                      <Area type="monotone" dataKey="current" stroke="#eab308" fill="url(#gCurrent)" strokeWidth={2} dot={false} name="Corrente (A)" connectNulls />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {/* Temperatura */}
+              {chartData.some((d) => d.temperature != null) && (
+                <div>
+                  <p className="text-xs font-semibold text-orange-400 mb-2 flex items-center gap-1">
+                    <Thermometer className="h-3.5 w-3.5" /> Temperatura (°C)
+                  </p>
+                  <ResponsiveContainer width="100%" height={140}>
+                    <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="gTemp" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f97316" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#888" }} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10, fill: "#888" }} width={36} />
+                      <Tooltip contentStyle={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 6, fontSize: 12 }} />
+                      <Area type="monotone" dataKey="temperature" stroke="#f97316" fill="url(#gTemp)" strokeWidth={2} dot={false} name="Temperatura (°C)" connectNulls />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {/* Bateria e Carga lado a lado */}
+              {(chartData.some((d) => d.battery != null) || chartData.some((d) => d.load != null)) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {chartData.some((d) => d.battery != null) && (
+                    <div>
+                      <p className="text-xs font-semibold text-green-400 mb-2 flex items-center gap-1">
+                        <Battery className="h-3.5 w-3.5" /> Bateria (V)
+                      </p>
+                      <ResponsiveContainer width="100%" height={130}>
+                        <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="gBatt" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                              <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                          <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#888" }} interval="preserveStartEnd" />
+                          <YAxis tick={{ fontSize: 9, fill: "#888" }} width={32} />
+                          <Tooltip contentStyle={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 6, fontSize: 11 }} />
+                          <Area type="monotone" dataKey="battery" stroke="#22c55e" fill="url(#gBatt)" strokeWidth={2} dot={false} name="Bateria (V)" connectNulls />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                  {chartData.some((d) => d.load != null) && (
+                    <div>
+                      <p className="text-xs font-semibold text-cyan-400 mb-2 flex items-center gap-1">
+                        <Gauge className="h-3.5 w-3.5" /> Carga (%)
+                      </p>
+                      <ResponsiveContainer width="100%" height={130}>
+                        <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="gLoad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
+                              <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                          <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#888" }} interval="preserveStartEnd" />
+                          <YAxis tick={{ fontSize: 9, fill: "#888" }} width={32} domain={[0, 100]} />
+                          <Tooltip contentStyle={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 6, fontSize: 11 }} />
+                          <Area type="monotone" dataKey="load" stroke="#06b6d4" fill="url(#gLoad)" strokeWidth={2} dot={false} name="Carga (%)" connectNulls />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

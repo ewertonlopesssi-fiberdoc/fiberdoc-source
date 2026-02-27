@@ -542,3 +542,18 @@ export const topologyLayouts = mysqlTable("topology_layouts", {
 });
 export type TopologyLayout = typeof topologyLayouts.$inferSelect;
 export type InsertTopologyLayout = typeof topologyLayouts.$inferInsert;
+
+// ─── Histórico de Leituras SNMP ───────────────────────────────────────────────
+export const snmpReadings = mysqlTable("snmp_readings", {
+  id: int("id").autoincrement().primaryKey(),
+  powerSourceId: int("powerSourceId").notNull().references(() => powerSources.id, { onDelete: "cascade" }),
+  voltage: float("voltage"),
+  current: float("current"),
+  temperature: float("temperature"),
+  batteryLevel: float("batteryLevel"),
+  loadPercent: float("loadPercent"),
+  alarmStatus: varchar("alarmStatus", { length: 64 }),
+  collectedAt: timestamp("collectedAt").defaultNow().notNull(),
+});
+export type SnmpReading = typeof snmpReadings.$inferSelect;
+export type InsertSnmpReading = typeof snmpReadings.$inferInsert;

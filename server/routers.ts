@@ -82,6 +82,7 @@ import {
 import {
   getPowerSources, getPowerSourceById, createPowerSource, updatePowerSource, deletePowerSource,
   getSnmpAlerts, countActiveSnmpAlerts, acknowledgeSnmpAlert, resolveSnmpAlert,
+  getSnmpReadings,
 } from "./db";
 import { pollSinglePowerSource } from "./snmpPoller";
 import { sendTelegramMessage } from "./telegram";
@@ -1544,11 +1545,13 @@ export const appRouter = router({
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input }) => deletePowerSource(input.id)),
-    pollNow: adminProcedure
+     pollNow: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input }) => pollSinglePowerSource(input.id)),
+    readings: protectedProcedure
+      .input(z.object({ id: z.number(), hours: z.number().int().min(1).max(168).default(24) }))
+      .query(({ input }) => getSnmpReadings(input.id, input.hours)),
   }),
-
   // ─── Alertas SNMP ──────────────────────────────────────────────────────────
   alerts: router({
     list: protectedProcedure

@@ -9,6 +9,7 @@ import * as snmp from "net-snmp";
 import {
   getPowerSources,
   updatePowerSourceSnmpData,
+  saveSnmpReading,
   createSnmpAlert,
   resolveAlertsByTypeAndSource,
   hasActiveAlertOfType,
@@ -392,6 +393,18 @@ export async function pollSinglePowerSource(
     lastLoadPercent:  typeof result.loadPercent  === "number" ? result.loadPercent  : null,
     lastPollError:    result.error ?? null,
   });
+
+  // Salvar no histórico de leituras (apenas se não houve erro de comunicação)
+  if (!result.error) {
+    await saveSnmpReading(psId, {
+      voltage:      typeof result.voltage      === "number" ? result.voltage      : null,
+      current:      typeof result.current      === "number" ? result.current      : null,
+      temperature:  typeof result.temperature  === "number" ? result.temperature  : null,
+      batteryLevel: typeof result.batteryLevel === "number" ? result.batteryLevel : null,
+      loadPercent:  typeof result.loadPercent  === "number" ? result.loadPercent  : null,
+      alarmStatus:  result.alarmStatus != null ? String(result.alarmStatus) : null,
+    }).catch((e) => console.error("[SNMP] Erro ao salvar histórico:", e));
+  }
 
   // Avaliar alertas
   try {

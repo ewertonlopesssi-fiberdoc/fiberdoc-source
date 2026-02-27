@@ -43,6 +43,9 @@ import {
   InsertTuyaReading,
   topologyLayouts,
   TopologyLayout,
+  snmpReadings,
+  SnmpReading,
+  InsertSnmpReading,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1760,4 +1763,72 @@ export async function saveTopologyLayout(
       ctrlPoints: ctrlJson,
     });
   }
+}
+
+// ─── Histórico de Leituras SNMP ───────────────────────────────────────────────
+export async function saveSnmpReading(
+  powerSourceId: number,
+  data: {
+    voltage?: number | null;
+    current?: number | null;
+    temperature?: number | null;
+    batteryLevel?: number | null;
+    loadPercent?: number | null;
+    alarmStatus?: string | null;
+  }
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  // Só salva se houver pelo menos um valor
+  const hasData = Object.values(data).some((v) => v != null);
+  if (!hasData) return;
+  await db.insert(snmpReadings).values({
+    powerSourceId,
+    voltage: data.voltage ?? undefined,
+    current: data.current ?? undefined,
+    temperature: data.temperature ?? undefined,
+    batteryLevel: data.batteryLevel ?? undefined,
+    loadPercent: data.loadPercent ?? undefined,
+    alarmStatus: data.alarmStatus ?? undefined,
+  });
+  // Manter apenas as últimas 2000 leituras por fonte (limpeza automática)
+  const db2 = await getDb();
+  if (!db2) return;
+  const oldest = await db2
+    .select({ id: snmpReadings.id })
+    .from(snmpReadings)
+    .where(eq(snmpReadings.powerSourceId, powerSourceId))
+    .orderBy(desc(snmpReadings.collectedAt))
+    .offset(2000)
+    .limit(1);
+  if (oldest.length > 0) {
+    await db2
+      .delete(snmpReadings)
+      .where(
+        and(
+          eq(snmpReadings.powerSourceId, powerSourceId),
+          sql`${snmpReadings.collectedAt} < (SELECT collectedAt FROM snmp_readings WHERE powerSourceId = ${powerSourceId} ORDER BY collectedAt DESC LIMIT 1 OFFSET 1999)`
+        )
+      );
+  }
+}
+
+export async function getSnmpReadings(
+  powerSourceId: number,
+  hours: number = 24
+): Promise<SnmpReading[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+  return db
+    .select()
+    .from(snmpReadings)
+    .where(
+      and(
+        eq(snmpReadings.powerSourceId, powerSourceId),
+        gte(snmpReadings.collectedAt, since)
+      )
+    )
+    .orderBy(snmpReadings.collectedAt)
+    .limit(500);
 }
