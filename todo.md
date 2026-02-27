@@ -501,3 +501,4 @@
 ## Correções v5.1
 - [x] Corrigir erro "Não autenticado" na tela de troca de senha (cookie sameSite=lax em HTTP)
 - [x] Alterar subtítulo para "Sistema de Documentação de Redes" em LocalLogin, ChangePassword e DashboardLayout
+- [x] Corrigir redirecionamento automático após troca de senha (window.location.href para reload completo)

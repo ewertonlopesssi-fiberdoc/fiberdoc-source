@@ -65,10 +65,9 @@ export default function ChangePassword({ forced = false }: ChangePasswordProps) 
       }
 
       setSuccess(true);
-      await utils.auth.me.invalidate();
 
-      // Redirecionar após 2 segundos
-      setTimeout(() => navigate("/"), 2000);
+      // Usar window.location para forçar reload completo e recarregar estado de auth
+      setTimeout(() => { window.location.href = "/"; }, 1500);
     } catch {
       setError("Erro de conexão com o servidor");
     } finally {
