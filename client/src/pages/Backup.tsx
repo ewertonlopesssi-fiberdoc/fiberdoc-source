@@ -541,10 +541,9 @@ export default function Backup() {
           <ol className="space-y-3 text-sm">
             {[
               { step: "1", text: "Gere um backup completo (botão acima) antes de qualquer atualização." },
-              { step: "2", text: "As melhorias são desenvolvidas aqui no Manus e publicadas via botão Publish no painel." },
-              { step: "3", text: "O banco de dados é independente do código — atualizações de interface nunca apagam seus dados." },
-              { step: "4", text: "Após a publicação, o sistema reinicia automaticamente com a nova versão." },
-              { step: "5", text: "Se algo não funcionar como esperado, use Restaurar Backup para recuperar o estado anterior dos dados." },
+              { step: "2", text: "O banco de dados é independente do código — atualizações de interface nunca apagam seus dados." },
+              { step: "3", text: "Após a atualização, o sistema reinicia automaticamente com a nova versão." },
+              { step: "4", text: "Se algo não funcionar como esperado, use Restaurar Backup para recuperar o estado anterior dos dados." },
             ].map(({ step, text }) => (
               <li key={step} className="flex gap-3">
                 <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold flex items-center justify-center">

@@ -535,3 +535,5 @@
 - [x] DB helpers e procedures tRPC: topologyLayout.get e topologyLayout.save
 - [x] Auto-save do layout ao soltar nó/linha no mapa
 - [x] Restaurar layout ao abrir o mapa
+- [x] Mapa: botão Salvar layout manual
+- [x] CEO: remover item 2 da lista Atualização Segura do Sistema

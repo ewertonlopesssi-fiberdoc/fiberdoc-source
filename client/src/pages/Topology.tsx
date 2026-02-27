@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Server, Wifi, Network, Box, Router, HardDrive, LayoutGrid,
   X, Layers, Activity, Cable, Info, QrCode, GitBranch, LayoutTemplate,
+  Save, Check,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import EquipmentQRCode from "@/components/EquipmentQRCode";
@@ -416,7 +417,21 @@ function ConnectionMap({
     { roomFilter },
     { retry: false, refetchOnWindowFocus: false }
   );
-  const saveLayout = trpc.topology.layout.save.useMutation();
+  const [savedFeedback, setSavedFeedback] = useState(false);
+  const saveLayout = trpc.topology.layout.save.useMutation({
+    onSuccess: () => {
+      setSavedFeedback(true);
+      setTimeout(() => setSavedFeedback(false), 2000);
+    },
+  });
+
+  const handleManualSave = () => {
+    const nodePositions: Record<string, { x: number; y: number }> = {};
+    overrides.forEach((v, k) => { nodePositions[String(k)] = v; });
+    const ctrlObj: Record<string, { x: number; y: number }> = {};
+    ctrlPoints.forEach((v, k) => { ctrlObj[k] = v; });
+    saveLayout.mutate({ roomFilter, nodePositions, ctrlPoints: ctrlObj });
+  };
 
   // Restaurar layout ao carregar dados do banco
   const [overridesKey, setOverridesKey] = useState(0);
@@ -792,20 +807,40 @@ function ConnectionMap({
         </div>
       )}
 
-      {/* Botão resetar posições */}
-      {(overrides.size > 0 || ctrlPoints.size > 0) && (
+      {/* Botões de controle do layout */}
+      <div className="absolute top-3 right-3 flex gap-2 z-10">
         <button
-          className="absolute top-3 right-3 bg-zinc-800 border border-zinc-600 text-zinc-300 text-xs rounded-md px-2.5 py-1 hover:bg-zinc-700 transition-colors z-10"
-          onClick={() => {
-            const empty = new Map();
-            setOverrides(empty);
-            setCtrlPoints(empty as Map<string, { x: number; y: number }>);
-            saveLayout.mutate({ roomFilter, nodePositions: {}, ctrlPoints: {} });
-          }}
+          className={`flex items-center gap-1.5 bg-zinc-800 border text-xs rounded-md px-2.5 py-1 transition-colors ${
+            savedFeedback
+              ? "border-emerald-500 text-emerald-400"
+              : "border-zinc-600 text-zinc-300 hover:bg-zinc-700"
+          }`}
+          onClick={handleManualSave}
+          disabled={saveLayout.isPending}
+          title="Salvar layout atual no banco"
         >
-          Resetar layout
+          {savedFeedback ? (
+            <><Check className="w-3 h-3" /> Salvo!</>
+          ) : saveLayout.isPending ? (
+            <><Save className="w-3 h-3 animate-pulse" /> Salvando...</>
+          ) : (
+            <><Save className="w-3 h-3" /> Salvar layout</>
+          )}
         </button>
-      )}
+        {(overrides.size > 0 || ctrlPoints.size > 0) && (
+          <button
+            className="bg-zinc-800 border border-zinc-600 text-zinc-300 text-xs rounded-md px-2.5 py-1 hover:bg-zinc-700 transition-colors"
+            onClick={() => {
+              const empty = new Map();
+              setOverrides(empty);
+              setCtrlPoints(empty as Map<string, { x: number; y: number }>);
+              saveLayout.mutate({ roomFilter, nodePositions: {}, ctrlPoints: {} });
+            }}
+          >
+            Resetar layout
+          </button>
+        )}
+      </div>
       {/* Legenda */}
       <div className="absolute bottom-3 right-3 bg-zinc-900/80 border border-zinc-700 rounded-lg p-2 text-[10px] text-zinc-400 space-y-1">
         <div className="flex items-center gap-1.5">
