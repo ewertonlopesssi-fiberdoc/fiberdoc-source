@@ -554,3 +554,6 @@
 - [x] Aplicar divisores no snmpPoller ao salvar valores coletados
 - [x] Adicionar preset Huawei ETP48300-C6A1 no formulário PowerSources
 - [x] Atualizar formulário para exibir campos de divisor de escala
+
+## Correção v5.18
+- [x] Corrigir impressão do CEO (página em branco ao imprimir mapa de fusões)

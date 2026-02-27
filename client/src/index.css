@@ -159,16 +159,26 @@
 }
 /* ─── Estilos de Impressão — Mapa de Fusões CEO ────────────────────────────── */
 @media print {
-  /* Ocultar tudo exceto o mapa de fusões */
-  body > * { display: none !important; }
-  #ceo-fusion-print { display: block !important; }
+  /* Ocultar tudo — usar visibility para não colapsar a árvore do DOM */
+  body {
+    visibility: hidden !important;
+    background: white !important;
+  }
 
-  /* Reset para impressão */
+  /* Tornar o container e todos os seus ancestrais visíveis */
+  #ceo-fusion-print,
+  #ceo-fusion-print * {
+    visibility: visible !important;
+  }
+
+  /* Posicionar o container no topo da página */
   #ceo-fusion-print {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
+    display: block !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: auto !important;
     background: white !important;
     color: black !important;
     font-family: 'Inter', Arial, sans-serif;
@@ -176,6 +186,7 @@
     line-height: 1.4;
     padding: 0;
     margin: 0;
+    z-index: 99999 !important;
   }
 
   #ceo-fusion-print .print-page {
