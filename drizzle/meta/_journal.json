@@ -169,6 +169,13 @@
       "when": 1772207609034,
       "tag": "0023_cold_colossus",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1772208797417,
+      "tag": "0024_reflective_magus",
+      "breakpoints": true
     }
   ]
 }

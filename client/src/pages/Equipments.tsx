@@ -115,6 +115,7 @@ type EquipmentForm = {
   roomId: string;
   rack: string;
   rackPosition: string;
+  rackUnits: string;
   ipAddress: string;
   macAddress: string;
   totalPorts: string;
@@ -143,6 +144,7 @@ const defaultForm: EquipmentForm = {
   roomId: "",
   rack: "",
   rackPosition: "",
+  rackUnits: "1",
   ipAddress: "",
   macAddress: "",
   totalPorts: "",
@@ -357,6 +359,7 @@ export default function Equipments() {
       roomId: eq.roomId?.toString() ?? "",
       rack: eq.rack ?? "",
       rackPosition: eq.rackPosition ?? "",
+      rackUnits: (eq as any).rackUnits?.toString() ?? "1",
       ipAddress: eq.ipAddress ?? "",
       macAddress: eq.macAddress ?? "",
       totalPorts: eq.totalPorts?.toString() ?? "",
@@ -387,6 +390,7 @@ export default function Equipments() {
       roomId: form.roomId ? parseInt(form.roomId) : undefined,
       rack: form.rack || undefined,
       rackPosition: form.rackPosition || undefined,
+      rackUnits: form.rackUnits ? parseInt(form.rackUnits) : 1,
       ipAddress: form.ipAddress || undefined,
       macAddress: form.macAddress || undefined,
       totalPorts: form.totalPorts ? parseInt(form.totalPorts) : undefined,
@@ -540,7 +544,7 @@ export default function Equipments() {
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <MapPin className="h-3 w-3 shrink-0" />
                       <span className="truncate">
-                        {[eq.roomName, eq.rack && `Rack ${eq.rack}`, eq.rackPosition && `U${eq.rackPosition}`].filter(Boolean).join(" · ")}
+                        {[eq.roomName, eq.rack && `Rack ${eq.rack}`, eq.rackPosition && `U${eq.rackPosition}`, (eq as any).rackUnits && (eq as any).rackUnits > 1 ? `${(eq as any).rackUnits}U` : null].filter(Boolean).join(" · ")}
                       </span>
                     </div>
                   )}
@@ -680,9 +684,26 @@ export default function Equipments() {
               <Label>Rack</Label>
               <Input value={form.rack} onChange={(e) => setForm({ ...form, rack: e.target.value })} placeholder="Ex: Rack-01" className="bg-background border-border/50" />
             </div>
-            <div className="space-y-1.5">
-              <Label>Posição no Rack (U)</Label>
-              <Input value={form.rackPosition} onChange={(e) => setForm({ ...form, rackPosition: e.target.value })} placeholder="Ex: 12" className="bg-background border-border/50" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Posição no Rack (U)</Label>
+                <Input value={form.rackPosition} onChange={(e) => setForm({ ...form, rackPosition: e.target.value })} placeholder="Ex: 12" className="bg-background border-border/50" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1">
+                  Altura
+                  <span className="text-xs font-mono text-primary">U</span>
+                </Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={form.rackUnits}
+                  onChange={(e) => setForm({ ...form, rackUnits: e.target.value })}
+                  placeholder="Ex: 1"
+                  className="bg-background border-border/50"
+                />
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label>Endereço IP</Label>

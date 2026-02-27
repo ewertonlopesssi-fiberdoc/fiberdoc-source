@@ -1,0 +1,1 @@
+ALTER TABLE `equipments` ADD `rackUnits` int DEFAULT 1;

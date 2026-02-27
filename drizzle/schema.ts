@@ -69,6 +69,7 @@ export const equipments = mysqlTable("equipments", {
   roomId: int("roomId"),
   rack: varchar("rack", { length: 64 }),
   rackPosition: varchar("rackPosition", { length: 32 }),
+  rackUnits: int("rackUnits").default(1),                               // Altura em U (unidades de rack)
   ipAddress: varchar("ipAddress", { length: 64 }),
   macAddress: varchar("macAddress", { length: 32 }),
   totalPorts: int("totalPorts").default(0),

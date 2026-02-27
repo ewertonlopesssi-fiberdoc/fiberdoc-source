@@ -508,3 +508,4 @@
 - [x] Página /usuarios com tabela de operadores e formulário de criação
 - [x] Editar número da porta na tela de portas
 - [ ] Campo de posição/ordem para controlar sequência das portas na grade
+- [x] Campo de altura em U (unidades de rack) nos equipamentos
