@@ -502,3 +502,7 @@
 - [x] Corrigir erro "Não autenticado" na tela de troca de senha (cookie sameSite=lax em HTTP)
 - [x] Alterar subtítulo para "Sistema de Documentação de Redes" em LocalLogin, ChangePassword e DashboardLayout
 - [x] Corrigir redirecionamento automático após troca de senha (window.location.href para reload completo)
+- [ ] Corrigir redirecionamento pós-troca de senha (ainda precisa F5 após salvar)
+- [x] Corrigir redirecionamento pós-troca de senha (ainda precisa F5)
+- [x] Implementar gestão de operadores: criar, listar, editar, desativar usuários locais
+- [x] Página /usuarios com tabela de operadores e formulário de criação

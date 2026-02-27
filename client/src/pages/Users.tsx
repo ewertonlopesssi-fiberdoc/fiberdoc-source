@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Users as UsersIcon, ShieldCheck, Eye, Trash2, UserCog, Crown, Clock,
-  Smartphone, KeyRound, RefreshCw, CheckCircle2,
+  Smartphone, KeyRound, RefreshCw, CheckCircle2, UserPlus, Lock,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -44,6 +44,17 @@ export default function Users() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordSet, setPasswordSet] = useState(false);
+
+  // Estado para criar novo operador local
+  const [createDialog, setCreateDialog] = useState(false);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState<"admin" | "user">("user");
+
+  // Estado para reset de senha
+  const [resetDialog, setResetDialog] = useState<UserRow | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
 
   const utils = trpc.useUtils();
   const { data: users = [], isLoading } = trpc.users.list.useQuery(undefined, {
@@ -72,6 +83,29 @@ export default function Users() {
       toast.success("Usuário removido.");
       utils.users.list.invalidate();
       setDeleteDialog(null);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const createLocalMutation = trpc.users.createLocal.useMutation({
+    onSuccess: () => {
+      toast.success("Operador criado com sucesso! Ele deverá trocar a senha no primeiro acesso.");
+      utils.users.list.invalidate();
+      setCreateDialog(false);
+      setNewUserName("");
+      setNewUserEmail("");
+      setNewUserPassword("");
+      setNewUserRole("user");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const resetPasswordMutation = trpc.users.resetPassword.useMutation({
+    onSuccess: () => {
+      toast.success("Senha redefinida! O operador deverá trocar a senha no próximo acesso.");
+      utils.users.list.invalidate();
+      setResetDialog(null);
+      setResetPassword("");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -136,9 +170,16 @@ export default function Users() {
         <div>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Usuários</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Gerencie os grupos de acesso dos usuários do sistema
+            Gerencie os operadores e grupos de acesso do sistema
           </p>
         </div>
+        <Button
+          onClick={() => setCreateDialog(true)}
+          className="gap-2 shrink-0"
+        >
+          <UserPlus className="h-4 w-4" />
+          Novo Operador
+        </Button>
       </div>
 
       {/* Cards de resumo */}
@@ -257,6 +298,17 @@ export default function Users() {
 
                     {/* Ações */}
                     <div className="flex items-center gap-1 shrink-0">
+                      {user.loginMethod === "local" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-orange-500/60 hover:text-orange-400"
+                          onClick={() => { setResetDialog(user); setResetPassword(""); }}
+                          title="Redefinir senha de acesso"
+                        >
+                          <Lock className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -506,6 +558,149 @@ export default function Users() {
               disabled={removeMutation.isPending}
             >
               {removeMutation.isPending ? "Removendo..." : "Remover"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Criar novo operador local */}
+      <Dialog open={createDialog} onOpenChange={setCreateDialog}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-primary" />
+              Novo Operador
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Nome completo</Label>
+              <Input
+                placeholder="Ex: João Silva"
+                value={newUserName}
+                onChange={(e) => setNewUserName(e.target.value)}
+                className="bg-background border-border/50"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>E-mail</Label>
+              <Input
+                type="email"
+                placeholder="operador@empresa.com"
+                value={newUserEmail}
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                className="bg-background border-border/50"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Senha inicial</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  placeholder="Mínimo 6 caracteres"
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  className="bg-background border-border/50 font-mono"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0 border-border/50"
+                  onClick={() => {
+                    const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789@#!";
+                    setNewUserPassword(Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join(""));
+                  }}
+                  title="Gerar senha aleatória"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">O operador será obrigado a trocar a senha no primeiro acesso.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Papel</Label>
+              <Select value={newUserRole} onValueChange={(v) => setNewUserRole(v as "admin" | "user")}>
+                <SelectTrigger className="bg-background border-border/50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">Visualizador (somente leitura)</SelectItem>
+                  <SelectItem value="admin">Administrador (acesso total)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateDialog(false)} className="border-border/50">
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => createLocalMutation.mutate({
+                name: newUserName,
+                email: newUserEmail,
+                password: newUserPassword,
+                role: newUserRole,
+              })}
+              disabled={createLocalMutation.isPending || !newUserName || !newUserEmail || newUserPassword.length < 6}
+              className="gap-2"
+            >
+              <UserPlus className="h-4 w-4" />
+              {createLocalMutation.isPending ? "Criando..." : "Criar Operador"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Redefinir senha de acesso */}
+      <Dialog open={resetDialog !== null} onOpenChange={() => setResetDialog(null)}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-orange-400" />
+              Redefinir Senha
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Defina uma nova senha para <strong className="text-foreground">{resetDialog?.name ?? resetDialog?.email}</strong>.
+              O operador será obrigado a trocar a senha no próximo acesso.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Nova senha</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  placeholder="Mínimo 6 caracteres"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  className="bg-background border-border/50 font-mono"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0 border-border/50"
+                  onClick={() => {
+                    const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789@#!";
+                    setResetPassword(Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join(""));
+                  }}
+                  title="Gerar senha aleatória"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetDialog(null)} className="border-border/50">
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => resetDialog && resetPasswordMutation.mutate({ userId: resetDialog.id, newPassword: resetPassword })}
+              disabled={resetPasswordMutation.isPending || resetPassword.length < 6}
+              className="gap-2 bg-orange-500 hover:bg-orange-600 text-white"
+            >
+              <Lock className="h-4 w-4" />
+              {resetPasswordMutation.isPending ? "Salvando..." : "Redefinir Senha"}
             </Button>
           </DialogFooter>
         </DialogContent>

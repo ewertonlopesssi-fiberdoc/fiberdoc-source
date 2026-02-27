@@ -37,14 +37,11 @@ export default function LocalLogin() {
         return;
       }
 
-      // Invalidar cache do auth para recarregar o usuário
-      await utils.auth.me.invalidate();
-
-      // Se mustChangePassword, redirecionar para troca de senha obrigatória
+      // Usar window.location para garantir reload completo e pathname correto
       if (data.mustChangePassword) {
-        navigate("/alterar-senha");
+        window.location.href = "/alterar-senha";
       } else {
-        navigate("/");
+        window.location.href = "/";
       }
     } catch {
       setError("Erro de conexão com o servidor");

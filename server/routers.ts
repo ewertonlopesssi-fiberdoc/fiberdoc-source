@@ -810,6 +810,58 @@ export const appRouter = router({
         }
         await deleteUser(input.userId);
       }),
+    createLocal: adminProcedure
+      .input(z.object({
+        name: z.string().min(1, "Nome é obrigatório"),
+        email: z.string().email("E-mail inválido"),
+        password: z.string().min(6, "Senha deve ter no mínimo 6 caracteres"),
+        role: z.enum(["admin", "user"]).default("user"),
+      }))
+      .mutation(async ({ input }) => {
+        const { hash } = await import("bcryptjs");
+        // Verificar se e-mail já existe
+        const existing = await getUserByEmail(input.email.trim().toLowerCase());
+        if (existing) {
+          throw new TRPCError({ code: "CONFLICT", message: "Já existe um usuário com este e-mail" });
+        }
+        const passwordHash = await hash(input.password, 12);
+        const openId = `local:${input.email.trim().toLowerCase()}`;
+        const { getDb } = await import("./db");
+        const { users: usersTable } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const dbConn = await getDb();
+        if (!dbConn) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+        // Inserir usuário com senha e mustChangePassword=true
+        await dbConn.insert(usersTable).values({
+          openId,
+          name: input.name.trim(),
+          email: input.email.trim().toLowerCase(),
+          role: input.role,
+          loginMethod: "local",
+          passwordHash,
+          mustChangePassword: true,
+          lastSignedIn: new Date(),
+        });
+        return { success: true };
+      }),
+    resetPassword: adminProcedure
+      .input(z.object({
+        userId: z.number(),
+        newPassword: z.string().min(6, "Senha deve ter no mínimo 6 caracteres"),
+      }))
+      .mutation(async ({ input }) => {
+        const { hash } = await import("bcryptjs");
+        const passwordHash = await hash(input.newPassword, 12);
+        const { getDb } = await import("./db");
+        const { users: usersTable } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const dbConn = await getDb();
+        if (!dbConn) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+        await dbConn.update(usersTable)
+          .set({ passwordHash, mustChangePassword: true })
+          .where(eq(usersTable.id, input.userId));
+        return { success: true };
+      }),
   }),
 
   // ─── Backup & Restauração (apenas admin) ───────────────────────────────────
