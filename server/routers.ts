@@ -1486,6 +1486,11 @@ export const appRouter = router({
         oidBatteryLevel: z.string().max(128).optional(),
         oidLoadPercent: z.string().max(128).optional(),
         snmpPollInterval: z.number().int().default(300),
+        // Divisores de escala SNMP
+        snmpVoltageDivisor: z.number().default(1),
+        snmpCurrentDivisor: z.number().default(1),
+        snmpTempDivisor: z.number().default(1),
+        snmpBatteryDivisor: z.number().default(1),
         // Thresholds de alerta
         alertsEnabled: z.boolean().default(false),
         alertTempMax: z.number().nullable().optional(),
@@ -1527,6 +1532,11 @@ export const appRouter = router({
         oidBatteryLevel: z.string().max(128).nullable().optional(),
         oidLoadPercent: z.string().max(128).nullable().optional(),
         snmpPollInterval: z.number().int().optional(),
+        // Divisores de escala SNMP
+        snmpVoltageDivisor: z.number().optional(),
+        snmpCurrentDivisor: z.number().optional(),
+        snmpTempDivisor: z.number().optional(),
+        snmpBatteryDivisor: z.number().optional(),
         // Thresholds de alerta
         alertsEnabled: z.boolean().optional(),
         alertTempMax: z.number().nullable().optional(),

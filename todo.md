@@ -548,3 +548,9 @@
 - [ ] Gráfico de histórico SNMP na tela PowerSources (modal)
 - [ ] Exibir voltagem e amperagem nos sensores Tuya (power_meter)
 - [ ] Histórico de voltagem/corrente no modal de histórico Tuya
+
+## Melhorias v5.17 — Suporte Huawei ETP48300-C6A1
+- [x] Adicionar campos snmpVoltageDivisor, snmpCurrentDivisor, snmpTempDivisor no schema power_sources
+- [x] Aplicar divisores no snmpPoller ao salvar valores coletados
+- [x] Adicionar preset Huawei ETP48300-C6A1 no formulário PowerSources
+- [x] Atualizar formulário para exibir campos de divisor de escala

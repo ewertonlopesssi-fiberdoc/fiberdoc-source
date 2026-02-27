@@ -396,6 +396,11 @@ export const powerSources = mysqlTable("power_sources", {
   oidBatteryLevel: varchar("oidBatteryLevel", { length: 128 }),
   oidLoadPercent: varchar("oidLoadPercent", { length: 128 }),
   snmpPollInterval: int("snmpPollInterval").default(300),             // Intervalo em segundos
+  // Divisores de escala para conversão dos valores brutos SNMP
+  snmpVoltageDivisor: float("snmpVoltageDivisor").default(1),   // ex: 10 para valores em 0.1V
+  snmpCurrentDivisor: float("snmpCurrentDivisor").default(1),   // ex: 100 para valores em 0.01A
+  snmpTempDivisor:    float("snmpTempDivisor").default(1),       // ex: 10 para valores em 0.1°C
+  snmpBatteryDivisor: float("snmpBatteryDivisor").default(1),   // ex: 10 para tensão bateria em 0.1V
   // Último valor coletado (cache)
   lastPollAt: timestamp("lastPollAt"),
   lastVoltage: float("lastVoltage"),

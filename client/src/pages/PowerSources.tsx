@@ -55,6 +55,24 @@ const HUAWEI_OIDS = {
   oidAlarmStatus: "1.3.6.1.4.1.2011.6.199.1.1.1.1.0",
   oidBatteryLevel: "1.3.6.1.4.1.2011.6.199.1.4.1.1.0",
   oidLoadPercent: "1.3.6.1.4.1.2011.6.199.1.2.3.1.0",
+  snmpVoltageDivisor: "1",
+  snmpCurrentDivisor: "1",
+  snmpTempDivisor: "1",
+  snmpBatteryDivisor: "1",
+};
+// OIDs Huawei ETP48300-C6A1 (MIB eMap 1.3.6.1.4.1.2011.6.164)
+// Confirmado via snmpwalk: valores em 0.1V (divisor 10) e 0.01A (divisor 100)
+const HUAWEI_ETP48300_OIDS = {
+  oidOutputVoltage: "1.3.6.1.4.1.2011.6.164.1.3.1.5.0",   // Tensão DC saída (0.1V)
+  oidOutputCurrent: "1.3.6.1.4.1.2011.6.164.1.3.1.9.0",   // Corrente total saída (0.01A)
+  oidTemperature:   "1.3.6.1.4.1.2011.6.164.1.8.1.9.0",   // Temperatura ambiente (°C)
+  oidAlarmStatus:   "",
+  oidBatteryLevel:  "1.3.6.1.4.1.2011.6.164.1.6.1.3.0",   // Tensão bateria (0.1V)
+  oidLoadPercent:   "",
+  snmpVoltageDivisor: "10",
+  snmpCurrentDivisor: "100",
+  snmpTempDivisor: "1",
+  snmpBatteryDivisor: "10",
 };
 
 // OIDs padrão JFA Inversora Senoidal 3000W 48E220S (220V)
@@ -108,6 +126,11 @@ const EMPTY_FORM = {
   oidBatteryLevel: "",
   oidLoadPercent: "",
   snmpPollInterval: "300",
+  // Divisores de escala SNMP
+  snmpVoltageDivisor: "1",
+  snmpCurrentDivisor: "1",
+  snmpTempDivisor: "1",
+  snmpBatteryDivisor: "1",
   // Thresholds de alerta
   alertsEnabled: false,
   alertTempMax: "" as string,
@@ -214,6 +237,11 @@ export default function PowerSources() {
       oidBatteryLevel: ps.oidBatteryLevel ?? "",
       oidLoadPercent: ps.oidLoadPercent ?? "",
       snmpPollInterval: String(ps.snmpPollInterval ?? 300),
+      // Divisores de escala SNMP
+      snmpVoltageDivisor: String(ps.snmpVoltageDivisor ?? 1),
+      snmpCurrentDivisor: String(ps.snmpCurrentDivisor ?? 1),
+      snmpTempDivisor: String(ps.snmpTempDivisor ?? 1),
+      snmpBatteryDivisor: String(ps.snmpBatteryDivisor ?? 1),
       // Thresholds de alerta
       alertsEnabled: ps.alertsEnabled ?? false,
       alertTempMax: ps.alertTempMax != null ? String(ps.alertTempMax) : "",
@@ -231,6 +259,11 @@ export default function PowerSources() {
   function applyHuaweiOids() {
     setForm((f) => ({ ...f, ...HUAWEI_OIDS }));
     toast.info("OIDs Huawei ETP48100-B1 preenchidos");
+  }
+
+  function applyHuaweiEtp48300Oids() {
+    setForm((f) => ({ ...f, ...HUAWEI_ETP48300_OIDS }));
+    toast.info("OIDs Huawei ETP48300-C6A1 preenchidos (divisores: tensão ÷10, corrente ÷100)");
   }
 
   function applyJfaInversorOids() {
@@ -271,6 +304,11 @@ export default function PowerSources() {
       oidBatteryLevel: form.oidBatteryLevel || undefined,
       oidLoadPercent: form.oidLoadPercent || undefined,
       snmpPollInterval: parseInt(form.snmpPollInterval) || 300,
+      // Divisores de escala SNMP
+      snmpVoltageDivisor: parseFloat(form.snmpVoltageDivisor) || 1,
+      snmpCurrentDivisor: parseFloat(form.snmpCurrentDivisor) || 1,
+      snmpTempDivisor: parseFloat(form.snmpTempDivisor) || 1,
+      snmpBatteryDivisor: parseFloat(form.snmpBatteryDivisor) || 1,
       // Thresholds de alerta
       alertsEnabled: form.alertsEnabled,
       alertTempMax: form.alertTempMax ? parseFloat(form.alertTempMax) : null,
@@ -743,6 +781,11 @@ export default function PowerSources() {
                           Huawei ETP48100
                         </Button>
                         <Button type="button" size="sm" variant="outline"
+                          className="h-7 text-xs gap-1 border-sky-500/30 text-sky-400 hover:bg-sky-500/10"
+                          onClick={applyHuaweiEtp48300Oids}>
+                          Huawei ETP48300-C6A1
+                        </Button>
+                        <Button type="button" size="sm" variant="outline"
                           className="h-7 text-xs gap-1 border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
                           onClick={applyJfaInversorOids}>
                           JFA Inversora 48E220S
@@ -777,6 +820,34 @@ export default function PowerSources() {
                           />
                         </div>
                       ))}
+                    </div>
+                    {/* Divisores de escala */}
+                    <div className="space-y-2 pt-2 border-t border-border/30">
+                      <Label className="text-sm font-medium">Divisores de escala</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Alguns equipamentos retornam valores multiplicados (ex: Huawei ETP48300 retorna 535 para 53.5V). Configure o divisor para converter o valor bruto SNMP.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { key: "snmpVoltageDivisor", label: "Tensão (divisor)" },
+                          { key: "snmpCurrentDivisor", label: "Corrente (divisor)" },
+                          { key: "snmpTempDivisor", label: "Temperatura (divisor)" },
+                          { key: "snmpBatteryDivisor", label: "Bateria (divisor)" },
+                        ].map(({ key, label }) => (
+                          <div key={key} className="flex items-center gap-2">
+                            <Label className="w-36 text-xs text-muted-foreground flex-shrink-0">{label}</Label>
+                            <Input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={(form as any)[key]}
+                              onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                              placeholder="1"
+                              className="bg-background border-border/50 font-mono text-xs h-7 w-20"
+                            />
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>

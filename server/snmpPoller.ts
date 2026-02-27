@@ -119,10 +119,25 @@ async function pollPowerSource(ps: any): Promise<SnmpResult> {
       { key: "loadPercent", oid: ps.oidLoadPercent   ?? null },
     ];
 
+    // Divisores de escala configuráveis por fonte
+    const divisors: Record<string, number> = {
+      voltage:      typeof ps.snmpVoltageDivisor  === "number" && ps.snmpVoltageDivisor  > 0 ? ps.snmpVoltageDivisor  : 1,
+      current:      typeof ps.snmpCurrentDivisor  === "number" && ps.snmpCurrentDivisor  > 0 ? ps.snmpCurrentDivisor  : 1,
+      temperature:  typeof ps.snmpTempDivisor     === "number" && ps.snmpTempDivisor     > 0 ? ps.snmpTempDivisor     : 1,
+      batteryLevel: typeof ps.snmpBatteryDivisor  === "number" && ps.snmpBatteryDivisor  > 0 ? ps.snmpBatteryDivisor  : 1,
+      loadPercent:  1,
+      alarmStatus:  1,
+    };
+
     for (const { key, oid } of oids) {
       if (!oid) continue;
       const val = await oidGet(session, oid);
-      (result as any)[key] = val;
+      const divisor = divisors[key as string] ?? 1;
+      if (typeof val === "number" && divisor !== 1) {
+        (result as any)[key] = Math.round((val / divisor) * 100) / 100;
+      } else {
+        (result as any)[key] = val;
+      }
     }
   } catch (e: any) {
     result.error = e.message;
