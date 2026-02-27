@@ -560,3 +560,6 @@
 
 ## Correção v5.19
 - [x] Reimplementar impressão CEO via window.open (janela separada com HTML completo)
+
+## v5.20
+- [x] Alterar impressão CEO: cada tubo individual com vias e associações de fusão
