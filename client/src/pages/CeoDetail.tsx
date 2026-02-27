@@ -40,7 +40,23 @@ type Fiber = {
   cableId: string | null; notes: string | null;
 };
 
-// ─── Componente: Card de Via ──────────────────────────────────────────────────
+// ─── Cores padrão de fibra óptica (grupo 1, vias 1–12) ───────────────────────────
+const FIBER_VIA_COLORS: Record<number, { bg: string; text: string; border: string; label: string }> = {
+  1:  { bg: "bg-green-500/20",   text: "text-green-300",   border: "border-green-500/40",   label: "Verde" },
+  2:  { bg: "bg-yellow-500/20",  text: "text-yellow-300",  border: "border-yellow-500/40",  label: "Amarelo" },
+  3:  { bg: "bg-white/20",       text: "text-white",       border: "border-white/40",       label: "Branco" },
+  4:  { bg: "bg-blue-500/20",    text: "text-blue-300",    border: "border-blue-500/40",    label: "Azul" },
+  5:  { bg: "bg-red-500/20",     text: "text-red-300",     border: "border-red-500/40",     label: "Vermelho" },
+  6:  { bg: "bg-violet-500/20",  text: "text-violet-300",  border: "border-violet-500/40",  label: "Violeta" },
+  7:  { bg: "bg-amber-700/20",   text: "text-amber-400",   border: "border-amber-700/40",   label: "Marrom" },
+  8:  { bg: "bg-pink-500/20",    text: "text-pink-300",    border: "border-pink-500/40",    label: "Rosa" },
+  9:  { bg: "bg-zinc-800/60",    text: "text-zinc-200",    border: "border-zinc-500/40",    label: "Preto" },
+  10: { bg: "bg-slate-500/20",   text: "text-slate-300",   border: "border-slate-500/40",   label: "Cinza" },
+  11: { bg: "bg-orange-500/20",  text: "text-orange-300",  border: "border-orange-500/40",  label: "Laranja" },
+  12: { bg: "bg-cyan-500/20",    text: "text-cyan-300",    border: "border-cyan-500/40",    label: "Aqua" },
+};
+
+// ─── Componente: Card de Via ────────────────────────────────────────────────
 function ViaCard({
   via, tubes, allVias, fibers,
   onSetFusion, onClearFusion, onEditLabel, onSetFiber, onClearFiber,
@@ -59,6 +75,7 @@ function ViaCard({
   const fusedTube = fused ? tubes.find(t => t.id === via.fusedToTubeId) : null;
   const fusedVia = fused ? allVias.find(v => v.id === via.fusedToViaId) : null;
   const fiber = via.fiberId ? (fibers as Fiber[]).find(f => f.id === via.fiberId) : null;
+  const fiberColor = FIBER_VIA_COLORS[via.viaNumber] ?? null;
 
   return (
     <div
@@ -72,12 +89,17 @@ function ViaCard({
       {/* Número da via + ações */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
-          <span className={cn(
-            "text-xs font-bold w-7 h-7 rounded-md flex items-center justify-center border shrink-0",
-            fused
-              ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
-              : "bg-muted text-muted-foreground border-border/40"
-          )}>
+          <span
+            className={cn(
+              "text-xs font-bold w-7 h-7 rounded-md flex items-center justify-center border shrink-0",
+              fused
+                ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
+                : fiberColor
+                  ? cn(fiberColor.bg, fiberColor.text, fiberColor.border)
+                  : "bg-muted text-muted-foreground border-border/40"
+            )}
+            title={fiberColor ? fiberColor.label : undefined}
+          >
             {via.viaNumber}
           </span>
           {via.label && (
@@ -619,6 +641,22 @@ export default function CeoDetail() {
       return (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
+    // Mapa de cores CSS para impressão (via número 1-12)
+    const PRINT_VIA_COLORS: Record<number, { bg: string; text: string; border: string }> = {
+      1:  { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
+      2:  { bg: "#fef9c3", text: "#854d0e", border: "#fde047" },
+      3:  { bg: "#f9fafb", text: "#374151", border: "#d1d5db" },
+      4:  { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
+      5:  { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" },
+      6:  { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
+      7:  { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" },
+      8:  { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" },
+      9:  { bg: "#1f2937", text: "#f9fafb", border: "#374151" },
+      10: { bg: "#f3f4f6", text: "#374151", border: "#9ca3af" },
+      11: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" },
+      12: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
+    };
+
     function renderSoloHtml(tube: any): string {
       const vias = viasByTube[tube.id] ?? [];
       const fused = vias.filter((v: any) => v.fusedToViaId !== null).length;
@@ -647,8 +685,12 @@ export default function CeoDetail() {
             const fusionText = isFused
               ? "VIA " + fusedVia!.viaNumber + " do " + escHtml(fusedTube!.identifier) + (fusedVia!.label ? " (" + escHtml(fusedVia!.label) + ")" : "")
               : "&mdash;";
+            const vc = PRINT_VIA_COLORS[via.viaNumber];
+            const viaCell = vc
+              ? "<span style='background:" + vc.bg + ";color:" + vc.text + ";border:1px solid " + vc.border + ";padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700'>" + via.viaNumber + "</span>"
+              : "<b>" + via.viaNumber + "</b>";
             return "<tr style='background:" + bg + "'>" +
-              "<td style='text-align:center;font-weight:700'>" + via.viaNumber + "</td>" +
+              "<td style='text-align:center'>" + viaCell + "</td>" +
               "<td>" + labelCell + "</td>" +
               "<td style='text-align:center'>" + statusCell + "</td>" +
               "<td style='color:" + fusionColor + "'>" + fusionText + "</td>" +

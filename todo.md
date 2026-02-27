@@ -567,3 +567,7 @@
 ## v5.21
 - [x] Badge de cor do tubo no cabeçalho de cada seção na impressão CEO
 - [x] Diálogo de filtro de tubos antes de imprimir CEO
+
+## v5.22
+- [x] Adicionar cor padrão de fibra óptica (grupo 1, vias 1-12) nos ViaCards na tela
+- [x] Adicionar cor padrão de fibra óptica na impressão do CEO
