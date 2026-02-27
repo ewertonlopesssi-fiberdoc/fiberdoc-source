@@ -319,7 +319,17 @@ export const appRouter = router({
         connectedToPortId: z.number().optional().nullable(),
       }))
       .mutation(async ({ input, ctx }) => {
-        await createPort(input);
+        const newPort = await createPort(input);
+        // Vínculo bidirecional: se a porta destino foi especificada, atualizar a porta destino para apontar de volta
+        if (input.connectedToPortId && newPort) {
+          const destPort = await getPortById(input.connectedToPortId);
+          if (destPort) {
+            await updatePort(input.connectedToPortId, {
+              connectedToEquipmentId: input.equipmentId,
+              connectedToPortId: (newPort as any).insertId ?? (newPort as any).id ?? undefined,
+            });
+          }
+        }
         await createMaintenanceRecord({
           entityType: "port", entityId: input.equipmentId, action: "created",
           description: `Porta "${input.portNumber}" criada no equipamento #${input.equipmentId}`, performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
@@ -361,7 +371,33 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
+        // Obter estado anterior para gerenciar vínculo bidirecional
+        const prevPort = await getPortById(id);
         await updatePort(id, data);
+        // Se o connectedToPortId mudou, atualizar o vínculo bidirecional
+        if ("connectedToPortId" in data) {
+          const prevLinkedId = prevPort?.connectedToPortId;
+          const newLinkedId = data.connectedToPortId ?? null;
+          // Remover vínculo da porta anterior (se existia e mudou)
+          if (prevLinkedId && prevLinkedId !== newLinkedId) {
+            const prevDest = await getPortById(prevLinkedId);
+            if (prevDest && prevDest.connectedToPortId === id) {
+              await updatePort(prevLinkedId, { connectedToEquipmentId: null, connectedToPortId: null });
+            }
+          }
+          // Criar vínculo na porta destino (se foi definida)
+          if (newLinkedId) {
+            const destPort = await getPortById(newLinkedId);
+            if (destPort) {
+              // Obter o equipmentId da porta atual
+              const currentPort = await getPortById(id);
+              await updatePort(newLinkedId, {
+                connectedToEquipmentId: currentPort?.equipmentId ?? null,
+                connectedToPortId: id,
+              });
+            }
+          }
+        }
         await createMaintenanceRecord({
           entityType: "port", entityId: id, action: "updated",
           description: `Porta #${id} atualizada`, performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
@@ -372,6 +408,14 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        // Remover vínculo bidirecional antes de deletar
+        const portToDelete = await getPortById(input.id);
+        if (portToDelete?.connectedToPortId) {
+          const destPort = await getPortById(portToDelete.connectedToPortId);
+          if (destPort && destPort.connectedToPortId === input.id) {
+            await updatePort(portToDelete.connectedToPortId, { connectedToEquipmentId: null, connectedToPortId: null });
+          }
+        }
         await deletePort(input.id);
         return { success: true };
       }),

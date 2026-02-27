@@ -511,3 +511,4 @@
 - [x] Campo de altura em U (unidades de rack) nos equipamentos
 - [ ] Corrigir rackUnits voltando para 1 ao salvar
 - [ ] Vincular porta a porta de outro equipamento
+- [x] Vínculo bidirecional entre portas
