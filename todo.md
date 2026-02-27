@@ -557,3 +557,6 @@
 
 ## Correção v5.18
 - [x] Corrigir impressão do CEO (página em branco ao imprimir mapa de fusões)
+
+## Correção v5.19
+- [x] Reimplementar impressão CEO via window.open (janela separada com HTML completo)

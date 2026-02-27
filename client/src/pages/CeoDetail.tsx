@@ -550,7 +550,220 @@ export default function CeoDetail() {
   const { data: fibers = [] } = trpc.fibers.list.useQuery({});
 
   function handlePrint() {
-    window.print();
+    const viaById: Record<number, any> = {};
+    for (const v of allVias as any[]) viaById[v.id] = v;
+    const tubeById: Record<number, any> = {};
+    for (const t of tubeList) tubeById[t.id] = t;
+    const viasByTube: Record<number, any[]> = {};
+    for (const v of allVias as any[]) {
+      if (!viasByTube[v.tubeId]) viasByTube[v.tubeId] = [];
+      viasByTube[v.tubeId].push(v);
+    }
+    for (const k of Object.keys(viasByTube)) {
+      viasByTube[Number(k)].sort((a: any, b: any) => a.viaNumber - b.viaNumber);
+    }
+
+    const totalVias = tubeList.reduce((s, t) => s + t.totalVias, 0);
+    const fusedVias = (allVias as any[]).filter((v: any) => v.fusedToViaId !== null).length;
+    const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+    // Montar pares de tubos
+    const pairedSet = new Set<number>();
+    const pairs: { tubeA: any; tubeB: any }[] = [];
+    for (let i = 0; i < tubeList.length; i++) {
+      const tubeA = tubeList[i];
+      if (pairedSet.has(tubeA.id)) continue;
+      const partnerCount: Record<number, number> = {};
+      for (const via of viasByTube[tubeA.id] ?? []) {
+        if (via.fusedToTubeId && via.fusedToTubeId !== tubeA.id)
+          partnerCount[via.fusedToTubeId] = (partnerCount[via.fusedToTubeId] ?? 0) + 1;
+      }
+      const candidates = Object.keys(partnerCount).map(Number).filter(id => !pairedSet.has(id)).sort((a, b) => partnerCount[b] - partnerCount[a]);
+      if (candidates.length > 0 && tubeById[candidates[0]]) {
+        pairs.push({ tubeA, tubeB: tubeById[candidates[0]] });
+        pairedSet.add(tubeA.id); pairedSet.add(candidates[0]);
+      }
+    }
+    const soloTubes = tubeList.filter(t => !pairedSet.has(t.id));
+
+    function escHtml(s: string | null | undefined) {
+      return (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function renderPairHtml(tubeA: any, tubeB: any): string {
+      const viasA = viasByTube[tubeA.id] ?? [];
+      const viasB = viasByTube[tubeB.id] ?? [];
+      const maxVias = Math.max(tubeA.totalVias, tubeB.totalVias);
+      const fusedA = viasA.filter((v: any) => v.fusedToViaId !== null).length;
+      const fusedB = viasB.filter((v: any) => v.fusedToViaId !== null).length;
+      const usedBIds = new Set<number>();
+      const rows: { viaA: any; viaB: any; isFused: boolean }[] = [];
+      for (let i = 1; i <= maxVias; i++) {
+        const vA = viasA.find((v: any) => v.viaNumber === i) ?? null;
+        let vB = null; let fused = false;
+        if (vA && vA.fusedToViaId && vA.fusedToTubeId === tubeB.id) {
+          vB = viaById[vA.fusedToViaId] ?? null;
+          if (vB) { usedBIds.add(vB.id); fused = true; }
+        }
+        rows.push({ viaA: vA, viaB: vB, isFused: fused });
+      }
+      for (const vB of viasB) {
+        if (!usedBIds.has(vB.id)) rows.push({ viaA: null, viaB: vB, isFused: false });
+      }
+      const colorA = tubeA.type === "splitter" ? "#fef3c7" : "#e0f2fe";
+      const borderA = tubeA.type === "splitter" ? "#f59e0b" : "#0891b2";
+      const colorB = tubeB.type === "splitter" ? "#fef3c7" : "#e0f2fe";
+      const borderB = tubeB.type === "splitter" ? "#f59e0b" : "#0891b2";
+      return `
+        <div class="tube-section">
+          <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:4mm;margin-bottom:2mm;align-items:center">
+            <div style="background:${colorA};border:1px solid ${borderA};border-radius:3px;padding:2mm 3mm">
+              <div style="font-weight:800;font-size:9pt;color:#0c4a6e">${tubeA.type === "splitter" ? "SPLITTER" : "TUBO"} — ${escHtml(tubeA.identifier)}</div>
+              <div style="font-size:7.5pt;color:#6b7280">${tubeA.totalVias} vias &middot; ${fusedA} fusionada${fusedA !== 1 ? "s" : ""}</div>
+            </div>
+            <div style="text-align:center;font-size:14pt;font-weight:900;color:#0891b2">&harr;</div>
+            <div style="background:${colorB};border:1px solid ${borderB};border-radius:3px;padding:2mm 3mm">
+              <div style="font-weight:800;font-size:9pt;color:#0c4a6e">${tubeB.type === "splitter" ? "SPLITTER" : "TUBO"} — ${escHtml(tubeB.identifier)}</div>
+              <div style="font-size:7.5pt;color:#6b7280">${tubeB.totalVias} vias &middot; ${fusedB} fusionada${fusedB !== 1 ? "s" : ""}</div>
+            </div>
+          </div>
+          <table><thead><tr>
+            <th style="width:7%;text-align:center">VIA</th>
+            <th style="width:20%">ETIQUETA (${escHtml(tubeA.identifier)})</th>
+            <th style="width:6%;text-align:center">&harr;</th>
+            <th style="width:20%">ETIQUETA (${escHtml(tubeB.identifier)})</th>
+            <th style="width:7%;text-align:center">VIA</th>
+            <th>OBSERVA&Ccedil;&Otilde;ES</th>
+          </tr></thead><tbody>
+          ${rows.map((row, idx) => {
+            const { viaA, viaB, isFused } = row;
+            const bg = isFused ? "#f0fdfa" : (idx % 2 === 0 ? "#fff" : "#f8f9fa");
+            const colorA = viaA ? "#0c4a6e" : "#d1d5db";
+            const colorB = viaB ? "#0c4a6e" : "#d1d5db";
+            const cellA = viaA?.label ? "<b>" + escHtml(viaA.label) + "</b>" : "<span style='color:#d1d5db'>&mdash;</span>";
+            const cellB = viaB?.label ? "<b>" + escHtml(viaB.label) + "</b>" : "<span style='color:#d1d5db'>&mdash;</span>";
+            const arrow = isFused ? "<b style='color:#059669'>&harr;</b>" : "<span style='color:#e5e7eb'>&middot;</span>";
+            const obs = escHtml([viaA?.notes, viaB?.notes].filter(Boolean).join(" | "));
+            return "<tr style='background:" + bg + "'>" +
+              "<td style='text-align:center;font-weight:700;color:" + colorA + "'>" + (viaA ? viaA.viaNumber : "&mdash;") + "</td>" +
+              "<td>" + cellA + "</td>" +
+              "<td style='text-align:center'>" + arrow + "</td>" +
+              "<td>" + cellB + "</td>" +
+              "<td style='text-align:center;font-weight:700;color:" + colorB + "'>" + (viaB ? viaB.viaNumber : "&mdash;") + "</td>" +
+              "<td style='font-size:7.5pt;color:#6b7280'>" + obs + "</td>" +
+              "</tr>";
+          }).join("")}
+          </tbody></table>
+        </div>`;
+    }
+
+    function renderSoloHtml(tube: any): string {
+      const vias = viasByTube[tube.id] ?? [];
+      const fused = vias.filter((v: any) => v.fusedToViaId !== null).length;
+      return `
+        <div class="tube-section">
+          <div class="tube-title${tube.type === "splitter" ? " splitter-title" : ""}">
+            ${tube.type === "splitter" ? "SPLITTER" : "TUBO"} &mdash; ${escHtml(tube.identifier)}
+            <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${tube.totalVias} vias &middot; ${fused} fusionada${fused !== 1 ? "s" : ""}</span>
+          </div>
+          <table><thead><tr>
+            <th style="width:8%">VIA</th><th style="width:20%">ETIQUETA</th>
+            <th style="width:12%">STATUS</th><th style="width:35%">IDENT. FUS&Atilde;O</th><th>OBSERVA&Ccedil;&Otilde;ES</th>
+          </tr></thead><tbody>
+          ${vias.map((via: any, idx: number) => {
+            const fusedTube = via.fusedToTubeId ? tubeById[via.fusedToTubeId] : null;
+            const fusedVia = via.fusedToViaId ? viaById[via.fusedToViaId] : null;
+            const isFused = !!(fusedTube && fusedVia);
+            const bg = idx % 2 === 0 ? "#fff" : "#f8f9fa";
+            const labelCell = via.label ? "<b>" + escHtml(via.label) + "</b>" : "<span style='color:#9ca3af;font-style:italic'>&mdash;</span>";
+            const statusCell = isFused
+              ? "<span style='background:#cffafe;color:#0891b2;padding:1px 5px;border-radius:3px;font-size:7pt;font-weight:700'>FUSIONADA</span>"
+              : "<span style='background:#f3f4f6;color:#9ca3af;padding:1px 5px;border-radius:3px;font-size:7pt'>LIVRE</span>";
+            const fusionColor = isFused ? "#0891b2" : "#9ca3af";
+            const fusionText = isFused
+              ? "VIA " + fusedVia!.viaNumber + " do " + escHtml(fusedTube!.identifier) + (fusedVia!.label ? " (" + escHtml(fusedVia!.label) + ")" : "")
+              : "&mdash;";
+            return "<tr style='background:" + bg + "'>" +
+              "<td style='text-align:center;font-weight:700'>" + via.viaNumber + "</td>" +
+              "<td>" + labelCell + "</td>" +
+              "<td style='text-align:center'>" + statusCell + "</td>" +
+              "<td style='color:" + fusionColor + "'>" + fusionText + "</td>" +
+              "<td style='font-size:8pt;color:#6b7280'>" + escHtml(via.notes) + "</td>" +
+              "</tr>";
+          }).join("")}
+          </tbody></table>
+        </div>`;
+    }
+
+    const allContent = [
+      ...pairs.map(p => renderPairHtml(p.tubeA, p.tubeB)),
+      ...soloTubes.map(t => renderSoloHtml(t)),
+    ].join("");
+
+    // Variáveis pré-calculadas para evitar template literals aninhados
+    const ceoName = escHtml(ceo?.name);
+    const ceoLocation = ceo?.location ? "<div style='font-size:9pt;color:#6b7280;margin-top:1mm'>" + escHtml(ceo.location) + "</div>" : "";
+    const statusColor = ceo?.status === "active" ? "#059669" : "#d97706";
+    const statusLabel = ceo?.status === "active" ? "Ativo" : ceo?.status === "maintenance" ? "Manuten&ccedil;&atilde;o" : "Inativo";
+    const statsHtml = [
+      { l: "Tubos", v: tubeList.filter(t => t.type === "tube").length },
+      { l: "Splitters", v: tubeList.filter(t => t.type === "splitter").length },
+      { l: "Total de Vias", v: totalVias },
+      { l: "Vias Fusionadas", v: fusedVias },
+      { l: "Vias Livres", v: totalVias - fusedVias },
+      { l: "Ocupação", v: totalVias > 0 ? Math.round((fusedVias / totalVias) * 100) + "%" : "0%" },
+    ].map(s => "<div class='stat'><div class='stat-val'>" + s.v + "</div><div class='stat-lbl'>" + s.l + "</div></div>").join("");
+
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head>
+      <meta charset="UTF-8">
+      <title>Mapa de Fus&otilde;es &mdash; ${ceoName}</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; font-size: 10pt; color: #111; background: white; padding: 14mm 16mm; }
+        h1 { font-size: 16pt; font-weight: 800; color: #1a1a2e; margin-bottom: 2mm; }
+        h2 { font-size: 14pt; font-weight: 700; color: #0891b2; margin-bottom: 1mm; }
+        .header { border-bottom: 2px solid #1a1a2e; padding-bottom: 6mm; margin-bottom: 6mm; display: flex; justify-content: space-between; align-items: flex-start; }
+        .header-right { text-align: right; font-size: 8pt; color: #6b7280; }
+        .stats { display: flex; gap: 6mm; margin-bottom: 6mm; flex-wrap: wrap; }
+        .stat { border: 1px solid #ddd; padding: 3mm 5mm; text-align: center; min-width: 22mm; }
+        .stat-val { font-size: 14pt; font-weight: 700; color: #1a1a2e; }
+        .stat-lbl { font-size: 7pt; color: #6b7280; text-transform: uppercase; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 6mm; font-size: 9pt; }
+        th { background: #1a1a2e; color: white; padding: 4px 8px; text-align: left; font-size: 8pt; text-transform: uppercase; border: 1px solid #333; }
+        td { padding: 4px 8px; border: 1px solid #ddd; vertical-align: middle; }
+        .tube-section { margin-bottom: 8mm; page-break-inside: avoid; }
+        .tube-title { font-size: 10pt; font-weight: 700; margin-bottom: 2mm; padding: 3px 8px; background: #e8f4f8; border-left: 4px solid #0891b2; }
+        .splitter-title { background: #f3e8ff; border-left-color: #7c3aed; }
+        .footer { border-top: 1px solid #ddd; padding-top: 4mm; margin-top: 6mm; font-size: 7pt; color: #6b7280; display: flex; justify-content: space-between; }
+        @media print { body { padding: 0; } @page { size: A4 portrait; margin: 14mm 16mm; } }
+      </style>
+    </head><body>
+      <div class="header">
+        <div>
+          <h1>MAPA DE FUS&Otilde;ES &mdash; CEO</h1>
+          <h2>${ceoName}</h2>
+          ${ceoLocation}
+        </div>
+        <div class="header-right">
+          <div style="font-weight:700;font-size:9pt;color:#1a1a2e;margin-bottom:1mm">FiberDoc</div>
+          <div>Gerado em: ${now}</div>
+          <div style="margin-top:1mm">Status: <b style="color:${statusColor}">${statusLabel}</b></div>
+        </div>
+      </div>
+      <div class="stats">${statsHtml}</div>
+      ${allContent}
+      <div class="footer">
+        <span>FiberDoc &mdash; Sistema de Gest&atilde;o de Infraestrutura de Rede &Oacute;ptica</span>
+        <span>${ceoName} &middot; ${now}</span>
+      </div>
+    </body></html>`;
+
+    const win = window.open("", "_blank", "width=900,height=700");
+    if (!win) { toast.error("Popup bloqueado pelo navegador. Permita popups para este site."); return; }
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); }, 500);
   }
 
   const createTubeMutation = trpc.ceoTubes.create.useMutation({
