@@ -312,6 +312,7 @@ export const appRouter = router({
         speed: portSpeedEnum.optional(),
         status: portStatusEnum.optional(),
         notes: z.string().optional(),
+        sortOrder: z.number().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         await createPort(input);
@@ -344,11 +345,13 @@ export const appRouter = router({
     update: protectedProcedure
       .input(z.object({
         id: z.number(),
+        portNumber: z.string().min(1).optional(),
         label: z.string().optional(),
         type: portTypeEnum.optional(),
         speed: portSpeedEnum.optional(),
         status: portStatusEnum.optional(),
         notes: z.string().optional(),
+        sortOrder: z.number().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;

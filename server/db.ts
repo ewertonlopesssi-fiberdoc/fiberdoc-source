@@ -216,7 +216,7 @@ export async function deleteEquipment(id: number) {
 export async function getPortsByEquipment(equipmentId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(ports).where(eq(ports.equipmentId, equipmentId)).orderBy(ports.portNumber);
+  return db.select().from(ports).where(eq(ports.equipmentId, equipmentId)).orderBy(ports.sortOrder, ports.portNumber);
 }
 
 export async function getPortById(id: number) {

@@ -506,3 +506,5 @@
 - [x] Corrigir redirecionamento pós-troca de senha (ainda precisa F5)
 - [x] Implementar gestão de operadores: criar, listar, editar, desativar usuários locais
 - [x] Página /usuarios com tabela de operadores e formulário de criação
+- [x] Editar número da porta na tela de portas
+- [ ] Campo de posição/ordem para controlar sequência das portas na grade

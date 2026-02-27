@@ -114,10 +114,11 @@ type PortForm = {
   status: string;
   notes: string;
   slotId: string; // "" = sem slot
+  sortOrder: string;
 };
 
 const defaultPortForm: PortForm = {
-  portNumber: "", label: "", type: "lc", speed: "", status: "free", notes: "", slotId: "",
+  portNumber: "", label: "", type: "lc", speed: "", status: "free", notes: "", slotId: "", sortOrder: "0",
 };
 
 type SlotForm = {
@@ -307,6 +308,7 @@ export default function Ports() {
       status: port.status,
       notes: port.notes ?? "",
       slotId: port.slotId ? String(port.slotId) : "",
+      sortOrder: String(port.sortOrder ?? 0),
     });
     setPortDialogOpen(true);
   }
@@ -317,11 +319,13 @@ export default function Ports() {
     if (editPortId) {
       updatePortMutation.mutate({
         id: editPortId,
+        portNumber: portForm.portNumber || undefined,
         label: portForm.label || undefined,
         type: portForm.type as any,
         speed: speedVal as any,
         status: portForm.status as any,
         notes: portForm.notes || undefined,
+        sortOrder: portForm.sortOrder !== "" ? parseInt(portForm.sortOrder) : 0,
       });
     } else {
       createPortMutation.mutate({
@@ -333,6 +337,7 @@ export default function Ports() {
         status: portForm.status as any,
         notes: portForm.notes || undefined,
         slotId: slotIdVal,
+        sortOrder: portForm.sortOrder !== "" ? parseInt(portForm.sortOrder) : 0,
       } as any);
     }
   }
@@ -543,17 +548,15 @@ export default function Ports() {
             <DialogTitle>{editPortId ? "Editar Porta" : "Nova Porta"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            {!editPortId && (
-              <div className="space-y-1.5">
-                <Label>Número da Porta *</Label>
-                <Input
-                  value={portForm.portNumber}
-                  onChange={e => setPortForm({ ...portForm, portNumber: e.target.value })}
-                  placeholder="Ex: 01, GE1/0/1, Eth1"
-                  className="bg-background border-border/50 font-mono"
-                />
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <Label>Número da Porta *</Label>
+              <Input
+                value={portForm.portNumber}
+                onChange={e => setPortForm({ ...portForm, portNumber: e.target.value })}
+                placeholder="Ex: 01, GE1/0/1, Eth1"
+                className="bg-background border-border/50 font-mono"
+              />
+            </div>
             <div className="space-y-1.5">
               <Label>Etiqueta / Descrição</Label>
               <Input
@@ -619,6 +622,20 @@ export default function Ports() {
                   {PORT_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5">
+                Posição na Grade
+                <span className="text-xs text-muted-foreground font-normal">(menor número aparece primeiro)</span>
+              </Label>
+              <Input
+                type="number"
+                min="0"
+                value={portForm.sortOrder}
+                onChange={e => setPortForm({ ...portForm, sortOrder: e.target.value })}
+                placeholder="0"
+                className="bg-background border-border/50 font-mono"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Observações</Label>

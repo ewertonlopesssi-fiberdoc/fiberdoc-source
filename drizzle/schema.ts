@@ -119,11 +119,11 @@ export const ports = mysqlTable("ports", {
   speed: mysqlEnum("port_speed", ["1g", "10g", "25g", "40g", "100g", "400g", "other"]),
   status: mysqlEnum("port_status", ["free", "occupied", "reserved", "faulty"]).default("free").notNull(),
   notes: text("notes"),
+  sortOrder: int("sortOrder").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
-
-export type Port = typeof ports.$inferSelect;
+export type Port = typeof ports.$inferSelect;;
 export type InsertPort = typeof ports.$inferInsert;
 
 // ─── Fibras Ópticas ──────────────────────────────────────────────────────────

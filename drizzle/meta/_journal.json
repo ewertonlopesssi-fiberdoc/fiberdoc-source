@@ -162,6 +162,13 @@
       "when": 1772203180314,
       "tag": "0022_black_tombstone",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1772207609034,
+      "tag": "0023_cold_colossus",
+      "breakpoints": true
     }
   ]
 }
