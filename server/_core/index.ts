@@ -4,6 +4,7 @@ import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
+import { registerLocalAuthRoutes, seedDefaultAdmin } from "../localAuth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -41,6 +42,9 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+
+  // Local login (for standalone installations without OAuth)
+  registerLocalAuthRoutes(app);
   // Relatório de IPs em PDF
   app.get("/api/ip-report-pdf", async (req, res) => {
     try {
@@ -141,6 +145,8 @@ async function startServer() {
     startBackupScheduler();
     // Start SNMP poller for power sources
     startSnmpPoller();
+    // Seed admin padrão para instalações locais sem OAuth
+    seedDefaultAdmin().catch(console.error);
   });
 }
 

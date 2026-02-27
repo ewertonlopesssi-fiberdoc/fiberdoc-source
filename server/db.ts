@@ -1213,6 +1213,7 @@ export async function listUsersForAdmin() {
     email: users.email,
     role: users.role,
     hasPassword: sql<boolean>`${users.passwordHash} IS NOT NULL`,
+    mustChangePassword: users.mustChangePassword,
     createdAt: users.createdAt,
     lastSignedIn: users.lastSignedIn,
   }).from(users).orderBy(users.name);

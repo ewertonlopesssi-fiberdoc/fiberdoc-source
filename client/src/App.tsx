@@ -22,6 +22,8 @@ import SystemSettings from "./pages/SystemSettings";
 import OccupancyReport from "./pages/OccupancyReport";
 import RoomReport from "./pages/RoomReport";
 import Welcome from "./pages/Welcome";
+import LocalLogin from "./pages/LocalLogin";
+import ChangePassword from "./pages/ChangePassword";
 import IpDashboard from "./pages/IpDashboard";
 import IpBlocks from "./pages/IpBlocks";
 import IpReports from "./pages/IpReports";
@@ -39,6 +41,14 @@ function Router() {
   // Rota de boas-vindas — sem DashboardLayout
   if (window.location.pathname === "/bem-vindo") {
     return <Welcome />;
+  }
+  // Rota de login local — sem DashboardLayout
+  if (window.location.pathname === "/login") {
+    return <LocalLogin />;
+  }
+  // Rota de alteração de senha — sem DashboardLayout
+  if (window.location.pathname === "/alterar-senha") {
+    return <ChangePassword forced />;
   }
 
   // Relatório de sala via QR Code — sem DashboardLayout (acesso público)

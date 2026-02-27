@@ -155,6 +155,13 @@
       "when": 1772144994574,
       "tag": "0021_curly_mysterio",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1772203180314,
+      "tag": "0022_black_tombstone",
+      "breakpoints": true
     }
   ]
 }

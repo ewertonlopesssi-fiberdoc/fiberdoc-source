@@ -490,3 +490,10 @@
 - [x] Modal de histórico com gráficos de área (temperatura, umidade, CO₂, potência) — períodos 6h/12h/24h/48h/7d
 - [x] Temperatura e umidade do sensor exibidos nos cards de Salas e Locais
 - [x] 156 testes passando (15 arquivos)
+
+## Correção do Login Local (Instalação Standalone)
+- [x] DashboardLayout: redirecionar para /login quando não autenticado e modo local ativo
+- [x] DashboardLayout: detectar modo local via /api/local-auth-enabled e mostrar botão correto
+- [x] LocalLogin.tsx: simplificado — sem opção de criar conta, usa admin padrão seedado automaticamente
+- [x] Corrigir erro banco de dados (Access denied) no servidor do usuário — script fiberdoc-update-v5.sh
+- [x] Criar script de atualização v5 com as correções

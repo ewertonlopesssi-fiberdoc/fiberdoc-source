@@ -108,6 +108,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (loading) return <DashboardLayoutSkeleton />;
 
   if (!user) {
+    const loginUrl = getLoginUrl();
+    // Modo local (sem OAuth): redirecionar diretamente para a página de login
+    if (loginUrl === "/login") {
+      window.location.replace("/login");
+      return <DashboardLayoutSkeleton />;
+    }
+    // Modo OAuth: exibir tela de login com botão Manus
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
@@ -123,11 +130,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </p>
           </div>
           <Button
-            onClick={() => { window.location.href = getLoginUrl(); }}
+            onClick={() => { window.location.href = loginUrl; }}
             size="lg"
             className="w-full shadow-lg hover:shadow-xl transition-all glow-primary"
           >
-            Entrar no Sistema
+            Entrar com Manus
           </Button>
         </div>
       </div>
