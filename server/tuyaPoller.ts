@@ -213,6 +213,26 @@ function extractValues(statuses: TuyaDeviceStatus[]) {
     if (["cur_current", "current"].includes(s.code)) {
       values.current = v !== null ? v / 1000 : null; // mA → A
     }
+    // Medidores ETU-IOT / trifásicos Tuya: DP phase_a/phase_b/phase_c com valor base64
+    // Formato: bytes 0-1 (BE uint16) = tensão /10 (V)
+    //          bytes 2-3 (BE uint16) = corrente /1000 (A)
+    //          bytes 4-5 (LE uint16) = potência /10 (W)
+    if (["phase_a", "phase_b", "phase_c"].includes(s.code) && typeof s.value === "string") {
+      try {
+        const buf = Buffer.from(s.value, "base64");
+        if (buf.length >= 6) {
+          const vRaw = (buf[0] << 8) | buf[1];       // big-endian
+          const cRaw = (buf[2] << 8) | buf[3];       // big-endian
+          const pRaw = buf[4] | (buf[5] << 8);       // little-endian
+          // Usar phase_a como referência principal (ou qualquer fase se ainda não tiver dados)
+          if (s.code === "phase_a" || values.voltage === null) {
+            values.voltage = vRaw / 10;              // ex: 2150 → 215.0 V
+            values.current = cRaw / 1000;            // ex: 1500 → 1.500 A
+            values.power   = pRaw / 10;              // ex: 220 → 22.0 W
+          }
+        }
+      } catch (_) { /* ignorar erro de decodificação */ }
+    }
   }
 
   return values;
