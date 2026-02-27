@@ -529,3 +529,5 @@
 - [x] Procedure ports.allLinks no backend
 - [x] Funcao getAllPortLinks no db.ts
 - [x] Mapa de conexões: drag-and-drop nos nós para reorganizar equipamentos
+- [x] Mapa: área SVG dinâmica (cresce conforme nós são movidos)
+- [x] Mapa: ponto de controle arrastável no meio das linhas de conexão

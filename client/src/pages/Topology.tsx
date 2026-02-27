@@ -403,6 +403,9 @@ function ConnectionMap({
   // Drag-and-drop: posições customizadas por nodeId
   const [overrides, setOverrides] = useState<Map<number, { x: number; y: number }>>(new Map());
   const dragging = useRef<{ id: number; startMouseX: number; startMouseY: number; startNodeX: number; startNodeY: number } | null>(null);
+  // Pontos de controle das linhas: key = "eqA-eqB", valor = {x, y} do ponto de controle
+  const [ctrlPoints, setCtrlPoints] = useState<Map<string, { x: number; y: number }>>(new Map());
+  const draggingCtrl = useRef<{ key: string; startMouseX: number; startMouseY: number; startX: number; startY: number } | null>(null);
 
   // Construir mapa de equipamentos envolvidos em conexões
   const involvedIds = useMemo(() => {
@@ -457,11 +460,24 @@ function ConnectionMap({
     return map;
   }, [nodes, COLS, overrides]);
 
-  const svgWidth = PADDING * 2 + COLS * (NODE_W + COL_GAP) - COL_GAP;
-  const svgRows = Math.ceil(nodes.length / COLS);
-  const svgHeight = PADDING * 2 + svgRows * (NODE_H + ROW_GAP) - ROW_GAP;
+  // Dimensões dinâmicas: crescem conforme nós são movidos
+  const dynamicBounds = useMemo(() => {
+    let maxX = PADDING * 2 + COLS * (NODE_W + COL_GAP);
+    let maxY = PADDING * 2 + Math.ceil(nodes.length / COLS) * (NODE_H + ROW_GAP);
+    nodePositions.forEach(pos => {
+      maxX = Math.max(maxX, pos.x + pos.w + PADDING);
+      maxY = Math.max(maxY, pos.y + pos.h + PADDING);
+    });
+    ctrlPoints.forEach(cp => {
+      maxX = Math.max(maxX, cp.x + PADDING);
+      maxY = Math.max(maxY, cp.y + PADDING);
+    });
+    return { w: Math.max(maxX, 600), h: Math.max(maxY, 500) };
+  }, [nodePositions, ctrlPoints, nodes.length, COLS]);
+  const svgWidth = dynamicBounds.w;
+  const svgHeight = dynamicBounds.h;
 
-  // Drag handler
+  // Drag handler para nós
   const handleNodeMouseDown = useCallback((e: React.MouseEvent, nodeId: number, pos: NodePos) => {
     e.preventDefault();
     e.stopPropagation();
@@ -479,6 +495,22 @@ function ConnectionMap({
       setOverrides(prev => { const m = new Map(prev); m.set(dragging.current!.id, { x: nx, y: ny }); return m; });
     };
     const onUp = () => { dragging.current = null; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
+
+  // Drag handler para ponto de controle da linha
+  const handleCtrlMouseDown = useCallback((e: React.MouseEvent, key: string, cx: number, cy: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    draggingCtrl.current = { key, startMouseX: e.clientX, startMouseY: e.clientY, startX: cx, startY: cy };
+    const onMove = (ev: MouseEvent) => {
+      if (!draggingCtrl.current) return;
+      const nx = draggingCtrl.current.startX + ev.clientX - draggingCtrl.current.startMouseX;
+      const ny = draggingCtrl.current.startY + ev.clientY - draggingCtrl.current.startMouseY;
+      setCtrlPoints(prev => { const m = new Map(prev); m.set(draggingCtrl.current!.key, { x: nx, y: ny }); return m; });
+    };
+    const onUp = () => { draggingCtrl.current = null; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }, []);
@@ -529,24 +561,27 @@ function ConnectionMap({
 
           const color = CONNECTION_COLORS[idx % CONNECTION_COLORS.length];
           const isHovered = hoveredLink === idx;
+          const pairKey = `${pair.eqA}-${pair.eqB}`;
 
-          // Pontos de conexão: centro direito de A → centro esquerdo de B (ou vice-versa)
+          // Centros dos nós
           const ax = posA.x + posA.w / 2;
           const ay = posA.y + posA.h / 2;
           const bx = posB.x + posB.w / 2;
           const by = posB.y + posB.h / 2;
 
-          // Curva bezier
-          const mx = (ax + bx) / 2;
-          const my = (ay + by) / 2;
-          const dx = bx - ax;
-          const dy = by - ay;
-          const len = Math.sqrt(dx * dx + dy * dy);
-          const offset = Math.min(len * 0.3, 60);
-          const cx1 = ax + offset * (dy / len || 0);
-          const cy1 = ay - offset * (dx / len || 0);
-          const cx2 = bx + offset * (dy / len || 0);
-          const cy2 = by - offset * (dx / len || 0);
+          // Ponto de controle: customizado pelo usuário ou calculado automaticamente
+          const defaultCtrlX = (ax + bx) / 2;
+          const defaultCtrlY = (ay + by) / 2;
+          const ctrl = ctrlPoints.get(pairKey);
+          const cpx = ctrl ? ctrl.x : defaultCtrlX;
+          const cpy = ctrl ? ctrl.y : defaultCtrlY;
+
+          // Bezier quadrática passando pelo ponto de controle
+          const pathD = `M ${ax} ${ay} Q ${cpx} ${cpy} ${bx} ${by}`;
+
+          // Ponto médio real da curva quadrática (t=0.5)
+          const midX = 0.25 * ax + 0.5 * cpx + 0.25 * bx;
+          const midY = 0.25 * ay + 0.5 * cpy + 0.25 * by;
 
           const portCount = pair.ports.length;
           const portText = portCount === 1
@@ -555,49 +590,57 @@ function ConnectionMap({
 
           return (
             <g key={idx}>
-              {/* Linha de fundo (mais larga para hover) */}
+              {/* Área invisível para facilitar hover (mais larga) */}
               <path
-                d={`M ${ax} ${ay} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${bx} ${by}`}
+                d={pathD}
                 fill="none"
-                stroke={color}
-                strokeWidth={isHovered ? 6 : 4}
-                strokeOpacity={isHovered ? 0.9 : 0.5}
-                strokeDasharray={isHovered ? "none" : "6 3"}
-                style={{ cursor: "pointer", transition: "stroke-width 0.15s, stroke-opacity 0.15s" }}
+                stroke="transparent"
+                strokeWidth={16}
+                style={{ cursor: "pointer" }}
                 onMouseEnter={(e) => {
                   setHoveredLink(idx);
                   const rect = svgRef.current?.getBoundingClientRect();
-                  if (rect) {
-                    setTooltip({
-                      x: e.clientX - rect.left,
-                      y: e.clientY - rect.top - 36,
-                      text: portText,
-                    });
-                  }
+                  if (rect) setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top - 36, text: portText });
                 }}
                 onMouseMove={(e) => {
                   const rect = svgRef.current?.getBoundingClientRect();
-                  if (rect) {
-                    setTooltip({
-                      x: e.clientX - rect.left,
-                      y: e.clientY - rect.top - 36,
-                      text: portText,
-                    });
-                  }
+                  if (rect) setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top - 36, text: portText });
                 }}
                 onMouseLeave={() => { setHoveredLink(null); setTooltip(null); }}
               />
-              {/* Contador de portas no meio da linha */}
+              {/* Linha visível */}
+              <path
+                d={pathD}
+                fill="none"
+                stroke={color}
+                strokeWidth={isHovered ? 3 : 2}
+                strokeOpacity={isHovered ? 1 : 0.6}
+                strokeDasharray={isHovered ? "none" : "6 3"}
+                style={{ pointerEvents: "none", transition: "stroke-width 0.15s, stroke-opacity 0.15s" }}
+              />
+              {/* Ponto de controle arrastável (visível ao hover) */}
+              {isHovered && (
+                <g
+                  transform={`translate(${cpx}, ${cpy})`}
+                  style={{ cursor: "crosshair" }}
+                  onMouseDown={(e) => handleCtrlMouseDown(e, pairKey, cpx, cpy)}
+                >
+                  <circle r={8} fill={color} fillOpacity={0.25} stroke={color} strokeWidth={1.5} />
+                  <circle r={3} fill={color} fillOpacity={0.9} />
+                </g>
+              )}
+              {/* Linhas guia do ponto de controle (visíveis ao hover) */}
+              {isHovered && (
+                <>
+                  <line x1={ax} y1={ay} x2={cpx} y2={cpy} stroke={color} strokeWidth={0.5} strokeOpacity={0.3} strokeDasharray="3 3" style={{ pointerEvents: "none" }} />
+                  <line x1={bx} y1={by} x2={cpx} y2={cpy} stroke={color} strokeWidth={0.5} strokeOpacity={0.3} strokeDasharray="3 3" style={{ pointerEvents: "none" }} />
+                </>
+              )}
+              {/* Contador de portas no ponto médio da curva */}
               {portCount > 1 && (
-                <g transform={`translate(${mx}, ${my})`}>
+                <g transform={`translate(${midX}, ${midY})`}>
                   <circle r="10" fill="#1e1e2e" stroke={color} strokeWidth="1.5" strokeOpacity="0.7" />
-                  <text
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize="9"
-                    fill={color}
-                    fontWeight="bold"
-                  >
+                  <text textAnchor="middle" dominantBaseline="central" fontSize="9" fill={color} fontWeight="bold">
                     {portCount}
                   </text>
                 </g>
@@ -696,12 +739,12 @@ function ConnectionMap({
       )}
 
       {/* Botão resetar posições */}
-      {overrides.size > 0 && (
+      {(overrides.size > 0 || ctrlPoints.size > 0) && (
         <button
           className="absolute top-3 right-3 bg-zinc-800 border border-zinc-600 text-zinc-300 text-xs rounded-md px-2.5 py-1 hover:bg-zinc-700 transition-colors z-10"
-          onClick={() => setOverrides(new Map())}
+          onClick={() => { setOverrides(new Map()); setCtrlPoints(new Map()); }}
         >
-          Resetar posições
+          Resetar layout
         </button>
       )}
       {/* Legenda */}
@@ -715,7 +758,10 @@ function ConnectionMap({
           <span>Número de portas vinculadas</span>
         </div>
         <div className="flex items-center gap-1.5 mt-1 pt-1 border-t border-zinc-700/60">
-          <span>↕ Arraste os nós para reorganizar</span>
+          <span>↕ Arraste nós para mover</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span>○ Passe o mouse na linha e arraste o ponto</span>
         </div>
       </div>
     </div>
