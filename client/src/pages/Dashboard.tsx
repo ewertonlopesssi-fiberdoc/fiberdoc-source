@@ -22,6 +22,7 @@ import {
   Zap,
   BatteryCharging,
   Gauge,
+  Radio,
 } from "lucide-react";
 import {
   BarChart,
@@ -459,6 +460,91 @@ export default function Dashboard() {
                   )}
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Widget CTOs */}
+      {(stats?.ctoStats?.total ?? 0) > 0 && (
+        <Card className="border-border/50 bg-card">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center">
+                  <Radio className="h-3.5 w-3.5 text-cyan-400" />
+                </div>
+                <CardTitle className="text-sm font-semibold text-foreground">CTOs</CardTitle>
+                <span className="text-xs text-cyan-400 bg-cyan-400/10 border border-cyan-400/20 px-1.5 py-0.5 rounded-md font-medium">
+                  {stats?.ctoStats?.total} caixa{(stats?.ctoStats?.total ?? 0) !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <button
+                onClick={() => setLocation("/cto")}
+                className="text-xs text-primary hover:text-primary/80 transition-colors"
+              >
+                Ver todas
+              </button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Status breakdown */}
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Status</p>
+                <div className="space-y-1.5">
+                  {[
+                    { label: "Ativas", value: stats?.ctoStats?.active ?? 0, color: "bg-emerald-400", text: "text-emerald-400" },
+                    { label: "Manutenção", value: stats?.ctoStats?.maintenance ?? 0, color: "bg-amber-400", text: "text-amber-400" },
+                    { label: "Inativas", value: stats?.ctoStats?.inactive ?? 0, color: "bg-red-400", text: "text-red-400" },
+                  ].map(({ label, value, color, text }) => (
+                    <div key={label} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className={`h-2 w-2 rounded-full ${color}`} />
+                        <span className="text-muted-foreground">{label}</span>
+                      </div>
+                      <span className={`font-medium ${text}`}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Ocupação */}
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Ocupação de Portas</p>
+                <div className="flex items-end gap-2">
+                  <span className="text-3xl font-bold text-foreground">{stats?.ctoStats?.occupancyRate ?? 0}%</span>
+                  <span className="text-sm text-muted-foreground mb-1">
+                    {stats?.ctoStats?.totalUsed ?? 0}/{stats?.ctoStats?.totalCapacity ?? 0}
+                  </span>
+                </div>
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      (stats?.ctoStats?.occupancyRate ?? 0) >= 90 ? "bg-red-500" :
+                      (stats?.ctoStats?.occupancyRate ?? 0) >= 70 ? "bg-amber-500" : "bg-emerald-500"
+                    }`}
+                    style={{ width: `${stats?.ctoStats?.occupancyRate ?? 0}%` }}
+                  />
+                </div>
+              </div>
+              {/* Ações rápidas */}
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Ações Rápidas</p>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => setLocation("/mapa")}
+                    className="w-full text-left px-3 py-2 rounded-lg border border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors text-sm text-foreground flex items-center gap-2"
+                  >
+                    <span className="text-cyan-400">↗</span> Ver no Mapa
+                  </button>
+                  <button
+                    onClick={() => setLocation("/cto/importar")}
+                    className="w-full text-left px-3 py-2 rounded-lg border border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors text-sm text-foreground flex items-center gap-2"
+                  >
+                    <span className="text-cyan-400">↑</span> Importar CSV
+                  </button>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>

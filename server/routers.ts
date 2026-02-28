@@ -1763,6 +1763,32 @@ export const appRouter = router({
         await deleteCto(input.id);
         return { ok: true };
       }),
+    importCsv: adminProcedure
+      .input(z.object({
+        rows: z.array(z.object({
+          name: z.string().min(1),
+          address: z.string().optional(),
+          capacity: z.number().int().min(1).default(8),
+          usedPorts: z.number().int().min(0).default(0),
+          status: z.enum(["active", "maintenance", "inactive"]).default("active"),
+          lat: z.number().optional(),
+          lng: z.number().optional(),
+          notes: z.string().optional(),
+        })),
+      }))
+      .mutation(async ({ input }) => {
+        let created = 0;
+        const errors: string[] = [];
+        for (const row of input.rows) {
+          try {
+            await createCto(row);
+            created++;
+          } catch (e: any) {
+            errors.push(`${row.name}: ${e.message}`);
+          }
+        }
+        return { created, errors };
+      }),
   }),
   // ─── Mapa de Infraestrutura ───────────────────────────────────────────────────
   infraMap: router({

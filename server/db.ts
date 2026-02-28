@@ -522,6 +522,15 @@ export async function getDashboardStats() {
   const [activeEquipCount] = await db.select({ count: sql<number>`count(*)` }).from(equipments).where(eq(equipments.status, "active"));
   const [activeFiberCount] = await db.select({ count: sql<number>`count(*)` }).from(fibers).where(eq(fibers.status, "active"));
   const [roomCount] = await db.select({ count: sql<number>`count(*)` }).from(rooms);
+  // CTOs stats
+  const ctosAll = await db.select({ status: ctos.status, capacity: ctos.capacity, usedPorts: ctos.usedPorts }).from(ctos);
+  const ctoTotal = ctosAll.length;
+  const ctoActive = ctosAll.filter(c => c.status === "active").length;
+  const ctoMaintenance = ctosAll.filter(c => c.status === "maintenance").length;
+  const ctoInactive = ctosAll.filter(c => c.status === "inactive").length;
+  const ctoTotalCapacity = ctosAll.reduce((s, c) => s + (Number(c.capacity) || 0), 0);
+  const ctoTotalUsed = ctosAll.reduce((s, c) => s + (Number(c.usedPorts) || 0), 0);
+  const ctoOccupancyRate = ctoTotalCapacity > 0 ? Math.round((ctoTotalUsed / ctoTotalCapacity) * 100) : 0;
 
   const equipByType = await db.select({
     type: equipments.type,
@@ -572,6 +581,7 @@ export async function getDashboardStats() {
     activeEquipments: Number(activeEquipCount?.count ?? 0),
     activeFibers: Number(activeFiberCount?.count ?? 0),
     totalRooms: Number(roomCount?.count ?? 0),
+    ctoStats: { total: ctoTotal, active: ctoActive, maintenance: ctoMaintenance, inactive: ctoInactive, totalCapacity: ctoTotalCapacity, totalUsed: ctoTotalUsed, occupancyRate: ctoOccupancyRate },
     equipmentByType: equipByType.map((e) => ({ type: e.type, count: Number(e.count) })),
     recentHistory,
     capacityAlerts,

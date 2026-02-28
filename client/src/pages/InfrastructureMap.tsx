@@ -172,9 +172,24 @@ export default function InfrastructureMap() {
         position: { lat: Number(el.lat), lng: Number(el.lng) },
         title: name,
         content: createMarkerContent(el.type, status, name),
+        gmpDraggable: isAdmin,
       });
 
       const elId = el.id;
+      const elType = el.type;
+      const elRefId = el.referenceId;
+
+      // Salvar nova posição ao soltar o marcador
+      if (isAdmin) {
+        marker.addListener("dragend", () => {
+          const pos = marker.position as google.maps.LatLng | google.maps.LatLngLiteral | null;
+          if (!pos) return;
+          const lat = typeof (pos as any).lat === "function" ? (pos as any).lat() : (pos as any).lat;
+          const lng = typeof (pos as any).lng === "function" ? (pos as any).lng() : (pos as any).lng;
+          upsertElementMut.mutate({ type: elType, referenceId: elRefId, lat, lng });
+        });
+      }
+
       marker.addListener("click", () => {
         if (addingRouteMode) {
           if (routeFrom === null) {

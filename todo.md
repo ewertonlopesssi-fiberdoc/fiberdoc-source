@@ -646,3 +646,8 @@
 - [x] Rotas /cto, /mapa, /sgp adicionadas no App.tsx
 - [x] Itens CTO, Mapa de Infraestrutura e SGP Config adicionados no menu lateral
 - [x] Exportar dados do mapa em KML (Google Earth)
+
+## v5.27 — Melhorias do Módulo de Mapa
+- [x] Marcadores arrastáveis no mapa (draggable AdvancedMarkerElement + salvar posição ao soltar)
+- [x] Importação de CTOs via CSV (nome, endereço, capacidade, lat, lng)
+- [x] Widget de CTOs no Dashboard (total, ocupação média, link para mapa)

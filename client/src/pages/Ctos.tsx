@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Search, Edit, Trash2, MapPin, Wifi, WifiOff, Wrench, Box } from "lucide-react";
+import { Plus, Search, Edit, Trash2, MapPin, Wifi, WifiOff, Wrench, Box, Upload } from "lucide-react";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   active: { label: "Ativo", color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
@@ -31,6 +32,7 @@ const EMPTY_FORM = {
 export default function Ctos() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const [, setLocation] = useLocation();
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -105,9 +107,14 @@ export default function Ctos() {
           <p className="text-muted-foreground text-sm mt-1">Caixas de Terminação Óptica</p>
         </div>
         {isAdmin && (
-          <Button onClick={openCreate} className="gap-2">
-            <Plus className="w-4 h-4" /> Nova CTO
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setLocation("/cto/importar")} className="gap-2">
+              <Upload className="w-4 h-4" /> Importar CSV
+            </Button>
+            <Button onClick={openCreate} className="gap-2">
+              <Plus className="w-4 h-4" /> Nova CTO
+            </Button>
+          </div>
         )}
       </div>
 
