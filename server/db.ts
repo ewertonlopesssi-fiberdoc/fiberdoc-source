@@ -850,7 +850,15 @@ export async function getTubesByCeo(ceoId: number) {
 export async function createCeoTube(data: Omit<InsertCeoTube, "id" | "createdAt" | "updatedAt">) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  const result = await db.insert(ceoTubes).values(data);
+  // Passar todos os campos explicitamente para evitar problemas com DEFAULT em schemas antigos
+  const result = await db.insert(ceoTubes).values({
+    ceoId: data.ceoId,
+    type: data.type ?? "tube",
+    identifier: data.identifier,
+    totalVias: data.totalVias ?? 12,
+    color: data.color ?? null,
+    notes: data.notes ?? null,
+  });
   const insertId = (result as any)[0]?.insertId ?? 0;
   // Criar as vias automaticamente
   const totalVias = data.totalVias ?? 0;
@@ -966,7 +974,15 @@ export async function getTubesByCto(ctoId: number) {
 export async function createCtoTube(data: Omit<InsertCtoTube, "id" | "createdAt" | "updatedAt">) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  const result = await db.insert(ctoTubes).values(data);
+  // Passar todos os campos explicitamente para evitar problemas com DEFAULT em schemas antigos
+  const result = await db.insert(ctoTubes).values({
+    ctoId: data.ctoId,
+    type: data.type ?? "tube",
+    identifier: data.identifier,
+    totalVias: data.totalVias ?? 12,
+    color: data.color ?? null,
+    notes: data.notes ?? null,
+  });
   const insertId = (result as any)[0]?.insertId ?? 0;
   const totalVias = data.totalVias ?? 0;
   if (totalVias > 0) {
