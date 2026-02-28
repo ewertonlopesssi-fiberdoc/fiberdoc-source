@@ -693,3 +693,14 @@
 - [x] Rota Express GET /api/backup/download/:filename para servir arquivos locais
 - [x] Frontend atualizado: botão de download usa /api/backup/download/:filename quando localPath presente
 - [x] 169 testes passando
+
+## v5.34 — Mapa OpenStreetMap/Leaflet (sem dependência Google/Manus)
+
+- [x] Instalar leaflet, @types/leaflet e leaflet-geosearch
+- [x] Criar componente LeafletMap.tsx substituindo Map.tsx
+- [x] Adaptar InfrastructureMap.tsx para usar Leaflet (marcadores CEO/CTO, polylines de cabo)
+- [x] Adaptar traçado livre ponto-a-ponto para Leaflet
+- [x] Adaptar busca de endereço para Nominatim (OpenStreetMap geocoding gratuito)
+- [x] Adaptar exportação KML/KMZ
+- [x] Preparar suporte a VITE_GOOGLE_MAPS_KEY para migração futura
+- [x] Gerar pacote de deployment v5.34

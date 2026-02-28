@@ -1,10 +1,8 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { MapView } from "@/components/Map";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,68 +10,58 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
-  Map, Layers, Download, Plus, X, Eye, EyeOff, Loader2,
-  Radio, Box, Cable, Navigation, Users, ChevronRight, Trash2,
-  ToggleLeft, ToggleRight, Filter, FileDown, CheckSquare, Square,
-  MousePointer2, Boxes, Search
+  Map, Download, Plus, X, Eye, EyeOff, Loader2,
+  Radio, Box, Cable, Navigation, Users, Trash2,
+  FileDown, MousePointer2, Search
 } from "lucide-react";
+import L from "leaflet";
 
-// ─── Tipos ───────────────────────────────────────────────────────────────────
 type MapElement = {
-  id: number;
-  type: "ceo" | "cto";
-  referenceId: number;
-  lat: number;
-  lng: number;
-  name?: string;
-  status?: string;
-  capacity?: number;
-  usedPorts?: number;
+  id: number; type: "ceo" | "cto"; referenceId: number;
+  lat: number; lng: number; name?: string; status?: string;
+  capacity?: number; usedPorts?: number;
 };
-
 type MapRoute = {
-  id: number;
-  fromElementId: number;
-  toElementId: number;
-  name?: string | null;
-  cableType?: string | null;
-  fiberCount?: number | null;
-  color?: string | null;
-  notes?: string | null;
-  path?: string | null;
+  id: number; fromElementId: number; toElementId: number;
+  name?: string | null; cableType?: string | null; fiberCount?: number | null;
+  color?: string | null; notes?: string | null; path?: string | null;
 };
+type SidePanelContent = { kind: "element"; element: MapElement } | { kind: "route"; route: MapRoute } | null;
 
-type SidePanelContent =
-  | { kind: "element"; element: MapElement }
-  | { kind: "route"; route: MapRoute }
-  | null;
-
-// ─── Cores de status ─────────────────────────────────────────────────────────
 const STATUS_COLOR: Record<string, string> = {
-  active: "#22c55e",
-  maintenance: "#f59e0b",
-  inactive: "#ef4444",
+  active: "#22c55e", maintenance: "#f59e0b", inactive: "#ef4444",
 };
 
-// ─── Componente principal ─────────────────────────────────────────────────────
+function createLeafletIcon(type: "ceo" | "cto", status: string, name: string, selected = false) {
+  const color = STATUS_COLOR[status] ?? "#6b7280";
+  const outline = selected ? "3px solid #22d3ee" : "3px solid white";
+  const shape = type === "cto"
+    ? `<rect x="3" y="3" width="18" height="18" rx="2" fill="white"/>`
+    : `<circle cx="12" cy="12" r="7" fill="white"/>`;
+  const safeName = name.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const iconHtml = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><div style="width:28px;height:28px;background:${color};border:${outline};border-radius:${type === "cto" ? "4px" : "50%"};box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;"><svg width="14" height="14" viewBox="0 0 24 24">${shape}</svg></div><div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div></div>`;
+  return L.divIcon({ html: iconHtml, className: "", iconSize: [80, 46], iconAnchor: [40, 14] });
+}
+
 export default function InfrastructureMap() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
-  // Dados do servidor
   const { data: elements = [], refetch: refetchElements } = trpc.infraMap.elements.useQuery();
   const { data: routes = [], refetch: refetchRoutes } = trpc.infraMap.routes.useQuery();
   const { data: ctos = [] } = trpc.ctos.list.useQuery();
   const { data: ceosRaw = [] } = trpc.ceos.list.useQuery({});
   const ceos = ceosRaw as any[];
 
-  // Mapa
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<Record<number, any>>({});
-  const polylinesRef = useRef<Record<number, any>>({});
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<Record<number, L.Marker>>({});
+  const polylinesRef = useRef<Record<number, L.Polyline>>({});
+  const previewPolylineRef = useRef<L.Polyline | null>(null);
+  const mousePolylineRef = useRef<L.Polyline | null>(null);
+  const drawingMarkersRef = useRef<L.CircleMarker[]>([]);
   const [mapReady, setMapReady] = useState(false);
 
-  // UI state
   const [sidePanel, setSidePanel] = useState<SidePanelContent>(null);
   const [showCeos, setShowCeos] = useState(true);
   const [showCtos, setShowCtos] = useState(true);
@@ -82,37 +70,23 @@ export default function InfrastructureMap() {
   const [addingRouteMode, setAddingRouteMode] = useState(false);
   const [routeFrom, setRouteFrom] = useState<number | null>(null);
   const [routeTo, setRouteTo] = useState<number | null>(null);
+  const [drawingPath, setDrawingPath] = useState<{ lat: number; lng: number }[]>([]);
   const [routeDialogOpen, setRouteDialogOpen] = useState(false);
-  // Traçado livre de cabo
-  const [drawingPath, setDrawingPath] = useState<google.maps.LatLngLiteral[]>([]);
-  const previewPolylineRef = useRef<google.maps.Polyline | null>(null);
-  const mousePolylineRef = useRef<google.maps.Polyline | null>(null);
-  const drawingMarkersRef = useRef<any[]>([]);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
-  const [routeForm, setRouteForm] = useState({
-    name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: ""
-  });
-  const [deleteRouteId, setDeleteRouteId] = useState<number | null>(null);
+  const [routeForm, setRouteForm] = useState({ name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: "" });
   const [deleteElementId, setDeleteElementId] = useState<number | null>(null);
-  const [exportLoading, setExportLoading] = useState(false);
+  const [deleteRouteId, setDeleteRouteId] = useState<number | null>(null);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState<"kml" | "kmz">("kml");
-  const [exportIncludeFibers, setExportIncludeFibers] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"kml" | "kmz">("kmz");
+  const [exportLoading, setExportLoading] = useState(false);
   const [exportSelectedElements, setExportSelectedElements] = useState<Set<number>>(new Set());
   const [exportSelectedRoutes, setExportSelectedRoutes] = useState<Set<number>>(new Set());
   const [exportSelectAll, setExportSelectAll] = useState(true);
-  const [sgpLoading, setSgpLoading] = useState(false);
-  const [sgpClients, setSgpClients] = useState<any[]>([]);
-
-  // ─── Modo de seleção em grupo ─────────────────────────────────────────────────
+  const [exportIncludeFibers, setExportIncludeFibers] = useState(false);
   const [groupSelectMode, setGroupSelectMode] = useState(false);
   const [groupSelectedElements, setGroupSelectedElements] = useState<Set<number>>(new Set());
   const [groupSelectedRoutes, setGroupSelectedRoutes] = useState<Set<number>>(new Set());
-  const [groupDeleteConfirm, setGroupDeleteConfirm] = useState(false);
-  // ─── Diálogo de seleção/criação de CEO/CTO ao clicar no mapa ─────────────────
   const [pickDialogOpen, setPickDialogOpen] = useState(false);
-  const [pickDialogType, setPickDialogType] = useState<"ceo" | "cto">("ceo");
+  const [pickDialogType, setPickDialogType] = useState<"ceo" | "cto">("cto");
   const [pickDialogLat, setPickDialogLat] = useState(0);
   const [pickDialogLng, setPickDialogLng] = useState(0);
   const [pickSelectedId, setPickSelectedId] = useState<number | null>(null);
@@ -120,62 +94,35 @@ export default function InfrastructureMap() {
   const [pickNewName, setPickNewName] = useState("");
   const [pickNewAddress, setPickNewAddress] = useState("");
   const [pickNewCapacity, setPickNewCapacity] = useState(8);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const toggleGroupSelectMode = useCallback(() => {
     setGroupSelectMode(v => {
-      if (v) {
-        // Sair do modo: limpar seleção
-        setGroupSelectedElements(new Set());
-        setGroupSelectedRoutes(new Set());
-      } else {
-        // Entrar no modo: fechar painel lateral e outros modos
-        setSidePanel(null);
-        setAddingMode(null);
-        setAddingRouteMode(false);
-      }
+      if (v) { setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set()); }
+      else { setSidePanel(null); setAddingMode(null); setAddingRouteMode(false); }
       return !v;
     });
   }, []);
-
   const toggleGroupElement = useCallback((id: number) => {
-    setGroupSelectedElements(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+    setGroupSelectedElements(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }, []);
-
   const toggleGroupRoute = useCallback((id: number) => {
-    setGroupSelectedRoutes(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+    setGroupSelectedRoutes(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }, []);
-
   const selectAllGroup = useCallback(() => {
     setGroupSelectedElements(new Set((elements as any[]).map((e: any) => e.id)));
     setGroupSelectedRoutes(new Set((routes as any[]).map((r: any) => r.id)));
   }, [elements, routes]);
-
-  const clearGroupSelection = useCallback(() => {
-    setGroupSelectedElements(new Set());
-    setGroupSelectedRoutes(new Set());
-  }, []);
-
+  const clearGroupSelection = useCallback(() => { setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set()); }, []);
   const groupTotalSelected = groupSelectedElements.size + groupSelectedRoutes.size;
 
-  // Mutations
   const upsertElementMut = trpc.infraMap.upsertElement.useMutation({
     onSuccess: () => { refetchElements(); toast.success("Posição salva"); },
     onError: (e) => toast.error(e.message),
   });
-  const createCeoMut = trpc.ceos.create.useMutation({
-    onError: (e) => toast.error(e.message),
-  });
-  const createCtoMut = trpc.ctos.create.useMutation({
-    onError: (e) => toast.error(e.message),
-  });
+  const createCeoMut = trpc.ceos.create.useMutation({ onError: (e) => toast.error(e.message) });
+  const createCtoMut = trpc.ctos.create.useMutation({ onError: (e) => toast.error(e.message) });
   const deleteElementMut = trpc.infraMap.deleteElement.useMutation({
     onSuccess: () => { refetchElements(); setDeleteElementId(null); setSidePanel(null); toast.success("Elemento removido"); },
     onError: (e) => toast.error(e.message),
@@ -188,1247 +135,518 @@ export default function InfrastructureMap() {
     onSuccess: () => { refetchRoutes(); setDeleteRouteId(null); setSidePanel(null); toast.success("Rota excluída"); },
     onError: (e) => toast.error(e.message),
   });
+  const deleteGroupMut = trpc.infraMap.deleteElement.useMutation();
+  const deleteGroupRouteMut = trpc.infraMap.deleteRoute.useMutation();
   const sgpQuery = trpc.sgp.queryClientsByCto.useQuery(
-    { ctoName: sidePanel?.kind === "element" && sidePanel.element.type === "cto"
-        ? (sidePanel.element.name ?? "") : "" },
+    { ctoName: sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? (sidePanel.element.name ?? "") : "" },
     { enabled: sidePanel?.kind === "element" && sidePanel.element.type === "cto" && !!sidePanel.element.name }
   );
 
-  // ─── Helpers para criar marcadores ───────────────────────────────────────────
-  const createMarkerContent = useCallback((type: "ceo" | "cto", status: string, name: string) => {
-    const color = STATUS_COLOR[status] ?? "#6b7280";
-    const div = document.createElement("div");
-    div.style.cssText = `
-      display: flex; flex-direction: column; align-items: center; cursor: pointer;
-    `;
-    const icon = document.createElement("div");
-    if (type === "cto") {
-      icon.style.cssText = `
-        width: 28px; height: 28px; background: ${color}; border: 3px solid white;
-        border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-        display: flex; align-items: center; justify-content: center;
-      `;
-      icon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>`;
-    } else {
-      icon.style.cssText = `
-        width: 28px; height: 28px; background: ${color}; border: 3px solid white;
-        border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-        display: flex; align-items: center; justify-content: center;
-      `;
-      icon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="7"/></svg>`;
-    }
-    const label = document.createElement("div");
-    label.style.cssText = `
-      background: rgba(0,0,0,0.75); color: white; font-size: 10px; font-weight: 600;
-      padding: 1px 4px; border-radius: 3px; margin-top: 2px; white-space: nowrap;
-      max-width: 80px; overflow: hidden; text-overflow: ellipsis;
-    `;
-    label.textContent = name;
-    div.appendChild(icon);
-    div.appendChild(label);
-    return div;
+  // Inicializar mapa Leaflet
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return;
+    const map = L.map(mapContainerRef.current, { center: [-15.7801, -47.9292], zoom: 5, zoomControl: true });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(map);
+    mapRef.current = map;
+    setMapReady(true);
+    return () => { map.remove(); mapRef.current = null; };
   }, []);
 
-  // ─── Renderizar marcadores no mapa ────────────────────────────────────────────
+  // Renderizar marcadores
   const renderMarkers = useCallback(() => {
     if (!mapRef.current || !mapReady) return;
-
-    // Limpar marcadores existentes
-    Object.values(markersRef.current).forEach((m: any) => { m.map = null; });
+    Object.values(markersRef.current).forEach(m => m.remove());
     markersRef.current = {};
-
-    elements.forEach((el: any) => {
+    (elements as any[]).forEach((el: any) => {
       const isCto = el.type === "cto";
       if (isCto && !showCtos) return;
       if (!isCto && !showCeos) return;
-
-      const ref = isCto
-        ? (ctos as any[]).find((c: any) => c.id === el.referenceId)
-        : ceos.find((c: any) => c.id === el.referenceId);
+      const ref = isCto ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : ceos.find((c: any) => c.id === el.referenceId);
       const name = ref?.name ?? (isCto ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`);
       const status = ref?.status ?? "active";
-
-      const marker = new google.maps.marker.AdvancedMarkerElement({
-        map: mapRef.current!,
-        position: { lat: Number(el.lat), lng: Number(el.lng) },
-        title: name,
-        content: createMarkerContent(el.type, status, name),
-        gmpDraggable: isAdmin,
-      });
-
-      const elId = el.id;
-      const elType = el.type;
-      const elRefId = el.referenceId;
-
-      // Salvar nova posição ao soltar o marcador
+      const isSelected = groupSelectedElements.has(el.id);
+      const icon = createLeafletIcon(el.type, status, name, isSelected);
+      const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isAdmin }).addTo(mapRef.current!);
       if (isAdmin) {
-        marker.addListener("dragend", () => {
-          const pos = marker.position as google.maps.LatLng | google.maps.LatLngLiteral | null;
-          if (!pos) return;
-          const lat = typeof (pos as any).lat === "function" ? (pos as any).lat() : (pos as any).lat;
-          const lng = typeof (pos as any).lng === "function" ? (pos as any).lng() : (pos as any).lng;
-          upsertElementMut.mutate({ type: elType, referenceId: elRefId, lat, lng });
+        marker.on("dragend", () => {
+          const pos = marker.getLatLng();
+          upsertElementMut.mutate({ type: el.type, referenceId: el.referenceId, lat: pos.lat, lng: pos.lng });
         });
       }
-
-      marker.addListener("click", () => {
-        if (groupSelectMode) {
-          toggleGroupElement(elId);
-          // Atualizar visual do marcador
-          const isSelected = !groupSelectedElements.has(elId);
-          const content = marker.content as HTMLElement;
-          if (content) {
-            const icon = content.querySelector("div") as HTMLElement | null;
-            if (icon) icon.style.outline = isSelected ? "3px solid #22d3ee" : "none";
-          }
+      marker.on("click", () => {
+        if (groupSelectMode) { toggleGroupElement(el.id); return; }
+        if (addingRouteMode) {
+          const pos = marker.getLatLng();
+          setDrawingPath(prev => [...prev, { lat: pos.lat, lng: pos.lng }]);
+          toast.info(`Ponto adicionado: ${name}`);
           return;
         }
-        if (addingRouteMode) {
-          // No modo de traçado livre, clicar em marcador adiciona snap point
-          const pos = marker.position as google.maps.LatLng | google.maps.LatLngLiteral | null;
-          if (!pos) return;
-          const lat = typeof (pos as any).lat === "function" ? (pos as any).lat() : (pos as any).lat;
-          const lng = typeof (pos as any).lng === "function" ? (pos as any).lng() : (pos as any).lng;
-          setDrawingPath(prev => [...prev, { lat, lng }]);
-          toast.info(`Ponto adicionado: ${name}`);
-        } else {
-          setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts } });
-        }
+        setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts } });
       });
-
       markersRef.current[el.id] = marker;
     });
-  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, routeFrom, createMarkerContent, groupSelectMode, groupSelectedElements, toggleGroupElement]);
+  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin]);
 
-  // ─── Renderizar rotas no mapa ─────────────────────────────────────────────────
+  // Renderizar rotas
   const renderRoutes = useCallback(() => {
     if (!mapRef.current || !mapReady) return;
-
-    Object.values(polylinesRef.current).forEach((p: any) => p.setMap(null));
+    Object.values(polylinesRef.current).forEach(p => p.remove());
     polylinesRef.current = {};
-
     if (!showRoutes) return;
-
-    routes.forEach((r: any) => {
-      const fromEl = elements.find((e: any) => e.id === r.fromElementId);
-      const toEl = elements.find((e: any) => e.id === r.toElementId);
-      if (!fromEl || !toEl) return;
-
-      const path: google.maps.LatLngLiteral[] = [
-        { lat: Number(fromEl.lat), lng: Number(fromEl.lng) },
-      ];
-      if (r.path) {
-        try { path.push(...JSON.parse(r.path)); } catch {}
-      }
-      path.push({ lat: Number(toEl.lat), lng: Number(toEl.lng) });
-
-      const polyline = new google.maps.Polyline({
-        path,
-        map: mapRef.current!,
-        strokeColor: r.color ?? "#22d3ee",
-        strokeWeight: 3,
-        strokeOpacity: 0.9,
-        clickable: true,
-      });
-
-      polyline.addListener("click", () => {
-        if (groupSelectMode) {
-          toggleGroupRoute(r.id);
-          // Atualizar visual da polyline
-          const isSelected = !groupSelectedRoutes.has(r.id);
-          polyline.setOptions({
-            strokeWeight: isSelected ? 6 : 3,
-            strokeColor: isSelected ? "#22d3ee" : (r.color ?? "#22d3ee"),
-          });
-          return;
-        }
+    (routes as any[]).forEach((r: any) => {
+      const fromEl = (elements as any[]).find((e: any) => e.id === r.fromElementId);
+      const toEl = (elements as any[]).find((e: any) => e.id === r.toElementId);
+      const latlngs: L.LatLngExpression[] = [];
+      if (fromEl) latlngs.push([Number(fromEl.lat), Number(fromEl.lng)]);
+      if (r.path) { try { (JSON.parse(r.path) as any[]).forEach((pt: any) => latlngs.push([pt.lat, pt.lng])); } catch {} }
+      if (toEl) latlngs.push([Number(toEl.lat), Number(toEl.lng)]);
+      if (latlngs.length < 2) return;
+      const isSelected = groupSelectedRoutes.has(r.id);
+      const polyline = L.polyline(latlngs, { color: r.color ?? "#22d3ee", weight: isSelected ? 6 : 3, opacity: 0.9 }).addTo(mapRef.current!);
+      polyline.on("click", () => {
+        if (groupSelectMode) { toggleGroupRoute(r.id); return; }
         setSidePanel({ kind: "route", route: r });
       });
-
       polylinesRef.current[r.id] = polyline;
     });
   }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute]);
 
-  // Re-renderizar quando dados mudam
   useEffect(() => { renderMarkers(); }, [renderMarkers]);
   useEffect(() => { renderRoutes(); }, [renderRoutes]);
 
-  // ─── Modo de adição de elemento ───────────────────────────────────────────────
-  const handleMapReady = useCallback((map: google.maps.Map) => {
-    mapRef.current = map;
-    setMapReady(true);
-  }, []);
-
-  // ─── Places Autocomplete ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!mapReady || !searchInputRef.current || autocompleteRef.current) return;
-    try {
-      const ac = new google.maps.places.Autocomplete(searchInputRef.current, {
-        fields: ["geometry", "formatted_address", "name"],
-      });
-      ac.addListener("place_changed", () => {
-        const place = ac.getPlace();
-        if (!place.geometry?.location) return;
-        mapRef.current?.panTo(place.geometry.location);
-        mapRef.current?.setZoom(16);
-      });
-      autocompleteRef.current = ac;
-    } catch (e) {
-      // Places API pode não estar disponível
-    }
-  }, [mapReady]);
-
+  // Modo de adição de elemento
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
-    if (!addingMode) {
-      mapRef.current.setOptions({ draggableCursor: "" });
-      return;
-    }
-    mapRef.current.setOptions({ draggableCursor: "crosshair" });
-    const listener = mapRef.current.addListener("click", (e: google.maps.MapMouseEvent) => {
-      if (!e.latLng || !addingMode) return;
-      const lat = e.latLng.lat();
-      const lng = e.latLng.lng();
-      // Abrir diálogo moderno de seleção/criação
-      setPickDialogType(addingMode);
-      setPickDialogLat(lat);
-      setPickDialogLng(lng);
-      setPickSelectedId(null);
-      setPickCreateNew(false);
-      setPickNewName("");
-      setPickNewAddress("");
-      setPickNewCapacity(8);
-      setPickDialogOpen(true);
-      setAddingMode(null);
-    });
-    return () => { google.maps.event.removeListener(listener); };
+    const map = mapRef.current;
+    if (!addingMode) { map.getContainer().style.cursor = ""; return; }
+    map.getContainer().style.cursor = "crosshair";
+    const handler = (e: L.LeafletMouseEvent) => {
+      setPickDialogType(addingMode); setPickDialogLat(e.latlng.lat); setPickDialogLng(e.latlng.lng);
+      setPickSelectedId(null); setPickCreateNew(false); setPickNewName(""); setPickNewAddress(""); setPickNewCapacity(8);
+      setPickDialogOpen(true); setAddingMode(null); map.getContainer().style.cursor = "";
+    };
+    map.once("click", handler);
+    return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
   }, [addingMode, mapReady]);
 
-  // ─── Traçado livre de cabo ─────────────────────────────────────────────────
-  // Atualiza a polyline de prévia sempre que drawingPath muda
+  // Traçado livre — prévia
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
     if (!addingRouteMode) {
-      // Limpar prévia ao sair do modo
-      if (previewPolylineRef.current) { previewPolylineRef.current.setMap(null); previewPolylineRef.current = null; }
-      if (mousePolylineRef.current) { mousePolylineRef.current.setMap(null); mousePolylineRef.current = null; }
-      drawingMarkersRef.current.forEach(m => { try { m.map = null; } catch {} });
-      drawingMarkersRef.current = [];
+      if (previewPolylineRef.current) { previewPolylineRef.current.remove(); previewPolylineRef.current = null; }
+      if (mousePolylineRef.current) { mousePolylineRef.current.remove(); mousePolylineRef.current = null; }
+      drawingMarkersRef.current.forEach(m => m.remove()); drawingMarkersRef.current = [];
       return;
     }
-    // Criar/atualizar polyline de prévia
     if (!previewPolylineRef.current) {
-      previewPolylineRef.current = new google.maps.Polyline({
-        map: mapRef.current,
-        strokeColor: "#22d3ee",
-        strokeOpacity: 0.9,
-        strokeWeight: 3,
-        zIndex: 10,
-      });
+      previewPolylineRef.current = L.polyline([], { color: "#22d3ee", weight: 3, opacity: 0.9 }).addTo(mapRef.current!);
     }
-    previewPolylineRef.current.setPath(drawingPath);
-    // Atualizar marcadores de ponto (pequenos círculos)
-    drawingMarkersRef.current.forEach(m => { try { m.map = null; } catch {} });
-    drawingMarkersRef.current = [];
+    previewPolylineRef.current.setLatLngs(drawingPath.map(p => [p.lat, p.lng]));
+    drawingMarkersRef.current.forEach(m => m.remove()); drawingMarkersRef.current = [];
     drawingPath.forEach((pt, idx) => {
-      const dot = document.createElement("div");
-      dot.style.cssText = `
-        width: ${idx === 0 || idx === drawingPath.length - 1 ? 14 : 10}px;
-        height: ${idx === 0 || idx === drawingPath.length - 1 ? 14 : 10}px;
-        background: ${idx === 0 ? "#22c55e" : idx === drawingPath.length - 1 ? "#f59e0b" : "#22d3ee"};
-        border: 2px solid white; border-radius: 50%;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.5);
-      `;
-      const m = new (google.maps as any).marker.AdvancedMarkerElement({
-        map: mapRef.current,
-        position: pt,
-        content: dot,
-        zIndex: 20,
-      });
-      drawingMarkersRef.current.push(m);
+      const color = idx === 0 ? "#22c55e" : idx === drawingPath.length - 1 ? "#f59e0b" : "#22d3ee";
+      const cm = L.circleMarker([pt.lat, pt.lng], { radius: idx === 0 || idx === drawingPath.length - 1 ? 7 : 5, color: "white", fillColor: color, fillOpacity: 1, weight: 2 }).addTo(mapRef.current!);
+      drawingMarkersRef.current.push(cm);
     });
   }, [drawingPath, addingRouteMode, mapReady]);
 
-  // Capturar cliques no mapa para adicionar pontos ao traçado
+  // Traçado livre — cliques no mapa
   useEffect(() => {
     if (!mapRef.current || !mapReady || !addingRouteMode) return;
-    mapRef.current.setOptions({ draggableCursor: "crosshair" });
-    // Listener de clique para adicionar ponto
-    const clickListener = mapRef.current.addListener("click", (e: google.maps.MapMouseEvent) => {
-      if (!e.latLng) return;
-      const pt = { lat: e.latLng.lat(), lng: e.latLng.lng() };
-      setDrawingPath(prev => [...prev, pt]);
-    });
-    // Listener de mousemove para linha de prévia até o cursor
-    const moveListener = mapRef.current.addListener("mousemove", (e: google.maps.MapMouseEvent) => {
-      if (!e.latLng || drawingPath.length === 0) return;
-      if (!mousePolylineRef.current) {
-        mousePolylineRef.current = new google.maps.Polyline({
-          map: mapRef.current,
-          strokeColor: "#22d3ee",
-          strokeOpacity: 0.35,
-          strokeWeight: 2,
-          icons: [{ icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 3 }, offset: "0", repeat: "12px" }],
-          zIndex: 9,
-        });
-      }
+    const map = mapRef.current;
+    map.getContainer().style.cursor = "crosshair";
+    const clickHandler = (e: L.LeafletMouseEvent) => setDrawingPath(prev => [...prev, { lat: e.latlng.lat, lng: e.latlng.lng }]);
+    const moveHandler = (e: L.LeafletMouseEvent) => {
+      if (drawingPath.length === 0) return;
       const last = drawingPath[drawingPath.length - 1];
-      mousePolylineRef.current.setPath([last, { lat: e.latLng.lat(), lng: e.latLng.lng() }]);
-    });
-    return () => {
-      google.maps.event.removeListener(clickListener);
-      google.maps.event.removeListener(moveListener);
-      mapRef.current?.setOptions({ draggableCursor: "" });
+      if (!mousePolylineRef.current) {
+        mousePolylineRef.current = L.polyline([], { color: "#22d3ee", weight: 2, opacity: 0.35, dashArray: "6, 6" }).addTo(map);
+      }
+      mousePolylineRef.current.setLatLngs([[last.lat, last.lng], [e.latlng.lat, e.latlng.lng]]);
     };
+    map.on("click", clickHandler); map.on("mousemove", moveHandler);
+    return () => { map.off("click", clickHandler); map.off("mousemove", moveHandler); map.getContainer().style.cursor = ""; };
   }, [addingRouteMode, mapReady, drawingPath]);
 
-  // Confirmar traçado e abrir diálogo de configuração do cabo
   const confirmDrawing = useCallback(() => {
-    if (drawingPath.length < 2) {
-      toast.error("Adicione pelo menos 2 pontos ao traçado");
-      return;
-    }
-    setRouteDialogOpen(true);
-    setRouteForm(f => ({ ...f, name: "" }));
+    if (drawingPath.length < 2) { toast.error("Adicione pelo menos 2 pontos ao traçado"); return; }
+    setRouteDialogOpen(true); setRouteForm(f => ({ ...f, name: "" }));
   }, [drawingPath]);
+  const undoLastPoint = useCallback(() => setDrawingPath(prev => prev.slice(0, -1)), []);
+  const cancelDrawing = useCallback(() => { setAddingRouteMode(false); setDrawingPath([]); setRouteFrom(null); setRouteTo(null); }, []);
 
-  // Desfazer último ponto
-  const undoLastPoint = useCallback(() => {
-    setDrawingPath(prev => prev.slice(0, -1));
-  }, []);
+  // Busca de endereço via Nominatim (OpenStreetMap)
+  const handleSearch = useCallback(async () => {
+    if (!searchQuery.trim() || !mapRef.current) return;
+    setSearchLoading(true);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1`, { headers: { "Accept-Language": "pt-BR,pt;q=0.9" } });
+      const data = await res.json();
+      if (data.length > 0) { mapRef.current.setView([parseFloat(data[0].lat), parseFloat(data[0].lon)], 16); }
+      else toast.error("Endereço não encontrado");
+    } catch { toast.error("Erro ao buscar endereço"); }
+    finally { setSearchLoading(false); }
+  }, [searchQuery]);
 
-  // Cancelar traçado
-  const cancelDrawing = useCallback(() => {
-    setAddingRouteMode(false);
-    setDrawingPath([]);
-    setRouteFrom(null);
-    setRouteTo(null);
-  }, []);
-
-  //   // ─── Exportar KML/KMZ ──────────────────────────────────────────────────
+  // Exportar KML/KMZ
   const openExportDialog = () => {
-    // Inicializar seleção com todos os elementos
     setExportSelectedElements(new Set((elements as any[]).map((e: any) => e.id)));
     setExportSelectedRoutes(new Set((routes as any[]).map((r: any) => r.id)));
-    setExportSelectAll(true);
-    setExportDialogOpen(true);
+    setExportSelectAll(true); setExportDialogOpen(true);
   };
-
   const toggleExportSelectAll = () => {
-    if (exportSelectAll) {
-      setExportSelectedElements(new Set());
-      setExportSelectedRoutes(new Set());
-    } else {
-      setExportSelectedElements(new Set((elements as any[]).map((e: any) => e.id)));
-      setExportSelectedRoutes(new Set((routes as any[]).map((r: any) => r.id)));
-    }
+    if (exportSelectAll) { setExportSelectedElements(new Set()); setExportSelectedRoutes(new Set()); }
+    else { setExportSelectedElements(new Set((elements as any[]).map((e: any) => e.id))); setExportSelectedRoutes(new Set((routes as any[]).map((r: any) => r.id))); }
     setExportSelectAll(!exportSelectAll);
   };
-
-  const toggleElement = (id: number) => {
-    setExportSelectedElements(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleRoute = (id: number) => {
-    setExportSelectedRoutes(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
+  const toggleElement = (id: number) => setExportSelectedElements(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleRoute = (id: number) => setExportSelectedRoutes(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const handleExportKml = async () => {
     setExportLoading(true);
     try {
       const elementIds = exportSelectAll ? undefined : Array.from(exportSelectedElements);
       const routeIds = exportSelectAll ? undefined : Array.from(exportSelectedRoutes);
-      const result = await (trpc as any).infraMap.exportKml.query({
-        format: exportFormat,
-        elementIds,
-        routeIds,
-        includeFibers: exportIncludeFibers,
-      });
+      const result = await (trpc as any).infraMap.exportKml.query({ format: exportFormat, elementIds, routeIds, includeFibers: exportIncludeFibers });
       if (exportFormat === "kmz" && result.kmzBase64) {
-        const binary = atob(result.kmzBase64);
-        const bytes = new Uint8Array(binary.length);
+        const binary = atob(result.kmzBase64); const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         const blob = new Blob([bytes], { type: "application/vnd.google-earth.kmz" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0, 10)}.kmz`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0, 10)}.kmz`; a.click(); URL.revokeObjectURL(url);
         toast.success("KMZ exportado com sucesso");
       } else {
         const blob = new Blob([result.kml], { type: "application/vnd.google-earth.kml+xml" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0, 10)}.kml`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0, 10)}.kml`; a.click(); URL.revokeObjectURL(url);
         toast.success("KML exportado com sucesso");
       }
       setExportDialogOpen(false);
-    } catch (e: any) {
-      toast.error(e.message ?? "Erro ao exportar");
-    } finally {
-      setExportLoading(false);
-    }
+    } catch (e: any) { toast.error(e.message ?? "Erro ao exportar"); }
+    finally { setExportLoading(false); }
   };
 
-  // ─── Criar rota ───────────────────────────────────────────────────────────────
+  // Criar rota
   const handleCreateRoute = () => {
-    // No modo de traçado livre, fromElementId e toElementId são opcionais
     const pathStr = drawingPath.length >= 2 ? JSON.stringify(drawingPath) : undefined;
     createRouteMut.mutate({
       ...(routeFrom !== null ? { fromElementId: routeFrom } : {}),
       ...(routeTo !== null ? { toElementId: routeTo } : {}),
-      name: routeForm.name || undefined,
-      cableType: routeForm.cableType || undefined,
-      fiberCount: routeForm.fiberCount || undefined,
-      color: routeForm.color || undefined,
-      notes: routeForm.notes || undefined,
-      path: pathStr,
+      name: routeForm.name || undefined, cableType: routeForm.cableType || undefined,
+      fiberCount: routeForm.fiberCount || undefined, color: routeForm.color || undefined,
+      notes: routeForm.notes || undefined, path: pathStr,
     });
-    setRouteTo(null);
-    setDrawingPath([]);
+    setRouteTo(null); setDrawingPath([]);
   };
 
-  // ─── Painel lateral ───────────────────────────────────────────────────────────
+  // Confirmar pick CEO/CTO
+  const handlePickConfirm = async () => {
+    try {
+      if (pickCreateNew) {
+        if (!pickNewName.trim()) { toast.error("Informe o nome"); return; }
+        if (pickDialogType === "cto") {
+          const cto = await createCtoMut.mutateAsync({ name: pickNewName, address: pickNewAddress || undefined, capacity: pickNewCapacity, lat: pickDialogLat, lng: pickDialogLng });
+          await upsertElementMut.mutateAsync({ type: "cto", referenceId: (cto as any).id, lat: pickDialogLat, lng: pickDialogLng });
+        } else {
+          const ceo = await createCeoMut.mutateAsync({ name: pickNewName, location: pickNewAddress || undefined });
+          await upsertElementMut.mutateAsync({ type: "ceo", referenceId: (ceo as any).id, lat: pickDialogLat, lng: pickDialogLng });
+        }
+        toast.success(`${pickDialogType.toUpperCase()} criado e adicionado ao mapa`);
+      } else {
+        if (!pickSelectedId) { toast.error("Selecione um item"); return; }
+        await upsertElementMut.mutateAsync({ type: pickDialogType, referenceId: pickSelectedId, lat: pickDialogLat, lng: pickDialogLng });
+        toast.success(`${pickDialogType.toUpperCase()} adicionado ao mapa`);
+      }
+      setPickDialogOpen(false); refetchElements();
+    } catch (e: any) { toast.error(e.message ?? "Erro ao adicionar"); }
+  };
+
+  // Excluir em grupo
+  const handleGroupDelete = async () => {
+    for (const id of Array.from(groupSelectedElements)) await deleteGroupMut.mutateAsync({ id });
+    for (const id of Array.from(groupSelectedRoutes)) await deleteGroupRouteMut.mutateAsync({ id });
+    setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set());
+    refetchElements(); refetchRoutes(); toast.success("Itens excluídos");
+  };
+
+  // Exportar seleção em grupo
+  const handleGroupExport = () => {
+    setExportSelectedElements(new Set(groupSelectedElements));
+    setExportSelectedRoutes(new Set(groupSelectedRoutes));
+    setExportSelectAll(false); setExportDialogOpen(true);
+  };
+
+  // Painel lateral
   const renderSidePanel = () => {
     if (!sidePanel) return null;
-
     if (sidePanel.kind === "route") {
       const r = sidePanel.route;
-      const fromEl = elements.find((e: any) => e.id === r.fromElementId) as any;
-      const toEl = elements.find((e: any) => e.id === r.toElementId) as any;
-      const fromRef = fromEl?.type === "cto"
-        ? (ctos as any[]).find((c: any) => c.id === fromEl?.referenceId)
-        : ceos.find((c: any) => c.id === fromEl?.referenceId);
-      const toRef = toEl?.type === "cto"
-        ? (ctos as any[]).find((c: any) => c.id === toEl?.referenceId)
-        : ceos.find((c: any) => c.id === toEl?.referenceId);
-
+      const fromEl = (elements as any[]).find((e: any) => e.id === r.fromElementId) as any;
+      const toEl = (elements as any[]).find((e: any) => e.id === r.toElementId) as any;
+      const fromRef = fromEl?.type === "cto" ? (ctos as any[]).find((c: any) => c.id === fromEl?.referenceId) : ceos.find((c: any) => c.id === fromEl?.referenceId);
+      const toRef = toEl?.type === "cto" ? (ctos as any[]).find((c: any) => c.id === toEl?.referenceId) : ceos.find((c: any) => c.id === toEl?.referenceId);
       return (
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Cable className="w-5 h-5 text-cyan-400" />
-            <h3 className="font-semibold">{r.name ?? `Cabo ${r.id}`}</h3>
-          </div>
+          <div className="flex items-center gap-2"><Cable className="w-5 h-5 text-cyan-400" /><h3 className="font-semibold">{r.name ?? `Cabo ${r.id}`}</h3></div>
           <div className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Tipo</span>
-              <span>{r.cableType ?? "FO"}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Fibras</span>
-              <span>{r.fiberCount ?? "—"}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">De</span>
-              <span>{(fromRef as any)?.name ?? `El. ${r.fromElementId}`}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Para</span>
-              <span>{(toRef as any)?.name ?? `El. ${r.toElementId}`}</span>
-            </div>
-            {r.notes && (
-              <div className="pt-1 text-muted-foreground text-xs">{r.notes}</div>
-            )}
+            <div className="flex justify-between"><span className="text-muted-foreground">Tipo</span><span>{r.cableType ?? "FO"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Fibras</span><span>{r.fiberCount ?? "—"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">De</span><span>{(fromRef as any)?.name ?? `El. ${r.fromElementId}`}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Para</span><span>{(toRef as any)?.name ?? `El. ${r.toElementId}`}</span></div>
+            {r.notes && <div className="pt-1 text-muted-foreground text-xs">{r.notes}</div>}
           </div>
-          {isAdmin && (
-            <Button
-              variant="destructive" size="sm" className="w-full gap-2"
-              onClick={() => { setDeleteRouteId(r.id); setSidePanel(null); }}
-            >
-              <Trash2 className="w-3.5 h-3.5" /> Excluir Rota
-            </Button>
-          )}
+          {isAdmin && <Button variant="destructive" size="sm" className="w-full gap-2" onClick={() => { setDeleteRouteId(r.id); setSidePanel(null); }}><Trash2 className="w-3.5 h-3.5" /> Excluir Rota</Button>}
         </div>
       );
     }
-
-    // Element panel
-    const el = sidePanel.element;
-    const isCto = el.type === "cto";
-    const statusColor = STATUS_COLOR[el.status ?? "active"];
-
+    const el = sidePanel.element; const isCto = el.type === "cto"; const statusColor = STATUS_COLOR[el.status ?? "active"];
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          {isCto
-            ? <Box className="w-5 h-5" style={{ color: statusColor }} />
-            : <Radio className="w-5 h-5" style={{ color: statusColor }} />
-          }
+          {isCto ? <Box className="w-5 h-5" style={{ color: statusColor }} /> : <Radio className="w-5 h-5" style={{ color: statusColor }} />}
           <h3 className="font-semibold">{el.name}</h3>
-          <Badge
-            className="ml-auto text-xs"
-            style={{ background: statusColor + "33", color: statusColor, border: `1px solid ${statusColor}55` }}
-          >
+          <Badge className="ml-auto text-xs" style={{ background: statusColor + "33", color: statusColor, border: `1px solid ${statusColor}55` }}>
             {el.status === "active" ? "Ativo" : el.status === "maintenance" ? "Manutenção" : "Inativo"}
           </Badge>
         </div>
-        <div className="text-xs text-muted-foreground">
-          {isCto ? "CTO — Caixa de Terminação Óptica" : "CEO — Caixa de Emenda Óptica"}
-        </div>
+        <div className="text-xs text-muted-foreground">{isCto ? "CTO — Caixa de Terminação Óptica" : "CEO — Caixa de Emenda Óptica"}</div>
         {isCto && (
           <div className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Capacidade</span>
-              <span>{el.capacity ?? "—"} portas</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Usadas</span>
-              <span>{el.usedPorts ?? 0} portas</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Livres</span>
-              <span className="text-emerald-400">{(el.capacity ?? 0) - (el.usedPorts ?? 0)} portas</span>
-            </div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Capacidade</span><span>{el.capacity ?? "—"} portas</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Usadas</span><span>{el.usedPorts ?? 0} portas</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Livres</span><span className="text-emerald-400">{(el.capacity ?? 0) - (el.usedPorts ?? 0)} portas</span></div>
           </div>
         )}
-        <div className="text-xs text-muted-foreground">
-          {Number(el.lat).toFixed(6)}, {Number(el.lng).toFixed(6)}
-        </div>
-
-        {/* SGP Clientes */}
+        <div className="text-xs text-muted-foreground">{Number(el.lat).toFixed(6)}, {Number(el.lng).toFixed(6)}</div>
         {isCto && (
-          <div className="border-t border-border pt-3">
-            <div className="flex items-center gap-2 mb-2">
-              <Users className="w-4 h-4 text-cyan-400" />
-              <span className="text-sm font-medium">Clientes SGP</span>
-            </div>
+          <div className="border-t border-border pt-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5"><Users className="w-3.5 h-3.5" /> Clientes SGP</div>
             {sgpQuery.isLoading ? (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="w-3 h-3 animate-spin" /> Consultando SGP...
-              </div>
-            ) : sgpQuery.data?.error ? (
-              <div className="text-xs text-muted-foreground">{sgpQuery.data.error}</div>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Consultando SGP...</div>
             ) : sgpQuery.data?.clients?.length ? (
-              <div className="space-y-1">
-                {sgpQuery.data.clients.slice(0, 5).map((c: any, i: number) => (
-                  <div key={i} className="text-xs flex justify-between">
-                    <span>{c.nome ?? c.name ?? `Cliente ${i + 1}`}</span>
-                    <span className="text-muted-foreground">{c.porta ?? c.port ?? ""}</span>
-                  </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {sgpQuery.data.clients.map((c: any, i: number) => (
+                  <div key={i} className="text-xs flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" /><span className="truncate">{c.name ?? c.login ?? `Cliente ${i + 1}`}</span></div>
                 ))}
-                {sgpQuery.data.clients.length > 5 && (
-                  <div className="text-xs text-muted-foreground">+{sgpQuery.data.clients.length - 5} mais</div>
-                )}
               </div>
-            ) : (
-              <div className="text-xs text-muted-foreground">Nenhum cliente encontrado</div>
-            )}
+            ) : <div className="text-xs text-muted-foreground">Nenhum cliente vinculado</div>}
           </div>
         )}
-
-        {isAdmin && (
-          <Button
-            variant="destructive" size="sm" className="w-full gap-2"
-            onClick={() => setDeleteElementId(el.id)}
-          >
-            <Trash2 className="w-3.5 h-3.5" /> Remover do Mapa
-          </Button>
-        )}
+        {isAdmin && <Button variant="destructive" size="sm" className="w-full gap-2" onClick={() => { setDeleteElementId(el.id); setSidePanel(null); }}><Trash2 className="w-3.5 h-3.5" /> Remover do Mapa</Button>}
       </div>
     );
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col -m-6 h-[calc(100vh-4rem)] relative">
+    <div className="flex flex-col h-full bg-background">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-background flex-shrink-0 flex-wrap">
-        <Map className="w-5 h-5 text-cyan-400 mr-1" />
-        <span className="font-semibold text-sm mr-2">Mapa de Infraestrutura</span>
-
-        {/* Layer toggles */}
-        <div className="flex items-center gap-1 border border-border rounded-md px-2 py-1">
-          <button
-            onClick={() => setShowCeos(v => !v)}
-            className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors ${showCeos ? "text-blue-400" : "text-muted-foreground"}`}
-          >
-            <Radio className="w-3 h-3" /> CEO
-          </button>
-          <button
-            onClick={() => setShowCtos(v => !v)}
-            className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors ${showCtos ? "text-purple-400" : "text-muted-foreground"}`}
-          >
-            <Box className="w-3 h-3" /> CTO
-          </button>
-          <button
-            onClick={() => setShowRoutes(v => !v)}
-            className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors ${showRoutes ? "text-cyan-400" : "text-muted-foreground"}`}
-          >
-            <Cable className="w-3 h-3" /> Cabos
-          </button>
-        </div>
-
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-card/50 flex-wrap">
+        <Map className="w-4 h-4 text-primary flex-shrink-0" />
+        <span className="text-sm font-medium">Mapa de Infraestrutura</span>
+        <div className="w-px h-4 bg-border mx-1" />
+        <Button size="sm" variant={showCeos ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowCeos(v => !v)}>
+          <Radio className="w-3 h-3" />CEOs {showCeos ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+        </Button>
+        <Button size="sm" variant={showCtos ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowCtos(v => !v)}>
+          <Box className="w-3 h-3" />CTOs {showCtos ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+        </Button>
+        <Button size="sm" variant={showRoutes ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowRoutes(v => !v)}>
+          <Cable className="w-3 h-3" />Cabos {showRoutes ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+        </Button>
         {isAdmin && (
           <>
-            <div className="h-4 w-px bg-border mx-1" />
-            <Button
-              size="sm" variant={addingMode === "ceo" ? "default" : "outline"}
-              className="h-7 gap-1 text-xs"
-              onClick={() => setAddingMode(m => m === "ceo" ? null : "ceo")}
-            >
-              <Plus className="w-3 h-3" />
-              {addingMode === "ceo" ? "Cancelar CEO" : "Add CEO"}
+            <div className="w-px h-4 bg-border mx-1" />
+            <Button size="sm" variant={addingMode === "ceo" ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setAddingMode(v => v === "ceo" ? null : "ceo")}>
+              <Plus className="w-3 h-3" />{addingMode === "ceo" ? "Cancelar CEO" : "Add CEO"}
             </Button>
-            <Button
-              size="sm" variant={addingMode === "cto" ? "default" : "outline"}
-              className="h-7 gap-1 text-xs"
-              onClick={() => setAddingMode(m => m === "cto" ? null : "cto")}
-            >
-              <Plus className="w-3 h-3" />
-              {addingMode === "cto" ? "Cancelar CTO" : "Add CTO"}
+            <Button size="sm" variant={addingMode === "cto" ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setAddingMode(v => v === "cto" ? null : "cto")}>
+              <Plus className="w-3 h-3" />{addingMode === "cto" ? "Cancelar CTO" : "Add CTO"}
             </Button>
-            <Button
-              size="sm" variant={addingRouteMode ? "default" : "outline"}
-              className="h-7 gap-1 text-xs"
-              onClick={() => {
-                setAddingRouteMode(v => !v);
-                setRouteFrom(null);
-              }}
-            >
-              <Cable className="w-3 h-3" />
-              {addingRouteMode ? "Cancelar Rota" : "Add Cabo"}
+            <Button size="sm" variant={addingRouteMode ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => { setAddingRouteMode(v => !v); setRouteFrom(null); }}>
+              <Cable className="w-3 h-3" />{addingRouteMode ? "Cancelar Rota" : "Add Cabo"}
             </Button>
           </>
         )}
-
         <div className="ml-auto flex items-center gap-2">
-          {/* Campo de busca de endereço */}
-          <div className="relative">
+          <div className="relative flex items-center gap-1">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Buscar endereço..."
-              className="h-7 pl-6 pr-2 text-xs bg-background border border-border rounded-md w-44 focus:outline-none focus:ring-1 focus:ring-ring"
-            />
+            <input type="text" placeholder="Buscar endereço..." value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSearch()}
+              className="h-7 pl-6 pr-2 text-xs bg-background border border-border rounded-md w-44 focus:outline-none focus:ring-1 focus:ring-ring" />
+            {searchLoading && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
           </div>
-          <Button
-            size="sm"
-            variant={groupSelectMode ? "default" : "outline"}
-            className={`h-7 gap-1 text-xs ${groupSelectMode ? "bg-cyan-600 hover:bg-cyan-700 border-cyan-500" : ""}`}
-            onClick={toggleGroupSelectMode}
-          >
-            <MousePointer2 className="w-3 h-3" />
-            {groupSelectMode ? `Seleção (${groupTotalSelected})` : "Selecionar"}
+          <Button size="sm" variant={groupSelectMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${groupSelectMode ? "bg-cyan-600 hover:bg-cyan-700 border-cyan-500" : ""}`} onClick={toggleGroupSelectMode}>
+            <MousePointer2 className="w-3 h-3" />{groupSelectMode ? `Seleção (${groupTotalSelected})` : "Selecionar"}
           </Button>
-          <Button
-            size="sm" variant="outline" className="h-7 gap-1 text-xs"
-            onClick={openExportDialog}
-          >
-            <FileDown className="w-3 h-3" />
-            Exportar KML/KMZ
+          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={openExportDialog}>
+            <FileDown className="w-3 h-3" />Exportar KML/KMZ
           </Button>
         </div>
       </div>
 
-      {/* Banner modo de seleção em grupo */}
       {groupSelectMode && (
         <div className="px-4 py-2 bg-cyan-500/10 border-b border-cyan-500/30 text-cyan-400 text-xs flex items-center gap-3">
           <MousePointer2 className="w-3.5 h-3.5 flex-shrink-0" />
-          <span className="flex-1">
-            Modo de seleção ativo — clique nos marcadores (CEO/CTO) ou cabos para selecionar.
-            {groupTotalSelected > 0 && (
-              <span className="font-semibold ml-1">{groupTotalSelected} selecionado{groupTotalSelected !== 1 ? "s" : ""}</span>
-            )}
-          </span>
+          <span className="flex-1">Modo de seleção ativo — clique nos marcadores (CEO/CTO) ou cabos para selecionar.{groupTotalSelected > 0 && <span className="font-semibold ml-1">{groupTotalSelected} selecionado{groupTotalSelected !== 1 ? "s" : ""}</span>}</span>
           <button onClick={selectAllGroup} className="text-cyan-300 hover:text-cyan-200 underline text-xs">Selecionar tudo</button>
           <button onClick={clearGroupSelection} className="text-cyan-300 hover:text-cyan-200 underline text-xs">Limpar</button>
+          {groupTotalSelected > 0 && isAdmin && <button onClick={handleGroupDelete} className="text-red-400 hover:text-red-300 underline text-xs">Excluir seleção</button>}
+          {groupTotalSelected > 0 && <button onClick={handleGroupExport} className="text-cyan-300 hover:text-cyan-200 underline text-xs">Exportar seleção</button>}
         </div>
       )}
-
-      {/* Instruções de modo */}
       {addingMode && (
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
-          <Navigation className="w-3.5 h-3.5" />
-          Clique no mapa para posicionar um {addingMode.toUpperCase()}
+          <Navigation className="w-3.5 h-3.5" />Clique no mapa para posicionar um {addingMode.toUpperCase()}
           <button onClick={() => setAddingMode(null)} className="ml-auto text-amber-300 hover:text-amber-200 underline">Cancelar</button>
         </div>
       )}
       {addingRouteMode && (
         <div className="px-4 py-2 bg-cyan-500/10 border-b border-cyan-500/30 text-cyan-400 text-xs flex items-center gap-2">
           <Cable className="w-3.5 h-3.5 flex-shrink-0" />
-          <span className="flex-1">
-            {drawingPath.length === 0
-              ? "Clique em qualquer ponto do mapa para iniciar o traçado do cabo. Clique sobre um CEO/CTO para vincular."
-              : `${drawingPath.length} ponto${drawingPath.length !== 1 ? "s" : ""} — continue clicando ou confirme o traçado.`
-            }
-          </span>
-          {drawingPath.length > 0 && (
-            <button onClick={undoLastPoint} className="text-cyan-300 hover:text-cyan-200 underline text-xs flex-shrink-0">Desfazer</button>
-          )}
-          {drawingPath.length >= 2 && (
-            <button onClick={confirmDrawing} className="bg-cyan-500 text-white px-2 py-0.5 rounded text-xs hover:bg-cyan-400 flex-shrink-0">Confirmar traçado</button>
-          )}
+          <span className="flex-1">{drawingPath.length === 0 ? "Clique em qualquer ponto do mapa para iniciar o traçado do cabo. Clique sobre um CEO/CTO para vincular." : `${drawingPath.length} ponto${drawingPath.length !== 1 ? "s" : ""} — continue clicando ou confirme o traçado.`}</span>
+          {drawingPath.length > 0 && <button onClick={undoLastPoint} className="text-cyan-300 hover:text-cyan-200 underline text-xs flex-shrink-0">Desfazer</button>}
+          {drawingPath.length >= 2 && <button onClick={confirmDrawing} className="bg-cyan-500 text-white px-2 py-0.5 rounded text-xs hover:bg-cyan-400 flex-shrink-0">Confirmar traçado</button>}
           <button onClick={cancelDrawing} className="text-cyan-300 hover:text-cyan-200 underline text-xs flex-shrink-0">Cancelar</button>
         </div>
       )}
 
-      {/* Área principal: mapa + painel lateral */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Mapa */}
         <div className="flex-1 relative">
-          <MapView
-            className="w-full h-full"
-            initialCenter={{ lat: -15.7801, lng: -47.9292 }}
-            initialZoom={5}
-            onMapReady={handleMapReady}
-          />
-
-          {/* Legenda */}
-          <div className="absolute bottom-4 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg p-3 text-xs space-y-1.5">
+          <div ref={mapContainerRef} className="w-full h-full" style={{ zIndex: 0 }} />
+          <div className="absolute bottom-8 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg p-3 text-xs space-y-1.5" style={{ zIndex: 1000 }}>
             <div className="font-semibold text-foreground mb-1">Legenda</div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full bg-emerald-500 border-2 border-white" />
-              <span className="text-muted-foreground">Ativo</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full bg-amber-500 border-2 border-white" />
-              <span className="text-muted-foreground">Manutenção</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-full bg-red-500 border-2 border-white" />
-              <span className="text-muted-foreground">Inativo</span>
-            </div>
+            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-emerald-500 border-2 border-white" /><span className="text-muted-foreground">Ativo</span></div>
+            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-amber-500 border-2 border-white" /><span className="text-muted-foreground">Manutenção</span></div>
+            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-red-500 border-2 border-white" /><span className="text-muted-foreground">Inativo</span></div>
             <div className="border-t border-border pt-1.5 mt-1">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-blue-400 border-2 border-white" />
-                <span className="text-muted-foreground">CEO (círculo)</span>
-              </div>
-              <div className="flex items-center gap-2 mt-1">
-                <div className="w-4 h-4 rounded bg-purple-400 border-2 border-white" />
-                <span className="text-muted-foreground">CTO (quadrado)</span>
-              </div>
+              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-blue-400 border-2 border-white" /><span className="text-muted-foreground">CEO (círculo)</span></div>
+              <div className="flex items-center gap-2 mt-1"><div className="w-4 h-4 rounded bg-purple-400 border-2 border-white" /><span className="text-muted-foreground">CTO (quadrado)</span></div>
             </div>
           </div>
-
-          {/* Contador de elementos */}
-          <div className="absolute top-4 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-xs">
-            <span className="text-muted-foreground">{elements.length} elementos · {routes.length} cabos</span>
+          <div className="absolute top-4 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-xs" style={{ zIndex: 1000 }}>
+            <span className="text-muted-foreground">{(elements as any[]).length} elementos · {(routes as any[]).length} cabos</span>
           </div>
-
-          {/* Painel flutuante de ações em grupo */}
-          {groupSelectMode && groupTotalSelected > 0 && (
-            <div className="absolute top-4 right-4 bg-background/95 backdrop-blur-sm border border-cyan-500/50 rounded-xl shadow-lg p-4 min-w-[220px] z-10">
-              <div className="flex items-center gap-2 mb-3">
-                <Boxes className="w-4 h-4 text-cyan-400" />
-                <span className="font-semibold text-sm">{groupTotalSelected} selecionado{groupTotalSelected !== 1 ? "s" : ""}</span>
-              </div>
-              {groupSelectedElements.size > 0 && (
-                <div className="text-xs text-muted-foreground mb-1">
-                  {groupSelectedElements.size} elemento{groupSelectedElements.size !== 1 ? "s" : ""} (CEO/CTO)
-                </div>
-              )}
-              {groupSelectedRoutes.size > 0 && (
-                <div className="text-xs text-muted-foreground mb-3">
-                  {groupSelectedRoutes.size} cabo{groupSelectedRoutes.size !== 1 ? "s" : ""}
-                </div>
-              )}
-              <div className="space-y-2">
-                <Button
-                  size="sm" variant="outline" className="w-full h-8 gap-2 text-xs"
-                  onClick={() => {
-                    setExportSelectedElements(new Set(groupSelectedElements));
-                    setExportSelectedRoutes(new Set(groupSelectedRoutes));
-                    setExportSelectAll(false);
-                    setExportDialogOpen(true);
-                  }}
-                >
-                  <FileDown className="w-3.5 h-3.5" />
-                  Exportar seleção
-                </Button>
-                {isAdmin && (
-                  <Button
-                    size="sm" variant="destructive" className="w-full h-8 gap-2 text-xs"
-                    onClick={() => setGroupDeleteConfirm(true)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Remover seleção
-                  </Button>
-                )}
-                <Button
-                  size="sm" variant="ghost" className="w-full h-8 text-xs text-muted-foreground"
-                  onClick={clearGroupSelection}
-                >
-                  Limpar seleção
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
-
-        {/* Painel lateral */}
         {sidePanel && (
-          <div className="w-72 border-l border-border bg-card flex flex-col overflow-y-auto">
-            <div className="flex items-center justify-between p-3 border-b border-border">
+          <div className="w-72 border-l border-border bg-card/50 flex flex-col overflow-hidden flex-shrink-0">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <span className="text-sm font-medium">Detalhes</span>
-              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setSidePanel(null)}>
-                <X className="w-3.5 h-3.5" />
-              </Button>
+              <button onClick={() => setSidePanel(null)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
             </div>
-            <div className="p-4">
-              {renderSidePanel()}
-            </div>
+            <div className="flex-1 overflow-y-auto p-4">{renderSidePanel()}</div>
           </div>
         )}
       </div>
 
-      {/* Dialog de criação de rota */}
-      <Dialog open={routeDialogOpen} onOpenChange={(o) => { if (!o) { setRouteDialogOpen(false); setAddingRouteMode(false); setDeleteRouteId(null); } }}>
+      {/* Diálogo pick CEO/CTO */}
+      <Dialog open={pickDialogOpen} onOpenChange={setPickDialogOpen}>
         <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Configurar Cabo</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            {drawingPath.length >= 2 && (
-              <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-3 text-xs text-cyan-400">
-                Traçado com <strong>{drawingPath.length} pontos</strong> será salvo. Vincule opcionalmente a CEO/CTO de origem e destino.
+          <DialogHeader><DialogTitle>Adicionar {pickDialogType.toUpperCase()} ao Mapa</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Button size="sm" variant={!pickCreateNew ? "default" : "outline"} onClick={() => setPickCreateNew(false)} className="flex-1">Selecionar existente</Button>
+              <Button size="sm" variant={pickCreateNew ? "default" : "outline"} onClick={() => setPickCreateNew(true)} className="flex-1">Criar novo</Button>
+            </div>
+            {!pickCreateNew ? (
+              <div className="space-y-2">
+                <Label>Selecione um {pickDialogType.toUpperCase()}</Label>
+                <Select value={pickSelectedId?.toString() ?? ""} onValueChange={v => setPickSelectedId(Number(v))}>
+                  <SelectTrigger><SelectValue placeholder={`Selecionar ${pickDialogType.toUpperCase()}...`} /></SelectTrigger>
+                  <SelectContent>{(pickDialogType === "cto" ? (ctos as any[]) : ceos).map((item: any) => (<SelectItem key={item.id} value={item.id.toString()}>{item.name}</SelectItem>))}</SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-1.5"><Label>Nome *</Label><Input value={pickNewName} onChange={e => setPickNewName(e.target.value)} placeholder={`Nome do ${pickDialogType.toUpperCase()}`} /></div>
+                <div className="space-y-1.5"><Label>Endereço</Label><Input value={pickNewAddress} onChange={e => setPickNewAddress(e.target.value)} placeholder="Endereço (opcional)" /></div>
+                {pickDialogType === "cto" && <div className="space-y-1.5"><Label>Capacidade (portas)</Label><Input type="number" value={pickNewCapacity} onChange={e => setPickNewCapacity(Number(e.target.value))} min={1} /></div>}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Origem (opcional)</Label>
-                <Select value={routeFrom !== null ? String(routeFrom) : "none"} onValueChange={v => setRouteFrom(v === "none" ? null : Number(v))}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sem vínculo" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sem vínculo</SelectItem>
-                    {(elements as any[]).map((e: any) => (
-                      <SelectItem key={e.id} value={String(e.id)}>{e.type.toUpperCase()} — {e.name ?? `#${e.id}`}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Destino (opcional)</Label>
-                <Select value={routeTo !== null ? String(routeTo) : "none"} onValueChange={v => setRouteTo(v === "none" ? null : Number(v))}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sem vínculo" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sem vínculo</SelectItem>
-                    {(elements as any[]).map((e: any) => (
-                      <SelectItem key={e.id} value={String(e.id)}>{e.type.toUpperCase()} — {e.name ?? `#${e.id}`}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label>Nome (opcional)</Label>
-              <Input value={routeForm.name} onChange={e => setRouteForm(f => ({ ...f, name: e.target.value }))} placeholder="Cabo-01" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <Label>Tipo de cabo</Label>
-                <Select value={routeForm.cableType} onValueChange={v => setRouteForm(f => ({ ...f, cableType: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="FO">Fibra Óptica</SelectItem>
-                    <SelectItem value="ADSS">ADSS</SelectItem>
-                    <SelectItem value="OPGW">OPGW</SelectItem>
-                    <SelectItem value="Metalico">Metálico</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label>Nº de fibras</Label>
-                <Input type="number" min={1} value={routeForm.fiberCount} onChange={e => setRouteForm(f => ({ ...f, fiberCount: Number(e.target.value) }))} />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label>Cor da linha no mapa</Label>
-              <div className="flex items-center gap-2">
-                <input type="color" value={routeForm.color} onChange={e => setRouteForm(f => ({ ...f, color: e.target.value }))} className="w-10 h-8 rounded cursor-pointer border border-border" />
-                <Input value={routeForm.color} onChange={e => setRouteForm(f => ({ ...f, color: e.target.value }))} className="font-mono text-sm" />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label>Observações</Label>
-              <Textarea value={routeForm.notes} onChange={e => setRouteForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Comprimento, tipo de passagem, etc." />
-            </div>
+            <div className="text-xs text-muted-foreground">Posição: {pickDialogLat.toFixed(6)}, {pickDialogLng.toFixed(6)}</div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setRouteDialogOpen(false); setRouteFrom(null); setAddingRouteMode(false); setDeleteRouteId(null); }}>
-              Cancelar
-            </Button>
-            <Button onClick={handleCreateRoute} disabled={createRouteMut.isPending}>
-              Criar Cabo
-            </Button>
+            <Button variant="outline" onClick={() => setPickDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={handlePickConfirm} disabled={upsertElementMut.isPending}>{upsertElementMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog de confirmação de exclusão de rota */}
-      <Dialog open={deleteRouteId !== null && !routeDialogOpen} onOpenChange={() => setDeleteRouteId(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Excluir Rota</DialogTitle></DialogHeader>
-          <p className="text-muted-foreground text-sm">Tem certeza que deseja excluir esta rota de cabo?</p>
+      {/* Diálogo configuração do cabo */}
+      <Dialog open={routeDialogOpen} onOpenChange={setRouteDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Configurar Cabo</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5"><Label>Nome do cabo</Label><Input value={routeForm.name} onChange={e => setRouteForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Cabo Principal CEO-01 para CTO-05" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Tipo</Label>
+                <Select value={routeForm.cableType} onValueChange={v => setRouteForm(f => ({ ...f, cableType: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="FO">Fibra Óptica (FO)</SelectItem><SelectItem value="ADSS">ADSS</SelectItem><SelectItem value="OPGW">OPGW</SelectItem><SelectItem value="Metálico">Metálico</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5"><Label>Fibras</Label><Input type="number" value={routeForm.fiberCount} onChange={e => setRouteForm(f => ({ ...f, fiberCount: Number(e.target.value) }))} min={1} /></div>
+            </div>
+            <div className="space-y-1.5"><Label>Cor no mapa</Label>
+              <div className="flex gap-2 items-center"><input type="color" value={routeForm.color} onChange={e => setRouteForm(f => ({ ...f, color: e.target.value }))} className="w-10 h-8 rounded cursor-pointer border border-border" /><span className="text-xs text-muted-foreground">{routeForm.color}</span></div>
+            </div>
+            <div className="space-y-1.5"><Label>Observações</Label><Textarea value={routeForm.notes} onChange={e => setRouteForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Observações opcionais..." /></div>
+            {drawingPath.length >= 2 && <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">Traçado livre: {drawingPath.length} pontos definidos</div>}
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteRouteId(null)}>Cancelar</Button>
-            <Button variant="destructive" onClick={() => deleteRouteId && deleteRouteMut.mutate({ id: deleteRouteId })} disabled={deleteRouteMut.isPending}>
-              Excluir
-            </Button>
+            <Button variant="outline" onClick={() => setRouteDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={handleCreateRoute} disabled={createRouteMut.isPending}>{createRouteMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Criar Cabo"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog de Exportação KML/KMZ */}
+      {/* Exportação KML/KMZ */}
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileDown className="w-5 h-5 text-cyan-400" />
-              Exportar KML / KMZ
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            {/* Formato */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Formato de saída</Label>
-              <div className="flex gap-3">
-                {(["kml", "kmz"] as const).map(fmt => (
-                  <button
-                    key={fmt}
-                    onClick={() => setExportFormat(fmt)}
-                    className={`flex-1 py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${
-                      exportFormat === fmt
-                        ? "border-cyan-500 bg-cyan-500/10 text-cyan-400"
-                        : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/40"
-                    }`}
-                  >
-                    .{fmt.toUpperCase()}
-                    <span className="block text-xs font-normal mt-0.5">
-                      {fmt === "kml" ? "Google Earth / GPS" : "Compactado (Google Earth Desktop)"}
-                    </span>
-                  </button>
-                ))}
-              </div>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Exportar KML / KMZ</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Button size="sm" variant={exportFormat === "kmz" ? "default" : "outline"} onClick={() => setExportFormat("kmz")} className="flex-1">KMZ (Google Earth)</Button>
+              <Button size="sm" variant={exportFormat === "kml" ? "default" : "outline"} onClick={() => setExportFormat("kml")} className="flex-1">KML (XML)</Button>
             </div>
-            {/* Incluir fibras */}
-            <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/20">
-              <button onClick={() => setExportIncludeFibers(v => !v)} className="flex-shrink-0">
-                {exportIncludeFibers
-                  ? <CheckSquare className="w-5 h-5 text-cyan-400" />
-                  : <Square className="w-5 h-5 text-muted-foreground" />}
-              </button>
-              <div>
-                <p className="text-sm font-medium">Incluir Fibras Ópticas</p>
-                <p className="text-xs text-muted-foreground">Adiciona as fibras com coordenadas de rota como linhas no mapa</p>
-              </div>
-            </div>
-            {/* Seleção de elementos */}
+            <div className="flex items-center gap-2"><input type="checkbox" id="incFibers" checked={exportIncludeFibers} onChange={e => setExportIncludeFibers(e.target.checked)} /><Label htmlFor="incFibers" className="text-sm cursor-pointer">Incluir dados de fibras ópticas</Label></div>
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Elementos e Rotas</Label>
-                <button
-                  onClick={toggleExportSelectAll}
-                  className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-                >
-                  {exportSelectAll ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
-                  {exportSelectAll ? "Desmarcar tudo" : "Selecionar tudo"}
-                </button>
+              <div className="flex items-center justify-between"><Label className="text-sm">Seleção</Label><button onClick={toggleExportSelectAll} className="text-xs text-primary underline">{exportSelectAll ? "Desmarcar tudo" : "Selecionar tudo"}</button></div>
+              <div className="border border-border rounded-lg divide-y divide-border max-h-48 overflow-y-auto">
+                {(elements as any[]).map((el: any) => {
+                  const ref = el.type === "cto" ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : ceos.find((c: any) => c.id === el.referenceId);
+                  return (<label key={`el-${el.id}`} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/30"><input type="checkbox" checked={exportSelectedElements.has(el.id)} onChange={() => toggleElement(el.id)} /><span className="text-xs">{el.type.toUpperCase()} — {ref?.name ?? el.referenceId}</span></label>);
+                })}
+                {(routes as any[]).map((r: any) => (<label key={`rt-${r.id}`} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/30"><input type="checkbox" checked={exportSelectedRoutes.has(r.id)} onChange={() => toggleRoute(r.id)} /><span className="text-xs">Cabo — {r.name ?? `Rota ${r.id}`}</span></label>))}
               </div>
-              {/* CEOs e CTOs */}
-              {(elements as any[]).length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Equipamentos ({(elements as any[]).length})</p>
-                  <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
-                    {(elements as any[]).map((el: any) => {
-                      const isCto = el.type === "cto";
-                      const ref = isCto
-                        ? (ctos as any[]).find((c: any) => c.id === el.referenceId)
-                        : ceos.find((c: any) => c.id === el.referenceId);
-                      const name = ref?.name ?? (isCto ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`);
-                      const checked = exportSelectedElements.has(el.id);
-                      return (
-                        <button
-                          key={el.id}
-                          onClick={() => toggleElement(el.id)}
-                          className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-muted/40 text-sm text-left"
-                        >
-                          {checked ? <CheckSquare className="w-4 h-4 text-cyan-400 flex-shrink-0" /> : <Square className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
-                          <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${
-                            isCto ? "bg-purple-500/20 text-purple-400" : "bg-blue-500/20 text-blue-400"
-                          }`}>{el.type.toUpperCase()}</span>
-                          <span className="truncate">{name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {/* Rotas de cabo */}
-              {(routes as any[]).length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Rotas de Cabo ({(routes as any[]).length})</p>
-                  <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
-                    {(routes as any[]).map((r: any) => {
-                      const checked = exportSelectedRoutes.has(r.id);
-                      return (
-                        <button
-                          key={r.id}
-                          onClick={() => toggleRoute(r.id)}
-                          className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-muted/40 text-sm text-left"
-                        >
-                          {checked ? <CheckSquare className="w-4 h-4 text-cyan-400 flex-shrink-0" /> : <Square className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
-                          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: r.color ?? "#22d3ee" }} />
-                          <span className="truncate">{r.name ?? `Cabo ${r.id}`}</span>
-                          <span className="text-xs text-muted-foreground ml-auto flex-shrink-0">{r.cableType} • {r.fiberCount}F</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {(elements as any[]).length === 0 && (routes as any[]).length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">Nenhum elemento no mapa para exportar</p>
-              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancelar</Button>
-            <Button
-              onClick={handleExportKml}
-              disabled={exportLoading || (exportSelectedElements.size === 0 && exportSelectedRoutes.size === 0 && !exportSelectAll)}
-              className="gap-2"
-            >
-              {exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-              Exportar .{exportFormat.toUpperCase()}
-            </Button>
+            <Button onClick={handleExportKml} disabled={exportLoading}>{exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Download className="w-4 h-4 mr-1" />Exportar</>}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog de confirmação de exclusão em grupo */}
-      <Dialog open={groupDeleteConfirm} onOpenChange={setGroupDeleteConfirm}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Remover Seleção do Mapa</DialogTitle></DialogHeader>
-          <p className="text-muted-foreground text-sm">
-            Remover {groupSelectedElements.size > 0 && `${groupSelectedElements.size} elemento${groupSelectedElements.size !== 1 ? "s" : ""} (CEO/CTO)`}
-            {groupSelectedElements.size > 0 && groupSelectedRoutes.size > 0 && " e "}
-            {groupSelectedRoutes.size > 0 && `${groupSelectedRoutes.size} cabo${groupSelectedRoutes.size !== 1 ? "s" : ""}`}
-            {" "}do mapa? Os CEOs/CTOs não serão excluídos, apenas suas posições no mapa.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setGroupDeleteConfirm(false)}>Cancelar</Button>
-            <Button
-              variant="destructive"
-              onClick={async () => {
-                const elIds = Array.from(groupSelectedElements);
-                const rtIds = Array.from(groupSelectedRoutes);
-                for (const id of elIds) {
-                  await deleteElementMut.mutateAsync({ id });
-                }
-                for (const id of rtIds) {
-                  await deleteRouteMut.mutateAsync({ id });
-                }
-                setGroupDeleteConfirm(false);
-                setGroupSelectedElements(new Set());
-                setGroupSelectedRoutes(new Set());
-                toast.success(`${elIds.length + rtIds.length} item${elIds.length + rtIds.length !== 1 ? "s" : ""} removido${elIds.length + rtIds.length !== 1 ? "s" : ""} do mapa`);
-              }}
-              disabled={deleteElementMut.isPending || deleteRouteMut.isPending}
-            >
-              {(deleteElementMut.isPending || deleteRouteMut.isPending) ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Remover
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog de confirmação de exclusão de elemento */}
+      {/* Confirmação exclusão elemento */}
       <Dialog open={deleteElementId !== null} onOpenChange={() => setDeleteElementId(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Remover do Mapa</DialogTitle></DialogHeader>
-          <p className="text-muted-foreground text-sm">Remover este elemento do mapa? O CEO/CTO não será excluído, apenas sua posição no mapa.</p>
+          <p className="text-sm text-muted-foreground">Deseja remover este elemento do mapa? O CEO/CTO não será excluído do sistema.</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteElementId(null)}>Cancelar</Button>
-            <Button variant="destructive" onClick={() => deleteElementId && deleteElementMut.mutate({ id: deleteElementId })} disabled={deleteElementMut.isPending}>
-              Remover
-            </Button>
+            <Button variant="destructive" onClick={() => deleteElementId && deleteElementMut.mutate({ id: deleteElementId })} disabled={deleteElementMut.isPending}>{deleteElementMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Remover"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Diálogo de seleção/criação de CEO ou CTO ao clicar no mapa */}
-      <Dialog open={pickDialogOpen} onOpenChange={(o) => { if (!o) setPickDialogOpen(false); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {pickDialogType === "ceo"
-                ? <Radio className="w-5 h-5 text-blue-400" />
-                : <Box className="w-5 h-5 text-purple-400" />
-              }
-              Posicionar {pickDialogType.toUpperCase()} no Mapa
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-xs text-muted-foreground">
-              Coordenadas: {pickDialogLat.toFixed(6)}, {pickDialogLng.toFixed(6)}
-            </p>
-
-            {/* Tabs: Selecionar existente / Criar novo */}
-            <div className="flex gap-1 p-1 bg-muted rounded-lg">
-              <button
-                onClick={() => setPickCreateNew(false)}
-                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  !pickCreateNew ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Selecionar existente
-              </button>
-              <button
-                onClick={() => setPickCreateNew(true)}
-                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  pickCreateNew ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Criar novo
-              </button>
-            </div>
-
-            {!pickCreateNew ? (
-              /* Selecionar existente */
-              <div className="space-y-2">
-                <Label className="text-sm">Selecione o {pickDialogType.toUpperCase()}</Label>
-                {(() => {
-                  const available = pickDialogType === "cto"
-                    ? (ctos as any[]).filter((c: any) => !elements.find((el: any) => el.type === "cto" && el.referenceId === c.id))
-                    : ceos.filter((c: any) => !elements.find((el: any) => el.type === "ceo" && el.referenceId === c.id));
-                  if (available.length === 0) {
-                    return (
-                      <div className="text-sm text-muted-foreground py-4 text-center border border-dashed border-border rounded-lg">
-                        Nenhum {pickDialogType.toUpperCase()} disponível.<br />
-                        <button onClick={() => setPickCreateNew(true)} className="text-cyan-400 underline text-xs mt-1">Criar novo</button>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div className="max-h-48 overflow-y-auto space-y-1 border border-border rounded-lg p-2">
-                      {available.map((c: any) => (
-                        <button
-                          key={c.id}
-                          onClick={() => setPickSelectedId(c.id)}
-                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-left transition-colors ${
-                            pickSelectedId === c.id
-                              ? "bg-cyan-500/20 border border-cyan-500/50 text-foreground"
-                              : "hover:bg-muted/60 text-muted-foreground"
-                          }`}
-                        >
-                          {pickSelectedId === c.id
-                            ? <CheckSquare className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-                            : <Square className="w-4 h-4 flex-shrink-0" />
-                          }
-                          <span className="font-medium">{c.name}</span>
-                          {c.status && (
-                            <span className={`ml-auto text-xs px-1.5 py-0.5 rounded-full ${
-                              c.status === "active" ? "bg-emerald-500/20 text-emerald-400" :
-                              c.status === "maintenance" ? "bg-amber-500/20 text-amber-400" :
-                              "bg-red-500/20 text-red-400"
-                            }`}>
-                              {c.status === "active" ? "Ativo" : c.status === "maintenance" ? "Manutenção" : "Inativo"}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-            ) : (
-              /* Criar novo */
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <Label className="text-sm">Nome *</Label>
-                  <Input
-                    value={pickNewName}
-                    onChange={e => setPickNewName(e.target.value)}
-                    placeholder={pickDialogType === "ceo" ? "CEO-01" : "CTO-01"}
-                    autoFocus
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-sm">{pickDialogType === "ceo" ? "Localização" : "Endereço"}</Label>
-                  <Input
-                    value={pickNewAddress}
-                    onChange={e => setPickNewAddress(e.target.value)}
-                    placeholder="Rua, número, bairro"
-                  />
-                </div>
-                {pickDialogType === "cto" && (
-                  <div className="space-y-1">
-                    <Label className="text-sm">Capacidade (portas)</Label>
-                    <Input
-                      type="number" min={1} max={256}
-                      value={pickNewCapacity}
-                      onChange={e => setPickNewCapacity(Number(e.target.value))}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+      {/* Confirmação exclusão rota */}
+      <Dialog open={deleteRouteId !== null} onOpenChange={() => setDeleteRouteId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Excluir Rota</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Deseja excluir permanentemente esta rota de cabo?</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPickDialogOpen(false)}>Cancelar</Button>
-            <Button
-              disabled={
-                upsertElementMut.isPending || createCeoMut.isPending || createCtoMut.isPending ||
-                (!pickCreateNew && pickSelectedId === null) ||
-                (pickCreateNew && !pickNewName.trim())
-              }
-              onClick={async () => {
-                try {
-                  let refId = pickSelectedId;
-                  if (pickCreateNew) {
-                    if (pickDialogType === "ceo") {
-                      await createCeoMut.mutateAsync({
-                        name: pickNewName.trim(),
-                        location: pickNewAddress.trim() || undefined,
-                        status: "active",
-                      });
-                      // Buscar o ID do CEO recém criado
-                      const allCeos = await trpc.useUtils().ceos.list.fetch({});
-                      const newCeo = (allCeos as any[]).find((c: any) => c.name === pickNewName.trim());
-                      refId = newCeo?.id ?? null;
-                    } else {
-                      const result = await createCtoMut.mutateAsync({
-                        name: pickNewName.trim(),
-                        address: pickNewAddress.trim() || undefined,
-                        capacity: pickNewCapacity,
-                        status: "active",
-                      });
-                      refId = result.id;
-                    }
-                  }
-                  if (!refId) { toast.error("Nenhum item selecionado"); return; }
-                  await upsertElementMut.mutateAsync({
-                    type: pickDialogType,
-                    referenceId: refId,
-                    lat: pickDialogLat,
-                    lng: pickDialogLng,
-                  });
-                  setPickDialogOpen(false);
-                  toast.success(`${pickDialogType.toUpperCase()} posicionado no mapa`);
-                } catch (e: any) {
-                  toast.error(e.message ?? "Erro ao posicionar");
-                }
-              }}
-            >
-              {(upsertElementMut.isPending || createCeoMut.isPending || createCtoMut.isPending)
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <Plus className="w-4 h-4" />
-              }
-              {pickCreateNew ? `Criar e Posicionar` : `Posicionar`}
-            </Button>
+            <Button variant="outline" onClick={() => setDeleteRouteId(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={() => deleteRouteId && deleteRouteMut.mutate({ id: deleteRouteId })} disabled={deleteRouteMut.isPending}>{deleteRouteMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Excluir"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
