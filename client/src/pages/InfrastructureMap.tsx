@@ -14,7 +14,8 @@ import { toast } from "sonner";
 import {
   Map, Layers, Download, Plus, X, Eye, EyeOff, Loader2,
   Radio, Box, Cable, Navigation, Users, ChevronRight, Trash2,
-  ToggleLeft, ToggleRight, Filter, FileDown, CheckSquare, Square
+  ToggleLeft, ToggleRight, Filter, FileDown, CheckSquare, Square,
+  MousePointer2, Boxes
 } from "lucide-react";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -95,6 +96,56 @@ export default function InfrastructureMap() {
   const [exportSelectAll, setExportSelectAll] = useState(true);
   const [sgpLoading, setSgpLoading] = useState(false);
   const [sgpClients, setSgpClients] = useState<any[]>([]);
+
+  // ─── Modo de seleção em grupo ─────────────────────────────────────────────────
+  const [groupSelectMode, setGroupSelectMode] = useState(false);
+  const [groupSelectedElements, setGroupSelectedElements] = useState<Set<number>>(new Set());
+  const [groupSelectedRoutes, setGroupSelectedRoutes] = useState<Set<number>>(new Set());
+  const [groupDeleteConfirm, setGroupDeleteConfirm] = useState(false);
+
+  const toggleGroupSelectMode = useCallback(() => {
+    setGroupSelectMode(v => {
+      if (v) {
+        // Sair do modo: limpar seleção
+        setGroupSelectedElements(new Set());
+        setGroupSelectedRoutes(new Set());
+      } else {
+        // Entrar no modo: fechar painel lateral e outros modos
+        setSidePanel(null);
+        setAddingMode(null);
+        setAddingRouteMode(false);
+      }
+      return !v;
+    });
+  }, []);
+
+  const toggleGroupElement = useCallback((id: number) => {
+    setGroupSelectedElements(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleGroupRoute = useCallback((id: number) => {
+    setGroupSelectedRoutes(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAllGroup = useCallback(() => {
+    setGroupSelectedElements(new Set((elements as any[]).map((e: any) => e.id)));
+    setGroupSelectedRoutes(new Set((routes as any[]).map((r: any) => r.id)));
+  }, [elements, routes]);
+
+  const clearGroupSelection = useCallback(() => {
+    setGroupSelectedElements(new Set());
+    setGroupSelectedRoutes(new Set());
+  }, []);
+
+  const groupTotalSelected = groupSelectedElements.size + groupSelectedRoutes.size;
 
   // Mutations
   const upsertElementMut = trpc.infraMap.upsertElement.useMutation({
@@ -197,6 +248,17 @@ export default function InfrastructureMap() {
       }
 
       marker.addListener("click", () => {
+        if (groupSelectMode) {
+          toggleGroupElement(elId);
+          // Atualizar visual do marcador
+          const isSelected = !groupSelectedElements.has(elId);
+          const content = marker.content as HTMLElement;
+          if (content) {
+            const icon = content.querySelector("div") as HTMLElement | null;
+            if (icon) icon.style.outline = isSelected ? "3px solid #22d3ee" : "none";
+          }
+          return;
+        }
         if (addingRouteMode) {
           if (routeFrom === null) {
             setRouteFrom(elId);
@@ -213,7 +275,7 @@ export default function InfrastructureMap() {
 
       markersRef.current[el.id] = marker;
     });
-  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, routeFrom, createMarkerContent]);
+  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, routeFrom, createMarkerContent, groupSelectMode, groupSelectedElements, toggleGroupElement]);
 
   // ─── Renderizar rotas no mapa ─────────────────────────────────────────────────
   const renderRoutes = useCallback(() => {
@@ -247,12 +309,22 @@ export default function InfrastructureMap() {
       });
 
       polyline.addListener("click", () => {
+        if (groupSelectMode) {
+          toggleGroupRoute(r.id);
+          // Atualizar visual da polyline
+          const isSelected = !groupSelectedRoutes.has(r.id);
+          polyline.setOptions({
+            strokeWeight: isSelected ? 6 : 3,
+            strokeColor: isSelected ? "#22d3ee" : (r.color ?? "#22d3ee"),
+          });
+          return;
+        }
         setSidePanel({ kind: "route", route: r });
       });
 
       polylinesRef.current[r.id] = polyline;
     });
-  }, [routes, elements, showRoutes, mapReady]);
+  }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute]);
 
   // Re-renderizar quando dados mudam
   useEffect(() => { renderMarkers(); }, [renderMarkers]);
@@ -598,6 +670,15 @@ export default function InfrastructureMap() {
 
         <div className="ml-auto flex items-center gap-2">
           <Button
+            size="sm"
+            variant={groupSelectMode ? "default" : "outline"}
+            className={`h-7 gap-1 text-xs ${groupSelectMode ? "bg-cyan-600 hover:bg-cyan-700 border-cyan-500" : ""}`}
+            onClick={toggleGroupSelectMode}
+          >
+            <MousePointer2 className="w-3 h-3" />
+            {groupSelectMode ? `Seleção (${groupTotalSelected})` : "Selecionar"}
+          </Button>
+          <Button
             size="sm" variant="outline" className="h-7 gap-1 text-xs"
             onClick={openExportDialog}
           >
@@ -606,6 +687,21 @@ export default function InfrastructureMap() {
           </Button>
         </div>
       </div>
+
+      {/* Banner modo de seleção em grupo */}
+      {groupSelectMode && (
+        <div className="px-4 py-2 bg-cyan-500/10 border-b border-cyan-500/30 text-cyan-400 text-xs flex items-center gap-3">
+          <MousePointer2 className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="flex-1">
+            Modo de seleção ativo — clique nos marcadores (CEO/CTO) ou cabos para selecionar.
+            {groupTotalSelected > 0 && (
+              <span className="font-semibold ml-1">{groupTotalSelected} selecionado{groupTotalSelected !== 1 ? "s" : ""}</span>
+            )}
+          </span>
+          <button onClick={selectAllGroup} className="text-cyan-300 hover:text-cyan-200 underline text-xs">Selecionar tudo</button>
+          <button onClick={clearGroupSelection} className="text-cyan-300 hover:text-cyan-200 underline text-xs">Limpar</button>
+        </div>
+      )}
 
       {/* Instruções de modo */}
       {(addingMode || addingRouteMode) && (
@@ -662,6 +758,55 @@ export default function InfrastructureMap() {
           <div className="absolute top-4 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-xs">
             <span className="text-muted-foreground">{elements.length} elementos · {routes.length} cabos</span>
           </div>
+
+          {/* Painel flutuante de ações em grupo */}
+          {groupSelectMode && groupTotalSelected > 0 && (
+            <div className="absolute top-4 right-4 bg-background/95 backdrop-blur-sm border border-cyan-500/50 rounded-xl shadow-lg p-4 min-w-[220px] z-10">
+              <div className="flex items-center gap-2 mb-3">
+                <Boxes className="w-4 h-4 text-cyan-400" />
+                <span className="font-semibold text-sm">{groupTotalSelected} selecionado{groupTotalSelected !== 1 ? "s" : ""}</span>
+              </div>
+              {groupSelectedElements.size > 0 && (
+                <div className="text-xs text-muted-foreground mb-1">
+                  {groupSelectedElements.size} elemento{groupSelectedElements.size !== 1 ? "s" : ""} (CEO/CTO)
+                </div>
+              )}
+              {groupSelectedRoutes.size > 0 && (
+                <div className="text-xs text-muted-foreground mb-3">
+                  {groupSelectedRoutes.size} cabo{groupSelectedRoutes.size !== 1 ? "s" : ""}
+                </div>
+              )}
+              <div className="space-y-2">
+                <Button
+                  size="sm" variant="outline" className="w-full h-8 gap-2 text-xs"
+                  onClick={() => {
+                    setExportSelectedElements(new Set(groupSelectedElements));
+                    setExportSelectedRoutes(new Set(groupSelectedRoutes));
+                    setExportSelectAll(false);
+                    setExportDialogOpen(true);
+                  }}
+                >
+                  <FileDown className="w-3.5 h-3.5" />
+                  Exportar seleção
+                </Button>
+                {isAdmin && (
+                  <Button
+                    size="sm" variant="destructive" className="w-full h-8 gap-2 text-xs"
+                    onClick={() => setGroupDeleteConfirm(true)}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Remover seleção
+                  </Button>
+                )}
+                <Button
+                  size="sm" variant="ghost" className="w-full h-8 text-xs text-muted-foreground"
+                  onClick={clearGroupSelection}
+                >
+                  Limpar seleção
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Painel lateral */}
@@ -868,6 +1013,43 @@ export default function InfrastructureMap() {
             >
               {exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
               Exportar .{exportFormat.toUpperCase()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de confirmação de exclusão em grupo */}
+      <Dialog open={groupDeleteConfirm} onOpenChange={setGroupDeleteConfirm}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Remover Seleção do Mapa</DialogTitle></DialogHeader>
+          <p className="text-muted-foreground text-sm">
+            Remover {groupSelectedElements.size > 0 && `${groupSelectedElements.size} elemento${groupSelectedElements.size !== 1 ? "s" : ""} (CEO/CTO)`}
+            {groupSelectedElements.size > 0 && groupSelectedRoutes.size > 0 && " e "}
+            {groupSelectedRoutes.size > 0 && `${groupSelectedRoutes.size} cabo${groupSelectedRoutes.size !== 1 ? "s" : ""}`}
+            {" "}do mapa? Os CEOs/CTOs não serão excluídos, apenas suas posições no mapa.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGroupDeleteConfirm(false)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                const elIds = Array.from(groupSelectedElements);
+                const rtIds = Array.from(groupSelectedRoutes);
+                for (const id of elIds) {
+                  await deleteElementMut.mutateAsync({ id });
+                }
+                for (const id of rtIds) {
+                  await deleteRouteMut.mutateAsync({ id });
+                }
+                setGroupDeleteConfirm(false);
+                setGroupSelectedElements(new Set());
+                setGroupSelectedRoutes(new Set());
+                toast.success(`${elIds.length + rtIds.length} item${elIds.length + rtIds.length !== 1 ? "s" : ""} removido${elIds.length + rtIds.length !== 1 ? "s" : ""} do mapa`);
+              }}
+              disabled={deleteElementMut.isPending || deleteRouteMut.isPending}
+            >
+              {(deleteElementMut.isPending || deleteRouteMut.isPending) ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Remover
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -663,3 +663,9 @@
 
 ## Bugs v5.29
 - [x] Backup: falha ao gerar e salvar na nuvem (S3) — corrigido ECONNRESET com pool mysql2 + keepAlive + reconexão automática
+
+## v5.30 — Seleção em Grupo no Mapa
+- [x] Botão de modo de seleção em grupo no toolbar do mapa
+- [x] Seleção múltipla de CTOs, CEOs e cabos com clique
+- [x] Painel de ações em lote (exportar seleção, excluir seleção)
+- [x] Indicação visual dos elementos selecionados (borda cyan nos marcadores, espessura aumentada nos cabos)
