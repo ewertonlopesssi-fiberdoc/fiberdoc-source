@@ -816,3 +816,8 @@
 - [x] Corrigir nome não atualiza sem F5 após adicionar CEO/CTO no mapa
 - [x] Corrigir mapa em branco após recarregar a página (F5)
 - [x] Gerar pacote de deployment v5.40.1
+
+## v5.40.2 — Correção definitiva INSERT cto_tubes
+
+- [x] Corrigir createCtoTube no db.ts para converter string vazia em null antes do INSERT
+- [x] Gerar pacote de deployment v5.40.2
