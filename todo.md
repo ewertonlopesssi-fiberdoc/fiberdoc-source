@@ -764,3 +764,21 @@
 - [x] Botão "Editar" no painel lateral ao clicar em CTO (abre diálogo de edição inline)
 - [x] Botão "Editar" no painel lateral ao clicar em cabo (abre diálogo de edição inline)
 - [x] Gerar pacote de deployment v5.37
+
+## v5.38 — Detalhes de Tubos e Vias no Painel Lateral do Mapa
+
+- [x] Buscar tubos e vias do CEO/CTO ao clicar no elemento no mapa
+- [x] Exibir lista de tubos com barra de ocupação (vias fusionadas/total) abaixo do botão Editar
+- [x] Expandir tubo para ver lista de vias com status (fusionada/livre) e etiqueta
+- [x] Indicador visual de cor do tubo (padrão fibra óptica)
+- [x] Gerar pacote de deployment v5.38
+
+## v5.38 — Relatório de Fusões da CTO (Imprimível)
+
+- [x] Criar CtoFusionPrint.tsx com layout imprimível (igual ao CeoFusionPrint)
+- [x] Cabeçalho com nome da CTO, capacidade, data e localização
+- [x] Tabela por tubo/splitter com colunas: Via, Etiqueta, Fusão, Observações
+- [x] Layout espelhado: pares de tubos lado a lado com setas bidirecionais
+- [x] Diálogo de filtro antes de imprimir (selecionar quais tubos incluir)
+- [x] Badge colorido com a cor do tubo no cabeçalho de cada seção
+- [x] Botão "Imprimir Mapa de Fusões" na página de detalhes da CTO

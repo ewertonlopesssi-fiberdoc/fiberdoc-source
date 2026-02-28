@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -634,6 +635,8 @@ export default function CtoDetail() {
     identifier: "", type: "tube" as "tube" | "splitter",
     totalVias: "8", color: "", notes: "",
   });
+  const [printFilterOpen, setPrintFilterOpen] = useState(false);
+  const [selectedTubeIds, setSelectedTubeIds] = useState<Set<number>>(new Set());
 
   const { isAdmin } = useRole();
   const utils = trpc.useUtils();
@@ -672,6 +675,181 @@ export default function CtoDetail() {
 
   function resetTubeForm() {
     setTubeForm({ identifier: "", type: "tube", totalVias: "8", color: "", notes: "" });
+  }
+
+  function handleOpenPrintFilter() {
+    setSelectedTubeIds(new Set((tubes as Tube[]).map(t => t.id)));
+    setPrintFilterOpen(true);
+  }
+
+  function handlePrint(tubesToPrint?: Tube[]) {
+    const tubeList2 = tubesToPrint ?? (tubes as Tube[]);
+    const viaById2: Record<number, any> = {};
+    for (const v of allVias as any[]) viaById2[v.id] = v;
+    const tubeById2: Record<number, any> = {};
+    for (const t of tubeList2) tubeById2[t.id] = t;
+    const viasByTube2: Record<number, any[]> = {};
+    for (const v of allVias as any[]) {
+      if (!viasByTube2[v.tubeId]) viasByTube2[v.tubeId] = [];
+      viasByTube2[v.tubeId].push(v);
+    }
+    for (const k of Object.keys(viasByTube2)) {
+      viasByTube2[Number(k)].sort((a: any, b: any) => a.viaNumber - b.viaNumber);
+    }
+    const totalViasP = tubeList2.reduce((s: number, t: Tube) => s + t.totalVias, 0);
+    const fusedViasP = (allVias as any[]).filter((v: any) =>
+      v.fusedToViaId !== null && tubeList2.some((t: Tube) => t.id === v.tubeId)
+    ).length;
+    const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+    const PRINT_VIA_COLORS: Record<number, { bg: string; text: string; border: string }> = {
+      1:  { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
+      2:  { bg: "#fef9c3", text: "#854d0e", border: "#fde047" },
+      3:  { bg: "#f9fafb", text: "#374151", border: "#d1d5db" },
+      4:  { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
+      5:  { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" },
+      6:  { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
+      7:  { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" },
+      8:  { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" },
+      9:  { bg: "#1f2937", text: "#f9fafb", border: "#374151" },
+      10: { bg: "#f3f4f6", text: "#374151", border: "#9ca3af" },
+      11: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" },
+      12: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
+    };
+
+    function escHtml(s: string | null | undefined) {
+      return (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function getColorBadge(colorName: string | null): string {
+      if (!colorName) return "";
+      const map: Record<string, { bg: string; text: string; border: string }> = {
+        azul: { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
+        verde: { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
+        amarelo: { bg: "#fef9c3", text: "#854d0e", border: "#fde047" },
+        vermelho: { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" },
+        laranja: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" },
+        roxo: { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
+        rosa: { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" },
+        branco: { bg: "#f9fafb", text: "#374151", border: "#d1d5db" },
+        preto: { bg: "#1f2937", text: "#f9fafb", border: "#374151" },
+        cinza: { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" },
+        marrom: { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" },
+        ciano: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
+      };
+      const key = colorName.toLowerCase().trim();
+      const style = map[key] ?? { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" };
+      return "<span style='background:" + style.bg + ";color:" + style.text + ";border:1px solid " + style.border + ";padding:1px 6px;border-radius:3px;font-size:7pt;font-weight:700;margin-left:6mm'>" + colorName.toUpperCase() + "</span>";
+    }
+
+    function renderSoloHtml(tube: any): string {
+      const vias = viasByTube2[tube.id] ?? [];
+      const fused = vias.filter((v: any) => v.fusedToViaId !== null).length;
+      const colorBadge = getColorBadge(tube.color);
+      return `
+        <div class="tube-section">
+          <div class="tube-title${tube.type === "splitter" ? " splitter-title" : ""}">
+            ${tube.type === "splitter" ? "SPLITTER" : "TUBO"} &mdash; ${escHtml(tube.identifier)}
+            ${colorBadge}
+            <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${tube.totalVias} vias &middot; ${fused} fusionada${fused !== 1 ? "s" : ""}</span>
+          </div>
+          <table><thead><tr>
+            <th style="width:8%">VIA</th><th style="width:20%">ETIQUETA</th>
+            <th style="width:12%">STATUS</th><th style="width:35%">IDENT. FUS&Atilde;O</th><th>OBSERVA&Ccedil;&Otilde;ES</th>
+          </tr></thead><tbody>
+          ${vias.map((via: any, idx: number) => {
+            const fusedTube2 = via.fusedToTubeId ? tubeById2[via.fusedToTubeId] : null;
+            const fusedVia2 = via.fusedToViaId ? viaById2[via.fusedToViaId] : null;
+            const isFused = !!(fusedTube2 && fusedVia2);
+            const bg = idx % 2 === 0 ? "#fff" : "#f8f9fa";
+            const labelCell = via.label ? "<b>" + escHtml(via.label) + "</b>" : "<span style='color:#9ca3af;font-style:italic'>&mdash;</span>";
+            const statusCell = isFused
+              ? "<span style='background:#d1fae5;color:#059669;padding:1px 5px;border-radius:3px;font-size:7pt;font-weight:700'>FUSIONADA</span>"
+              : "<span style='background:#f3f4f6;color:#9ca3af;padding:1px 5px;border-radius:3px;font-size:7pt'>LIVRE</span>";
+            const fusionColor = isFused ? "#059669" : "#9ca3af";
+            const fusionText = isFused
+              ? "VIA " + fusedVia2!.viaNumber + " do " + escHtml(fusedTube2!.identifier) + (fusedVia2!.label ? " (" + escHtml(fusedVia2!.label) + ")" : "")
+              : "&mdash;";
+            const vc = PRINT_VIA_COLORS[via.viaNumber];
+            const viaCell = vc
+              ? "<span style='background:" + vc.bg + ";color:" + vc.text + ";border:1px solid " + vc.border + ";padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700'>" + via.viaNumber + "</span>"
+              : "<b>" + via.viaNumber + "</b>";
+            return "<tr style='background:" + bg + "'>" +
+              "<td style='text-align:center'>" + viaCell + "</td>" +
+              "<td>" + labelCell + "</td>" +
+              "<td style='text-align:center'>" + statusCell + "</td>" +
+              "<td style='color:" + fusionColor + "'>" + fusionText + "</td>" +
+              "<td style='font-size:8pt;color:#6b7280'>" + escHtml(via.notes) + "</td>" +
+              "</tr>";
+          }).join("")}
+          </tbody></table>
+        </div>`;
+    }
+
+    const allContent = tubeList2.map((t: any) => renderSoloHtml(t)).join("");
+    const ctoName = escHtml(cto?.name);
+    const ctoAddr = cto?.address ? "<div style='font-size:9pt;color:#6b7280;margin-top:1mm'>" + escHtml(cto.address) + "</div>" : "";
+    const statusColor = cto?.status === "active" ? "#059669" : "#d97706";
+    const statusLabel = cto?.status === "active" ? "Ativo" : cto?.status === "maintenance" ? "Manuten&ccedil;&atilde;o" : "Inativo";
+    const statsHtml = [
+      { l: "Tubos", v: tubeList2.filter(t => t.type === "tube").length },
+      { l: "Splitters", v: tubeList2.filter(t => t.type === "splitter").length },
+      { l: "Total de Vias", v: totalViasP },
+      { l: "Vias Fusionadas", v: fusedViasP },
+      { l: "Vias Livres", v: totalViasP - fusedViasP },
+      { l: "Ocupa&ccedil;&atilde;o", v: totalViasP > 0 ? Math.round((fusedViasP / totalViasP) * 100) + "%" : "0%" },
+    ].map(s => "<div class='stat'><div class='stat-val'>" + s.v + "</div><div class='stat-lbl'>" + s.l + "</div></div>").join("");
+
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head>
+      <meta charset="UTF-8">
+      <title>Mapa de Fus&otilde;es &mdash; CTO ${ctoName}</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; font-size: 10pt; color: #111; background: white; padding: 14mm 16mm; }
+        h1 { font-size: 16pt; font-weight: 800; color: #1a1a2e; margin-bottom: 2mm; }
+        h2 { font-size: 14pt; font-weight: 700; color: #059669; margin-bottom: 1mm; }
+        .header { border-bottom: 2px solid #1a1a2e; padding-bottom: 6mm; margin-bottom: 6mm; display: flex; justify-content: space-between; align-items: flex-start; }
+        .header-right { text-align: right; font-size: 8pt; color: #6b7280; }
+        .stats { display: flex; gap: 6mm; margin-bottom: 6mm; flex-wrap: wrap; }
+        .stat { border: 1px solid #ddd; padding: 3mm 5mm; text-align: center; min-width: 22mm; }
+        .stat-val { font-size: 14pt; font-weight: 700; color: #1a1a2e; }
+        .stat-lbl { font-size: 7pt; color: #6b7280; text-transform: uppercase; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 6mm; font-size: 9pt; }
+        th { background: #1a1a2e; color: white; padding: 4px 8px; text-align: left; font-size: 8pt; text-transform: uppercase; border: 1px solid #333; }
+        td { padding: 4px 8px; border: 1px solid #ddd; vertical-align: middle; }
+        .tube-section { margin-bottom: 8mm; page-break-inside: avoid; }
+        .tube-title { font-size: 10pt; font-weight: 700; margin-bottom: 2mm; padding: 3px 8px; background: #d1fae5; border-left: 4px solid #059669; }
+        .splitter-title { background: #f3e8ff; border-left-color: #7c3aed; }
+        .footer { border-top: 1px solid #ddd; padding-top: 4mm; margin-top: 6mm; font-size: 7pt; color: #6b7280; display: flex; justify-content: space-between; }
+        @media print { body { padding: 0; } @page { size: A4 portrait; margin: 14mm 16mm; } }
+      </style>
+    </head><body>
+      <div class="header">
+        <div>
+          <h1>MAPA DE FUS&Otilde;ES &mdash; CTO</h1>
+          <h2>${ctoName}</h2>
+          ${ctoAddr}
+        </div>
+        <div class="header-right">
+          <div style="font-weight:700;font-size:9pt;color:#1a1a2e;margin-bottom:1mm">FiberDoc</div>
+          <div>Gerado em: ${now}</div>
+          <div style="margin-top:1mm">Status: <b style="color:${statusColor}">${statusLabel}</b></div>
+        </div>
+      </div>
+      <div class="stats">${statsHtml}</div>
+      ${allContent}
+      <div class="footer">
+        <span>FiberDoc &mdash; Sistema de Gest&atilde;o de Infraestrutura de Rede &Oacute;ptica</span>
+        <span>${ctoName} &middot; ${now}</span>
+      </div>
+    </body></html>`;
+
+    const win = window.open("", "_blank", "width=900,height=700");
+    if (!win) { toast.error("Popup bloqueado pelo navegador. Permita popups para este site."); return; }
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); }, 500);
   }
 
   function openEditTube(tube: Tube) {
@@ -748,6 +926,12 @@ export default function CtoDetail() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {tubeList.length > 0 && (
+            <Button variant="outline" onClick={handleOpenPrintFilter} className="gap-2">
+              <Printer className="h-4 w-4" />
+              Mapa de Fusões
+            </Button>
+          )}
           {isAdmin && (
             <Button
               onClick={() => { setEditTube(null); resetTubeForm(); setTubeDialog(true); }}
@@ -925,6 +1109,65 @@ export default function CtoDetail() {
               disabled={deleteTubeMutation.isPending}
             >
               {deleteTubeMutation.isPending ? "Removendo..." : "Remover"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de Filtro de Impressão */}
+      <Dialog open={printFilterOpen} onOpenChange={setPrintFilterOpen}>
+        <DialogContent className="bg-card border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Printer className="h-4 w-4" /> Selecionar Tubos para Imprimir
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="flex items-center gap-4 text-sm">
+              <button className="text-primary hover:underline" onClick={() => setSelectedTubeIds(new Set(tubeList.map(t => t.id)))}>Todos</button>
+              <span className="text-muted-foreground">/</span>
+              <button className="text-muted-foreground hover:underline" onClick={() => setSelectedTubeIds(new Set())}>Nenhum</button>
+              <span className="ml-auto text-muted-foreground text-xs">{selectedTubeIds.size} selecionado{selectedTubeIds.size !== 1 ? "s" : ""}</span>
+            </div>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {tubeList.map(tube => {
+                const viaCount = (allVias as Via[]).filter(v => v.tubeId === tube.id).length;
+                const fusedCount2 = (allVias as Via[]).filter(v => v.tubeId === tube.id && v.fusedToViaId !== null).length;
+                return (
+                  <div key={tube.id} className="flex items-center gap-3 p-2 rounded-lg border border-border/50 hover:bg-accent/30 cursor-pointer" onClick={() => {
+                    const next = new Set(selectedTubeIds);
+                    if (next.has(tube.id)) next.delete(tube.id); else next.add(tube.id);
+                    setSelectedTubeIds(next);
+                  }}>
+                    <Checkbox checked={selectedTubeIds.has(tube.id)} onCheckedChange={() => {}} className="pointer-events-none" />
+                    <div className={cn("h-7 w-7 rounded flex items-center justify-center text-xs", tube.type === "splitter" ? "bg-violet-500/10 text-violet-400" : "bg-emerald-500/10 text-emerald-400")}>
+                      {tube.type === "splitter" ? "⊕" : "○"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{tube.identifier}</div>
+                      <div className="text-xs text-muted-foreground">{fusedCount2}/{viaCount} vias fusionadas</div>
+                    </div>
+                    {tube.color && (
+                      <Badge variant="outline" className="text-xs shrink-0">{tube.color}</Badge>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPrintFilterOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={selectedTubeIds.size === 0}
+              onClick={() => {
+                const filtered = tubeList.filter(t => selectedTubeIds.has(t.id));
+                setPrintFilterOpen(false);
+                handlePrint(filtered);
+              }}
+              className="gap-2"
+            >
+              <Printer className="h-4 w-4" />
+              Imprimir ({selectedTubeIds.size} tubo{selectedTubeIds.size !== 1 ? "s" : ""})
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -262,6 +262,26 @@ export default function InfrastructureMap() {
     { ctoName: sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? (sidePanel.element.name ?? "") : "" },
     { enabled: sidePanel?.kind === "element" && sidePanel.element.type === "cto" && !!sidePanel.element.name }
   );
+  // Queries de tubos/vias para o painel lateral
+  const sidePanelRefId = sidePanel?.kind === "element" ? sidePanel.element.referenceId : 0;
+  const sidePanelType = sidePanel?.kind === "element" ? sidePanel.element.type : null;
+  const [expandedTubeIds, setExpandedTubeIds] = useState<Set<number>>(new Set());
+  const ctoTubesQuery = trpc.ctoTubes.byCto.useQuery(
+    { ctoId: sidePanelRefId },
+    { enabled: sidePanelType === "cto" && sidePanelRefId > 0 }
+  );
+  const ctoViasQuery = trpc.ctoVias.byCto.useQuery(
+    { ctoId: sidePanelRefId },
+    { enabled: sidePanelType === "cto" && sidePanelRefId > 0 }
+  );
+  const ceoTubesQuery = trpc.ceoTubes.byCeo.useQuery(
+    { ceoId: sidePanelRefId },
+    { enabled: sidePanelType === "ceo" && sidePanelRefId > 0 }
+  );
+  const ceoViasQuery = trpc.ceoVias.byCeo.useQuery(
+    { ceoId: sidePanelRefId },
+    { enabled: sidePanelType === "ceo" && sidePanelRefId > 0 }
+  );
 
   // Inicializar mapa Leaflet
   useEffect(() => {
@@ -673,6 +693,78 @@ export default function InfrastructureMap() {
             setEditElementDialogOpen(true);
           }}><span className="text-xs">✏️</span> Editar {isCto ? "CTO" : "CEO"}</Button>
         )}
+        {/* Painel de Tubos e Vias */}
+        {(() => {
+          const tubes = (isCto ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
+          const allVias = (isCto ? ctoViasQuery.data : ceoViasQuery.data) as any[] | undefined;
+          const isLoadingTubes = isCto ? ctoTubesQuery.isLoading : ceoTubesQuery.isLoading;
+          if (isLoadingTubes) return (
+            <div className="border-t border-border pt-2">
+              <div className="text-xs text-muted-foreground mb-1.5 font-medium flex items-center gap-1">
+                <Layers className="w-3 h-3" /> Tubos e Vias
+              </div>
+              <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Loader2 className="w-3 h-3 animate-spin" /> Carregando...
+              </div>
+            </div>
+          );
+          if (!tubes || tubes.length === 0) return null;
+          return (
+            <div className="border-t border-border pt-2">
+              <div className="text-xs text-muted-foreground mb-2 font-medium flex items-center gap-1">
+                <Layers className="w-3 h-3" /> Tubos e Vias
+                <span className="ml-auto text-muted-foreground/60">{tubes.length} tubo{tubes.length !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="space-y-1">
+                {tubes.map((tube: any) => {
+                  const tubVias = (allVias ?? []).filter((v: any) => v.tubeId === tube.id);
+                  const fusedCount = tubVias.filter((v: any) => v.fusedToViaId !== null).length;
+                  const total = tube.totalVias;
+                  const pct = total > 0 ? Math.round((fusedCount / total) * 100) : 0;
+                  const isExpanded = expandedTubeIds.has(tube.id);
+                  const barColor = pct >= 90 ? "#ef4444" : pct >= 60 ? "#f59e0b" : "#22c55e";
+                  return (
+                    <div key={tube.id} className="rounded border border-border/40 overflow-hidden">
+                      <button
+                        className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-accent/30 text-left"
+                        onClick={() => {
+                          const next = new Set(expandedTubeIds);
+                          if (next.has(tube.id)) next.delete(tube.id); else next.add(tube.id);
+                          setExpandedTubeIds(next);
+                        }}
+                      >
+                        <span className="text-xs text-muted-foreground">{isExpanded ? "▾" : "▸"}</span>
+                        <span className="text-xs font-medium flex-1 truncate">{tube.type === "splitter" ? "⊕" : "○"} {tube.identifier}</span>
+                        <span className="text-xs text-muted-foreground shrink-0">{fusedCount}/{total}</span>
+                      </button>
+                      {/* Barra de ocupação */}
+                      <div className="h-1 bg-muted/30 mx-2 mb-1.5 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: barColor }} />
+                      </div>
+                      {/* Lista de vias expandida */}
+                      {isExpanded && tubVias.length > 0 && (
+                        <div className="px-2 pb-1.5 space-y-0.5 max-h-40 overflow-y-auto">
+                          {tubVias.sort((a: any, b: any) => a.viaNumber - b.viaNumber).map((via: any) => {
+                            const isFused = via.fusedToViaId !== null;
+                            return (
+                              <div key={via.id} className="flex items-center gap-1.5 text-xs py-0.5">
+                                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isFused ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
+                                <span className="text-muted-foreground w-5 shrink-0">{via.viaNumber}</span>
+                                {via.label
+                                  ? <span className="truncate font-medium">{via.label}</span>
+                                  : <span className="text-muted-foreground/50 italic">livre</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
         {/* Seletor de Grupo */}
         <div className="border-t border-border pt-2">
           <div className="text-xs text-muted-foreground mb-1.5 font-medium flex items-center gap-1"><Folder className="w-3 h-3" /> Grupo</div>
