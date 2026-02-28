@@ -30,6 +30,9 @@ import IpReports from "./pages/IpReports";
 import PowerSources from "./pages/PowerSources";
 import Alerts from "./pages/Alerts";
 import TuyaDevices from "./pages/TuyaDevices";
+import Ctos from "./pages/Ctos";
+import InfrastructureMap from "./pages/InfrastructureMap";
+import SgpConfig from "./pages/SgpConfig";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
@@ -86,6 +89,9 @@ function Router() {
         <Route path={"/fontes-energia"} component={PowerSources} />
         <Route path={"/alertas"} component={Alerts} />
         <Route path={"/sensores-tuya"} component={TuyaDevices} />
+        <Route path={"/cto"} component={Ctos} />
+        <Route path={"/mapa"} component={InfrastructureMap} />
+        <Route path={"/sgp"} component={SgpConfig} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

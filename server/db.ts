@@ -46,6 +46,9 @@ import {
   snmpReadings,
   SnmpReading,
   InsertSnmpReading,
+  racks,
+  Rack,
+  InsertRack,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1831,4 +1834,137 @@ export async function getSnmpReadings(
     )
     .orderBy(snmpReadings.collectedAt)
     .limit(500);
+}
+
+// ─── Racks ────────────────────────────────────────────────────────────────────
+export async function getRacks(roomId?: number): Promise<Rack[]> {
+  const db = await getDb();
+  if (!db) return [];
+  if (roomId !== undefined) {
+    return db.select().from(racks).where(eq(racks.roomId, roomId)).orderBy(racks.name);
+  }
+  return db.select().from(racks).orderBy(racks.name);
+}
+
+export async function getRackById(id: number): Promise<Rack | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(racks).where(eq(racks.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createRack(data: Omit<InsertRack, "id" | "createdAt" | "updatedAt">): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(racks).values(data);
+  return (result[0] as any).insertId;
+}
+
+export async function updateRack(id: number, data: Partial<Omit<InsertRack, "id" | "createdAt" | "updatedAt">>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(racks).set(data).where(eq(racks.id, id));
+}
+
+export async function deleteRack(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(racks).where(eq(racks.id, id));
+}
+
+// ─── CTOs ─────────────────────────────────────────────────────────────────────
+import { ctos, Cto, InsertCto, mapElements, MapElement, InsertMapElement, mapRoutes, MapRoute, InsertMapRoute, sgpConfig, SgpConfig, InsertSgpConfig } from "../drizzle/schema";
+
+export async function getCtos(): Promise<Cto[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ctos).orderBy(ctos.name);
+}
+export async function getCtoById(id: number): Promise<Cto | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(ctos).where(eq(ctos.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+export async function createCto(data: Omit<InsertCto, "id" | "createdAt" | "updatedAt">): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(ctos).values(data);
+  return (result[0] as any).insertId;
+}
+export async function updateCto(id: number, data: Partial<Omit<InsertCto, "id" | "createdAt" | "updatedAt">>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(ctos).set(data).where(eq(ctos.id, id));
+}
+export async function deleteCto(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(ctos).where(eq(ctos.id, id));
+}
+
+// ─── Map Elements ─────────────────────────────────────────────────────────────
+export async function getMapElements(): Promise<MapElement[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapElements);
+}
+export async function upsertMapElement(type: string, referenceId: number, lat: number, lng: number): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db.select().from(mapElements)
+    .where(eq(mapElements.referenceId, referenceId))
+    .limit(1);
+  if (existing.length > 0) {
+    await db.update(mapElements).set({ lat, lng }).where(eq(mapElements.id, existing[0].id));
+    return existing[0].id;
+  }
+  const result = await db.insert(mapElements).values({ type, referenceId, lat, lng });
+  return (result[0] as any).insertId;
+}
+export async function deleteMapElement(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapElements).where(eq(mapElements.id, id));
+}
+
+// ─── Map Routes ───────────────────────────────────────────────────────────────
+export async function getMapRoutes(): Promise<MapRoute[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapRoutes).orderBy(mapRoutes.id);
+}
+export async function createMapRoute(data: Omit<InsertMapRoute, "id" | "createdAt" | "updatedAt">): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(mapRoutes).values(data);
+  return (result[0] as any).insertId;
+}
+export async function updateMapRoute(id: number, data: Partial<Omit<InsertMapRoute, "id" | "createdAt" | "updatedAt">>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(mapRoutes).set(data).where(eq(mapRoutes.id, id));
+}
+export async function deleteMapRoute(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapRoutes).where(eq(mapRoutes.id, id));
+}
+
+// ─── SGP Config ───────────────────────────────────────────────────────────────
+export async function getSgpConfig(): Promise<SgpConfig | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(sgpConfig).limit(1);
+  return rows[0] ?? null;
+}
+export async function saveSgpConfig(data: { baseUrl: string; token: string; app: string; active: boolean }): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(sgpConfig).limit(1);
+  if (existing.length > 0) {
+    await db.update(sgpConfig).set(data).where(eq(sgpConfig.id, existing[0].id));
+  } else {
+    await db.insert(sgpConfig).values(data);
+  }
 }

@@ -34,10 +34,13 @@ import {
   History,
   LayoutDashboard,
   LogOut,
+  Map,
   Network,
   PanelLeft,
+  Radio,
   Server,
   Settings,
+  Settings2,
   Upload,
   Users as UsersIcon,
   Wifi,
@@ -72,6 +75,8 @@ const publicMenuItems = [
   { icon: Globe, label: "IP DOC", path: "/ip-doc" },
   { icon: Network, label: "Topologia", path: "/topologia" },
   { icon: Box, label: "CEO", path: "/ceo" },
+  { icon: Radio, label: "CTO", path: "/cto" },
+  { icon: Map, label: "Mapa de Infraestrutura", path: "/mapa" },
   { icon: Cable, label: "Fibras Ópticas", path: "/fibras" },
   { icon: CircuitBoard, label: "Portas", path: "/portas" },
   { icon: GitBranch, label: "Conexões", path: "/conexoes" },
@@ -81,6 +86,7 @@ const publicMenuItems = [
   { icon: Zap, label: "Fontes de Energia", path: "/fontes-energia" },
   { icon: Bell, label: "Alertas", path: "/alertas" },
   { icon: Cpu, label: "Sensores Tuya", path: "/sensores-tuya" },
+  { icon: Settings2, label: "SGP Config", path: "/sgp" },
 ];
 
 const adminOnlyMenuItems = [
@@ -302,7 +308,7 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
-        <main className="flex-1 p-6 min-h-screen">{children}</main>
+        <main className="flex-1 min-h-screen overflow-auto p-6">{children}</main>
       </SidebarInset>
     </>
   );

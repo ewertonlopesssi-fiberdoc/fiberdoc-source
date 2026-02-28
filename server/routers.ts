@@ -92,7 +92,13 @@ import {
   getTuyaReadingsByDevice, getLatestTuyaReadings,
 } from "./db";
 import { pollSingleTuyaDevice, testTuyaConnection, scheduleTuyaDevice, unscheduleTuyaDevice } from "./tuyaPoller";
-
+import {
+  getCtos, getCtoById, createCto, updateCto, deleteCto,
+  getMapElements, upsertMapElement, deleteMapElement,
+  getMapRoutes, createMapRoute, updateMapRoute, deleteMapRoute,
+  getSgpConfig, saveSgpConfig,
+} from "./db";
+import { getRacks, getRackById, createRack, updateRack, deleteRack } from "./db";
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
 const equipmentStatusEnum = z.enum(["active", "inactive", "maintenance"]);
@@ -1712,6 +1718,242 @@ export const appRouter = router({
     testConnection: adminProcedure
       .input(z.object({ accessId: z.string(), accessSecret: z.string(), region: z.enum(["us", "eu", "cn", "in"]) }))
       .mutation(({ input }) => testTuyaConnection(input)),
+  }),
+  // ─── CTOs ────────────────────────────────────────────────────────────────────
+  ctos: router({
+    list: protectedProcedure.query(() => getCtos()),
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => getCtoById(input.id)),
+    create: adminProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        address: z.string().optional(),
+        capacity: z.number().int().min(1).default(8),
+        usedPorts: z.number().int().min(0).default(0),
+        status: z.enum(["active", "maintenance", "inactive"]).default("active"),
+        lat: z.number().optional(),
+        lng: z.number().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createCto(input);
+        return { id };
+      }),
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(1).optional(),
+        address: z.string().optional(),
+        capacity: z.number().int().min(1).optional(),
+        usedPorts: z.number().int().min(0).optional(),
+        status: z.enum(["active", "maintenance", "inactive"]).optional(),
+        lat: z.number().optional(),
+        lng: z.number().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateCto(id, data);
+        return { ok: true };
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteCto(input.id);
+        return { ok: true };
+      }),
+  }),
+  // ─── Mapa de Infraestrutura ───────────────────────────────────────────────────
+  infraMap: router({
+    elements: protectedProcedure.query(() => getMapElements()),
+    routes: protectedProcedure.query(() => getMapRoutes()),
+    upsertElement: adminProcedure
+      .input(z.object({
+        type: z.enum(["ceo", "cto"]),
+        referenceId: z.number(),
+        lat: z.number(),
+        lng: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await upsertMapElement(input.type, input.referenceId, input.lat, input.lng);
+        return { id };
+      }),
+    deleteElement: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteMapElement(input.id);
+        return { ok: true };
+      }),
+    createRoute: adminProcedure
+      .input(z.object({
+        name: z.string().optional(),
+        fromElementId: z.number(),
+        toElementId: z.number(),
+        fiberCount: z.number().int().min(1).default(12),
+        cableType: z.string().default("FO"),
+        color: z.string().default("#22d3ee"),
+        path: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createMapRoute(input);
+        return { id };
+      }),
+    updateRoute: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        fiberCount: z.number().int().min(1).optional(),
+        cableType: z.string().optional(),
+        color: z.string().optional(),
+        path: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateMapRoute(id, data);
+        return { ok: true };
+      }),
+    deleteRoute: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteMapRoute(input.id);
+        return { ok: true };
+      }),
+    exportKml: protectedProcedure
+      .input(z.object({ format: z.enum(["kml", "kmz"]).default("kml") }))
+      .query(async ({ input }) => {
+        const [elements, routes, allCtos, allCeos] = await Promise.all([
+          getMapElements(),
+          getMapRoutes(),
+          getCtos(),
+          import("./db").then(m => m.getCeos()),
+        ]);
+        const ctoMap = new Map(allCtos.map((c: any) => [c.id, c]));
+        const ceoMap = new Map((allCeos as any[]).map((c: any) => [c.id, c]));
+        const placemarks = elements.map((el: any) => {
+          const isCtO = el.type === "cto";
+          const ref = isCtO ? ctoMap.get(el.referenceId) : ceoMap.get(el.referenceId);
+          const name = ref?.name ?? (isCtO ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`);
+          const status = ref?.status ?? "active";
+          const iconColor = status === "active" ? "ff00ff00" : status === "maintenance" ? "ff00ffff" : "ff0000ff";
+          return `  <Placemark>
+    <name>${name}</name>
+    <description>${isCtO ? `CTO — Capacidade: ${ref?.capacity ?? 0} portas, Usadas: ${ref?.usedPorts ?? 0}` : "CEO"}</description>
+    <Style><IconStyle><color>${iconColor}</color><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/${isCtO ? "square" : "donut"}.png</href></Icon></IconStyle></Style>
+    <Point><coordinates>${el.lng},${el.lat},0</coordinates></Point>
+  </Placemark>`;
+        }).join("\n");
+        const linemarks = routes.map((r: any) => {
+          const fromEl = elements.find((e: any) => e.id === r.fromElementId);
+          const toEl = elements.find((e: any) => e.id === r.toElementId);
+          if (!fromEl || !toEl) return "";
+          let coords = `${fromEl.lng},${fromEl.lat},0`;
+          if (r.path) {
+            try {
+              const pts = JSON.parse(r.path) as { lat: number; lng: number }[];
+              coords += " " + pts.map(p => `${p.lng},${p.lat},0`).join(" ");
+            } catch {}
+          }
+          coords += ` ${toEl.lng},${toEl.lat},0`;
+          const color = (r.color ?? "#22d3ee").replace("#", "ff");
+          return `  <Placemark>
+    <name>${r.name ?? `Cabo ${r.id}`}</name>
+    <description>${r.cableType ?? "FO"} — ${r.fiberCount ?? 12} fibras${r.notes ? " — " + r.notes : ""}</description>
+    <Style><LineStyle><color>${color}</color><width>3</width></LineStyle></Style>
+    <LineString><tessellate>1</tessellate><coordinates>${coords}</coordinates></LineString>
+  </Placemark>`;
+        }).filter(Boolean).join("\n");
+        const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>FiberDoc — Infraestrutura de Rede</name>
+  <description>Exportado em ${new Date().toLocaleString("pt-BR")}</description>
+  <Folder><name>Equipamentos</name>
+${placemarks}
+  </Folder>
+  <Folder><name>Cabos</name>
+${linemarks}
+  </Folder>
+</Document>
+</kml>`;
+        return { kml, format: input.format };
+      }),
+  }),
+  // ─── SGP Config ───────────────────────────────────────────────────────────────
+  sgp: router({
+    config: protectedProcedure.query(() => getSgpConfig()),
+    saveConfig: adminProcedure
+      .input(z.object({
+        baseUrl: z.string().url(),
+        token: z.string().min(1),
+        app: z.string().min(1),
+        active: z.boolean().default(true),
+      }))
+      .mutation(async ({ input }) => {
+        await saveSgpConfig(input);
+        return { ok: true };
+      }),
+    queryClientsByCto: protectedProcedure
+      .input(z.object({ ctoName: z.string() }))
+      .query(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { clients: [], error: "SGP não configurado" };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const res = await fetch(`${base}/api/cliente/listar`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ token: cfg.token, app: cfg.app, cto: input.ctoName }).toString(),
+            signal: AbortSignal.timeout(8000),
+          });
+          const json = await res.json() as any;
+          const clients = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+          return { clients, error: null };
+        } catch (e: any) {
+          return { clients: [], error: e.message ?? "Erro ao consultar SGP" };
+        }
+      }),
+  }),
+  // ─── Racks ────────────────────────────────────────────────────────────────────
+  racks: router({
+    list: protectedProcedure
+      .input(z.object({ roomId: z.number().optional() }))
+      .query(({ input }) => getRacks(input.roomId)),
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => getRackById(input.id)),
+    create: adminProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        roomId: z.number().int(),
+        totalU: z.number().int().min(1).default(44),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createRack(input);
+        return { id };
+      }),
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(1).optional(),
+        roomId: z.number().int().optional(),
+        totalU: z.number().int().min(1).optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateRack(id, data);
+        return { ok: true };
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteRack(input.id);
+        return { ok: true };
+      }),
   }),
 });
 export type AppRouter = typeof appRouter;

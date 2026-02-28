@@ -6,6 +6,7 @@ import {
   timestamp,
   varchar,
   float,
+  double,
   boolean,
 } from "drizzle-orm/mysql-core";
 
@@ -562,3 +563,74 @@ export const snmpReadings = mysqlTable("snmp_readings", {
 });
 export type SnmpReading = typeof snmpReadings.$inferSelect;
 export type InsertSnmpReading = typeof snmpReadings.$inferInsert;
+
+// ─── Racks por Sala ───────────────────────────────────────────────────────────
+export const racks = mysqlTable("racks", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 64 }).notNull(),                    // Ex: "RACK-01", "RACK-02"
+  roomId: int("roomId").references(() => rooms.id, { onDelete: "cascade" }),
+  totalUnits: int("totalUnits").default(44),                          // Altura total em U
+  description: text("description"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type Rack = typeof racks.$inferSelect;
+export type InsertRack = typeof racks.$inferInsert;
+
+// ─── CTOs (Caixas de Terminação Óptica) ───────────────────────────────────────
+export const ctos = mysqlTable("ctos", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  address: varchar("address", { length: 256 }),
+  capacity: int("capacity").default(8),                               // Total de portas
+  usedPorts: int("usedPorts").default(0),                             // Portas usadas
+  status: varchar("status", { length: 32 }).default("active"),        // active | maintenance | inactive
+  lat: double("lat"),                                                  // Latitude
+  lng: double("lng"),                                                  // Longitude
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type Cto = typeof ctos.$inferSelect;
+export type InsertCto = typeof ctos.$inferInsert;
+
+// ─── Elementos do Mapa (posições de CEOs e CTOs) ──────────────────────────────
+export const mapElements = mysqlTable("map_elements", {
+  id: int("id").autoincrement().primaryKey(),
+  type: varchar("type", { length: 8 }).notNull(),                     // "ceo" | "cto"
+  referenceId: int("referenceId").notNull(),                          // ID do CEO ou CTO
+  lat: double("lat").notNull(),
+  lng: double("lng").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type MapElement = typeof mapElements.$inferSelect;
+export type InsertMapElement = typeof mapElements.$inferInsert;
+
+// ─── Rotas/Cabos do Mapa ──────────────────────────────────────────────────────
+export const mapRoutes = mysqlTable("map_routes", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }),
+  fromElementId: int("fromElementId").notNull(),                      // FK map_elements.id
+  toElementId: int("toElementId").notNull(),                          // FK map_elements.id
+  fiberCount: int("fiberCount").default(12),
+  cableType: varchar("cableType", { length: 64 }).default("FO"),      // FO, Metálico, etc.
+  color: varchar("color", { length: 16 }).default("#22d3ee"),         // Cor da linha no mapa
+  path: text("path"),                                                  // JSON: [{lat, lng}] pontos intermediários
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type MapRoute = typeof mapRoutes.$inferSelect;
+export type InsertMapRoute = typeof mapRoutes.$inferInsert;
+
+// ─── Configuração SGP TSMx ────────────────────────────────────────────────────
+export const sgpConfig = mysqlTable("sgp_config", {
+  id: int("id").autoincrement().primaryKey(),
+  baseUrl: varchar("baseUrl", { length: 256 }).notNull(),             // Ex: https://empresa.tsmx.net.br
+  token: varchar("token", { length: 512 }).notNull(),
+  app: varchar("app", { length: 128 }).notNull(),
+  active: boolean("active").default(true),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type SgpConfig = typeof sgpConfig.$inferSelect;
+export type InsertSgpConfig = typeof sgpConfig.$inferInsert;

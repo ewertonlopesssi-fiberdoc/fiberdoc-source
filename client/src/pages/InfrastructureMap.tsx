@@ -1,0 +1,686 @@
+import { useState, useRef, useCallback, useEffect } from "react";
+import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { MapView } from "@/components/Map";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import {
+  Map, Layers, Download, Plus, X, Eye, EyeOff, Loader2,
+  Radio, Box, Cable, Navigation, Users, ChevronRight, Trash2,
+  ToggleLeft, ToggleRight
+} from "lucide-react";
+
+// ─── Tipos ───────────────────────────────────────────────────────────────────
+type MapElement = {
+  id: number;
+  type: "ceo" | "cto";
+  referenceId: number;
+  lat: number;
+  lng: number;
+  name?: string;
+  status?: string;
+  capacity?: number;
+  usedPorts?: number;
+};
+
+type MapRoute = {
+  id: number;
+  fromElementId: number;
+  toElementId: number;
+  name?: string | null;
+  cableType?: string | null;
+  fiberCount?: number | null;
+  color?: string | null;
+  notes?: string | null;
+  path?: string | null;
+};
+
+type SidePanelContent =
+  | { kind: "element"; element: MapElement }
+  | { kind: "route"; route: MapRoute }
+  | null;
+
+// ─── Cores de status ─────────────────────────────────────────────────────────
+const STATUS_COLOR: Record<string, string> = {
+  active: "#22c55e",
+  maintenance: "#f59e0b",
+  inactive: "#ef4444",
+};
+
+// ─── Componente principal ─────────────────────────────────────────────────────
+export default function InfrastructureMap() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
+  // Dados do servidor
+  const { data: elements = [], refetch: refetchElements } = trpc.infraMap.elements.useQuery();
+  const { data: routes = [], refetch: refetchRoutes } = trpc.infraMap.routes.useQuery();
+  const { data: ctos = [] } = trpc.ctos.list.useQuery();
+  const { data: ceosRaw = [] } = trpc.ceos.list.useQuery({});
+  const ceos = ceosRaw as any[];
+
+  // Mapa
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const markersRef = useRef<Record<number, any>>({});
+  const polylinesRef = useRef<Record<number, any>>({});
+  const [mapReady, setMapReady] = useState(false);
+
+  // UI state
+  const [sidePanel, setSidePanel] = useState<SidePanelContent>(null);
+  const [showCeos, setShowCeos] = useState(true);
+  const [showCtos, setShowCtos] = useState(true);
+  const [showRoutes, setShowRoutes] = useState(true);
+  const [addingMode, setAddingMode] = useState<"ceo" | "cto" | null>(null);
+  const [addingRouteMode, setAddingRouteMode] = useState(false);
+  const [routeFrom, setRouteFrom] = useState<number | null>(null);
+  const [routeDialogOpen, setRouteDialogOpen] = useState(false);
+  const [routeForm, setRouteForm] = useState({
+    name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: ""
+  });
+  const [deleteRouteId, setDeleteRouteId] = useState<number | null>(null);
+  const [deleteElementId, setDeleteElementId] = useState<number | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [sgpLoading, setSgpLoading] = useState(false);
+  const [sgpClients, setSgpClients] = useState<any[]>([]);
+
+  // Mutations
+  const upsertElementMut = trpc.infraMap.upsertElement.useMutation({
+    onSuccess: () => { refetchElements(); toast.success("Posição salva"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteElementMut = trpc.infraMap.deleteElement.useMutation({
+    onSuccess: () => { refetchElements(); setDeleteElementId(null); setSidePanel(null); toast.success("Elemento removido"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const createRouteMut = trpc.infraMap.createRoute.useMutation({
+    onSuccess: () => { refetchRoutes(); setRouteDialogOpen(false); setRouteFrom(null); setAddingRouteMode(false); toast.success("Rota criada"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteRouteMut = trpc.infraMap.deleteRoute.useMutation({
+    onSuccess: () => { refetchRoutes(); setDeleteRouteId(null); setSidePanel(null); toast.success("Rota excluída"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const sgpQuery = trpc.sgp.queryClientsByCto.useQuery(
+    { ctoName: sidePanel?.kind === "element" && sidePanel.element.type === "cto"
+        ? (sidePanel.element.name ?? "") : "" },
+    { enabled: sidePanel?.kind === "element" && sidePanel.element.type === "cto" && !!sidePanel.element.name }
+  );
+
+  // ─── Helpers para criar marcadores ───────────────────────────────────────────
+  const createMarkerContent = useCallback((type: "ceo" | "cto", status: string, name: string) => {
+    const color = STATUS_COLOR[status] ?? "#6b7280";
+    const div = document.createElement("div");
+    div.style.cssText = `
+      display: flex; flex-direction: column; align-items: center; cursor: pointer;
+    `;
+    const icon = document.createElement("div");
+    if (type === "cto") {
+      icon.style.cssText = `
+        width: 28px; height: 28px; background: ${color}; border: 3px solid white;
+        border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        display: flex; align-items: center; justify-content: center;
+      `;
+      icon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>`;
+    } else {
+      icon.style.cssText = `
+        width: 28px; height: 28px; background: ${color}; border: 3px solid white;
+        border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        display: flex; align-items: center; justify-content: center;
+      `;
+      icon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="7"/></svg>`;
+    }
+    const label = document.createElement("div");
+    label.style.cssText = `
+      background: rgba(0,0,0,0.75); color: white; font-size: 10px; font-weight: 600;
+      padding: 1px 4px; border-radius: 3px; margin-top: 2px; white-space: nowrap;
+      max-width: 80px; overflow: hidden; text-overflow: ellipsis;
+    `;
+    label.textContent = name;
+    div.appendChild(icon);
+    div.appendChild(label);
+    return div;
+  }, []);
+
+  // ─── Renderizar marcadores no mapa ────────────────────────────────────────────
+  const renderMarkers = useCallback(() => {
+    if (!mapRef.current || !mapReady) return;
+
+    // Limpar marcadores existentes
+    Object.values(markersRef.current).forEach((m: any) => { m.map = null; });
+    markersRef.current = {};
+
+    elements.forEach((el: any) => {
+      const isCto = el.type === "cto";
+      if (isCto && !showCtos) return;
+      if (!isCto && !showCeos) return;
+
+      const ref = isCto
+        ? (ctos as any[]).find((c: any) => c.id === el.referenceId)
+        : ceos.find((c: any) => c.id === el.referenceId);
+      const name = ref?.name ?? (isCto ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`);
+      const status = ref?.status ?? "active";
+
+      const marker = new google.maps.marker.AdvancedMarkerElement({
+        map: mapRef.current!,
+        position: { lat: Number(el.lat), lng: Number(el.lng) },
+        title: name,
+        content: createMarkerContent(el.type, status, name),
+      });
+
+      const elId = el.id;
+      marker.addListener("click", () => {
+        if (addingRouteMode) {
+          if (routeFrom === null) {
+            setRouteFrom(elId);
+            toast.info(`Ponto de origem: ${name}. Clique no destino.`);
+          } else if (routeFrom !== elId) {
+            setRouteDialogOpen(true);
+            setRouteForm(f => ({ ...f, name: "" }));
+            setDeleteRouteId(elId); // reuso temporário para guardar routeTo
+          }
+        } else {
+          setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts } });
+        }
+      });
+
+      markersRef.current[el.id] = marker;
+    });
+  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, routeFrom, createMarkerContent]);
+
+  // ─── Renderizar rotas no mapa ─────────────────────────────────────────────────
+  const renderRoutes = useCallback(() => {
+    if (!mapRef.current || !mapReady) return;
+
+    Object.values(polylinesRef.current).forEach((p: any) => p.setMap(null));
+    polylinesRef.current = {};
+
+    if (!showRoutes) return;
+
+    routes.forEach((r: any) => {
+      const fromEl = elements.find((e: any) => e.id === r.fromElementId);
+      const toEl = elements.find((e: any) => e.id === r.toElementId);
+      if (!fromEl || !toEl) return;
+
+      const path: google.maps.LatLngLiteral[] = [
+        { lat: Number(fromEl.lat), lng: Number(fromEl.lng) },
+      ];
+      if (r.path) {
+        try { path.push(...JSON.parse(r.path)); } catch {}
+      }
+      path.push({ lat: Number(toEl.lat), lng: Number(toEl.lng) });
+
+      const polyline = new google.maps.Polyline({
+        path,
+        map: mapRef.current!,
+        strokeColor: r.color ?? "#22d3ee",
+        strokeWeight: 3,
+        strokeOpacity: 0.9,
+        clickable: true,
+      });
+
+      polyline.addListener("click", () => {
+        setSidePanel({ kind: "route", route: r });
+      });
+
+      polylinesRef.current[r.id] = polyline;
+    });
+  }, [routes, elements, showRoutes, mapReady]);
+
+  // Re-renderizar quando dados mudam
+  useEffect(() => { renderMarkers(); }, [renderMarkers]);
+  useEffect(() => { renderRoutes(); }, [renderRoutes]);
+
+  // ─── Modo de adição de elemento ───────────────────────────────────────────────
+  const handleMapReady = useCallback((map: google.maps.Map) => {
+    mapRef.current = map;
+    setMapReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    if (!addingMode) {
+      mapRef.current.setOptions({ draggableCursor: "" });
+      return;
+    }
+    mapRef.current.setOptions({ draggableCursor: "crosshair" });
+    const listener = mapRef.current.addListener("click", (e: google.maps.MapMouseEvent) => {
+      if (!e.latLng || !addingMode) return;
+      const lat = e.latLng.lat();
+      const lng = e.latLng.lng();
+
+      // Mostrar seletor de CEO/CTO
+      const available = addingMode === "cto"
+        ? ctos.filter((c: any) => !elements.find((el: any) => el.type === "cto" && el.referenceId === c.id))
+        : ceos.filter((c: any) => !elements.find((el: any) => el.type === "ceo" && el.referenceId === c.id));
+
+      if (available.length === 0) {
+        toast.error(`Nenhum ${addingMode.toUpperCase()} disponível para adicionar`);
+        return;
+      }
+
+      // Usar o primeiro disponível ou abrir seletor
+      // Por simplicidade, abrir um prompt para escolher
+      const names = available.map((c: any) => `${c.id}: ${c.name}`).join("\n");
+      const input = window.prompt(`Selecione o ID do ${addingMode.toUpperCase()} para posicionar:\n${names}`);
+      if (!input) return;
+      const id = parseInt(input.split(":")[0].trim());
+      if (isNaN(id)) return;
+
+      upsertElementMut.mutate({ type: addingMode, referenceId: id, lat, lng });
+      setAddingMode(null);
+    });
+    return () => { google.maps.event.removeListener(listener); };
+  }, [addingMode, mapReady, ctos, ceos, elements, upsertElementMut]);
+
+  // ─── Exportar KML ─────────────────────────────────────────────────────────────
+  const handleExportKml = async () => {
+    setExportLoading(true);
+    try {
+      const result = await (trpc as any).infraMap.exportKml.query({ format: "kml" });
+      const blob = new Blob([result.kml], { type: "application/vnd.google-earth.kml+xml" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0, 10)}.kml`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("KML exportado com sucesso");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao exportar KML");
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  // ─── Criar rota ───────────────────────────────────────────────────────────────
+  const handleCreateRoute = () => {
+    if (routeFrom === null || deleteRouteId === null) return;
+    const toId = deleteRouteId;
+    createRouteMut.mutate({
+      fromElementId: routeFrom,
+      toElementId: toId,
+      name: routeForm.name || undefined,
+      cableType: routeForm.cableType || undefined,
+      fiberCount: routeForm.fiberCount || undefined,
+      color: routeForm.color || undefined,
+      notes: routeForm.notes || undefined,
+    });
+    setDeleteRouteId(null);
+  };
+
+  // ─── Painel lateral ───────────────────────────────────────────────────────────
+  const renderSidePanel = () => {
+    if (!sidePanel) return null;
+
+    if (sidePanel.kind === "route") {
+      const r = sidePanel.route;
+      const fromEl = elements.find((e: any) => e.id === r.fromElementId) as any;
+      const toEl = elements.find((e: any) => e.id === r.toElementId) as any;
+      const fromRef = fromEl?.type === "cto"
+        ? (ctos as any[]).find((c: any) => c.id === fromEl?.referenceId)
+        : ceos.find((c: any) => c.id === fromEl?.referenceId);
+      const toRef = toEl?.type === "cto"
+        ? (ctos as any[]).find((c: any) => c.id === toEl?.referenceId)
+        : ceos.find((c: any) => c.id === toEl?.referenceId);
+
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Cable className="w-5 h-5 text-cyan-400" />
+            <h3 className="font-semibold">{r.name ?? `Cabo ${r.id}`}</h3>
+          </div>
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Tipo</span>
+              <span>{r.cableType ?? "FO"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Fibras</span>
+              <span>{r.fiberCount ?? "—"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">De</span>
+              <span>{(fromRef as any)?.name ?? `El. ${r.fromElementId}`}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Para</span>
+              <span>{(toRef as any)?.name ?? `El. ${r.toElementId}`}</span>
+            </div>
+            {r.notes && (
+              <div className="pt-1 text-muted-foreground text-xs">{r.notes}</div>
+            )}
+          </div>
+          {isAdmin && (
+            <Button
+              variant="destructive" size="sm" className="w-full gap-2"
+              onClick={() => { setDeleteRouteId(r.id); setSidePanel(null); }}
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Excluir Rota
+            </Button>
+          )}
+        </div>
+      );
+    }
+
+    // Element panel
+    const el = sidePanel.element;
+    const isCto = el.type === "cto";
+    const statusColor = STATUS_COLOR[el.status ?? "active"];
+
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          {isCto
+            ? <Box className="w-5 h-5" style={{ color: statusColor }} />
+            : <Radio className="w-5 h-5" style={{ color: statusColor }} />
+          }
+          <h3 className="font-semibold">{el.name}</h3>
+          <Badge
+            className="ml-auto text-xs"
+            style={{ background: statusColor + "33", color: statusColor, border: `1px solid ${statusColor}55` }}
+          >
+            {el.status === "active" ? "Ativo" : el.status === "maintenance" ? "Manutenção" : "Inativo"}
+          </Badge>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {isCto ? "CTO — Caixa de Terminação Óptica" : "CEO — Caixa de Emenda Óptica"}
+        </div>
+        {isCto && (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Capacidade</span>
+              <span>{el.capacity ?? "—"} portas</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Usadas</span>
+              <span>{el.usedPorts ?? 0} portas</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Livres</span>
+              <span className="text-emerald-400">{(el.capacity ?? 0) - (el.usedPorts ?? 0)} portas</span>
+            </div>
+          </div>
+        )}
+        <div className="text-xs text-muted-foreground">
+          {Number(el.lat).toFixed(6)}, {Number(el.lng).toFixed(6)}
+        </div>
+
+        {/* SGP Clientes */}
+        {isCto && (
+          <div className="border-t border-border pt-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Users className="w-4 h-4 text-cyan-400" />
+              <span className="text-sm font-medium">Clientes SGP</span>
+            </div>
+            {sgpQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="w-3 h-3 animate-spin" /> Consultando SGP...
+              </div>
+            ) : sgpQuery.data?.error ? (
+              <div className="text-xs text-muted-foreground">{sgpQuery.data.error}</div>
+            ) : sgpQuery.data?.clients?.length ? (
+              <div className="space-y-1">
+                {sgpQuery.data.clients.slice(0, 5).map((c: any, i: number) => (
+                  <div key={i} className="text-xs flex justify-between">
+                    <span>{c.nome ?? c.name ?? `Cliente ${i + 1}`}</span>
+                    <span className="text-muted-foreground">{c.porta ?? c.port ?? ""}</span>
+                  </div>
+                ))}
+                {sgpQuery.data.clients.length > 5 && (
+                  <div className="text-xs text-muted-foreground">+{sgpQuery.data.clients.length - 5} mais</div>
+                )}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">Nenhum cliente encontrado</div>
+            )}
+          </div>
+        )}
+
+        {isAdmin && (
+          <Button
+            variant="destructive" size="sm" className="w-full gap-2"
+            onClick={() => setDeleteElementId(el.id)}
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Remover do Mapa
+          </Button>
+        )}
+      </div>
+    );
+  };
+
+  // ─── Render ───────────────────────────────────────────────────────────────────
+  return (
+    <div className="flex flex-col -m-6 h-[calc(100vh-4rem)] relative">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-background flex-shrink-0 flex-wrap">
+        <Map className="w-5 h-5 text-cyan-400 mr-1" />
+        <span className="font-semibold text-sm mr-2">Mapa de Infraestrutura</span>
+
+        {/* Layer toggles */}
+        <div className="flex items-center gap-1 border border-border rounded-md px-2 py-1">
+          <button
+            onClick={() => setShowCeos(v => !v)}
+            className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors ${showCeos ? "text-blue-400" : "text-muted-foreground"}`}
+          >
+            <Radio className="w-3 h-3" /> CEO
+          </button>
+          <button
+            onClick={() => setShowCtos(v => !v)}
+            className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors ${showCtos ? "text-purple-400" : "text-muted-foreground"}`}
+          >
+            <Box className="w-3 h-3" /> CTO
+          </button>
+          <button
+            onClick={() => setShowRoutes(v => !v)}
+            className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors ${showRoutes ? "text-cyan-400" : "text-muted-foreground"}`}
+          >
+            <Cable className="w-3 h-3" /> Cabos
+          </button>
+        </div>
+
+        {isAdmin && (
+          <>
+            <div className="h-4 w-px bg-border mx-1" />
+            <Button
+              size="sm" variant={addingMode === "ceo" ? "default" : "outline"}
+              className="h-7 gap-1 text-xs"
+              onClick={() => setAddingMode(m => m === "ceo" ? null : "ceo")}
+            >
+              <Plus className="w-3 h-3" />
+              {addingMode === "ceo" ? "Cancelar CEO" : "Add CEO"}
+            </Button>
+            <Button
+              size="sm" variant={addingMode === "cto" ? "default" : "outline"}
+              className="h-7 gap-1 text-xs"
+              onClick={() => setAddingMode(m => m === "cto" ? null : "cto")}
+            >
+              <Plus className="w-3 h-3" />
+              {addingMode === "cto" ? "Cancelar CTO" : "Add CTO"}
+            </Button>
+            <Button
+              size="sm" variant={addingRouteMode ? "default" : "outline"}
+              className="h-7 gap-1 text-xs"
+              onClick={() => {
+                setAddingRouteMode(v => !v);
+                setRouteFrom(null);
+              }}
+            >
+              <Cable className="w-3 h-3" />
+              {addingRouteMode ? "Cancelar Rota" : "Add Cabo"}
+            </Button>
+          </>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            size="sm" variant="outline" className="h-7 gap-1 text-xs"
+            onClick={handleExportKml} disabled={exportLoading}
+          >
+            {exportLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+            KML
+          </Button>
+        </div>
+      </div>
+
+      {/* Instruções de modo */}
+      {(addingMode || addingRouteMode) && (
+        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
+          <Navigation className="w-3.5 h-3.5" />
+          {addingMode
+            ? `Clique no mapa para posicionar um ${addingMode.toUpperCase()}`
+            : routeFrom === null
+              ? "Clique no marcador de ORIGEM do cabo"
+              : "Agora clique no marcador de DESTINO do cabo"
+          }
+        </div>
+      )}
+
+      {/* Área principal: mapa + painel lateral */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Mapa */}
+        <div className="flex-1 relative">
+          <MapView
+            className="w-full h-full"
+            initialCenter={{ lat: -15.7801, lng: -47.9292 }}
+            initialZoom={5}
+            onMapReady={handleMapReady}
+          />
+
+          {/* Legenda */}
+          <div className="absolute bottom-4 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg p-3 text-xs space-y-1.5">
+            <div className="font-semibold text-foreground mb-1">Legenda</div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-emerald-500 border-2 border-white" />
+              <span className="text-muted-foreground">Ativo</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-amber-500 border-2 border-white" />
+              <span className="text-muted-foreground">Manutenção</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-red-500 border-2 border-white" />
+              <span className="text-muted-foreground">Inativo</span>
+            </div>
+            <div className="border-t border-border pt-1.5 mt-1">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded-full bg-blue-400 border-2 border-white" />
+                <span className="text-muted-foreground">CEO (círculo)</span>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="w-4 h-4 rounded bg-purple-400 border-2 border-white" />
+                <span className="text-muted-foreground">CTO (quadrado)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Contador de elementos */}
+          <div className="absolute top-4 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-xs">
+            <span className="text-muted-foreground">{elements.length} elementos · {routes.length} cabos</span>
+          </div>
+        </div>
+
+        {/* Painel lateral */}
+        {sidePanel && (
+          <div className="w-72 border-l border-border bg-card flex flex-col overflow-y-auto">
+            <div className="flex items-center justify-between p-3 border-b border-border">
+              <span className="text-sm font-medium">Detalhes</span>
+              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setSidePanel(null)}>
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+            <div className="p-4">
+              {renderSidePanel()}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Dialog de criação de rota */}
+      <Dialog open={routeDialogOpen} onOpenChange={(o) => { if (!o) { setRouteDialogOpen(false); setRouteFrom(null); setAddingRouteMode(false); setDeleteRouteId(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Novo Cabo / Rota</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label>Nome (opcional)</Label>
+              <Input value={routeForm.name} onChange={e => setRouteForm(f => ({ ...f, name: e.target.value }))} placeholder="Cabo-01" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label>Tipo de cabo</Label>
+                <Select value={routeForm.cableType} onValueChange={v => setRouteForm(f => ({ ...f, cableType: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FO">Fibra Óptica</SelectItem>
+                    <SelectItem value="ADSS">ADSS</SelectItem>
+                    <SelectItem value="OPGW">OPGW</SelectItem>
+                    <SelectItem value="Metalico">Metálico</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>Nº de fibras</Label>
+                <Input type="number" min={1} value={routeForm.fiberCount} onChange={e => setRouteForm(f => ({ ...f, fiberCount: Number(e.target.value) }))} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label>Cor da linha no mapa</Label>
+              <div className="flex items-center gap-2">
+                <input type="color" value={routeForm.color} onChange={e => setRouteForm(f => ({ ...f, color: e.target.value }))} className="w-10 h-8 rounded cursor-pointer border border-border" />
+                <Input value={routeForm.color} onChange={e => setRouteForm(f => ({ ...f, color: e.target.value }))} className="font-mono text-sm" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label>Observações</Label>
+              <Textarea value={routeForm.notes} onChange={e => setRouteForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Comprimento, tipo de passagem, etc." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRouteDialogOpen(false); setRouteFrom(null); setAddingRouteMode(false); setDeleteRouteId(null); }}>
+              Cancelar
+            </Button>
+            <Button onClick={handleCreateRoute} disabled={createRouteMut.isPending}>
+              Criar Cabo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de confirmação de exclusão de rota */}
+      <Dialog open={deleteRouteId !== null && !routeDialogOpen} onOpenChange={() => setDeleteRouteId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Excluir Rota</DialogTitle></DialogHeader>
+          <p className="text-muted-foreground text-sm">Tem certeza que deseja excluir esta rota de cabo?</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteRouteId(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={() => deleteRouteId && deleteRouteMut.mutate({ id: deleteRouteId })} disabled={deleteRouteMut.isPending}>
+              Excluir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de confirmação de exclusão de elemento */}
+      <Dialog open={deleteElementId !== null} onOpenChange={() => setDeleteElementId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Remover do Mapa</DialogTitle></DialogHeader>
+          <p className="text-muted-foreground text-sm">Remover este elemento do mapa? O CEO/CTO não será excluído, apenas sua posição no mapa.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteElementId(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={() => deleteElementId && deleteElementMut.mutate({ id: deleteElementId })} disabled={deleteElementMut.isPending}>
+              Remover
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

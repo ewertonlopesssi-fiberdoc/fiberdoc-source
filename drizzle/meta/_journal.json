@@ -204,6 +204,20 @@
       "when": 1772230358223,
       "tag": "0028_brown_robin_chapel",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1772237124129,
+      "tag": "0029_great_white_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1772239790201,
+      "tag": "0030_mighty_legion",
+      "breakpoints": true
     }
   ]
 }

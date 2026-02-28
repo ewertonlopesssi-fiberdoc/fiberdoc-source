@@ -584,3 +584,65 @@
 - [x] Configurar Vite para incluir manifest e service worker no build
 - [x] Gerar ícones PWA (192x192 e 512x512)
 - [x] Gerar URL do Equipments.tsx atualizado para produção
+
+## v5.26 — Racks selecionáveis
+- [ ] Criar tabela racks no banco (id, name, roomId, totalUnits, description)
+- [ ] Criar procedures CRUD de racks no routers.ts
+- [ ] Adicionar gerenciamento de racks na página Salas/Locais
+- [ ] Substituir campo Rack (texto livre) por seletor no formulário de Equipamentos
+- [ ] Gerar ícone personalizado FiberDoc para PWA (192x192 e 512x512)
+- [ ] Implementar notificações push para alarmes no service worker
+- [ ] Modo offline CEO: pré-cachear dados dos CEOs mais acessados
+- [ ] Criar tabela sgp_config no banco (url, token, app, ativo)
+- [ ] Procedure CRUD de configuração SGP no routers.ts
+- [ ] Criar página SgpConfig.tsx com formulário de URL, Token e App
+- [ ] Procedure de consulta de clientes por CTO via API SGP (proxy server-side)
+- [ ] Exibir clientes SGP no painel de detalhes da CTO (tooltip + lista)
+
+## Módulo de Mapa de Infraestrutura (v5.26)
+- [ ] Criar tabela ctos (nome, endereço, capacidade, status, lat, lng, observações)
+- [ ] Criar tabela map_elements (tipo ceo/cto, referenceId, lat, lng)
+- [ ] Criar tabela map_routes (nome, fromId, toId, fiberCount, cableType, cor, path JSON)
+- [ ] Criar tabela sgp_config (url, token, app, ativo)
+- [ ] Helpers CRUD de CTOs no db.ts
+- [ ] Helpers de map_elements e map_routes no db.ts
+- [ ] Helpers de sgp_config no db.ts
+- [ ] Procedures tRPC: ctos.list, ctos.create, ctos.update, ctos.delete
+- [ ] Procedures tRPC: map.getElements, map.savePosition, map.getRoutes, map.saveRoute, map.deleteRoute
+- [ ] Procedures tRPC: sgp.getConfig, sgp.saveConfig, sgp.getClientesByCto
+- [ ] Página Ctos.tsx — listagem e cadastro de CTOs
+- [ ] Página InfraMap.tsx — mapa interativo com Google Maps
+- [ ] Ícones: CEO = círculo azul, CTO = quadrado (verde/amarelo/vermelho por status)
+- [ ] Filtros de camada: CEOs, CTOs, Cabos
+- [ ] Arrastar para reposicionar elementos no mapa
+- [ ] Traçar linhas de cabo entre dois pontos com pontos intermediários
+- [ ] Painel lateral ao clicar em CEO/CTO
+- [ ] Integração SGP: tooltip na CTO com clientes por porta
+- [ ] Página SgpConfig.tsx — configuração URL, Token e App do SGP
+- [ ] Adicionar rotas /ctos, /mapa-infra, /sgp-config no App.tsx
+- [ ] Adicionar itens no menu lateral do DashboardLayout
+- [ ] Exportar dados do mapa em KML/KMZ (Google Earth)
+
+## v5.26 — Módulo de Mapa de Infraestrutura (CONCLUÍDO)
+- [x] Tabela ctos criada no banco com campos: nome, endereço, capacidade, status, lat, lng, observações
+- [x] Tabela map_elements criada (tipo ceo/cto, referenceId, lat, lng)
+- [x] Tabela map_routes criada (nome, fromId, toId, fiberCount, cableType, cor, path JSON)
+- [x] Tabela sgp_config criada (url, token, app, ativo)
+- [x] Helpers CRUD de CTOs no db.ts
+- [x] Helpers de map_elements e map_routes no db.ts
+- [x] Helpers de sgp_config no db.ts
+- [x] Procedures tRPC: ctos.list, ctos.create, ctos.update, ctos.delete
+- [x] Procedures tRPC: infraMap.elements, infraMap.routes, infraMap.upsertElement, infraMap.deleteElement, infraMap.createRoute, infraMap.deleteRoute, infraMap.exportKml
+- [x] Procedures tRPC: sgp.config, sgp.saveConfig, sgp.queryClientsByCto
+- [x] Página Ctos.tsx — listagem e cadastro de CTOs com filtros e stats
+- [x] Página InfrastructureMap.tsx — mapa interativo com Google Maps
+- [x] Ícones: CEO = círculo, CTO = quadrado (verde/amarelo/vermelho por status)
+- [x] Filtros de camada: CEOs, CTOs, Cabos
+- [x] Adicionar elementos ao mapa com clique
+- [x] Traçar linhas de cabo entre dois pontos
+- [x] Painel lateral ao clicar em CEO/CTO com dados SGP
+- [x] Integração SGP: clientes por CTO no painel lateral
+- [x] Página SgpConfig.tsx — configuração URL, Token e App do SGP
+- [x] Rotas /cto, /mapa, /sgp adicionadas no App.tsx
+- [x] Itens CTO, Mapa de Infraestrutura e SGP Config adicionados no menu lateral
+- [x] Exportar dados do mapa em KML (Google Earth)
