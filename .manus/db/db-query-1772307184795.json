@@ -1,0 +1,24 @@
+{
+  "query": "SELECT me.id, me.type, me.referenceId, c.id as cto_real_id, c.name FROM map_elements me LEFT JOIN ctos c ON c.id = me.referenceId WHERE me.type = 'cto';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SELECT me.id, me.type, me.referenceId, c.id as cto_real_id, c.name FROM map_elements me LEFT JOIN ctos c ON c.id = me.referenceId WHERE me.type = 'cto';",
+  "rows": [
+    {
+      "id": "1",
+      "type": "cto",
+      "referenceId": "1",
+      "cto_real_id": "1",
+      "name": "teste"
+    },
+    {
+      "id": "30001",
+      "type": "cto",
+      "referenceId": "30001",
+      "cto_real_id": "30001",
+      "name": "TESTE 1"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttype\treferenceId\tcto_real_id\tname\n1\tcto\t1\t1\tteste\n30001\tcto\t30001\t30001\tTESTE 1\n",
+  "stderr": "",
+  "execution_time_ms": 54
+}

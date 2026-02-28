@@ -187,6 +187,30 @@ export default function InfrastructureMap() {
     onError: (e) => toast.error(e.message),
   });
 
+  // Mutations e estados para criar tubos/splitters pelo mapa
+  const [addTubeDialogOpen, setAddTubeDialogOpen] = useState(false);
+  const [addTubeForm, setAddTubeForm] = useState({ identifier: "", type: "tube" as "tube" | "splitter", totalVias: 12, color: "", notes: "" });
+  const createCtoTubeMut = trpc.ctoTubes.create.useMutation({
+    onSuccess: () => {
+      ctoTubesQuery.refetch();
+      ctoViasQuery.refetch();
+      setAddTubeDialogOpen(false);
+      setAddTubeForm({ identifier: "", type: "tube", totalVias: 12, color: "", notes: "" });
+      toast.success("Tubo adicionado com sucesso");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const createCeoTubeMut = trpc.ceoTubes.create.useMutation({
+    onSuccess: () => {
+      ceoTubesQuery.refetch();
+      ceoViasQuery.refetch();
+      setAddTubeDialogOpen(false);
+      setAddTubeForm({ identifier: "", type: "tube", totalVias: 12, color: "", notes: "" });
+      toast.success("Tubo adicionado com sucesso");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const assignElementToGroupMut = trpc.mapGroups.addElement.useMutation({
     onSuccess: () => { refetchGroups(); setAssignGroupDialogOpen(false); toast.success("Elemento adicionado ao grupo"); },
     onError: (e: any) => toast.error(e.message),
@@ -658,6 +682,7 @@ export default function InfrastructureMap() {
           </Badge>
         </div>
         <div className="text-xs text-muted-foreground">{isCto ? "CTO — Caixa de Terminação Óptica" : "CEO — Caixa de Emenda Óptica"}</div>
+        <div className="text-xs text-muted-foreground/50">ID cadastro: {el.referenceId}</div>
         {isCto && (
           <div className="space-y-1 text-sm">
             <div className="flex justify-between"><span className="text-muted-foreground">Capacidade</span><span>{el.capacity ?? "—"} portas</span></div>
@@ -708,15 +733,28 @@ export default function InfrastructureMap() {
               </div>
             </div>
           );
-          if (!tubes || tubes.length === 0) return null;
           return (
             <div className="border-t border-border pt-2">
               <div className="text-xs text-muted-foreground mb-2 font-medium flex items-center gap-1">
                 <Layers className="w-3 h-3" /> Tubos e Vias
-                <span className="ml-auto text-muted-foreground/60">{tubes.length} tubo{tubes.length !== 1 ? "s" : ""}</span>
+                {tubes && tubes.length > 0 && <span className="ml-auto text-muted-foreground/60">{tubes.length} tubo{tubes.length !== 1 ? "s" : ""}</span>}
+                {isAdmin && (
+                  <button
+                    className="ml-auto flex items-center gap-0.5 text-xs text-primary hover:text-primary/80 font-medium"
+                    onClick={() => {
+                      setAddTubeForm({ identifier: "", type: "tube", totalVias: 12, color: "", notes: "" });
+                      setAddTubeDialogOpen(true);
+                    }}
+                  >
+                    <Plus className="w-3 h-3" /> Adicionar
+                  </button>
+                )}
               </div>
+              {(!tubes || tubes.length === 0) && (
+                <div className="text-xs text-muted-foreground/60 italic py-1">Nenhum tubo cadastrado. Clique em "Adicionar" para criar.</div>
+              )}
               <div className="space-y-1">
-                {tubes.map((tube: any) => {
+                {(tubes ?? []).map((tube: any) => {
                   const tubVias = (allVias ?? []).filter((v: any) => v.tubeId === tube.id);
                   const fusedCount = tubVias.filter((v: any) => v.fusedToViaId !== null).length;
                   const total = tube.totalVias;
@@ -1274,6 +1312,107 @@ export default function InfrastructureMap() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setKmlImportOpen(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Diálogo Adicionar Tubo/Splitter */}
+      <Dialog open={addTubeDialogOpen} onOpenChange={setAddTubeDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              {sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? "Adicionar Tubo/Splitter à CTO" : "Adicionar Tubo/Splitter ao CEO"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Tipo *</Label>
+              <Select value={addTubeForm.type} onValueChange={v => setAddTubeForm(f => ({ ...f, type: v as "tube" | "splitter" }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="tube">Tubo</SelectItem>
+                  <SelectItem value="splitter">Splitter</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Identificador *</Label>
+              <Input
+                value={addTubeForm.identifier}
+                onChange={e => setAddTubeForm(f => ({ ...f, identifier: e.target.value }))}
+                placeholder={addTubeForm.type === "splitter" ? "Ex: Splitter 1:8, SP-01" : "Ex: Tubo Azul, T-01"}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Total de Vias *</Label>
+              <Input
+                type="number" min={1} max={288}
+                value={addTubeForm.totalVias}
+                onChange={e => setAddTubeForm(f => ({ ...f, totalVias: Number(e.target.value) }))}
+              />
+              <p className="text-xs text-muted-foreground">As vias serão criadas automaticamente (1 a {addTubeForm.totalVias})</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Cor de identificação</Label>
+              <Select value={addTubeForm.color || ""} onValueChange={v => setAddTubeForm(f => ({ ...f, color: v }))}>
+                <SelectTrigger><SelectValue placeholder="Selecionar cor" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="azul">🔵 Azul</SelectItem>
+                  <SelectItem value="laranja">🟠 Laranja</SelectItem>
+                  <SelectItem value="verde">🟢 Verde</SelectItem>
+                  <SelectItem value="marrom">🟤 Marrom</SelectItem>
+                  <SelectItem value="cinza">⚫ Cinza</SelectItem>
+                  <SelectItem value="branco">⚪ Branco</SelectItem>
+                  <SelectItem value="vermelho">🔴 Vermelho</SelectItem>
+                  <SelectItem value="preto">⬛ Preto</SelectItem>
+                  <SelectItem value="amarelo">🟡 Amarelo</SelectItem>
+                  <SelectItem value="violeta">🟣 Violeta</SelectItem>
+                  <SelectItem value="rosa">🩷 Rosa</SelectItem>
+                  <SelectItem value="aqua">🩵 Aqua</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Observações</Label>
+              <Input
+                value={addTubeForm.notes}
+                onChange={e => setAddTubeForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Observações opcionais"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddTubeDialogOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={createCtoTubeMut.isPending || createCeoTubeMut.isPending}
+              onClick={() => {
+                if (!addTubeForm.identifier.trim()) { toast.error("Identificador obrigatório"); return; }
+                if (addTubeForm.totalVias < 1) { toast.error("Total de vias deve ser pelo menos 1"); return; }
+                const el = sidePanel?.kind === "element" ? sidePanel.element : null;
+                if (!el) return;
+                if (el.type === "cto") {
+                  createCtoTubeMut.mutate({
+                    ctoId: el.referenceId,
+                    identifier: addTubeForm.identifier,
+                    type: addTubeForm.type,
+                    totalVias: addTubeForm.totalVias,
+                    color: addTubeForm.color || undefined,
+                    notes: addTubeForm.notes || undefined,
+                  });
+                } else {
+                  createCeoTubeMut.mutate({
+                    ceoId: el.referenceId,
+                    identifier: addTubeForm.identifier,
+                    type: addTubeForm.type,
+                    totalVias: addTubeForm.totalVias,
+                    color: addTubeForm.color || undefined,
+                    notes: addTubeForm.notes || undefined,
+                  });
+                }
+              }}
+            >
+              {createCtoTubeMut.isPending || createCeoTubeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Adicionar Tubo"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

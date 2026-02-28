@@ -1,0 +1,9 @@
+{
+  "query": "INSERT INTO cto_tubes (ctoId, identifier, totalVias, color, notes) VALUES (1, 'Tubo Azul', 12, 'azul', 'Tubo de teste'), (1, 'Tubo Verde', 8, 'verde', 'Tubo de teste 2'), (1, 'Splitter 1:8', 8, 'amarelo', 'Splitter de teste');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute INSERT INTO cto_tubes (ctoId, identifier, totalVias, color, notes) VALUES (1, 'Tubo Azul', 12, 'azul', 'Tubo de teste'), (1, 'Tubo Verde', 8, 'verde', 'Tubo de teste 2'), (1, 'Splitter 1:8', 8, 'amarelo', 'Splitter de teste');",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 61
+}

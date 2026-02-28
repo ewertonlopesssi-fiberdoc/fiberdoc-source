@@ -782,3 +782,12 @@
 - [x] Diálogo de filtro antes de imprimir (selecionar quais tubos incluir)
 - [x] Badge colorido com a cor do tubo no cabeçalho de cada seção
 - [x] Botão "Imprimir Mapa de Fusões" na página de detalhes da CTO
+
+## v5.38.1 — Adicionar Tubos/Splitters pelo Mapa
+
+- [x] Botão "Adicionar Tubo" no painel lateral do mapa (CEO/CTO) quando não há tubos
+- [x] Botão "+" ao lado do título "Tubos e Vias" quando já há tubos
+- [x] Diálogo inline para criar tubo/splitter: identificador, tipo, total de vias, cor, observações
+- [x] Após criar, atualizar automaticamente a lista de tubos no painel
+- [x] Exibir mensagem "Nenhum tubo cadastrado" quando vazio (em vez de não mostrar nada)
+- [x] Gerar pacote de deployment v5.38.1

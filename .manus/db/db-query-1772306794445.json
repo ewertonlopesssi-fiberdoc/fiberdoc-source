@@ -1,0 +1,20 @@
+{
+  "query": "SELECT c.id, c.name, COUNT(t.id) as tube_count FROM ctos c LEFT JOIN cto_tubes t ON t.ctoId = c.id GROUP BY c.id, c.name LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SELECT c.id, c.name, COUNT(t.id) as tube_count FROM ctos c LEFT JOIN cto_tubes t ON t.ctoId = c.id GROUP BY c.id, c.name LIMIT 10;",
+  "rows": [
+    {
+      "id": "30001",
+      "name": "TESTE 1",
+      "tube_count": "0"
+    },
+    {
+      "id": "1",
+      "name": "teste",
+      "tube_count": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\ttube_count\n30001\tTESTE 1\t0\n1\tteste\t0\n",
+  "stderr": "",
+  "execution_time_ms": 62
+}

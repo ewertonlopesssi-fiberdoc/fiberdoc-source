@@ -1,0 +1,23 @@
+{
+  "query": "SELECT id, name FROM ctos LIMIT 10; SELECT id, type, referenceId FROM map_elements LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SELECT id, name FROM ctos LIMIT 10; SELECT id, type, referenceId FROM map_elements LIMIT 10;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "teste"
+    },
+    {
+      "id": "30001",
+      "name": "TESTE 1"
+    }
+  ],
+  "messages": [
+    "id\ttype\treferenceId",
+    "1\tcto\t1",
+    "30001\tcto\t30001",
+    "30002\tceo\t30002"
+  ],
+  "stdout": "id\tname\n1\tteste\n30001\tTESTE 1\nid\ttype\treferenceId\n1\tcto\t1\n30001\tcto\t30001\n30002\tceo\t30002\n",
+  "stderr": "",
+  "execution_time_ms": 68
+}

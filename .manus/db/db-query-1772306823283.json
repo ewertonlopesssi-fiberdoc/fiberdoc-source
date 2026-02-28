@@ -1,0 +1,19 @@
+{
+  "query": "SELECT id FROM cto_tubes WHERE ctoId = 1 LIMIT 3;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SELECT id FROM cto_tubes WHERE ctoId = 1 LIMIT 3;",
+  "rows": [
+    {
+      "id": "1"
+    },
+    {
+      "id": "2"
+    },
+    {
+      "id": "3"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\n1\n2\n3\n",
+  "stderr": "",
+  "execution_time_ms": 50
+}
