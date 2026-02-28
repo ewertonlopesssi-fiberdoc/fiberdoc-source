@@ -660,3 +660,6 @@
 
 ## Bugs
 - [x] Erro ao salvar nome/logo nas configurações do sistema (investigado: procedures funcionam corretamente, erro ocorre quando sessão expira)
+
+## Bugs v5.29
+- [x] Backup: falha ao gerar e salvar na nuvem (S3) — corrigido ECONNRESET com pool mysql2 + keepAlive + reconexão automática

@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import mysql from "mysql2";
 import {
   Connection,
   Equipment,
@@ -52,15 +53,44 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
+let _pool: mysql.Pool | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
+
+function createPool(): mysql.Pool {
+  const pool = mysql.createPool({
+    uri: process.env.DATABASE_URL!,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 30000,
+    connectTimeout: 10000,
+  });
+  // Reconectar automaticamente em caso de ECONNRESET ou PROTOCOL_CONNECTION_LOST
+  pool.on('connection', (conn: any) => {
+    conn.on('error', (err: any) => {
+      if (err.code === 'ECONNRESET' || err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ENOTFOUND') {
+        console.warn('[Database] Connection lost, pool will reconnect automatically:', err.code);
+        _db = null;
+        _pool = null;
+      }
+    });
+  });
+  return pool;
+}
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      if (!_pool) {
+        _pool = createPool();
+      }
+      // Use promise pool for drizzle compatibility
+      _db = drizzle(_pool.promise() as any);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
+      _pool = null;
     }
   }
   return _db;
