@@ -124,6 +124,12 @@ export default function InfrastructureMap() {
   const [kmlImportResult, setKmlImportResult] = useState<{ added: number; skipped: number; errors: string[] } | null>(null);
   const kmlFileRef = useRef<HTMLInputElement | null>(null);
 
+  // Edição inline de CEO/CTO/Cabo pelo painel lateral
+  const [editElementDialogOpen, setEditElementDialogOpen] = useState(false);
+  const [editElementForm, setEditElementForm] = useState({ name: "", address: "", capacity: 8, status: "active", notes: "" });
+  const [editRouteDialogOpen, setEditRouteDialogOpen] = useState(false);
+  const [editRouteForm, setEditRouteForm] = useState({ name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: "" });
+
   // Grupos/Pastas
   const { data: mapGroups = [], refetch: refetchGroups } = trpc.mapGroups.list.useQuery();
   const [groupsPanelOpen, setGroupsPanelOpen] = useState(false);
@@ -146,6 +152,41 @@ export default function InfrastructureMap() {
     onSuccess: () => { refetchGroups(); if (activeGroupFilter === editingGroupId) setActiveGroupFilter(null); toast.success("Grupo excluído"); },
     onError: (e) => toast.error(e.message),
   });
+  // Mutations de edição inline
+  const updateCeoMut = trpc.ceos.update.useMutation({
+    onSuccess: () => {
+      refetchElements();
+      setEditElementDialogOpen(false);
+      if (sidePanel?.kind === "element") {
+        setSidePanel({ ...sidePanel, element: { ...sidePanel.element, name: editElementForm.name, status: editElementForm.status } });
+      }
+      toast.success("CEO atualizado");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateCtoMut = trpc.ctos.update.useMutation({
+    onSuccess: () => {
+      refetchElements();
+      setEditElementDialogOpen(false);
+      if (sidePanel?.kind === "element") {
+        setSidePanel({ ...sidePanel, element: { ...sidePanel.element, name: editElementForm.name, status: editElementForm.status, capacity: editElementForm.capacity } });
+      }
+      toast.success("CTO atualizada");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateRouteMut = trpc.infraMap.updateRoute.useMutation({
+    onSuccess: () => {
+      refetchRoutes();
+      setEditRouteDialogOpen(false);
+      if (sidePanel?.kind === "route") {
+        setSidePanel({ ...sidePanel, route: { ...sidePanel.route, name: editRouteForm.name, cableType: editRouteForm.cableType, fiberCount: editRouteForm.fiberCount, color: editRouteForm.color, notes: editRouteForm.notes } });
+      }
+      toast.success("Cabo atualizado");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const assignElementToGroupMut = trpc.mapGroups.addElement.useMutation({
     onSuccess: () => { refetchGroups(); setAssignGroupDialogOpen(false); toast.success("Elemento adicionado ao grupo"); },
     onError: (e: any) => toast.error(e.message),
@@ -553,6 +594,35 @@ export default function InfrastructureMap() {
             <div className="flex justify-between"><span className="text-muted-foreground">Para</span><span>{(toRef as any)?.name ?? `El. ${r.toElementId}`}</span></div>
             {r.notes && <div className="pt-1 text-muted-foreground text-xs">{r.notes}</div>}
           </div>
+          {isAdmin && (
+            <Button variant="outline" size="sm" className="w-full gap-2" onClick={() => {
+              setEditRouteForm({ name: r.name ?? "", cableType: r.cableType ?? "FO", fiberCount: r.fiberCount ?? 12, color: r.color ?? "#22d3ee", notes: r.notes ?? "" });
+              setEditRouteDialogOpen(true);
+            }}><span className="text-xs">✏️</span> Editar Cabo</Button>
+          )}
+          {/* Seletor de Grupo */}
+          <div className="border-t border-border pt-2">
+            <div className="text-xs text-muted-foreground mb-1.5 font-medium flex items-center gap-1"><Folder className="w-3 h-3" /> Grupo</div>
+            <Select
+              value={(() => { const g = (mapGroups as any[]).find((g: any) => g.routes?.some((gr: any) => gr.routeId === r.id)); return g ? String(g.id) : "none"; })()
+              }
+              onValueChange={(val) => {
+                const curGroup = (mapGroups as any[]).find((g: any) => g.routes?.some((gr: any) => gr.routeId === r.id));
+                if (curGroup) removeRouteFromGroupMut.mutate({ groupId: curGroup.id, routeId: r.id });
+                if (val !== "none") assignRouteToGroupMut.mutate({ groupId: Number(val), routeId: r.id });
+              }}
+            >
+              <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Sem grupo" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Sem grupo</SelectItem>
+                {(mapGroups as any[]).map((g: any) => (
+                  <SelectItem key={g.id} value={String(g.id)}>
+                    <span className="flex items-center gap-1.5"><span style={{ background: g.color, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />{g.name}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           {isAdmin && <Button variant="destructive" size="sm" className="w-full gap-2" onClick={() => { setDeleteRouteId(r.id); setSidePanel(null); }}><Trash2 className="w-3.5 h-3.5" /> Excluir Rota</Button>}
         </div>
       );
@@ -590,6 +660,41 @@ export default function InfrastructureMap() {
             ) : <div className="text-xs text-muted-foreground">Nenhum cliente vinculado</div>}
           </div>
         )}
+        {/* Botão Editar */}
+        {isAdmin && (
+          <Button variant="outline" size="sm" className="w-full gap-2" onClick={() => {
+            setEditElementForm({
+              name: el.name ?? "",
+              address: "",
+              capacity: el.capacity ?? 8,
+              status: el.status ?? "active",
+              notes: "",
+            });
+            setEditElementDialogOpen(true);
+          }}><span className="text-xs">✏️</span> Editar {isCto ? "CTO" : "CEO"}</Button>
+        )}
+        {/* Seletor de Grupo */}
+        <div className="border-t border-border pt-2">
+          <div className="text-xs text-muted-foreground mb-1.5 font-medium flex items-center gap-1"><Folder className="w-3 h-3" /> Grupo</div>
+          <Select
+            value={(() => { const g = (mapGroups as any[]).find((g: any) => g.elements?.some((ge: any) => ge.elementId === el.id)); return g ? String(g.id) : "none"; })()}
+            onValueChange={(val) => {
+              const curGroup = (mapGroups as any[]).find((g: any) => g.elements?.some((ge: any) => ge.elementId === el.id));
+              if (curGroup) removeElementFromGroupMut.mutate({ groupId: curGroup.id, elementId: el.id });
+              if (val !== "none") assignElementToGroupMut.mutate({ groupId: Number(val), elementId: el.id });
+            }}
+          >
+            <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Sem grupo" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Sem grupo</SelectItem>
+              {(mapGroups as any[]).map((g: any) => (
+                <SelectItem key={g.id} value={String(g.id)}>
+                  <span className="flex items-center gap-1.5"><span style={{ background: g.color, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />{g.name}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         {isAdmin && <Button variant="destructive" size="sm" className="w-full gap-2" onClick={() => { setDeleteElementId(el.id); setSidePanel(null); }}><Trash2 className="w-3.5 h-3.5" /> Remover do Mapa</Button>}
       </div>
     );
@@ -928,6 +1033,116 @@ export default function InfrastructureMap() {
               else createGroupMut.mutate(groupForm);
             }} disabled={createGroupMut.isPending || updateGroupMut.isPending}>
               {createGroupMut.isPending || updateGroupMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : editingGroupId ? "Salvar" : "Criar Grupo"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de Edição de CEO/CTO */}
+      <Dialog open={editElementDialogOpen} onOpenChange={setEditElementDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="text-base">✏️</span>
+              {sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? "Editar CTO" : "Editar CEO"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Nome *</Label>
+              <Input value={editElementForm.name} onChange={e => setEditElementForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do elemento" />
+            </div>
+            {sidePanel?.kind === "element" && sidePanel.element.type === "cto" && (
+              <div className="space-y-1.5">
+                <Label>Capacidade (portas)</Label>
+                <Input type="number" min={1} max={512} value={editElementForm.capacity} onChange={e => setEditElementForm(f => ({ ...f, capacity: Number(e.target.value) }))} />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Status</Label>
+              <Select value={editElementForm.status} onValueChange={v => setEditElementForm(f => ({ ...f, status: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Ativo</SelectItem>
+                  <SelectItem value="maintenance">Manutenção</SelectItem>
+                  <SelectItem value="inactive">Inativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditElementDialogOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={updateCeoMut.isPending || updateCtoMut.isPending}
+              onClick={() => {
+                if (!editElementForm.name.trim()) { toast.error("Nome obrigatório"); return; }
+                const el = sidePanel?.kind === "element" ? sidePanel.element : null;
+                if (!el) return;
+                if (el.type === "cto") {
+                  updateCtoMut.mutate({ id: el.id, name: editElementForm.name, capacity: editElementForm.capacity, status: editElementForm.status as any });
+                } else {
+                  updateCeoMut.mutate({ id: el.id, name: editElementForm.name, status: editElementForm.status as any });
+                }
+              }}
+            >
+              {updateCeoMut.isPending || updateCtoMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de Edição de Cabo */}
+      <Dialog open={editRouteDialogOpen} onOpenChange={setEditRouteDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><span className="text-base">✏️</span> Editar Cabo</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Nome</Label>
+              <Input value={editRouteForm.name} onChange={e => setEditRouteForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Cabo Principal Setor A" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Tipo de Cabo</Label>
+                <Select value={editRouteForm.cableType} onValueChange={v => setEditRouteForm(f => ({ ...f, cableType: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FO">FO - Fibra Óptica</SelectItem>
+                    <SelectItem value="FO-ADSS">FO-ADSS</SelectItem>
+                    <SelectItem value="FO-OPGW">FO-OPGW</SelectItem>
+                    <SelectItem value="FO-Drop">FO-Drop</SelectItem>
+                    <SelectItem value="Coaxial">Coaxial</SelectItem>
+                    <SelectItem value="UTP">UTP</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Nº de Fibras</Label>
+                <Input type="number" min={1} max={288} value={editRouteForm.fiberCount} onChange={e => setEditRouteForm(f => ({ ...f, fiberCount: Number(e.target.value) }))} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Cor do Cabo no Mapa</Label>
+              <div className="flex gap-2 items-center">
+                <input type="color" value={editRouteForm.color} onChange={e => setEditRouteForm(f => ({ ...f, color: e.target.value }))} className="w-10 h-8 rounded cursor-pointer border border-border" />
+                <span className="text-xs text-muted-foreground">{editRouteForm.color}</span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Observações</Label>
+              <Input value={editRouteForm.notes} onChange={e => setEditRouteForm(f => ({ ...f, notes: e.target.value }))} placeholder="Observações opcionais" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditRouteDialogOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={updateRouteMut.isPending}
+              onClick={() => {
+                const r = sidePanel?.kind === "route" ? sidePanel.route : null;
+                if (!r) return;
+                updateRouteMut.mutate({ id: r.id, name: editRouteForm.name, cableType: editRouteForm.cableType, fiberCount: editRouteForm.fiberCount, color: editRouteForm.color, notes: editRouteForm.notes });
+              }}
+            >
+              {updateRouteMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}
             </Button>
           </DialogFooter>
         </DialogContent>

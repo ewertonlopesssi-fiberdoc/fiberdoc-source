@@ -754,3 +754,13 @@
 ## v5.36 — Rodapé com dados da empresa
 
 - [x] Adicionar rodapé "© 2026 SuporTI - CNPJ 18.643.297/0001-79. Todos os direitos reservados." no DashboardLayout
+
+## v5.37 — Edição e Grupos no Painel Lateral do Mapa
+
+- [x] Seletor de grupo no painel lateral ao clicar em CEO (dropdown com grupos disponíveis)
+- [x] Seletor de grupo no painel lateral ao clicar em CTO (dropdown com grupos disponíveis)
+- [x] Seletor de grupo no painel lateral ao clicar em cabo (dropdown com grupos disponíveis)
+- [x] Botão "Editar" no painel lateral ao clicar em CEO (abre diálogo de edição inline)
+- [x] Botão "Editar" no painel lateral ao clicar em CTO (abre diálogo de edição inline)
+- [x] Botão "Editar" no painel lateral ao clicar em cabo (abre diálogo de edição inline)
+- [x] Gerar pacote de deployment v5.37
