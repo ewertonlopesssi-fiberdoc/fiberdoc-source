@@ -126,6 +126,14 @@ export default function InfrastructureMap() {
   const [kmlImportResult, setKmlImportResult] = useState<{ added: number; skipped: number; errors: string[] } | null>(null);
   const kmlFileRef = useRef<HTMLInputElement | null>(null);
 
+  // ─── Edição de Traçado de Cabo ────────────────────────────────────────────
+  const [editingRouteId, setEditingRouteId] = useState<number | null>(null);
+  const [editingRoutePath, setEditingRoutePath] = useState<{ lat: number; lng: number }[]>([]);
+  const editRouteMarkersRef = useRef<L.CircleMarker[]>([]);
+  const editRouteMidMarkersRef = useRef<L.CircleMarker[]>([]);
+  const editRoutePolylineRef = useRef<L.Polyline | null>(null);
+  const editingRoutePathRef = useRef<{ lat: number; lng: number }[]>([]);
+
   // Edição inline de CEO/CTO/Cabo pelo painel lateral
   const [editElementDialogOpen, setEditElementDialogOpen] = useState(false);
   const [editElementForm, setEditElementForm] = useState({ name: "", address: "", capacity: 8, status: "active", notes: "" });
@@ -528,6 +536,176 @@ export default function InfrastructureMap() {
   const undoLastPoint = useCallback(() => setDrawingPath(prev => prev.slice(0, -1)), []);
   const cancelDrawing = useCallback(() => { setAddingRouteMode(false); setDrawingPath([]); setRouteFrom(null); setRouteTo(null); }, []);
 
+  // ─── Edição de Traçado de Cabo ────────────────────────────────────────────
+  const updateRoutePathMut = trpc.infraMap.updateRoute.useMutation({
+    onSuccess: () => { refetchRoutes(); toast.success("Traçado salvo"); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // Limpar marcadores de edição do mapa
+  const clearEditRouteMarkers = useCallback(() => {
+    editRouteMarkersRef.current.forEach(m => m.remove());
+    editRouteMarkersRef.current = [];
+    editRouteMidMarkersRef.current.forEach(m => m.remove());
+    editRouteMidMarkersRef.current = [];
+    if (editRoutePolylineRef.current) { editRoutePolylineRef.current.remove(); editRoutePolylineRef.current = null; }
+  }, []);
+
+  // Renderizar os marcadores de edição de traçado
+  const renderEditRouteMarkers = useCallback((path: { lat: number; lng: number }[], routeColor: string) => {
+    if (!mapRef.current) return;
+    clearEditRouteMarkers();
+    editingRoutePathRef.current = [...path];
+
+    // Polyline de prévia
+    editRoutePolylineRef.current = L.polyline(
+      path.map(p => [p.lat, p.lng] as L.LatLngExpression),
+      { color: routeColor, weight: 4, opacity: 1, dashArray: "8, 4" }
+    ).addTo(mapRef.current);
+
+    // Marcadores de vértice (arrastáveis)
+    path.forEach((pt, idx) => {
+      const isEndpoint = idx === 0 || idx === path.length - 1;
+      const cm = L.circleMarker([pt.lat, pt.lng], {
+        radius: isEndpoint ? 9 : 7,
+        color: "white",
+        fillColor: isEndpoint ? "#f59e0b" : routeColor,
+        fillOpacity: 1,
+        weight: 2,
+        bubblingMouseEvents: false,
+      }).addTo(mapRef.current!);
+
+      // Arrastar vértice
+      let dragging = false;
+      cm.on("mousedown", (e: L.LeafletMouseEvent) => {
+        L.DomEvent.stopPropagation(e);
+        dragging = true;
+        mapRef.current!.dragging.disable();
+        const onMove = (ev: L.LeafletMouseEvent) => {
+          if (!dragging) return;
+          cm.setLatLng(ev.latlng);
+          const newPath = [...editingRoutePathRef.current];
+          newPath[idx] = { lat: ev.latlng.lat, lng: ev.latlng.lng };
+          editingRoutePathRef.current = newPath;
+          if (editRoutePolylineRef.current) {
+            editRoutePolylineRef.current.setLatLngs(newPath.map(p => [p.lat, p.lng] as L.LatLngExpression));
+          }
+          // Atualizar marcadores de ponto médio
+          editRouteMidMarkersRef.current.forEach(m => m.remove());
+          editRouteMidMarkersRef.current = [];
+          renderMidpoints(newPath, routeColor);
+        };
+        const onUp = () => {
+          dragging = false;
+          mapRef.current!.dragging.enable();
+          mapRef.current!.off("mousemove", onMove);
+          mapRef.current!.off("mouseup", onUp);
+          setEditingRoutePath([...editingRoutePathRef.current]);
+        };
+        mapRef.current!.on("mousemove", onMove);
+        mapRef.current!.on("mouseup", onUp);
+      });
+
+      // Duplo clique para remover vértice (exceto endpoints)
+      if (!isEndpoint) {
+        cm.on("dblclick", (e: L.LeafletMouseEvent) => {
+          L.DomEvent.stopPropagation(e);
+          const newPath = editingRoutePathRef.current.filter((_, i) => i !== idx);
+          editingRoutePathRef.current = newPath;
+          setEditingRoutePath([...newPath]);
+          renderEditRouteMarkers(newPath, routeColor);
+        });
+      }
+
+      editRouteMarkersRef.current.push(cm);
+    });
+
+    // Pontos médios para inserir novo vértice
+    renderMidpoints(path, routeColor);
+  }, [clearEditRouteMarkers]);
+
+  // Renderizar pontos médios entre vértices
+  const renderMidpoints = useCallback((path: { lat: number; lng: number }[], routeColor: string) => {
+    if (!mapRef.current) return;
+    editRouteMidMarkersRef.current.forEach(m => m.remove());
+    editRouteMidMarkersRef.current = [];
+    for (let i = 0; i < path.length - 1; i++) {
+      const midLat = (path[i].lat + path[i + 1].lat) / 2;
+      const midLng = (path[i].lng + path[i + 1].lng) / 2;
+      const mid = L.circleMarker([midLat, midLng], {
+        radius: 5,
+        color: "white",
+        fillColor: routeColor,
+        fillOpacity: 0.5,
+        weight: 1.5,
+        bubblingMouseEvents: false,
+      }).addTo(mapRef.current!);
+      mid.getElement()?.setAttribute("title", "Clique para adicionar ponto");
+      mid.on("click", (e: L.LeafletMouseEvent) => {
+        L.DomEvent.stopPropagation(e);
+        const insertIdx = i + 1;
+        const newPath = [
+          ...editingRoutePathRef.current.slice(0, insertIdx),
+          { lat: midLat, lng: midLng },
+          ...editingRoutePathRef.current.slice(insertIdx),
+        ];
+        editingRoutePathRef.current = newPath;
+        setEditingRoutePath([...newPath]);
+        renderEditRouteMarkers(newPath, routeColor);
+      });
+      editRouteMidMarkersRef.current.push(mid);
+    }
+  }, []);
+
+  // Iniciar modo de edição de traçado
+  const startEditRoutePath = useCallback((route: MapRoute) => {
+    if (!mapRef.current) return;
+    // Montar path completo (fromEl + path + toEl)
+    const fromEl = (elements as any[]).find((e: any) => e.id === route.fromElementId);
+    const toEl   = (elements as any[]).find((e: any) => e.id === route.toElementId);
+    const pts: { lat: number; lng: number }[] = [];
+    if (fromEl) pts.push({ lat: Number(fromEl.lat), lng: Number(fromEl.lng) });
+    if (route.path) { try { (JSON.parse(route.path) as any[]).forEach((p: any) => pts.push({ lat: p.lat, lng: p.lng })); } catch {} }
+    if (toEl)   pts.push({ lat: Number(toEl.lat),   lng: Number(toEl.lng) });
+    setEditingRouteId(route.id);
+    setEditingRoutePath(pts);
+    editingRoutePathRef.current = pts;
+    renderEditRouteMarkers(pts, route.color ?? "#22d3ee");
+    setSidePanel(null);
+  }, [elements, renderEditRouteMarkers]);
+
+  // Cancelar edição de traçado
+  const cancelEditRoutePath = useCallback(() => {
+    clearEditRouteMarkers();
+    setEditingRouteId(null);
+    setEditingRoutePath([]);
+    editingRoutePathRef.current = [];
+  }, [clearEditRouteMarkers]);
+
+  // Salvar traçado editado
+  const saveEditRoutePath = useCallback(() => {
+    if (!editingRouteId) return;
+    const route = (routes as any[]).find((r: any) => r.id === editingRouteId);
+    const fromEl = (elements as any[]).find((e: any) => e.id === route?.fromElementId);
+    const toEl   = (elements as any[]).find((e: any) => e.id === route?.toElementId);
+    // Remover os endpoints (fromEl e toEl) do path salvo — eles são inferidos pelos elementos
+    let pts = [...editingRoutePathRef.current];
+    if (fromEl) {
+      const first = pts[0];
+      if (first && Math.abs(first.lat - Number(fromEl.lat)) < 0.0001 && Math.abs(first.lng - Number(fromEl.lng)) < 0.0001) {
+        pts = pts.slice(1);
+      }
+    }
+    if (toEl) {
+      const last = pts[pts.length - 1];
+      if (last && Math.abs(last.lat - Number(toEl.lat)) < 0.0001 && Math.abs(last.lng - Number(toEl.lng)) < 0.0001) {
+        pts = pts.slice(0, -1);
+      }
+    }
+    updateRoutePathMut.mutate({ id: editingRouteId, path: JSON.stringify(pts) });
+    cancelEditRoutePath();
+  }, [editingRouteId, routes, elements, updateRoutePathMut, cancelEditRoutePath]);
+
   // Busca de endereço via Nominatim (OpenStreetMap)
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim() || !mapRef.current) return;
@@ -712,10 +890,15 @@ export default function InfrastructureMap() {
             {r.notes && <div className="pt-1 text-muted-foreground text-xs">{r.notes}</div>}
           </div>
           {isAdmin && (
-            <Button variant="outline" size="sm" className="w-full gap-2" onClick={() => {
-              setEditRouteForm({ name: r.name ?? "", cableType: r.cableType ?? "FO", fiberCount: r.fiberCount ?? 12, color: r.color ?? "#22d3ee", notes: r.notes ?? "" });
-              setEditRouteDialogOpen(true);
-            }}><span className="text-xs">✏️</span> Editar Cabo</Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="flex-1 gap-2" onClick={() => {
+                setEditRouteForm({ name: r.name ?? "", cableType: r.cableType ?? "FO", fiberCount: r.fiberCount ?? 12, color: r.color ?? "#22d3ee", notes: r.notes ?? "" });
+                setEditRouteDialogOpen(true);
+              }}><span className="text-xs">✏️</span> Editar</Button>
+              <Button variant="outline" size="sm" className="flex-1 gap-2 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10" onClick={() => startEditRoutePath(r)}>
+                <Cable className="w-3.5 h-3.5" /> Traçado
+              </Button>
+            </div>
           )}
           {/* Seletor de Grupo */}
           <div className="border-t border-border pt-2">
@@ -1053,6 +1236,20 @@ export default function InfrastructureMap() {
           {drawingPath.length > 0 && <button onClick={undoLastPoint} className="text-cyan-300 hover:text-cyan-200 underline text-xs flex-shrink-0">Desfazer</button>}
           {drawingPath.length >= 2 && <button onClick={confirmDrawing} className="bg-cyan-500 text-white px-2 py-0.5 rounded text-xs hover:bg-cyan-400 flex-shrink-0">Confirmar traçado</button>}
           <button onClick={cancelDrawing} className="text-cyan-300 hover:text-cyan-200 underline text-xs flex-shrink-0">Cancelar</button>
+        </div>
+      )}
+      {editingRouteId !== null && (
+        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
+          <Cable className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="flex-1">
+            <span className="font-semibold">Editando traçado</span> — Arraste os pontos para mover. Clique no ponto semitransparente entre dois vértices para inserir. Duplo clique em um vértice intermediário para remover.
+            <span className="ml-2 text-amber-300">{editingRoutePath.length} pontos</span>
+          </span>
+          <button
+            onClick={saveEditRoutePath}
+            className="bg-amber-500 text-white px-3 py-0.5 rounded text-xs hover:bg-amber-400 font-semibold flex-shrink-0"
+          >Salvar traçado</button>
+          <button onClick={cancelEditRoutePath} className="text-amber-300 hover:text-amber-200 underline text-xs flex-shrink-0">Cancelar</button>
         </div>
       )}
 
