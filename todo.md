@@ -835,3 +835,8 @@
 - [x] Diálogo inline para editar label e observações da via (CEO e CTO)
 - [x] Salvar e atualizar a lista de vias sem sair do mapa
 - [x] Gerar pacote de deployment v5.42
+
+## v5.42.1 — Correção INSERT cto_tubes color NOT NULL
+
+- [x] Corrigir createCtoTube para usar 'blue' como padrão quando color for vazio/null
+- [x] Gerar pacote de deployment v5.42.1
