@@ -808,3 +808,11 @@
 - [x] Excluir CEO pelo mapa remove também o registro na tabela ceos
 - [x] Excluir CTO pelo mapa remove também o registro na tabela ctos
 - [x] Gerar pacote de deployment v5.40
+
+## v5.40.1 — Correções de Bugs no Mapa
+
+- [x] Corrigir INSERT de cto_tubes falhando com string vazia em color/notes
+- [x] Corrigir INSERT de ceo_tubes com o mesmo problema
+- [x] Corrigir nome não atualiza sem F5 após adicionar CEO/CTO no mapa
+- [x] Corrigir mapa em branco após recarregar a página (F5)
+- [x] Gerar pacote de deployment v5.40.1

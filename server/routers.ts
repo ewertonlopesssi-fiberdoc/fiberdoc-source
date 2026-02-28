@@ -814,8 +814,8 @@ export const appRouter = router({
         type: z.enum(["tube", "splitter"]).default("tube"),
         identifier: z.string().min(1),
         totalVias: z.number().min(1).max(256).default(12),
-        color: z.string().optional(),
-        notes: z.string().optional(),
+        color: z.string().optional().transform(v => v === "" ? undefined : v),
+        notes: z.string().optional().transform(v => v === "" ? undefined : v),
       }))
       .mutation(async ({ input }) => {
         return createCeoTube({
@@ -905,9 +905,9 @@ export const appRouter = router({
         ctoId: z.number(),
         identifier: z.string(),
         type: z.enum(["tube", "splitter"]).default("tube"),
-        color: z.string().optional(),
+        color: z.string().optional().transform(v => v === "" ? undefined : v),
         totalVias: z.number().min(1).max(288).default(12),
-        notes: z.string().optional(),
+        notes: z.string().optional().transform(v => v === "" ? undefined : v),
       }))
       .mutation(async ({ input }) => {
         const result = await createCtoTube(input);

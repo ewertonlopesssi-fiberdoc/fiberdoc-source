@@ -68,10 +68,11 @@ export default function InfrastructureMap() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
+  const utils = trpc.useUtils();
   const { data: elements = [], refetch: refetchElements } = trpc.infraMap.elements.useQuery();
   const { data: routes = [], refetch: refetchRoutes } = trpc.infraMap.routes.useQuery();
-  const { data: ctos = [] } = trpc.ctos.list.useQuery();
-  const { data: ceosRaw = [] } = trpc.ceos.list.useQuery({});
+  const { data: ctos = [], refetch: refetchCtos } = trpc.ctos.list.useQuery();
+  const { data: ceosRaw = [], refetch: refetchCeos } = trpc.ceos.list.useQuery({});
   const ceos = ceosRaw as any[];
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -369,6 +370,9 @@ export default function InfrastructureMap() {
     tileLayerRef.current = osmLayer;
     mapRef.current = map;
     setMapReady(true);
+    // Forçar recalculo do tamanho após mount (corrige mapa em branco após F5)
+    setTimeout(() => { map.invalidateSize(); }, 100);
+    setTimeout(() => { map.invalidateSize(); }, 500);
     return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; };
   }, []);
 
@@ -650,7 +654,10 @@ export default function InfrastructureMap() {
         await upsertElementMut.mutateAsync({ type: pickDialogType, referenceId: pickSelectedId, lat: pickDialogLat, lng: pickDialogLng });
         toast.success(`${pickDialogType.toUpperCase()} adicionado ao mapa`);
       }
-      setPickDialogOpen(false); refetchElements();
+      setPickDialogOpen(false);
+      refetchElements();
+      refetchCtos();
+      refetchCeos();
     } catch (e: any) { toast.error(e.message ?? "Erro ao adicionar"); }
   };
 
