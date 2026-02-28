@@ -850,17 +850,18 @@ export async function getTubesByCeo(ceoId: number) {
 export async function createCeoTube(data: Omit<InsertCeoTube, "id" | "createdAt" | "updatedAt">) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  // Garantir que color sempre tenha um valor válido (NOT NULL compatível)
+  // Garantir que color sempre tenha valor válido; omitir notes quando vazio para compatibilidade com NOT NULL
   const colorVal = (data.color && data.color.trim() !== "") ? data.color.trim() : "blue";
-  const notesVal = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : null;
-  const result = await db.insert(ceoTubes).values({
+  const notesVal = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : undefined;
+  const insertData: any = {
     ceoId: data.ceoId,
     type: data.type ?? "tube",
     identifier: data.identifier,
     totalVias: data.totalVias ?? 12,
     color: colorVal,
-    notes: notesVal,
-  });
+  };
+  if (notesVal !== undefined) insertData.notes = notesVal;
+  const result = await db.insert(ceoTubes).values(insertData);
   const insertId = (result as any)[0]?.insertId ?? 0;
   // Criar as vias automaticamente
   const totalVias = data.totalVias ?? 0;
@@ -976,17 +977,18 @@ export async function getTubesByCto(ctoId: number) {
 export async function createCtoTube(data: Omit<InsertCtoTube, "id" | "createdAt" | "updatedAt">) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  // Garantir que color sempre tenha um valor válido (NOT NULL compatível)
+  // Garantir que color sempre tenha valor válido; omitir notes quando vazio para compatibilidade com NOT NULL
   const colorVal = (data.color && data.color.trim() !== "") ? data.color.trim() : "blue";
-  const notesVal = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : null;
-  const result = await db.insert(ctoTubes).values({
+  const notesVal = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : undefined;
+  const insertData: any = {
     ctoId: data.ctoId,
     type: data.type ?? "tube",
     identifier: data.identifier,
     totalVias: data.totalVias ?? 12,
     color: colorVal,
-    notes: notesVal,
-  });
+  };
+  if (notesVal !== undefined) insertData.notes = notesVal;
+  const result = await db.insert(ctoTubes).values(insertData);
   const insertId = (result as any)[0]?.insertId ?? 0;
   const totalVias = data.totalVias ?? 0;
   if (totalVias > 0) {

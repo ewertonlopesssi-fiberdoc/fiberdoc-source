@@ -840,3 +840,8 @@
 
 - [x] Corrigir createCtoTube para usar 'blue' como padrão quando color for vazio/null
 - [x] Gerar pacote de deployment v5.42.1
+
+## v5.42.2 — Correção INSERT cto_tubes notes NOT NULL
+
+- [x] Omitir notes do INSERT quando vazio (compatível com NOT NULL sem default)
+- [x] Gerar pacote de deployment v5.42.2
