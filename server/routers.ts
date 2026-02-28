@@ -1,13 +1,35 @@
 import { z } from "zod";
+import path from "path";
+import fs from "fs";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+
+// Helper: salva arquivo localmente quando S3 não está disponível
+const LOCAL_UPLOADS_DIR = process.env.BACKUP_LOCAL_DIR
+  ? path.join(path.dirname(process.env.BACKUP_LOCAL_DIR), "uploads")
+  : "/opt/fiberdoc/uploads";
+
+async function uploadFile(buffer: Buffer, key: string, mimeType: string): Promise<string> {
+  const hasS3 = !!(process.env.BUILT_IN_FORGE_API_URL && process.env.BUILT_IN_FORGE_API_KEY);
+  if (hasS3) {
+    const { storagePut } = await import("./storage");
+    const { url } = await storagePut(key, buffer, mimeType);
+    return url;
+  }
+  const fname = key.replace(/\//g, "-");
+  fs.mkdirSync(LOCAL_UPLOADS_DIR, { recursive: true });
+  fs.writeFileSync(path.join(LOCAL_UPLOADS_DIR, fname), buffer);
+  return `/api/uploads/${fname}`;
+}
 import {
   getCeos, getCeoById, createCeo, updateCeo, deleteCeo,
   getTubesByCeo, createCeoTube, updateCeoTube, deleteCeoTube,
   getViasByTube, getViasByCeo, setViaFusion, clearViaFusion, updateVia, setViaFiber,
+  getTubesByCto, createCtoTube, updateCtoTube, deleteCtoTube,
+  getViasByCtotube, getViasByCto, setCtoViaFusion, clearCtoViaFusion, updateCtoVia, setCtoViaFiber,
 } from "./db";
 import {
   createConnection,
@@ -30,6 +52,7 @@ import {
   getMaintenanceHistory,
   getPortById,
   getPortsByEquipment,
+  searchPorts,
   getRoomById,
   getRooms,
   getTopologyData,
@@ -101,6 +124,12 @@ import {
   getCtoAlerts, countActiveCtoAlerts, acknowledgeCtoAlert, resolveCtoAlert, checkAndCreateCtoAlerts,
 } from "./db";
 import { getRacks, getRackById, createRack, updateRack, deleteRack } from "./db";
+import {
+  getMapGroups, createMapGroup, updateMapGroup, deleteMapGroup,
+  getGroupMembers, addElementToGroup, removeElementFromGroup,
+  addRouteToGroup, removeRouteFromGroup,
+  getAllElementGroupMemberships, getAllRouteGroupMemberships,
+} from "./db";
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
 const equipmentStatusEnum = z.enum(["active", "inactive", "maintenance"]);
@@ -302,12 +331,11 @@ export const appRouter = router({
         fileName: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        const { storagePut } = await import("./storage");
         const buffer = Buffer.from(input.base64, "base64");
         const ext = input.mimeType.split("/")[1] ?? "jpg";
         const suffix = Math.random().toString(36).slice(2, 8);
         const key = `equipment-images/${suffix}.${ext}`;
-        const { url } = await storagePut(key, buffer, input.mimeType);
+        const url = await uploadFile(buffer, key, input.mimeType);
         return { url };
       }),
   }),
@@ -431,6 +459,9 @@ export const appRouter = router({
         await deletePort(input.id);
         return { success: true };
       }),
+    search: publicProcedure
+      .input(z.object({ query: z.string().min(1), limit: z.number().optional() }))
+      .query(({ input }) => searchPorts(input.query, input.limit ?? 50)),
   }),
 
   // ─── Slots ─────────────────────────────────────────────────────────────────
@@ -742,13 +773,14 @@ export const appRouter = router({
         status: z.enum(["active", "inactive", "maintenance"]).optional(),
       }))
       .mutation(async ({ input }) => {
-        await createCeo({
+        const id = await createCeo({
           name: input.name,
           location: input.location ?? null,
           roomId: input.roomId ?? null,
           notes: input.notes ?? null,
           status: input.status ?? "active",
         });
+        return { id };
       }),
 
     update: protectedProcedure
@@ -863,8 +895,84 @@ export const appRouter = router({
       .input(z.object({ viaId: z.number() }))
       .mutation(async ({ input }) => setViaFiber(input.viaId, null)),
   }),
-
-  // ─── Gerenciamento de Usuários (apenas admin) ─────────────────────────────
+  // ─── CTO Tubos ────────────────────────────────────────────────────────────
+  ctoTubes: router({
+    byCto: protectedProcedure
+      .input(z.object({ ctoId: z.number() }))
+      .query(({ input }) => getTubesByCto(input.ctoId)),
+    create: protectedProcedure
+      .input(z.object({
+        ctoId: z.number(),
+        identifier: z.string(),
+        type: z.enum(["tube", "splitter"]).default("tube"),
+        color: z.string().optional(),
+        totalVias: z.number().min(1).max(288).default(12),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await createCtoTube(input);
+        return result;
+      }),
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        identifier: z.string().optional(),
+        type: z.enum(["tube", "splitter"]).optional(),
+        color: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateCtoTube(id, data);
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => deleteCtoTube(input.id)),
+  }),
+  // ─── CTO Vias ─────────────────────────────────────────────────────────────
+  ctoVias: router({
+    byTube: protectedProcedure
+      .input(z.object({ tubeId: z.number() }))
+      .query(({ input }) => getViasByCtotube(input.tubeId)),
+    byCto: protectedProcedure
+      .input(z.object({ ctoId: z.number() }))
+      .query(({ input }) => getViasByCto(input.ctoId)),
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        label: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateCtoVia(id, data);
+      }),
+    setFusion: protectedProcedure
+      .input(z.object({
+        viaId: z.number(),
+        fusedToTubeId: z.number(),
+        fusedToViaId: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await setCtoViaFusion(input.viaId, input.fusedToTubeId, input.fusedToViaId, input.notes);
+      }),
+    clearFusion: protectedProcedure
+      .input(z.object({ viaId: z.number() }))
+      .mutation(async ({ input }) => clearCtoViaFusion(input.viaId)),
+    setFiber: protectedProcedure
+      .input(z.object({
+        viaId: z.number(),
+        fiberId: z.number().nullable(),
+      }))
+      .mutation(async ({ input }) => {
+        await setCtoViaFiber(input.viaId, input.fiberId);
+      }),
+    clearFiber: protectedProcedure
+      .input(z.object({ viaId: z.number() }))
+      .mutation(async ({ input }) => setCtoViaFiber(input.viaId, null)),
+  }),
+  // ─── Gerenciamento de Usuários (apenas admin) ──────────────────────────────
   users: router({
     list: adminProcedure.query(async () => getAllUsers()),
 
@@ -1046,10 +1154,12 @@ export const appRouter = router({
         filename: z.string().default("logo.png"),
       }))
       .mutation(async ({ input }) => {
-        const { storagePut } = await import("./storage");
         const buffer = Buffer.from(input.base64, "base64");
-        const key = `system/logo-${Date.now()}.${input.filename.split(".").pop()}`;
-        const { url } = await storagePut(key, buffer, input.mimeType);
+        const ext = input.filename.split(".").pop() ?? "png";
+        const fname = `logo-${Date.now()}.${ext}`;
+        // Tentar S3 primeiro; se não disponível, salvar localmente
+        const key = `system/${fname}`;
+        const url = await uploadFile(buffer, key, input.mimeType);
         await setSystemSettings({ logoUrl: url });
         return { url };
       }),
@@ -1078,11 +1188,10 @@ export const appRouter = router({
         filename: z.string().default("equipment.jpg"),
       }))
       .mutation(async ({ input }) => {
-        const { storagePut } = await import("./storage");
         const buffer = Buffer.from(input.base64, "base64");
         const ext = input.filename.split(".").pop() ?? "jpg";
         const key = `equipments/${input.equipmentId}-${Date.now()}.${ext}`;
-        const { url } = await storagePut(key, buffer, input.mimeType);
+        const url = await uploadFile(buffer, key, input.mimeType);
         await updateEquipmentImage(input.equipmentId, url);
         return { url };
       }),
@@ -2112,6 +2221,71 @@ ${fiberFolder}
       .mutation(async () => {
         const created = await checkAndCreateCtoAlerts();
         return { created };
+      }),
+  }),
+  mapGroups: router({
+    list: protectedProcedure
+      .query(async () => {
+        const groups = await getMapGroups();
+        const allElements = await getAllElementGroupMemberships();
+        const allRoutes = await getAllRouteGroupMemberships();
+        return groups.map(g => ({
+          ...g,
+          elements: allElements.filter((e: any) => e.groupId === g.id),
+          routes: allRoutes.filter((r: any) => r.groupId === g.id),
+        }));
+      }),
+    memberships: protectedProcedure
+      .query(async () => {
+        const elements = await getAllElementGroupMemberships();
+        const routes = await getAllRouteGroupMemberships();
+        return { elements, routes };
+      }),
+    members: protectedProcedure
+      .input(z.object({ groupId: z.number() }))
+      .query(({ input }) => getGroupMembers(input.groupId)),
+    create: adminProcedure
+      .input(z.object({ name: z.string().min(1), color: z.string().optional(), description: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        const id = await createMapGroup(input);
+        return { id };
+      }),
+    update: adminProcedure
+      .input(z.object({ id: z.number(), name: z.string().optional(), color: z.string().optional(), description: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateMapGroup(id, data);
+        return { ok: true };
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteMapGroup(input.id);
+        return { ok: true };
+      }),
+    addElement: adminProcedure
+      .input(z.object({ elementId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await addElementToGroup(input.elementId, input.groupId);
+        return { ok: true };
+      }),
+    removeElement: adminProcedure
+      .input(z.object({ elementId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await removeElementFromGroup(input.elementId, input.groupId);
+        return { ok: true };
+      }),
+    addRoute: adminProcedure
+      .input(z.object({ routeId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await addRouteToGroup(input.routeId, input.groupId);
+        return { ok: true };
+      }),
+    removeRoute: adminProcedure
+      .input(z.object({ routeId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await removeRouteFromGroup(input.routeId, input.groupId);
+        return { ok: true };
       }),
   }),
 });

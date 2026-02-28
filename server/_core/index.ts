@@ -11,11 +11,17 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startBackupScheduler, LOCAL_BACKUP_DIR } from "../backupScheduler";
+
 import { startSnmpPoller } from "../snmpPoller";
 import { generateIpReportPdf } from "../ipReportPdf";
 import { generateEquipmentReportPdf } from "../equipmentReportPdf";
 import multer from "multer";
 import { applyUpdate, getUpdateStatus, getCurrentVersion, getUpdateHistory } from "../systemUpdate";
+
+// Diretório local para uploads de imagens (logo, etc.) em servidores sem S3
+const LOCAL_UPLOADS_DIR = process.env.BACKUP_LOCAL_DIR
+  ? path.join(path.dirname(process.env.BACKUP_LOCAL_DIR), "uploads")
+  : "/opt/fiberdoc/uploads";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -116,6 +122,28 @@ async function startServer() {
       res.json({ ok: true, message: "Atualização iniciada" });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Servir uploads locais de imagens (logo, etc.) para servidores sem S3
+  app.get("/api/uploads/:filename", (req, res) => {
+    try {
+      const filename = req.params.filename;
+      if (!filename || filename.includes("..") || filename.includes("/")) {
+        return res.status(400).json({ error: "Nome de arquivo inválido" });
+      }
+      const filePath = path.join(LOCAL_UPLOADS_DIR, filename);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Arquivo não encontrado" });
+      }
+      const ext = path.extname(filename).toLowerCase();
+      const mimeTypes: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml" };
+      res.setHeader("Content-Type", mimeTypes[ext] ?? "application/octet-stream");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      fs.createReadStream(filePath).pipe(res);
+    } catch (err: any) {
+      console.error("[uploads] erro:", err);
+      if (!res.headersSent) res.status(500).json({ error: "Erro ao servir arquivo" });
     }
   });
 

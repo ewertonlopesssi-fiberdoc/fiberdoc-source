@@ -16,6 +16,8 @@ import Rooms from "./pages/Rooms";
 import Import from "./pages/Import";
 import Ceos from "./pages/Ceos";
 import CeoDetail from "./pages/CeoDetail";
+import CtoDetail from "./pages/CtoDetail";
+import PortSearch from "./pages/PortSearch";
 import Users from "./pages/Users";
 import Backup from "./pages/Backup";
 import SystemSettings from "./pages/SystemSettings";
@@ -80,6 +82,8 @@ function Router() {
         <Route path={"/relatorio-ocupacao"} component={OccupancyReport} />
         <Route path={"/ceo"} component={Ceos} />
         <Route path={"/ceo/:id"} component={CeoDetail} />
+        <Route path={"/cto/:id"} component={CtoDetail} />
+        <Route path={"/busca-porta"} component={PortSearch} />
         <Route path={"/usuarios"} component={Users} />
         <Route path={"/backup"} component={Backup} />
         <Route path={"/sistema"} component={SystemSettings} />

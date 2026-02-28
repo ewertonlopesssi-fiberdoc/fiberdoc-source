@@ -50,6 +50,13 @@ import {
   racks,
   Rack,
   InsertRack,
+  mapGroups,
+  MapGroup,
+  InsertMapGroup,
+  mapElementGroups,
+  MapElementGroup,
+  mapRouteGroups,
+  MapRouteGroup,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -316,6 +323,40 @@ export async function deletePort(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   await db.delete(ports).where(eq(ports.id, id));
+}
+
+// Busca de porta por etiqueta ou descrição (cross-equipment)
+export async function searchPorts(query: string, limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  const q = `%${query}%`;
+  const rows = await db
+    .select({
+      id: ports.id,
+      equipmentId: ports.equipmentId,
+      equipmentName: equipments.name,
+      portNumber: ports.portNumber,
+      label: ports.label,
+      type: ports.type,
+      speed: ports.speed,
+      status: ports.status,
+      notes: ports.notes,
+      connectedToEquipmentId: ports.connectedToEquipmentId,
+      connectedToPortId: ports.connectedToPortId,
+    })
+    .from(ports)
+    .leftJoin(equipments, eq(ports.equipmentId, equipments.id))
+    .where(
+      or(
+        like(ports.label, q),
+        like(ports.notes, q),
+        like(ports.portNumber, q),
+        like(equipments.name, q),
+      )
+    )
+    .orderBy(ports.status, equipments.name, ports.portNumber)
+    .limit(limit);
+  return rows;
 }
 
 export async function bulkCreatePorts(
@@ -754,7 +795,7 @@ export async function bulkImportFibers(
 }
 
 // ─── CEO Helpers ──────────────────────────────────────────────────────────────
-import { ceos, ceoTubes, ceoVias, InsertCeo, InsertCeoTube, InsertCeoVia } from "../drizzle/schema";
+import { ceos, ceoTubes, ceoVias, InsertCeo, InsertCeoTube, InsertCeoVia, ctoTubes, ctoVias, InsertCtoTube, InsertCtoVia } from "../drizzle/schema";
 
 export async function getCeos(filters?: { roomId?: number; status?: string }) {
   const db = await getDb();
@@ -773,10 +814,11 @@ export async function getCeoById(id: number) {
   return rows[0];
 }
 
-export async function createCeo(data: Omit<InsertCeo, "id" | "createdAt" | "updatedAt">) {
+export async function createCeo(data: Omit<InsertCeo, "id" | "createdAt" | "updatedAt">): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  await db.insert(ceos).values(data);
+  const result = await db.insert(ceos).values(data);
+  return (result[0] as any).insertId;
 }
 
 export async function updateCeo(id: number, data: Partial<Omit<InsertCeo, "id" | "createdAt" | "updatedAt">>) {
@@ -914,6 +956,89 @@ export async function setViaFiber(viaId: number, fiberId: number | null) {
   await db.update(ceoVias).set({ fiberId }).where(eq(ceoVias.id, viaId));
 }
 
+// ─── CTO Tubes ──────────────────────────────────────────────────────────────────
+export async function getTubesByCto(ctoId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ctoTubes).where(eq(ctoTubes.ctoId, ctoId));
+  return rows.sort((a, b) => a.identifier.localeCompare(b.identifier, "pt-BR", { numeric: true }));
+}
+export async function createCtoTube(data: Omit<InsertCtoTube, "id" | "createdAt" | "updatedAt">) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(ctoTubes).values(data);
+  const insertId = (result as any)[0]?.insertId ?? 0;
+  const totalVias = data.totalVias ?? 0;
+  if (totalVias > 0) {
+    const viaRows: Omit<InsertCtoVia, "id" | "createdAt" | "updatedAt">[] = [];
+    for (let i = 1; i <= totalVias; i++) {
+      viaRows.push({ tubeId: insertId, ctoId: data.ctoId, viaNumber: i });
+    }
+    if (viaRows.length > 0) await db.insert(ctoVias).values(viaRows);
+  }
+  return insertId;
+}
+export async function updateCtoTube(id: number, data: Partial<Omit<InsertCtoTube, "id" | "createdAt" | "updatedAt">>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ctoTubes).set(data).where(eq(ctoTubes.id, id));
+}
+export async function deleteCtoTube(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ctoVias).set({ fusedToTubeId: null, fusedToViaId: null }).where(eq(ctoVias.fusedToTubeId, id));
+  await db.delete(ctoVias).where(eq(ctoVias.tubeId, id));
+  await db.delete(ctoTubes).where(eq(ctoTubes.id, id));
+}
+// ─── CTO Vias ─────────────────────────────────────────────────────────────────
+export async function getViasByCtotube(tubeId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ctoVias).where(eq(ctoVias.tubeId, tubeId));
+  return rows.sort((a, b) => a.viaNumber - b.viaNumber);
+}
+export async function getViasByCto(ctoId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ctoVias).where(eq(ctoVias.ctoId, ctoId));
+  return rows.sort((a, b) => a.viaNumber - b.viaNumber);
+}
+export async function setCtoViaFusion(
+  viaId: number,
+  fusedToTubeId: number | null,
+  fusedToViaId: number | null,
+  notes?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const originRows = await db.select().from(ctoVias).where(eq(ctoVias.id, viaId)).limit(1);
+  const origin = originRows[0];
+  if (!origin) throw new Error("Via de origem não encontrada");
+  await db.update(ctoVias).set({ fusedToTubeId, fusedToViaId, notes: notes ?? null }).where(eq(ctoVias.id, viaId));
+  if (fusedToViaId !== null && fusedToTubeId !== null) {
+    await db.update(ctoVias).set({ fusedToTubeId: origin.tubeId, fusedToViaId: viaId }).where(eq(ctoVias.id, fusedToViaId));
+  }
+}
+export async function clearCtoViaFusion(viaId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const rows = await db.select().from(ctoVias).where(eq(ctoVias.id, viaId)).limit(1);
+  const via = rows[0];
+  await db.update(ctoVias).set({ fusedToTubeId: null, fusedToViaId: null }).where(eq(ctoVias.id, viaId));
+  if (via?.fusedToViaId) {
+    await db.update(ctoVias).set({ fusedToTubeId: null, fusedToViaId: null }).where(eq(ctoVias.id, via.fusedToViaId));
+  }
+}
+export async function updateCtoVia(id: number, data: { label?: string | null; notes?: string | null; fiberId?: number | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ctoVias).set(data).where(eq(ctoVias.id, id));
+}
+export async function setCtoViaFiber(viaId: number, fiberId: number | null) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ctoVias).set({ fiberId }).where(eq(ctoVias.id, viaId));
+}
 // ─── Gerenciamento de Usuários ────────────────────────────────────────────────
 export async function getAllUsers() {
   const db = await getDb();
@@ -2122,4 +2247,110 @@ export async function checkAndCreateCtoAlerts(): Promise<number> {
     created++;
   }
   return created;
+}
+
+// ─── Grupos/Pastas do Mapa ────────────────────────────────────────────────────
+export async function getMapGroups(): Promise<MapGroup[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapGroups).orderBy(mapGroups.name);
+}
+
+export async function createMapGroup(data: { name: string; color?: string; description?: string }): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const [result] = await db.insert(mapGroups).values({
+    name: data.name,
+    color: data.color ?? "#6366f1",
+    description: data.description ?? null,
+  });
+  return (result as any).insertId as number;
+}
+
+export async function updateMapGroup(id: number, data: { name?: string; color?: string; description?: string }): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(mapGroups).set({ ...data, updatedAt: new Date() }).where(eq(mapGroups.id, id));
+}
+
+export async function deleteMapGroup(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapElementGroups).where(eq(mapElementGroups.groupId, id));
+  await db.delete(mapRouteGroups).where(eq(mapRouteGroups.groupId, id));
+  await db.delete(mapGroups).where(eq(mapGroups.id, id));
+}
+
+export async function getGroupMembers(groupId: number): Promise<{ elementIds: number[]; routeIds: number[] }> {
+  const db = await getDb();
+  if (!db) return { elementIds: [], routeIds: [] };
+  const elements = await db.select().from(mapElementGroups).where(eq(mapElementGroups.groupId, groupId));
+  const routes = await db.select().from(mapRouteGroups).where(eq(mapRouteGroups.groupId, groupId));
+  return {
+    elementIds: elements.map((e) => e.elementId),
+    routeIds: routes.map((r) => r.routeId),
+  };
+}
+
+export async function getElementGroups(elementId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(mapElementGroups).where(eq(mapElementGroups.elementId, elementId));
+  return rows.map((r) => r.groupId);
+}
+
+export async function getRouteGroups(routeId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(mapRouteGroups).where(eq(mapRouteGroups.routeId, routeId));
+  return rows.map((r) => r.groupId);
+}
+
+export async function addElementToGroup(elementId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  // Evitar duplicatas
+  const existing = await db.select().from(mapElementGroups)
+    .where(and(eq(mapElementGroups.elementId, elementId), eq(mapElementGroups.groupId, groupId)))
+    .limit(1);
+  if (existing.length === 0) {
+    await db.insert(mapElementGroups).values({ elementId, groupId });
+  }
+}
+
+export async function removeElementFromGroup(elementId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapElementGroups)
+    .where(and(eq(mapElementGroups.elementId, elementId), eq(mapElementGroups.groupId, groupId)));
+}
+
+export async function addRouteToGroup(routeId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(mapRouteGroups)
+    .where(and(eq(mapRouteGroups.routeId, routeId), eq(mapRouteGroups.groupId, groupId)))
+    .limit(1);
+  if (existing.length === 0) {
+    await db.insert(mapRouteGroups).values({ routeId, groupId });
+  }
+}
+
+export async function removeRouteFromGroup(routeId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapRouteGroups)
+    .where(and(eq(mapRouteGroups.routeId, routeId), eq(mapRouteGroups.groupId, groupId)));
+}
+
+export async function getAllElementGroupMemberships(): Promise<MapElementGroup[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapElementGroups);
+}
+
+export async function getAllRouteGroupMemberships(): Promise<MapRouteGroup[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapRouteGroups);
 }

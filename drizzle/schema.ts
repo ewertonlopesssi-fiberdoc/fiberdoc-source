@@ -661,3 +661,62 @@ export const ctoAlertConfig = mysqlTable("cto_alert_config", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 export type CtoAlertConfig = typeof ctoAlertConfig.$inferSelect;
+
+// ─── Tubos / Splitters da CTO ─────────────────────────────────────────────────
+export const ctoTubes = mysqlTable("cto_tubes", {
+  id: int("id").autoincrement().primaryKey(),
+  ctoId: int("ctoId").notNull(),
+  type: mysqlEnum("cto_tube_type", ["tube", "splitter"]).default("tube").notNull(),
+  identifier: varchar("identifier", { length: 32 }).notNull(), // ex: "TUBO 1", "SPLITTER 1*8"
+  totalVias: int("totalVias").default(12).notNull(),
+  color: varchar("color", { length: 32 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CtoTube = typeof ctoTubes.$inferSelect;
+export type InsertCtoTube = typeof ctoTubes.$inferInsert;
+// ─── Vias do Tubo/Splitter da CTO ─────────────────────────────────────────────
+export const ctoVias = mysqlTable("cto_vias", {
+  id: int("id").autoincrement().primaryKey(),
+  tubeId: int("tubeId").notNull(),
+  ctoId: int("ctoId").notNull(),
+  viaNumber: int("viaNumber").notNull(),           // 1, 2, 3...
+  label: varchar("label", { length: 64 }),         // etiqueta opcional
+  fusedToViaId: int("fusedToViaId"),               // id da via destino da fusão
+  fusedToTubeId: int("fusedToTubeId"),             // id do tubo destino
+  fiberId: int("fiberId"),                         // fibra óptica associada a esta via
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CtoVia = typeof ctoVias.$inferSelect;
+export type InsertCtoVia = typeof ctoVias.$inferInsert;
+
+// ─── Grupos/Pastas do Mapa ────────────────────────────────────────────────────
+export const mapGroups = mysqlTable("map_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  color: varchar("color", { length: 16 }).default("#6366f1").notNull(),
+  description: text("description"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type MapGroup = typeof mapGroups.$inferSelect;
+export type InsertMapGroup = typeof mapGroups.$inferInsert;
+
+// ─── Associação de Elementos a Grupos ─────────────────────────────────────────
+export const mapElementGroups = mysqlTable("map_element_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  elementId: int("elementId").notNull(),
+  groupId: int("groupId").notNull(),
+});
+export type MapElementGroup = typeof mapElementGroups.$inferSelect;
+
+// ─── Associação de Cabos a Grupos ─────────────────────────────────────────────
+export const mapRouteGroups = mysqlTable("map_route_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  routeId: int("routeId").notNull(),
+  groupId: int("groupId").notNull(),
+});
+export type MapRouteGroup = typeof mapRouteGroups.$inferSelect;

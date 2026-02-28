@@ -195,6 +195,7 @@ export default function Ctos() {
                   <th className="text-center px-4 py-3 text-muted-foreground font-medium">Ocupação</th>
                   <th className="text-center px-4 py-3 text-muted-foreground font-medium">Status</th>
                   <th className="text-center px-4 py-3 text-muted-foreground font-medium">Localização</th>
+                  <th className="text-center px-4 py-3 text-muted-foreground font-medium">Detalhes</th>
                   {isAdmin && <th className="text-center px-4 py-3 text-muted-foreground font-medium">Ações</th>}
                 </tr>
               </thead>
@@ -243,6 +244,16 @@ export default function Ctos() {
                         ) : (
                           <span className="text-muted-foreground text-xs">—</span>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setLocation(`/cto/${cto.id}`)}
+                          className="h-7 text-xs gap-1 border-emerald-500/30 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                        >
+                          Tubos/Vias
+                        </Button>
                       </td>
                       {isAdmin && (
                         <td className="px-4 py-3 text-center">

@@ -49,6 +49,7 @@ import {
   Zap,
   Bell,
   Cpu,
+  Search,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -79,6 +80,7 @@ const publicMenuItems = [
   { icon: Map, label: "Mapa de Infraestrutura", path: "/mapa" },
   { icon: Cable, label: "Fibras Ópticas", path: "/fibras" },
   { icon: CircuitBoard, label: "Portas", path: "/portas" },
+  { icon: Search, label: "Busca de Porta", path: "/busca-porta" },
   { icon: GitBranch, label: "Conexões", path: "/conexoes" },
   { icon: History, label: "Histórico", path: "/historico" },
   { icon: Upload, label: "Importar CSV", path: "/importar" },
@@ -290,6 +292,14 @@ function DashboardLayoutContent({
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarFooter>
+          <div className="px-3 pb-2 group-data-[collapsible=icon]:hidden">
+            <p className="text-[9px] text-sidebar-foreground/30 leading-tight text-center">
+              © 2026 SuporTI — CNPJ 18.643.297/0001-79
+            </p>
+            <p className="text-[9px] text-sidebar-foreground/30 leading-tight text-center">
+              Todos os direitos reservados.
+            </p>
+          </div>
         </Sidebar>
 
         <div

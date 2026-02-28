@@ -12,7 +12,8 @@ import { toast } from "sonner";
 import {
   Map, Download, Plus, X, Eye, EyeOff, Loader2,
   Radio, Box, Cable, Navigation, Users, Trash2,
-  FileDown, MousePointer2, Search, Layers, Upload
+  FileDown, MousePointer2, Search, Layers, Upload,
+  Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag
 } from "lucide-react";
 import L from "leaflet";
 
@@ -43,6 +44,25 @@ function createLeafletIcon(type: "ceo" | "cto", status: string, name: string, se
   return L.divIcon({ html: iconHtml, className: "", iconSize: [80, 46], iconAnchor: [40, 14] });
 }
 
+// Calcula distância em metros entre dois pontos (Haversine)
+function haversineDistance(latlngs: L.LatLngExpression[]): number {
+  let total = 0;
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  for (let i = 0; i < latlngs.length - 1; i++) {
+    const [a, b] = [latlngs[i] as [number, number], latlngs[i + 1] as [number, number]];
+    const R = 6371000;
+    const dLat = toRad(b[0] - a[0]); const dLng = toRad(b[1] - a[1]);
+    const x = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLng / 2) ** 2;
+    total += R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  }
+  return total;
+}
+
+function formatDistance(meters: number): string {
+  if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
+  return `${Math.round(meters)} m`;
+}
+
 export default function InfrastructureMap() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -57,6 +77,7 @@ export default function InfrastructureMap() {
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Record<number, L.Marker>>({});
   const polylinesRef = useRef<Record<number, L.Polyline>>({});
+  const routeLabelsRef = useRef<Record<number, L.Marker>>({});
   const previewPolylineRef = useRef<L.Polyline | null>(null);
   const mousePolylineRef = useRef<L.Polyline | null>(null);
   const drawingMarkersRef = useRef<L.CircleMarker[]>([]);
@@ -102,6 +123,59 @@ export default function InfrastructureMap() {
   const [kmlImportLoading, setKmlImportLoading] = useState(false);
   const [kmlImportResult, setKmlImportResult] = useState<{ added: number; skipped: number; errors: string[] } | null>(null);
   const kmlFileRef = useRef<HTMLInputElement | null>(null);
+
+  // Grupos/Pastas
+  const { data: mapGroups = [], refetch: refetchGroups } = trpc.mapGroups.list.useQuery();
+  const [groupsPanelOpen, setGroupsPanelOpen] = useState(false);
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false);
+  const [groupForm, setGroupForm] = useState({ name: "", color: "#6366f1", description: "" });
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+  const [activeGroupFilter, setActiveGroupFilter] = useState<number | null>(null);
+  const [assignGroupDialogOpen, setAssignGroupDialogOpen] = useState(false);
+  const [assignGroupId, setAssignGroupId] = useState<number | null>(null);
+
+  const createGroupMut = trpc.mapGroups.create.useMutation({
+    onSuccess: () => { refetchGroups(); setGroupDialogOpen(false); setGroupForm({ name: "", color: "#6366f1", description: "" }); toast.success("Grupo criado"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateGroupMut = trpc.mapGroups.update.useMutation({
+    onSuccess: () => { refetchGroups(); setGroupDialogOpen(false); setEditingGroupId(null); toast.success("Grupo atualizado"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteGroupMapMut = trpc.mapGroups.delete.useMutation({
+    onSuccess: () => { refetchGroups(); if (activeGroupFilter === editingGroupId) setActiveGroupFilter(null); toast.success("Grupo excluído"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const assignElementToGroupMut = trpc.mapGroups.addElement.useMutation({
+    onSuccess: () => { refetchGroups(); setAssignGroupDialogOpen(false); toast.success("Elemento adicionado ao grupo"); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const assignRouteToGroupMut = trpc.mapGroups.addRoute.useMutation({
+    onSuccess: () => { refetchGroups(); setAssignGroupDialogOpen(false); toast.success("Cabo adicionado ao grupo"); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const removeElementFromGroupMut = trpc.mapGroups.removeElement.useMutation({
+    onSuccess: () => { refetchGroups(); toast.success("Elemento removido do grupo"); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const removeRouteFromGroupMut = trpc.mapGroups.removeRoute.useMutation({
+    onSuccess: () => { refetchGroups(); toast.success("Cabo removido do grupo"); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // Filtrar elementos por grupo ativo
+  const filteredElements = activeGroupFilter
+    ? (elements as any[]).filter((el: any) => {
+        const group = (mapGroups as any[]).find((g: any) => g.id === activeGroupFilter);
+        return group?.elements?.some((ge: any) => ge.elementId === el.id);
+      })
+    : (elements as any[]);
+  const filteredRoutes = activeGroupFilter
+    ? (routes as any[]).filter((r: any) => {
+        const group = (mapGroups as any[]).find((g: any) => g.id === activeGroupFilter);
+        return group?.routes?.some((gr: any) => gr.routeId === r.id);
+      })
+    : (routes as any[]);
 
   const toggleGroupSelectMode = useCallback(() => {
     setGroupSelectMode(v => {
@@ -203,6 +277,8 @@ export default function InfrastructureMap() {
     if (!mapRef.current || !mapReady) return;
     Object.values(polylinesRef.current).forEach(p => p.remove());
     polylinesRef.current = {};
+    Object.values(routeLabelsRef.current).forEach(m => m.remove());
+    routeLabelsRef.current = {};
     if (!showRoutes) return;
     (routes as any[]).forEach((r: any) => {
       const fromEl = (elements as any[]).find((e: any) => e.id === r.fromElementId);
@@ -219,6 +295,17 @@ export default function InfrastructureMap() {
         setSidePanel({ kind: "route", route: r });
       });
       polylinesRef.current[r.id] = polyline;
+      // Rótulo de distância no ponto médio do cabo
+      const distMeters = haversineDistance(latlngs);
+      const distText = formatDistance(distMeters);
+      const midIdx = Math.floor(latlngs.length / 2);
+      const midPt = latlngs[midIdx] as [number, number];
+      const labelIcon = L.divIcon({
+        html: `<div style="background:rgba(0,0,0,0.72);color:#fff;font-size:10px;font-weight:600;padding:2px 5px;border-radius:4px;white-space:nowrap;pointer-events:none;border:1px solid rgba(255,255,255,0.15);">${distText}</div>`,
+        className: "", iconSize: [0, 0], iconAnchor: [0, 0],
+      });
+      const labelMarker = L.marker(midPt, { icon: labelIcon, interactive: false, keyboard: false }).addTo(mapRef.current!);
+      routeLabelsRef.current[r.id] = labelMarker;
     });
   }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute]);
 
@@ -557,6 +644,9 @@ export default function InfrastructureMap() {
               <Upload className="w-3 h-3" />Importar KML
             </Button>
           )}
+          <Button size="sm" variant={groupsPanelOpen ? "default" : "outline"} className={`h-7 gap-1 text-xs ${groupsPanelOpen ? "bg-violet-600 hover:bg-violet-700 border-violet-500" : ""}`} onClick={() => setGroupsPanelOpen(v => !v)} title="Grupos/Pastas de setores">
+            <Folder className="w-3 h-3" />Grupos {(mapGroups as any[]).length > 0 && <span className="ml-0.5 bg-white/20 rounded px-1">{(mapGroups as any[]).length}</span>}
+          </Button>
           <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={openExportDialog}>
             <FileDown className="w-3 h-3" />Exportar KML/KMZ
           </Button>
@@ -606,6 +696,95 @@ export default function InfrastructureMap() {
             <span className="text-muted-foreground">{(elements as any[]).length} elementos · {(routes as any[]).length} cabos</span>
           </div>
         </div>
+        {groupsPanelOpen && (
+          <div className="w-72 border-l border-border bg-card/50 flex flex-col overflow-hidden flex-shrink-0">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Folder className="w-4 h-4 text-violet-400" />
+                <span className="text-sm font-medium">Grupos / Setores</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {isAdmin && (
+                  <button onClick={() => { setEditingGroupId(null); setGroupForm({ name: "", color: "#6366f1", description: "" }); setGroupDialogOpen(true); }} className="text-violet-400 hover:text-violet-300" title="Novo grupo">
+                    <FolderPlus className="w-4 h-4" />
+                  </button>
+                )}
+                <button onClick={() => setGroupsPanelOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+              </div>
+            </div>
+            {activeGroupFilter !== null && (
+              <div className="px-3 py-2 bg-violet-500/10 border-b border-violet-500/20 flex items-center gap-2">
+                <span className="text-xs text-violet-400 flex-1">Filtrando por grupo</span>
+                <button onClick={() => setActiveGroupFilter(null)} className="text-xs text-violet-300 hover:text-violet-200 underline">Limpar filtro</button>
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto">
+              {(mapGroups as any[]).length === 0 ? (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  <Folder className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                  <p>Nenhum grupo criado.</p>
+                  {isAdmin && <p className="text-xs mt-1">Clique em <strong>+</strong> para criar um grupo de setores.</p>}
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {(mapGroups as any[]).map((group: any) => {
+                    const isActive = activeGroupFilter === group.id;
+                    const elemCount = group.elements?.length ?? 0;
+                    const routeCount = group.routes?.length ?? 0;
+                    return (
+                      <div key={group.id} className={`px-3 py-3 ${isActive ? "bg-violet-500/10" : "hover:bg-muted/30"}`}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: group.color ?? "#6366f1" }} />
+                          <span className="text-sm font-medium flex-1 truncate">{group.name}</span>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => setActiveGroupFilter(isActive ? null : group.id)} className={`text-xs px-1.5 py-0.5 rounded ${isActive ? "bg-violet-500 text-white" : "bg-muted text-muted-foreground hover:bg-muted/70"}`} title={isActive ? "Remover filtro" : "Filtrar mapa por este grupo"}>
+                              {isActive ? <Check className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            </button>
+                            {isAdmin && (
+                              <>
+                                <button onClick={() => { setEditingGroupId(group.id); setGroupForm({ name: group.name, color: group.color ?? "#6366f1", description: group.description ?? "" }); setGroupDialogOpen(true); }} className="text-muted-foreground hover:text-foreground" title="Editar grupo">
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                </button>
+                                <button onClick={() => deleteGroupMapMut.mutate({ id: group.id })} className="text-red-400/60 hover:text-red-400" title="Excluir grupo">
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        {group.description && <p className="text-xs text-muted-foreground mt-1 truncate">{group.description}</p>}
+                        <div className="flex gap-3 mt-1.5 text-xs text-muted-foreground">
+                          <span>{elemCount} elemento{elemCount !== 1 ? "s" : ""}</span>
+                          <span>{routeCount} cabo{routeCount !== 1 ? "s" : ""}</span>
+                        </div>
+                        {isAdmin && groupSelectMode && groupTotalSelected > 0 && (
+                          <button onClick={() => {
+                            Array.from(groupSelectedElements).forEach(elId => assignElementToGroupMut.mutate({ elementId: elId, groupId: group.id }));
+                            Array.from(groupSelectedRoutes).forEach(rId => assignRouteToGroupMut.mutate({ routeId: rId, groupId: group.id }));
+                          }} className="mt-2 w-full text-xs bg-violet-600 hover:bg-violet-700 text-white rounded px-2 py-1">
+                            Adicionar seleção ({groupTotalSelected}) a este grupo
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {isAdmin && groupSelectMode && groupTotalSelected > 0 && (
+              <div className="px-3 py-2 border-t border-border text-xs text-muted-foreground">
+                <Tag className="w-3 h-3 inline mr-1" />{groupTotalSelected} selecionado{groupTotalSelected !== 1 ? "s" : ""} — clique em um grupo para atribuir
+              </div>
+            )}
+            {!groupSelectMode && isAdmin && (
+              <div className="px-3 py-2 border-t border-border">
+                <button onClick={toggleGroupSelectMode} className="w-full text-xs text-center text-violet-400 hover:text-violet-300 underline">
+                  Ativar seleção para atribuir elementos
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {sidePanel && (
           <div className="w-72 border-l border-border bg-card/50 flex flex-col overflow-hidden flex-shrink-0">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
@@ -726,6 +905,30 @@ export default function InfrastructureMap() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteRouteId(null)}>Cancelar</Button>
             <Button variant="destructive" onClick={() => deleteRouteId && deleteRouteMut.mutate({ id: deleteRouteId })} disabled={deleteRouteMut.isPending}>{deleteRouteMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Excluir"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo criação/edição de grupo */}
+      <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Folder className="w-4 h-4 text-violet-400" />{editingGroupId ? "Editar Grupo" : "Novo Grupo"}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5"><Label>Nome do grupo *</Label><Input value={groupForm.name} onChange={e => setGroupForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Setor Norte, Bairro Centro..." /></div>
+            <div className="space-y-1.5"><Label>Descrição</Label><Input value={groupForm.description} onChange={e => setGroupForm(f => ({ ...f, description: e.target.value }))} placeholder="Descrição opcional" /></div>
+            <div className="space-y-1.5"><Label>Cor de identificação</Label>
+              <div className="flex gap-2 items-center"><input type="color" value={groupForm.color} onChange={e => setGroupForm(f => ({ ...f, color: e.target.value }))} className="w-10 h-8 rounded cursor-pointer border border-border" /><span className="text-xs text-muted-foreground">{groupForm.color}</span></div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGroupDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={() => {
+              if (!groupForm.name.trim()) { toast.error("Nome obrigatório"); return; }
+              if (editingGroupId) updateGroupMut.mutate({ id: editingGroupId, ...groupForm });
+              else createGroupMut.mutate(groupForm);
+            }} disabled={createGroupMut.isPending || updateGroupMut.isPending}>
+              {createGroupMut.isPending || updateGroupMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : editingGroupId ? "Salvar" : "Criar Grupo"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

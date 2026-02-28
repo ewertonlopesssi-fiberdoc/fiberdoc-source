@@ -711,3 +711,46 @@
 - [x] Suporte a Google Maps via VITE_GOOGLE_MAPS_KEY (detecção automática no .env)
 - [x] Importação de posições CEO/CTO via arquivo KML (upload + parser + diálogo de confirmação)
 - [x] Gerar pacote de deployment v5.35
+
+## v5.36 — Correções e Módulo CTO Completo
+
+- [x] Corrigir falha ao adicionar cabo pelo mapa
+- [x] Corrigir falha ao adicionar CEO pelo mapa
+- [x] Rótulos de distância nos cabos (km/m sobre a polyline)
+- [x] Schema: tabela cto_tubes (id, ctoId, type: tube|splitter, identifier, totalVias, notes)
+- [x] Schema: tabela cto_vias (id, tubeId, viaNumber, label, fusedToViaId, fusedToTubeId, notes)
+- [x] Migration SQL para cto_tubes e cto_vias
+- [x] Helpers de DB para CTO tubos e vias
+- [x] Procedures tRPC: ctoTubes.byCTO, ctoTubes.create, ctoTubes.update, ctoTubes.delete
+- [x] Procedures tRPC: ctoVias.byTube, ctoVias.setFusion, ctoVias.clearFusion
+- [x] Página de detalhes da CTO com abas por tubo/splitter e grid de vias
+- [x] Dialog de fusão de vias na CTO
+- [x] Associação de via a fibra óptica na CTO
+- [x] Gerar pacote de deployment v5.36
+
+## v5.36 — Grupos/Pastas no Mapa (Setores)
+
+- [x] Schema: tabela map_groups (id, name, color, description, createdAt, updatedAt)
+- [x] Schema: tabelas map_element_groups e map_route_groups (associações N:N)
+- [x] Migration SQL para map_groups, map_element_groups e map_route_groups
+- [x] Helpers de DB: getMapGroups, createMapGroup, updateMapGroup, deleteMapGroup, addElementToGroup, removeElementFromGroup, addRouteToGroup, removeRouteFromGroup
+- [x] Procedures tRPC: mapGroups.list (com membros), create, update, delete, addElement, removeElement, addRoute, removeRoute
+- [x] Painel lateral de grupos no mapa (lista de grupos, criar/editar/excluir)
+- [x] Filtro por grupo no toolbar (botão Grupos + painel lateral com toggle de filtro)
+- [x] Seleção em grupo para atribuir múltiplos elementos de uma vez
+- [x] Diálogo de criação/edição de grupo com nome, cor e descrição
+
+## Bug v5.36 — Configurações do Sistema
+
+- [x] Corrigir erro ao salvar nome do sistema e imagem/logo nas configurações
+
+## v5.36 — Busca de Porta por Etiqueta/Descrição
+
+- [x] Procedure tRPC: ports.search (busca por label/notes/portNumber em todas as portas)
+- [x] Página dedicada Busca de Porta com barra de busca e resultados em tempo real
+- [x] Resultado exibe: equipamento, porta, etiqueta, tipo, velocidade, status, observações
+- [x] Navegar diretamente para o equipamento ao clicar no resultado
+
+## v5.36 — Rodapé com dados da empresa
+
+- [x] Adicionar rodapé "© 2026 SuporTI - CNPJ 18.643.297/0001-79. Todos os direitos reservados." no DashboardLayout
