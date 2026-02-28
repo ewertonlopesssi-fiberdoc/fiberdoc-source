@@ -138,7 +138,7 @@ export default function InfrastructureMap() {
   const [editElementDialogOpen, setEditElementDialogOpen] = useState(false);
   const [editElementForm, setEditElementForm] = useState({ name: "", address: "", capacity: 8, status: "active", notes: "" });
   const [editRouteDialogOpen, setEditRouteDialogOpen] = useState(false);
-  const [editRouteForm, setEditRouteForm] = useState({ name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: "" });
+  const [editRouteForm, setEditRouteForm] = useState({ name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: "", fromElementId: null as number | null, toElementId: null as number | null });
 
   // Grupos/Pastas
   const { data: mapGroups = [], refetch: refetchGroups } = trpc.mapGroups.list.useQuery();
@@ -192,7 +192,16 @@ export default function InfrastructureMap() {
       refetchRoutes();
       setEditRouteDialogOpen(false);
       if (sidePanel?.kind === "route") {
-        setSidePanel({ ...sidePanel, route: { ...sidePanel.route, name: editRouteForm.name, cableType: editRouteForm.cableType, fiberCount: editRouteForm.fiberCount, color: editRouteForm.color, notes: editRouteForm.notes } });
+        setSidePanel({ ...sidePanel, route: {
+          ...sidePanel.route,
+          name: editRouteForm.name,
+          cableType: editRouteForm.cableType,
+          fiberCount: editRouteForm.fiberCount,
+          color: editRouteForm.color,
+          notes: editRouteForm.notes,
+          fromElementId: editRouteForm.fromElementId ?? sidePanel.route.fromElementId,
+          toElementId: editRouteForm.toElementId ?? sidePanel.route.toElementId,
+        } });
       }
       toast.success("Cabo atualizado");
     },
@@ -892,7 +901,7 @@ export default function InfrastructureMap() {
           {isAdmin && (
             <div className="flex gap-2">
               <Button variant="outline" size="sm" className="flex-1 gap-2" onClick={() => {
-                setEditRouteForm({ name: r.name ?? "", cableType: r.cableType ?? "FO", fiberCount: r.fiberCount ?? 12, color: r.color ?? "#22d3ee", notes: r.notes ?? "" });
+                setEditRouteForm({ name: r.name ?? "", cableType: r.cableType ?? "FO", fiberCount: r.fiberCount ?? 12, color: r.color ?? "#22d3ee", notes: r.notes ?? "", fromElementId: r.fromElementId ?? null, toElementId: r.toElementId ?? null });
                 setEditRouteDialogOpen(true);
               }}><span className="text-xs">✏️</span> Editar</Button>
               <Button variant="outline" size="sm" className="flex-1 gap-2 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10" onClick={() => startEditRoutePath(r)}>
@@ -1582,6 +1591,47 @@ export default function InfrastructureMap() {
               <Label>Nome</Label>
               <Input value={editRouteForm.name} onChange={e => setEditRouteForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Cabo Principal Setor A" />
             </div>
+            {/* Seletores De / Para */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1"><span className="text-emerald-400 text-xs font-bold">DE</span> Origem</Label>
+                <Select
+                  value={editRouteForm.fromElementId != null ? String(editRouteForm.fromElementId) : "none"}
+                  onValueChange={v => setEditRouteForm(f => ({ ...f, fromElementId: v === "none" ? null : Number(v) }))}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Nenhum" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhum</SelectItem>
+                    {(elements as any[]).map((el: any) => {
+                      const ref = el.type === "cto"
+                        ? (ctos as any[]).find((c: any) => c.id === el.referenceId)
+                        : (ceos as any[]).find((c: any) => c.id === el.referenceId);
+                      const label = ref?.name ?? `${el.type.toUpperCase()}-${el.referenceId}`;
+                      return <SelectItem key={el.id} value={String(el.id)}><span className="flex items-center gap-1"><span className={`text-[10px] font-bold ${el.type === "cto" ? "text-purple-400" : "text-blue-400"}`}>{el.type.toUpperCase()}</span>{label}</span></SelectItem>;
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1"><span className="text-cyan-400 text-xs font-bold">PARA</span> Destino</Label>
+                <Select
+                  value={editRouteForm.toElementId != null ? String(editRouteForm.toElementId) : "none"}
+                  onValueChange={v => setEditRouteForm(f => ({ ...f, toElementId: v === "none" ? null : Number(v) }))}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Nenhum" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhum</SelectItem>
+                    {(elements as any[]).map((el: any) => {
+                      const ref = el.type === "cto"
+                        ? (ctos as any[]).find((c: any) => c.id === el.referenceId)
+                        : (ceos as any[]).find((c: any) => c.id === el.referenceId);
+                      const label = ref?.name ?? `${el.type.toUpperCase()}-${el.referenceId}`;
+                      return <SelectItem key={el.id} value={String(el.id)}><span className="flex items-center gap-1"><span className={`text-[10px] font-bold ${el.type === "cto" ? "text-purple-400" : "text-blue-400"}`}>{el.type.toUpperCase()}</span>{label}</span></SelectItem>;
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Tipo de Cabo</Label>
@@ -1621,7 +1671,16 @@ export default function InfrastructureMap() {
               onClick={() => {
                 const r = sidePanel?.kind === "route" ? sidePanel.route : null;
                 if (!r) return;
-                updateRouteMut.mutate({ id: r.id, name: editRouteForm.name, cableType: editRouteForm.cableType, fiberCount: editRouteForm.fiberCount, color: editRouteForm.color, notes: editRouteForm.notes });
+                updateRouteMut.mutate({
+                  id: r.id,
+                  name: editRouteForm.name,
+                  cableType: editRouteForm.cableType,
+                  fiberCount: editRouteForm.fiberCount,
+                  color: editRouteForm.color,
+                  notes: editRouteForm.notes,
+                  fromElementId: editRouteForm.fromElementId,
+                  toElementId: editRouteForm.toElementId,
+                });
               }}
             >
               {updateRouteMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}

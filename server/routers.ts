@@ -1946,6 +1946,8 @@ export const appRouter = router({
         color: z.string().optional(),
         path: z.string().optional(),
         notes: z.string().optional(),
+        fromElementId: z.number().nullable().optional(),
+        toElementId: z.number().nullable().optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
