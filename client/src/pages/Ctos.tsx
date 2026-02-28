@@ -42,18 +42,19 @@ export default function Ctos() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
+  const utils = trpc.useUtils();
   const { data: ctos = [], refetch } = trpc.ctos.list.useQuery();
 
   const createMut = trpc.ctos.create.useMutation({
-    onSuccess: () => { toast.success("CTO criada com sucesso"); refetch(); setDialogOpen(false); },
+    onSuccess: () => { toast.success("CTO criada com sucesso"); refetch(); utils.infraMap.elements.invalidate(); setDialogOpen(false); },
     onError: (e) => toast.error(e.message),
   });
   const updateMut = trpc.ctos.update.useMutation({
-    onSuccess: () => { toast.success("CTO atualizada"); refetch(); setDialogOpen(false); },
+    onSuccess: () => { toast.success("CTO atualizada"); refetch(); utils.infraMap.elements.invalidate(); setDialogOpen(false); },
     onError: (e) => toast.error(e.message),
   });
   const deleteMut = trpc.ctos.delete.useMutation({
-    onSuccess: () => { toast.success("CTO excluída"); refetch(); setDeleteId(null); },
+    onSuccess: () => { toast.success("CTO excluída"); refetch(); utils.infraMap.elements.invalidate(); setDeleteId(null); },
     onError: (e) => toast.error(e.message),
   });
 

@@ -821,3 +821,10 @@
 
 - [x] Corrigir createCtoTube no db.ts para converter string vazia em null antes do INSERT
 - [x] Gerar pacote de deployment v5.40.2
+
+## v5.41 — Correção INSERT tubos CTO + Sincronização Bidirecional Mapa ↔ CEO/CTO
+
+- [x] Corrigir definitivamente erro ao adicionar tubos em CTO pelo mapa
+- [x] Sincronização bidirecional: alterações no mapa refletem nos menus CEO/CTO
+- [x] Sincronização bidirecional: alterações nos menus CEO/CTO refletem no mapa
+- [x] Gerar pacote de deployment v5.41

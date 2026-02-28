@@ -60,6 +60,7 @@ export default function Ceos() {
     onSuccess: () => {
       toast.success("CEO cadastrado!");
       utils.ceos.list.invalidate();
+      utils.infraMap.elements.invalidate();
       setDialogOpen(false);
       setForm(defaultForm);
     },
@@ -70,6 +71,7 @@ export default function Ceos() {
     onSuccess: () => {
       toast.success("CEO atualizado!");
       utils.ceos.list.invalidate();
+      utils.infraMap.elements.invalidate();
       setDialogOpen(false);
       setEditId(null);
       setForm(defaultForm);
@@ -81,6 +83,7 @@ export default function Ceos() {
     onSuccess: () => {
       toast.success("CEO removido!");
       utils.ceos.list.invalidate();
+      utils.infraMap.elements.invalidate();
       setDeleteId(null);
     },
     onError: e => toast.error("Erro: " + e.message),

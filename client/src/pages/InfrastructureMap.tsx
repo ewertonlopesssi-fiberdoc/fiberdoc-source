@@ -158,6 +158,7 @@ export default function InfrastructureMap() {
   const updateCeoMut = trpc.ceos.update.useMutation({
     onSuccess: () => {
       refetchElements();
+      refetchCeos();
       setEditElementDialogOpen(false);
       if (sidePanel?.kind === "element") {
         setSidePanel({ ...sidePanel, element: { ...sidePanel.element, name: editElementForm.name, status: editElementForm.status } });
@@ -169,6 +170,7 @@ export default function InfrastructureMap() {
   const updateCtoMut = trpc.ctos.update.useMutation({
     onSuccess: () => {
       refetchElements();
+      refetchCtos();
       setEditElementDialogOpen(false);
       if (sidePanel?.kind === "element") {
         setSidePanel({ ...sidePanel, element: { ...sidePanel.element, name: editElementForm.name, status: editElementForm.status, capacity: editElementForm.capacity } });
@@ -314,9 +316,11 @@ export default function InfrastructureMap() {
   const createCeoMut = trpc.ceos.create.useMutation({ onError: (e) => toast.error(e.message) });
   const createCtoMut = trpc.ctos.create.useMutation({ onError: (e) => toast.error(e.message) });
   const deleteCeoMut = trpc.ceos.delete.useMutation({
+    onSuccess: () => { refetchCeos(); },
     onError: (e) => toast.error(e.message),
   });
   const deleteCtoMut = trpc.ctos.delete.useMutation({
+    onSuccess: () => { refetchCtos(); },
     onError: (e) => toast.error(e.message),
   });
   const deleteElementMut = trpc.infraMap.deleteElement.useMutation({
