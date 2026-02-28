@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   Radio, Box, Cable, Navigation, Users, Trash2,
   FileDown, MousePointer2, Search, Layers, Upload,
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
-  Pencil, Link2, GitMerge
+  Pencil, Link2, GitMerge, AlertTriangle, FileText
 } from "lucide-react";
 import L from "leaflet";
 
@@ -99,6 +99,8 @@ export default function InfrastructureMap() {
   const [deleteElementId, setDeleteElementId] = useState<{ id: number; type: string; referenceId: number } | null>(null);
   const [deleteRouteId, setDeleteRouteId] = useState<number | null>(null);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [cablesReportOpen, setCablesReportOpen] = useState(false);
+  const [cablesReportLoading, setCablesReportLoading] = useState(false);
   const [exportFormat, setExportFormat] = useState<"kml" | "kmz">("kmz");
   const [exportLoading, setExportLoading] = useState(false);
   const [exportSelectedElements, setExportSelectedElements] = useState<Set<number>>(new Set());
@@ -888,14 +890,34 @@ export default function InfrastructureMap() {
       const toEl = (elements as any[]).find((e: any) => e.id === r.toElementId) as any;
       const fromRef = fromEl?.type === "cto" ? (ctos as any[]).find((c: any) => c.id === fromEl?.referenceId) : ceos.find((c: any) => c.id === fromEl?.referenceId);
       const toRef = toEl?.type === "cto" ? (ctos as any[]).find((c: any) => c.id === toEl?.referenceId) : ceos.find((c: any) => c.id === toEl?.referenceId);
+      const isSolto = !fromEl || !toEl;
       return (
         <div className="space-y-3">
           <div className="flex items-center gap-2"><Cable className="w-5 h-5 text-cyan-400" /><h3 className="font-semibold">{r.name ?? `Cabo ${r.id}`}</h3></div>
+          {isSolto && (
+            <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
+              <span className="text-xs text-amber-400">
+                Cabo sem {!fromEl && !toEl ? "origem e destino" : !fromEl ? "origem" : "destino"} vinculado.
+                Use <strong>Editar</strong> para conectar a um CEO/CTO.
+              </span>
+            </div>
+          )}
           <div className="space-y-1 text-sm">
             <div className="flex justify-between"><span className="text-muted-foreground">Tipo</span><span>{r.cableType ?? "FO"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Fibras</span><span>{r.fiberCount ?? "—"}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">De</span><span>{(fromRef as any)?.name ?? `El. ${r.fromElementId}`}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Para</span><span>{(toRef as any)?.name ?? `El. ${r.toElementId}`}</span></div>
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">De</span>
+              <span className={!fromEl ? "text-amber-400 text-xs italic" : ""}>
+                {fromEl ? ((fromRef as any)?.name ?? `El. ${r.fromElementId}`) : "— não vinculado"}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Para</span>
+              <span className={!toEl ? "text-amber-400 text-xs italic" : ""}>
+                {toEl ? ((toRef as any)?.name ?? `El. ${r.toElementId}`) : "— não vinculado"}
+              </span>
+            </div>
             {r.notes && <div className="pt-1 text-muted-foreground text-xs">{r.notes}</div>}
           </div>
           {isAdmin && (
@@ -1218,6 +1240,9 @@ export default function InfrastructureMap() {
           </Button>
           <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={openExportDialog}>
             <FileDown className="w-3 h-3" />Exportar KML/KMZ
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setCablesReportOpen(true)}>
+            <FileText className="w-3 h-3" />Rel. Cabos
           </Button>
         </div>
       </div>
@@ -1591,47 +1616,95 @@ export default function InfrastructureMap() {
               <Label>Nome</Label>
               <Input value={editRouteForm.name} onChange={e => setEditRouteForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Cabo Principal Setor A" />
             </div>
-            {/* Seletores De / Para */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1"><span className="text-emerald-400 text-xs font-bold">DE</span> Origem</Label>
-                <Select
-                  value={editRouteForm.fromElementId != null ? String(editRouteForm.fromElementId) : "none"}
-                  onValueChange={v => setEditRouteForm(f => ({ ...f, fromElementId: v === "none" ? null : Number(v) }))}
-                >
-                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Nenhum" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Nenhum</SelectItem>
-                    {(elements as any[]).map((el: any) => {
-                      const ref = el.type === "cto"
-                        ? (ctos as any[]).find((c: any) => c.id === el.referenceId)
-                        : (ceos as any[]).find((c: any) => c.id === el.referenceId);
-                      const label = ref?.name ?? `${el.type.toUpperCase()}-${el.referenceId}`;
-                      return <SelectItem key={el.id} value={String(el.id)}><span className="flex items-center gap-1"><span className={`text-[10px] font-bold ${el.type === "cto" ? "text-purple-400" : "text-blue-400"}`}>{el.type.toUpperCase()}</span>{label}</span></SelectItem>;
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1"><span className="text-cyan-400 text-xs font-bold">PARA</span> Destino</Label>
-                <Select
-                  value={editRouteForm.toElementId != null ? String(editRouteForm.toElementId) : "none"}
-                  onValueChange={v => setEditRouteForm(f => ({ ...f, toElementId: v === "none" ? null : Number(v) }))}
-                >
-                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Nenhum" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Nenhum</SelectItem>
-                    {(elements as any[]).map((el: any) => {
-                      const ref = el.type === "cto"
-                        ? (ctos as any[]).find((c: any) => c.id === el.referenceId)
-                        : (ceos as any[]).find((c: any) => c.id === el.referenceId);
-                      const label = ref?.name ?? `${el.type.toUpperCase()}-${el.referenceId}`;
-                      return <SelectItem key={el.id} value={String(el.id)}><span className="flex items-center gap-1"><span className={`text-[10px] font-bold ${el.type === "cto" ? "text-purple-400" : "text-blue-400"}`}>{el.type.toUpperCase()}</span>{label}</span></SelectItem>;
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+            {/* Seletores De / Para com busca */}
+            {(() => {
+              const [fromSearch, setFromSearch] = React.useState("");
+              const [toSearch, setToSearch] = React.useState("");
+              const allEls = (elements as any[]).map((el: any) => {
+                const ref = el.type === "cto"
+                  ? (ctos as any[]).find((c: any) => c.id === el.referenceId)
+                  : (ceos as any[]).find((c: any) => c.id === el.referenceId);
+                return { ...el, label: ref?.name ?? `${el.type.toUpperCase()}-${el.referenceId}` };
+              });
+              const filteredFrom = allEls.filter(el => el.label.toLowerCase().includes(fromSearch.toLowerCase()) || el.type.toLowerCase().includes(fromSearch.toLowerCase()));
+              const filteredTo   = allEls.filter(el => el.label.toLowerCase().includes(toSearch.toLowerCase())   || el.type.toLowerCase().includes(toSearch.toLowerCase()));
+              const fromLabel = allEls.find(el => el.id === editRouteForm.fromElementId)?.label;
+              const toLabel   = allEls.find(el => el.id === editRouteForm.toElementId)?.label;
+              return (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="flex items-center gap-1"><span className="text-emerald-400 text-xs font-bold">DE</span> Origem</Label>
+                    <Select
+                      value={editRouteForm.fromElementId != null ? String(editRouteForm.fromElementId) : "none"}
+                      onValueChange={v => { setEditRouteForm(f => ({ ...f, fromElementId: v === "none" ? null : Number(v) })); setFromSearch(""); }}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Nenhum">{fromLabel ?? "Nenhum"}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <div className="px-2 py-1.5 sticky top-0 bg-popover z-10">
+                          <div className="flex items-center gap-1.5 border border-border rounded px-2 py-1">
+                            <Search className="w-3 h-3 text-muted-foreground shrink-0" />
+                            <input
+                              className="flex-1 text-xs bg-transparent outline-none"
+                              placeholder="Buscar CEO/CTO..."
+                              value={fromSearch}
+                              onChange={e => setFromSearch(e.target.value)}
+                              onKeyDown={e => e.stopPropagation()}
+                            />
+                          </div>
+                        </div>
+                        <SelectItem value="none">Nenhum</SelectItem>
+                        {filteredFrom.map((el: any) => (
+                          <SelectItem key={el.id} value={String(el.id)}>
+                            <span className="flex items-center gap-1">
+                              <span className={`text-[10px] font-bold ${el.type === "cto" ? "text-purple-400" : "text-blue-400"}`}>{el.type.toUpperCase()}</span>
+                              {el.label}
+                            </span>
+                          </SelectItem>
+                        ))}
+                        {filteredFrom.length === 0 && <div className="px-2 py-3 text-xs text-muted-foreground text-center">Nenhum resultado</div>}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="flex items-center gap-1"><span className="text-cyan-400 text-xs font-bold">PARA</span> Destino</Label>
+                    <Select
+                      value={editRouteForm.toElementId != null ? String(editRouteForm.toElementId) : "none"}
+                      onValueChange={v => { setEditRouteForm(f => ({ ...f, toElementId: v === "none" ? null : Number(v) })); setToSearch(""); }}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Nenhum">{toLabel ?? "Nenhum"}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <div className="px-2 py-1.5 sticky top-0 bg-popover z-10">
+                          <div className="flex items-center gap-1.5 border border-border rounded px-2 py-1">
+                            <Search className="w-3 h-3 text-muted-foreground shrink-0" />
+                            <input
+                              className="flex-1 text-xs bg-transparent outline-none"
+                              placeholder="Buscar CEO/CTO..."
+                              value={toSearch}
+                              onChange={e => setToSearch(e.target.value)}
+                              onKeyDown={e => e.stopPropagation()}
+                            />
+                          </div>
+                        </div>
+                        <SelectItem value="none">Nenhum</SelectItem>
+                        {filteredTo.map((el: any) => (
+                          <SelectItem key={el.id} value={String(el.id)}>
+                            <span className="flex items-center gap-1">
+                              <span className={`text-[10px] font-bold ${el.type === "cto" ? "text-purple-400" : "text-blue-400"}`}>{el.type.toUpperCase()}</span>
+                              {el.label}
+                            </span>
+                          </SelectItem>
+                        ))}
+                        {filteredTo.length === 0 && <div className="px-2 py-3 text-xs text-muted-foreground text-center">Nenhum resultado</div>}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              );
+            })()}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Tipo de Cabo</Label>
@@ -2029,6 +2102,80 @@ export default function InfrastructureMap() {
               }}
             >
               {updateCtoViaMut.isPending || updateCeoViaMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Diálogo de Relatório de Cabos */}
+      <Dialog open={cablesReportOpen} onOpenChange={setCablesReportOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><FileText className="w-4 h-4" /> Relatório de Cabos</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Exporta todos os cabos cadastrados no mapa com nome, tipo, quantidade de fibras, origem, destino, comprimento estimado do traçado e status de conexão.
+            </p>
+            <div className="rounded-lg border border-border p-3 space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Total de cabos</span><span className="font-medium">{(routes as any[]).length}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Cabos soltos</span><span className="font-medium text-amber-400">{(routes as any[]).filter((r: any) => !(elements as any[]).find((e: any) => e.id === r.fromElementId) || !(elements as any[]).find((e: any) => e.id === r.toElementId)).length}</span></div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCablesReportOpen(false)}>Cancelar</Button>
+            <Button
+              variant="outline"
+              disabled={cablesReportLoading}
+              onClick={async () => {
+                setCablesReportLoading(true);
+                try {
+                  const result = await (trpc as any).infraMap.exportCables.query({ format: "csv" });
+                  const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url; a.download = `cabos-${new Date().toISOString().slice(0,10)}.csv`;
+                  a.click(); URL.revokeObjectURL(url);
+                  toast.success("CSV exportado com sucesso");
+                } catch (e: any) { toast.error(e.message ?? "Erro ao exportar"); }
+                finally { setCablesReportLoading(false); }
+              }}
+            >
+              {cablesReportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Download className="w-3.5 h-3.5" /> Exportar CSV</>}
+            </Button>
+            <Button
+              disabled={cablesReportLoading}
+              onClick={async () => {
+                setCablesReportLoading(true);
+                try {
+                  const result = await (trpc as any).infraMap.exportCables.query({ format: "pdf" });
+                  const rows = result.rows as any[];
+                  // Gerar PDF via HTML/CSS usando window.print
+                  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório de Cabos</title><style>
+                    body{font-family:Arial,sans-serif;font-size:11px;margin:20px;color:#111}
+                    h1{font-size:16px;margin-bottom:4px}p{margin:0 0 12px;color:#555;font-size:10px}
+                    table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px 6px;text-align:left}
+                    th{background:#1e293b;color:#fff;font-size:10px}tr:nth-child(even){background:#f8fafc}
+                    .solto{color:#d97706;font-weight:bold}.conectado{color:#16a34a}
+                    @media print{body{margin:10px}}
+                  </style></head><body>
+                    <h1>Relatório de Cabos — FiberDoc</h1>
+                    <p>Gerado em ${new Date().toLocaleString("pt-BR")} · Total: ${rows.length} cabos</p>
+                    <table><thead><tr>
+                      <th>#</th><th>Nome</th><th>Tipo</th><th>Fibras</th><th>De</th><th>Para</th><th>Comp. (km)</th><th>Status</th><th>Notas</th>
+                    </tr></thead><tbody>
+                    ${rows.map((r: any) => `<tr>
+                      <td>${r.id}</td><td>${r.nome}</td><td>${r.tipo}</td><td>${r.fibras}</td>
+                      <td>${r.de}</td><td>${r.para}</td><td>${r.comprimento_km}</td>
+                      <td class="${r.status === 'Solto' ? 'solto' : 'conectado'}">${r.status}</td>
+                      <td>${r.notas}</td>
+                    </tr>`).join("")}
+                    </tbody></table></body></html>`;
+                  const w = window.open("", "_blank");
+                  if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 500); }
+                  toast.success("PDF aberto para impressão");
+                } catch (e: any) { toast.error(e.message ?? "Erro ao gerar PDF"); }
+                finally { setCablesReportLoading(false); }
+              }}
+            >
+              {cablesReportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><FileText className="w-3.5 h-3.5" /> Gerar PDF</>}
             </Button>
           </DialogFooter>
         </DialogContent>

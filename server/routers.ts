@@ -2112,6 +2112,73 @@ ${fiberFolder}
         }
         return { kml, kmzBase64: null, format: input.format };
       }),
+    exportCables: protectedProcedure
+      .input(z.object({
+        format: z.enum(["csv", "pdf"]).default("csv"),
+      }))
+      .query(async ({ input }) => {
+        const dbMod = await import("./db");
+        const [allRoutes, allElements, allCtos, allCeos] = await Promise.all([
+          getMapRoutes(),
+          getMapElements(),
+          dbMod.getCtos(),
+          dbMod.getCeos(),
+        ]);
+
+        // Calcular comprimento do traçado em km
+        const haversine = (a: {lat:number;lng:number}, b: {lat:number;lng:number}) => {
+          const R = 6371;
+          const dLat = (b.lat - a.lat) * Math.PI / 180;
+          const dLng = (b.lng - a.lng) * Math.PI / 180;
+          const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+          return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+        };
+        const calcLen = (path: {lat:number;lng:number}[]) => {
+          let d = 0;
+          for (let i = 1; i < path.length; i++) d += haversine(path[i-1], path[i]);
+          return d;
+        };
+
+        const rows = (allRoutes as any[]).map((r: any) => {
+          const fromEl = (allElements as any[]).find((e: any) => e.id === r.fromElementId);
+          const toEl   = (allElements as any[]).find((e: any) => e.id === r.toElementId);
+          const fromRef = fromEl?.type === "cto"
+            ? (allCtos as any[]).find((c: any) => c.id === fromEl?.referenceId)
+            : (allCeos as any[]).find((c: any) => c.id === fromEl?.referenceId);
+          const toRef = toEl?.type === "cto"
+            ? (allCtos as any[]).find((c: any) => c.id === toEl?.referenceId)
+            : (allCeos as any[]).find((c: any) => c.id === toEl?.referenceId);
+          let path: {lat:number;lng:number}[] = [];
+          try { if (r.path) path = JSON.parse(r.path); } catch {}
+          const lenKm = path.length >= 2 ? calcLen(path) : null;
+          return {
+            id: r.id,
+            nome: r.name ?? `Cabo ${r.id}`,
+            tipo: r.cableType ?? "FO",
+            fibras: r.fiberCount ?? 0,
+            de: fromRef?.name ?? (fromEl ? `${fromEl.type?.toUpperCase()}-${fromEl.referenceId}` : "—"),
+            para: toRef?.name ?? (toEl ? `${toEl.type?.toUpperCase()}-${toEl.referenceId}` : "—"),
+            comprimento_km: lenKm != null ? lenKm.toFixed(3) : "—",
+            status: (!fromEl || !toEl) ? "Solto" : "Conectado",
+            pontos: path.length,
+            notas: r.notes ?? "",
+          };
+        });
+
+        if (input.format === "csv") {
+          const header = ["ID","Nome","Tipo","Fibras","De","Para","Comprimento (km)","Status","Pontos no Traçado","Notas"];
+          const lines = rows.map((r: any) => [
+            r.id, `"${r.nome}"`, r.tipo, r.fibras,
+            `"${r.de}"`, `"${r.para}"`, r.comprimento_km,
+            r.status, r.pontos, `"${r.notas}"`
+          ].join(","));
+          const csv = [header.join(","), ...lines].join("\n");
+          return { format: "csv", csv, rows: null };
+        }
+
+        // PDF: retorna dados para o frontend gerar
+        return { format: "pdf", csv: null, rows };
+      }),
   }),
   // ─── SGP Config ───────────────────────────────────────────────────────────────
   sgp: router({
