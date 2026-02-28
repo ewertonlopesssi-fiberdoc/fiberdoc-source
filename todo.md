@@ -828,3 +828,10 @@
 - [x] Sincronização bidirecional: alterações no mapa refletem nos menus CEO/CTO
 - [x] Sincronização bidirecional: alterações nos menus CEO/CTO refletem no mapa
 - [x] Gerar pacote de deployment v5.41
+
+## v5.42 — Editar Vias pelo Mapa
+
+- [x] Botão de editar (✏️) em cada via no painel expandido do mapa (CEO e CTO)
+- [x] Diálogo inline para editar label e observações da via (CEO e CTO)
+- [x] Salvar e atualizar a lista de vias sem sair do mapa
+- [x] Gerar pacote de deployment v5.42

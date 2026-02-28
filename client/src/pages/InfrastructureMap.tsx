@@ -236,6 +236,18 @@ export default function InfrastructureMap() {
     onError: (e) => toast.error(e.message),
   });
 
+  // ─── Edição de Vias pelo Mapa ──────────────────────────────────────────────
+  const [editViaDialogOpen, setEditViaDialogOpen] = useState(false);
+  const [editViaData, setEditViaData] = useState<{ id: number; viaNumber: number; label: string; notes: string; isCto: boolean } | null>(null);
+  const updateCtoViaMut = trpc.ctoVias.update.useMutation({
+    onSuccess: () => { ctoViasQuery.refetch(); setEditViaDialogOpen(false); toast.success("Via atualizada"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateCeoViaMut = trpc.ceoVias.updateLabel.useMutation({
+    onSuccess: () => { ceoViasQuery.refetch(); setEditViaDialogOpen(false); toast.success("Via atualizada"); },
+    onError: (e) => toast.error(e.message),
+  });
+
   // ─── Fusões pelo Mapa ─────────────────────────────────────────────────────
   const [fusionDialogOpen, setFusionDialogOpen] = useState(false);
   const [fusionSourceVia, setFusionSourceVia] = useState<{ id: number; viaNumber: number; tubeId: number; isCto: boolean; isFused: boolean } | null>(null);
@@ -886,30 +898,42 @@ export default function InfrastructureMap() {
                           {tubVias.sort((a: any, b: any) => a.viaNumber - b.viaNumber).map((via: any) => {
                             const isFused = via.fusedToViaId !== null;
                             return (
-                              <button
-                                key={via.id}
-                                className={`w-full flex items-center gap-1.5 text-xs py-0.5 px-1 rounded hover:bg-accent/30 text-left transition-colors ${isFused ? "" : "hover:bg-emerald-500/10"}`}
-                                title={isFused ? "Clique para remover fusão" : "Clique para registrar fusão"}
-                                onClick={() => {
-                                  if (isFused) {
-                                    if (isCto) clearCtoFusionMut.mutate({ viaId: via.id });
-                                    else clearCeoFusionMut.mutate({ viaId: via.id });
-                                  } else {
-                                    setFusionSourceVia({ id: via.id, viaNumber: via.viaNumber, tubeId: tube.id, isCto, isFused: false });
-                                    setFusionTargetTubeId("");
-                                    setFusionTargetViaId("");
-                                    setFusionDialogOpen(true);
-                                  }
-                                }}
-                              >
-                                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isFused ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
-                                <span className="text-muted-foreground w-5 shrink-0">{via.viaNumber}</span>
-                                {via.label
-                                  ? <span className="truncate font-medium">{via.label}</span>
-                                  : <span className="text-muted-foreground/50 italic">livre</span>}
-                                {isFused && <span className="ml-auto text-emerald-400/70 text-[10px] shrink-0">✕ desfazer</span>}
-                                {!isFused && <span className="ml-auto text-muted-foreground/40 text-[10px] shrink-0">⊕ fundir</span>}
-                              </button>
+                              <div key={via.id} className="flex items-center gap-0.5 group">
+                                <button
+                                  className={`flex-1 flex items-center gap-1.5 text-xs py-0.5 px-1 rounded hover:bg-accent/30 text-left transition-colors ${isFused ? "" : "hover:bg-emerald-500/10"}`}
+                                  title={isFused ? "Clique para remover fusão" : "Clique para registrar fusão"}
+                                  onClick={() => {
+                                    if (isFused) {
+                                      if (isCto) clearCtoFusionMut.mutate({ viaId: via.id });
+                                      else clearCeoFusionMut.mutate({ viaId: via.id });
+                                    } else {
+                                      setFusionSourceVia({ id: via.id, viaNumber: via.viaNumber, tubeId: tube.id, isCto, isFused: false });
+                                      setFusionTargetTubeId("");
+                                      setFusionTargetViaId("");
+                                      setFusionDialogOpen(true);
+                                    }
+                                  }}
+                                >
+                                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isFused ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
+                                  <span className="text-muted-foreground w-5 shrink-0">{via.viaNumber}</span>
+                                  {via.label
+                                    ? <span className="truncate font-medium">{via.label}</span>
+                                    : <span className="text-muted-foreground/50 italic">livre</span>}
+                                  {isFused && <span className="ml-auto text-emerald-400/70 text-[10px] shrink-0">✕ desfazer</span>}
+                                  {!isFused && <span className="ml-auto text-muted-foreground/40 text-[10px] shrink-0">⊕ fundir</span>}
+                                </button>
+                                <button
+                                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-accent/50 transition-all shrink-0"
+                                  title="Editar via"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditViaData({ id: via.id, viaNumber: via.viaNumber, label: via.label ?? "", notes: via.notes ?? "", isCto });
+                                    setEditViaDialogOpen(true);
+                                  }}
+                                >
+                                  <Pencil className="w-2.5 h-2.5 text-muted-foreground" />
+                                </button>
+                              </div>
                             );
                           })}
                         </div>
@@ -1695,6 +1719,60 @@ export default function InfrastructureMap() {
               }}
             >
               {setCtoFusionMut.isPending || setCeoFusionMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Registrar Fusão"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de Edição de Via */}
+      <Dialog open={editViaDialogOpen} onOpenChange={setEditViaDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-4 h-4" />
+              Editar Via {editViaData?.viaNumber}
+            </DialogTitle>
+          </DialogHeader>
+          {editViaData && (
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Etiqueta / Label</Label>
+                <Input
+                  className="h-8 text-sm mt-1"
+                  placeholder="Ex: Cliente João Silva"
+                  value={editViaData.label}
+                  onChange={(e) => setEditViaData({ ...editViaData, label: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Observações</Label>
+                <Textarea
+                  className="text-sm mt-1 resize-none"
+                  rows={3}
+                  placeholder="Observações sobre esta via..."
+                  value={editViaData.notes}
+                  onChange={(e) => setEditViaData({ ...editViaData, notes: e.target.value })}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setEditViaDialogOpen(false)}>Cancelar</Button>
+            <Button
+              size="sm"
+              disabled={updateCtoViaMut.isPending || updateCeoViaMut.isPending}
+              onClick={() => {
+                if (!editViaData) return;
+                const label = editViaData.label.trim() || null;
+                const notes = editViaData.notes.trim() || null;
+                if (editViaData.isCto) {
+                  updateCtoViaMut.mutate({ id: editViaData.id, label: label ?? undefined, notes: notes ?? undefined });
+                } else {
+                  updateCeoViaMut.mutate({ id: editViaData.id, label, notes });
+                }
+              }}
+            >
+              {updateCtoViaMut.isPending || updateCeoViaMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}
             </Button>
           </DialogFooter>
         </DialogContent>
