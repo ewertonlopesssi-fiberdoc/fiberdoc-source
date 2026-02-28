@@ -674,3 +674,7 @@
 - [x] Mapa de infraestrutura não aparece (mapa em branco) — corrigido carregamento duplo do Google Maps com singleton promise
 - [x] Botões de adicionar CEO/CTO/cabo no mapa apenas selecionavam o botão sem abrir formulário — corrigido
 - [x] Melhorar fluxo: cadastrar CEO/CTO/cabo diretamente pelo mapa e arrastar para posicionar — implementado diálogo moderno de seleção/criação
+
+## v5.32 — Cabo pelo Mapa e Busca de Endereço
+- [x] Criar cabo clicando em dois marcadores (CEO/CTO) no mapa sem informar IDs manualmente
+- [x] Busca de endereço com Google Places Autocomplete no toolbar do mapa

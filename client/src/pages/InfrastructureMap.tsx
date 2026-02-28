@@ -15,7 +15,7 @@ import {
   Map, Layers, Download, Plus, X, Eye, EyeOff, Loader2,
   Radio, Box, Cable, Navigation, Users, ChevronRight, Trash2,
   ToggleLeft, ToggleRight, Filter, FileDown, CheckSquare, Square,
-  MousePointer2, Boxes
+  MousePointer2, Boxes, Search
 } from "lucide-react";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -81,7 +81,10 @@ export default function InfrastructureMap() {
   const [addingMode, setAddingMode] = useState<"ceo" | "cto" | null>(null);
   const [addingRouteMode, setAddingRouteMode] = useState(false);
   const [routeFrom, setRouteFrom] = useState<number | null>(null);
+  const [routeTo, setRouteTo] = useState<number | null>(null);
   const [routeDialogOpen, setRouteDialogOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const [routeForm, setRouteForm] = useState({
     name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: ""
   });
@@ -278,11 +281,11 @@ export default function InfrastructureMap() {
         if (addingRouteMode) {
           if (routeFrom === null) {
             setRouteFrom(elId);
-            toast.info(`Ponto de origem: ${name}. Clique no destino.`);
+            toast.info(`Origem: ${name}. Clique no destino.`);
           } else if (routeFrom !== elId) {
+            setRouteTo(elId);
             setRouteDialogOpen(true);
             setRouteForm(f => ({ ...f, name: "" }));
-            setDeleteRouteId(elId); // reuso temporário para guardar routeTo
           }
         } else {
           setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts } });
@@ -351,6 +354,25 @@ export default function InfrastructureMap() {
     mapRef.current = map;
     setMapReady(true);
   }, []);
+
+  // ─── Places Autocomplete ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapReady || !searchInputRef.current || autocompleteRef.current) return;
+    try {
+      const ac = new google.maps.places.Autocomplete(searchInputRef.current, {
+        fields: ["geometry", "formatted_address", "name"],
+      });
+      ac.addListener("place_changed", () => {
+        const place = ac.getPlace();
+        if (!place.geometry?.location) return;
+        mapRef.current?.panTo(place.geometry.location);
+        mapRef.current?.setZoom(16);
+      });
+      autocompleteRef.current = ac;
+    } catch (e) {
+      // Places API pode não estar disponível
+    }
+  }, [mapReady]);
 
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
@@ -457,18 +479,17 @@ export default function InfrastructureMap() {
 
   // ─── Criar rota ───────────────────────────────────────────────────────────────
   const handleCreateRoute = () => {
-    if (routeFrom === null || deleteRouteId === null) return;
-    const toId = deleteRouteId;
+    if (routeFrom === null || routeTo === null) return;
     createRouteMut.mutate({
       fromElementId: routeFrom,
-      toElementId: toId,
+      toElementId: routeTo,
       name: routeForm.name || undefined,
       cableType: routeForm.cableType || undefined,
       fiberCount: routeForm.fiberCount || undefined,
       color: routeForm.color || undefined,
       notes: routeForm.notes || undefined,
     });
-    setDeleteRouteId(null);
+    setRouteTo(null);
   };
 
   // ─── Painel lateral ───────────────────────────────────────────────────────────
@@ -675,6 +696,16 @@ export default function InfrastructureMap() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Campo de busca de endereço */}
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Buscar endereço..."
+              className="h-7 pl-6 pr-2 text-xs bg-background border border-border rounded-md w-44 focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
           <Button
             size="sm"
             variant={groupSelectMode ? "default" : "outline"}
