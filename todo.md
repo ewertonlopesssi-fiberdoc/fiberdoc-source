@@ -791,3 +791,12 @@
 - [x] Após criar, atualizar automaticamente a lista de tubos no painel
 - [x] Exibir mensagem "Nenhum tubo cadastrado" quando vazio (em vez de não mostrar nada)
 - [x] Gerar pacote de deployment v5.38.1
+
+## v5.39 — Gestão Completa de Tubos e Fusões pelo Mapa
+
+- [x] Botão de editar tubo na linha de cada tubo no painel lateral (abre diálogo inline)
+- [x] Botão de excluir tubo na linha de cada tubo no painel lateral (com confirmação)
+- [x] Registrar fusão pelo mapa: clicar em via livre abre seletor de via de destino
+- [x] Desfazer fusão pelo mapa: clicar em via fusionada oferece opção de remover fusão
+- [x] Botão "Abrir detalhes" no painel lateral que navega para /cto/:id ou /ceo/:id
+- [x] Gerar pacote de deployment v5.39

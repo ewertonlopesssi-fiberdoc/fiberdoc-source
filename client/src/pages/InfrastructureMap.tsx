@@ -13,7 +13,8 @@ import {
   Map, Download, Plus, X, Eye, EyeOff, Loader2,
   Radio, Box, Cable, Navigation, Users, Trash2,
   FileDown, MousePointer2, Search, Layers, Upload,
-  Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag
+  Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
+  Pencil, Link2, GitMerge
 } from "lucide-react";
 import L from "leaflet";
 
@@ -208,6 +209,49 @@ export default function InfrastructureMap() {
       setAddTubeForm({ identifier: "", type: "tube", totalVias: 12, color: "", notes: "" });
       toast.success("Tubo adicionado com sucesso");
     },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // ─── Editar / Excluir Tubo ───────────────────────────────────────────────
+  const [editTubeDialogOpen, setEditTubeDialogOpen] = useState(false);
+  const [editingTube, setEditingTube] = useState<{ id: number; identifier: string; type: "tube" | "splitter"; color: string; notes: string; isCto: boolean } | null>(null);
+  const [deleteTubeId, setDeleteTubeId] = useState<{ id: number; isCto: boolean } | null>(null);
+  const updateCtoTubeMut = trpc.ctoTubes.update.useMutation({
+    onSuccess: () => { ctoTubesQuery.refetch(); setEditTubeDialogOpen(false); toast.success("Tubo atualizado"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateCeoTubeMut = trpc.ceoTubes.update.useMutation({
+    onSuccess: () => { ceoTubesQuery.refetch(); setEditTubeDialogOpen(false); toast.success("Tubo atualizado"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteCtoTubeMut = trpc.ctoTubes.delete.useMutation({
+    onSuccess: () => { ctoTubesQuery.refetch(); ctoViasQuery.refetch(); setDeleteTubeId(null); toast.success("Tubo excluído"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteCeoTubeMut = trpc.ceoTubes.delete.useMutation({
+    onSuccess: () => { ceoTubesQuery.refetch(); ceoViasQuery.refetch(); setDeleteTubeId(null); toast.success("Tubo excluído"); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // ─── Fusões pelo Mapa ─────────────────────────────────────────────────────
+  const [fusionDialogOpen, setFusionDialogOpen] = useState(false);
+  const [fusionSourceVia, setFusionSourceVia] = useState<{ id: number; viaNumber: number; tubeId: number; isCto: boolean; isFused: boolean } | null>(null);
+  const [fusionTargetTubeId, setFusionTargetTubeId] = useState<string>("");
+  const [fusionTargetViaId, setFusionTargetViaId] = useState<string>("");
+  const setCtoFusionMut = trpc.ctoVias.setFusion.useMutation({
+    onSuccess: () => { ctoViasQuery.refetch(); setFusionDialogOpen(false); toast.success("Fusão registrada"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const clearCtoFusionMut = trpc.ctoVias.clearFusion.useMutation({
+    onSuccess: () => { ctoViasQuery.refetch(); toast.success("Fusão removida"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const setCeoFusionMut = trpc.ceoVias.setFusion.useMutation({
+    onSuccess: () => { ceoViasQuery.refetch(); setFusionDialogOpen(false); toast.success("Fusão registrada"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const clearCeoFusionMut = trpc.ceoVias.clearFusion.useMutation({
+    onSuccess: () => { ceoViasQuery.refetch(); toast.success("Fusão removida"); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -705,19 +749,33 @@ export default function InfrastructureMap() {
             ) : <div className="text-xs text-muted-foreground">Nenhum cliente vinculado</div>}
           </div>
         )}
-        {/* Botão Editar */}
-        {isAdmin && (
-          <Button variant="outline" size="sm" className="w-full gap-2" onClick={() => {
-            setEditElementForm({
-              name: el.name ?? "",
-              address: "",
-              capacity: el.capacity ?? 8,
-              status: el.status ?? "active",
-              notes: "",
-            });
-            setEditElementDialogOpen(true);
-          }}><span className="text-xs">✏️</span> Editar {isCto ? "CTO" : "CEO"}</Button>
-        )}
+        {/* Botões de ação */}
+        <div className="flex gap-2">
+          <a
+            href={isCto ? `/cto/${el.referenceId}` : `/ceo/${el.referenceId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1"
+          >
+            <Button variant="outline" size="sm" className="w-full gap-1.5">
+              <Link2 className="w-3.5 h-3.5" /> Abrir detalhes
+            </Button>
+          </a>
+          {isAdmin && (
+            <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => {
+              setEditElementForm({
+                name: el.name ?? "",
+                address: "",
+                capacity: el.capacity ?? 8,
+                status: el.status ?? "active",
+                notes: "",
+              });
+              setEditElementDialogOpen(true);
+            }}>
+              <Pencil className="w-3.5 h-3.5" /> Editar
+            </Button>
+          )}
+        </div>
         {/* Painel de Tubos e Vias */}
         {(() => {
           const tubes = (isCto ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
@@ -763,35 +821,78 @@ export default function InfrastructureMap() {
                   const barColor = pct >= 90 ? "#ef4444" : pct >= 60 ? "#f59e0b" : "#22c55e";
                   return (
                     <div key={tube.id} className="rounded border border-border/40 overflow-hidden">
-                      <button
-                        className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-accent/30 text-left"
-                        onClick={() => {
-                          const next = new Set(expandedTubeIds);
-                          if (next.has(tube.id)) next.delete(tube.id); else next.add(tube.id);
-                          setExpandedTubeIds(next);
-                        }}
-                      >
-                        <span className="text-xs text-muted-foreground">{isExpanded ? "▾" : "▸"}</span>
-                        <span className="text-xs font-medium flex-1 truncate">{tube.type === "splitter" ? "⊕" : "○"} {tube.identifier}</span>
-                        <span className="text-xs text-muted-foreground shrink-0">{fusedCount}/{total}</span>
-                      </button>
+                      {/* Cabeçalho do tubo com botões de ação */}
+                      <div className="flex items-center">
+                        <button
+                          className="flex-1 flex items-center gap-2 px-2 py-1.5 hover:bg-accent/30 text-left min-w-0"
+                          onClick={() => {
+                            const next = new Set(expandedTubeIds);
+                            if (next.has(tube.id)) next.delete(tube.id); else next.add(tube.id);
+                            setExpandedTubeIds(next);
+                          }}
+                        >
+                          <span className="text-xs text-muted-foreground shrink-0">{isExpanded ? "▾" : "▸"}</span>
+                          <span className="text-xs font-medium flex-1 truncate">{tube.type === "splitter" ? "⊕" : "○"} {tube.identifier}</span>
+                          <span className="text-xs text-muted-foreground shrink-0">{fusedCount}/{total}</span>
+                        </button>
+                        {isAdmin && (
+                          <div className="flex items-center gap-0.5 pr-1 shrink-0">
+                            <button
+                              className="p-1 rounded hover:bg-accent/40 text-muted-foreground hover:text-foreground"
+                              title="Editar tubo"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingTube({ id: tube.id, identifier: tube.identifier, type: tube.type, color: tube.color ?? "", notes: tube.notes ?? "", isCto });
+                                setEditTubeDialogOpen(true);
+                              }}
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button
+                              className="p-1 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-400"
+                              title="Excluir tubo"
+                              onClick={(e) => { e.stopPropagation(); setDeleteTubeId({ id: tube.id, isCto }); }}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       {/* Barra de ocupação */}
                       <div className="h-1 bg-muted/30 mx-2 mb-1.5 rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: barColor }} />
                       </div>
                       {/* Lista de vias expandida */}
-                      {isExpanded && tubVias.length > 0 && (
-                        <div className="px-2 pb-1.5 space-y-0.5 max-h-40 overflow-y-auto">
+                      {isExpanded && (
+                        <div className="px-2 pb-1.5 space-y-0.5 max-h-48 overflow-y-auto">
+                          {tubVias.length === 0 && <div className="text-xs text-muted-foreground/50 italic py-0.5">Nenhuma via cadastrada</div>}
                           {tubVias.sort((a: any, b: any) => a.viaNumber - b.viaNumber).map((via: any) => {
                             const isFused = via.fusedToViaId !== null;
                             return (
-                              <div key={via.id} className="flex items-center gap-1.5 text-xs py-0.5">
+                              <button
+                                key={via.id}
+                                className={`w-full flex items-center gap-1.5 text-xs py-0.5 px-1 rounded hover:bg-accent/30 text-left transition-colors ${isFused ? "" : "hover:bg-emerald-500/10"}`}
+                                title={isFused ? "Clique para remover fusão" : "Clique para registrar fusão"}
+                                onClick={() => {
+                                  if (isFused) {
+                                    if (isCto) clearCtoFusionMut.mutate({ viaId: via.id });
+                                    else clearCeoFusionMut.mutate({ viaId: via.id });
+                                  } else {
+                                    setFusionSourceVia({ id: via.id, viaNumber: via.viaNumber, tubeId: tube.id, isCto, isFused: false });
+                                    setFusionTargetTubeId("");
+                                    setFusionTargetViaId("");
+                                    setFusionDialogOpen(true);
+                                  }
+                                }}
+                              >
                                 <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isFused ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
                                 <span className="text-muted-foreground w-5 shrink-0">{via.viaNumber}</span>
                                 {via.label
                                   ? <span className="truncate font-medium">{via.label}</span>
                                   : <span className="text-muted-foreground/50 italic">livre</span>}
-                              </div>
+                                {isFused && <span className="ml-auto text-emerald-400/70 text-[10px] shrink-0">✕ desfazer</span>}
+                                {!isFused && <span className="ml-auto text-muted-foreground/40 text-[10px] shrink-0">⊕ fundir</span>}
+                              </button>
                             );
                           })}
                         </div>
@@ -1412,6 +1513,158 @@ export default function InfrastructureMap() {
               }}
             >
               {createCtoTubeMut.isPending || createCeoTubeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Adicionar Tubo"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Diálogo Editar Tubo */}
+      <Dialog open={editTubeDialogOpen} onOpenChange={setEditTubeDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Pencil className="w-4 h-4" /> Editar Tubo/Splitter</DialogTitle>
+          </DialogHeader>
+          {editingTube && (
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label>Tipo</Label>
+                <Select value={editingTube.type} onValueChange={v => setEditingTube(t => t ? { ...t, type: v as "tube" | "splitter" } : t)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tube">Tubo</SelectItem>
+                    <SelectItem value="splitter">Splitter</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Identificador *</Label>
+                <Input value={editingTube.identifier} onChange={e => setEditingTube(t => t ? { ...t, identifier: e.target.value } : t)} placeholder="Ex: Tubo Azul, SP-01" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Cor de identificação</Label>
+                <Select value={editingTube.color || ""} onValueChange={v => setEditingTube(t => t ? { ...t, color: v } : t)}>
+                  <SelectTrigger><SelectValue placeholder="Selecionar cor" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="azul">🔵 Azul</SelectItem>
+                    <SelectItem value="laranja">🟠 Laranja</SelectItem>
+                    <SelectItem value="verde">🟢 Verde</SelectItem>
+                    <SelectItem value="marrom">🟤 Marrom</SelectItem>
+                    <SelectItem value="cinza">⚫ Cinza</SelectItem>
+                    <SelectItem value="branco">⚪ Branco</SelectItem>
+                    <SelectItem value="vermelho">🔴 Vermelho</SelectItem>
+                    <SelectItem value="preto">⬛ Preto</SelectItem>
+                    <SelectItem value="amarelo">🟡 Amarelo</SelectItem>
+                    <SelectItem value="violeta">🟣 Violeta</SelectItem>
+                    <SelectItem value="rosa">🩷 Rosa</SelectItem>
+                    <SelectItem value="aqua">🩵 Aqua</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Observações</Label>
+                <Input value={editingTube.notes} onChange={e => setEditingTube(t => t ? { ...t, notes: e.target.value } : t)} placeholder="Observações opcionais" />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTubeDialogOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={updateCtoTubeMut.isPending || updateCeoTubeMut.isPending}
+              onClick={() => {
+                if (!editingTube) return;
+                if (!editingTube.identifier.trim()) { toast.error("Identificador obrigatório"); return; }
+                if (editingTube.isCto) {
+                  updateCtoTubeMut.mutate({ id: editingTube.id, identifier: editingTube.identifier, type: editingTube.type, color: editingTube.color || undefined, notes: editingTube.notes || undefined });
+                } else {
+                  updateCeoTubeMut.mutate({ id: editingTube.id, identifier: editingTube.identifier, type: editingTube.type, color: editingTube.color || undefined, notes: editingTube.notes || undefined });
+                }
+              }}
+            >
+              {updateCtoTubeMut.isPending || updateCeoTubeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmação Excluir Tubo */}
+      <Dialog open={deleteTubeId !== null} onOpenChange={() => setDeleteTubeId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Excluir Tubo</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Deseja excluir este tubo e todas as suas vias? Esta ação não pode ser desfeita.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTubeId(null)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteCtoTubeMut.isPending || deleteCeoTubeMut.isPending}
+              onClick={() => {
+                if (!deleteTubeId) return;
+                if (deleteTubeId.isCto) deleteCtoTubeMut.mutate({ id: deleteTubeId.id });
+                else deleteCeoTubeMut.mutate({ id: deleteTubeId.id });
+              }}
+            >
+              {deleteCtoTubeMut.isPending || deleteCeoTubeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Excluir"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo Registrar Fusão */}
+      <Dialog open={fusionDialogOpen} onOpenChange={setFusionDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><GitMerge className="w-4 h-4" /> Registrar Fusão</DialogTitle>
+          </DialogHeader>
+          {fusionSourceVia && (() => {
+            const tubes = (fusionSourceVia.isCto ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
+            const allVias = (fusionSourceVia.isCto ? ctoViasQuery.data : ceoViasQuery.data) as any[] | undefined;
+            const targetTube = (tubes ?? []).find((t: any) => t.id === Number(fusionTargetTubeId));
+            const targetVias = targetTube ? (allVias ?? []).filter((v: any) => v.tubeId === targetTube.id && v.fusedToViaId === null && v.id !== fusionSourceVia.id) : [];
+            return (
+              <div className="space-y-4">
+                <div className="rounded-lg bg-muted/30 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">Origem:</span> Via <strong>{fusionSourceVia.viaNumber}</strong>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Tubo de destino *</Label>
+                  <Select value={fusionTargetTubeId} onValueChange={v => { setFusionTargetTubeId(v); setFusionTargetViaId(""); }}>
+                    <SelectTrigger><SelectValue placeholder="Selecionar tubo" /></SelectTrigger>
+                    <SelectContent>
+                      {(tubes ?? []).map((t: any) => (
+                        <SelectItem key={t.id} value={String(t.id)}>{t.type === "splitter" ? "⊕" : "○"} {t.identifier}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {fusionTargetTubeId && (
+                  <div className="space-y-1.5">
+                    <Label>Via de destino *</Label>
+                    <Select value={fusionTargetViaId} onValueChange={setFusionTargetViaId}>
+                      <SelectTrigger><SelectValue placeholder="Selecionar via livre" /></SelectTrigger>
+                      <SelectContent>
+                        {targetVias.length === 0 && <SelectItem value="__none" disabled>Nenhuma via livre</SelectItem>}
+                        {targetVias.map((v: any) => (
+                          <SelectItem key={v.id} value={String(v.id)}>Via {v.viaNumber}{v.label ? ` — ${v.label}` : ""}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFusionDialogOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={!fusionTargetTubeId || !fusionTargetViaId || setCtoFusionMut.isPending || setCeoFusionMut.isPending}
+              onClick={() => {
+                if (!fusionSourceVia || !fusionTargetTubeId || !fusionTargetViaId) return;
+                if (fusionSourceVia.isCto) {
+                  setCtoFusionMut.mutate({ viaId: fusionSourceVia.id, fusedToTubeId: Number(fusionTargetTubeId), fusedToViaId: Number(fusionTargetViaId) });
+                } else {
+                  setCeoFusionMut.mutate({ viaId: fusionSourceVia.id, fusedToTubeId: Number(fusionTargetTubeId), fusedToViaId: Number(fusionTargetViaId) });
+                }
+              }}
+            >
+              {setCtoFusionMut.isPending || setCeoFusionMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Registrar Fusão"}
             </Button>
           </DialogFooter>
         </DialogContent>
