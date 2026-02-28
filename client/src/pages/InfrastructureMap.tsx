@@ -102,6 +102,16 @@ export default function InfrastructureMap() {
   const [groupSelectedElements, setGroupSelectedElements] = useState<Set<number>>(new Set());
   const [groupSelectedRoutes, setGroupSelectedRoutes] = useState<Set<number>>(new Set());
   const [groupDeleteConfirm, setGroupDeleteConfirm] = useState(false);
+  // ─── Diálogo de seleção/criação de CEO/CTO ao clicar no mapa ─────────────────
+  const [pickDialogOpen, setPickDialogOpen] = useState(false);
+  const [pickDialogType, setPickDialogType] = useState<"ceo" | "cto">("ceo");
+  const [pickDialogLat, setPickDialogLat] = useState(0);
+  const [pickDialogLng, setPickDialogLng] = useState(0);
+  const [pickSelectedId, setPickSelectedId] = useState<number | null>(null);
+  const [pickCreateNew, setPickCreateNew] = useState(false);
+  const [pickNewName, setPickNewName] = useState("");
+  const [pickNewAddress, setPickNewAddress] = useState("");
+  const [pickNewCapacity, setPickNewCapacity] = useState(8);
 
   const toggleGroupSelectMode = useCallback(() => {
     setGroupSelectMode(v => {
@@ -150,6 +160,12 @@ export default function InfrastructureMap() {
   // Mutations
   const upsertElementMut = trpc.infraMap.upsertElement.useMutation({
     onSuccess: () => { refetchElements(); toast.success("Posição salva"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const createCeoMut = trpc.ceos.create.useMutation({
+    onError: (e) => toast.error(e.message),
+  });
+  const createCtoMut = trpc.ctos.create.useMutation({
     onError: (e) => toast.error(e.message),
   });
   const deleteElementMut = trpc.infraMap.deleteElement.useMutation({
@@ -347,30 +363,20 @@ export default function InfrastructureMap() {
       if (!e.latLng || !addingMode) return;
       const lat = e.latLng.lat();
       const lng = e.latLng.lng();
-
-      // Mostrar seletor de CEO/CTO
-      const available = addingMode === "cto"
-        ? ctos.filter((c: any) => !elements.find((el: any) => el.type === "cto" && el.referenceId === c.id))
-        : ceos.filter((c: any) => !elements.find((el: any) => el.type === "ceo" && el.referenceId === c.id));
-
-      if (available.length === 0) {
-        toast.error(`Nenhum ${addingMode.toUpperCase()} disponível para adicionar`);
-        return;
-      }
-
-      // Usar o primeiro disponível ou abrir seletor
-      // Por simplicidade, abrir um prompt para escolher
-      const names = available.map((c: any) => `${c.id}: ${c.name}`).join("\n");
-      const input = window.prompt(`Selecione o ID do ${addingMode.toUpperCase()} para posicionar:\n${names}`);
-      if (!input) return;
-      const id = parseInt(input.split(":")[0].trim());
-      if (isNaN(id)) return;
-
-      upsertElementMut.mutate({ type: addingMode, referenceId: id, lat, lng });
+      // Abrir diálogo moderno de seleção/criação
+      setPickDialogType(addingMode);
+      setPickDialogLat(lat);
+      setPickDialogLng(lng);
+      setPickSelectedId(null);
+      setPickCreateNew(false);
+      setPickNewName("");
+      setPickNewAddress("");
+      setPickNewCapacity(8);
+      setPickDialogOpen(true);
       setAddingMode(null);
     });
     return () => { google.maps.event.removeListener(listener); };
-  }, [addingMode, mapReady, ctos, ceos, elements, upsertElementMut]);
+  }, [addingMode, mapReady]);
 
   //   // ─── Exportar KML/KMZ ──────────────────────────────────────────────────
   const openExportDialog = () => {
@@ -1064,6 +1070,180 @@ export default function InfrastructureMap() {
             <Button variant="outline" onClick={() => setDeleteElementId(null)}>Cancelar</Button>
             <Button variant="destructive" onClick={() => deleteElementId && deleteElementMut.mutate({ id: deleteElementId })} disabled={deleteElementMut.isPending}>
               Remover
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de seleção/criação de CEO ou CTO ao clicar no mapa */}
+      <Dialog open={pickDialogOpen} onOpenChange={(o) => { if (!o) setPickDialogOpen(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {pickDialogType === "ceo"
+                ? <Radio className="w-5 h-5 text-blue-400" />
+                : <Box className="w-5 h-5 text-purple-400" />
+              }
+              Posicionar {pickDialogType.toUpperCase()} no Mapa
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-xs text-muted-foreground">
+              Coordenadas: {pickDialogLat.toFixed(6)}, {pickDialogLng.toFixed(6)}
+            </p>
+
+            {/* Tabs: Selecionar existente / Criar novo */}
+            <div className="flex gap-1 p-1 bg-muted rounded-lg">
+              <button
+                onClick={() => setPickCreateNew(false)}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  !pickCreateNew ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Selecionar existente
+              </button>
+              <button
+                onClick={() => setPickCreateNew(true)}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  pickCreateNew ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Criar novo
+              </button>
+            </div>
+
+            {!pickCreateNew ? (
+              /* Selecionar existente */
+              <div className="space-y-2">
+                <Label className="text-sm">Selecione o {pickDialogType.toUpperCase()}</Label>
+                {(() => {
+                  const available = pickDialogType === "cto"
+                    ? (ctos as any[]).filter((c: any) => !elements.find((el: any) => el.type === "cto" && el.referenceId === c.id))
+                    : ceos.filter((c: any) => !elements.find((el: any) => el.type === "ceo" && el.referenceId === c.id));
+                  if (available.length === 0) {
+                    return (
+                      <div className="text-sm text-muted-foreground py-4 text-center border border-dashed border-border rounded-lg">
+                        Nenhum {pickDialogType.toUpperCase()} disponível.<br />
+                        <button onClick={() => setPickCreateNew(true)} className="text-cyan-400 underline text-xs mt-1">Criar novo</button>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="max-h-48 overflow-y-auto space-y-1 border border-border rounded-lg p-2">
+                      {available.map((c: any) => (
+                        <button
+                          key={c.id}
+                          onClick={() => setPickSelectedId(c.id)}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-left transition-colors ${
+                            pickSelectedId === c.id
+                              ? "bg-cyan-500/20 border border-cyan-500/50 text-foreground"
+                              : "hover:bg-muted/60 text-muted-foreground"
+                          }`}
+                        >
+                          {pickSelectedId === c.id
+                            ? <CheckSquare className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                            : <Square className="w-4 h-4 flex-shrink-0" />
+                          }
+                          <span className="font-medium">{c.name}</span>
+                          {c.status && (
+                            <span className={`ml-auto text-xs px-1.5 py-0.5 rounded-full ${
+                              c.status === "active" ? "bg-emerald-500/20 text-emerald-400" :
+                              c.status === "maintenance" ? "bg-amber-500/20 text-amber-400" :
+                              "bg-red-500/20 text-red-400"
+                            }`}>
+                              {c.status === "active" ? "Ativo" : c.status === "maintenance" ? "Manutenção" : "Inativo"}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              /* Criar novo */
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-sm">Nome *</Label>
+                  <Input
+                    value={pickNewName}
+                    onChange={e => setPickNewName(e.target.value)}
+                    placeholder={pickDialogType === "ceo" ? "CEO-01" : "CTO-01"}
+                    autoFocus
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-sm">{pickDialogType === "ceo" ? "Localização" : "Endereço"}</Label>
+                  <Input
+                    value={pickNewAddress}
+                    onChange={e => setPickNewAddress(e.target.value)}
+                    placeholder="Rua, número, bairro"
+                  />
+                </div>
+                {pickDialogType === "cto" && (
+                  <div className="space-y-1">
+                    <Label className="text-sm">Capacidade (portas)</Label>
+                    <Input
+                      type="number" min={1} max={256}
+                      value={pickNewCapacity}
+                      onChange={e => setPickNewCapacity(Number(e.target.value))}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPickDialogOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={
+                upsertElementMut.isPending || createCeoMut.isPending || createCtoMut.isPending ||
+                (!pickCreateNew && pickSelectedId === null) ||
+                (pickCreateNew && !pickNewName.trim())
+              }
+              onClick={async () => {
+                try {
+                  let refId = pickSelectedId;
+                  if (pickCreateNew) {
+                    if (pickDialogType === "ceo") {
+                      await createCeoMut.mutateAsync({
+                        name: pickNewName.trim(),
+                        location: pickNewAddress.trim() || undefined,
+                        status: "active",
+                      });
+                      // Buscar o ID do CEO recém criado
+                      const allCeos = await trpc.useUtils().ceos.list.fetch({});
+                      const newCeo = (allCeos as any[]).find((c: any) => c.name === pickNewName.trim());
+                      refId = newCeo?.id ?? null;
+                    } else {
+                      const result = await createCtoMut.mutateAsync({
+                        name: pickNewName.trim(),
+                        address: pickNewAddress.trim() || undefined,
+                        capacity: pickNewCapacity,
+                        status: "active",
+                      });
+                      refId = result.id;
+                    }
+                  }
+                  if (!refId) { toast.error("Nenhum item selecionado"); return; }
+                  await upsertElementMut.mutateAsync({
+                    type: pickDialogType,
+                    referenceId: refId,
+                    lat: pickDialogLat,
+                    lng: pickDialogLng,
+                  });
+                  setPickDialogOpen(false);
+                  toast.success(`${pickDialogType.toUpperCase()} posicionado no mapa`);
+                } catch (e: any) {
+                  toast.error(e.message ?? "Erro ao posicionar");
+                }
+              }}
+            >
+              {(upsertElementMut.isPending || createCeoMut.isPending || createCtoMut.isPending)
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Plus className="w-4 h-4" />
+              }
+              {pickCreateNew ? `Criar e Posicionar` : `Posicionar`}
             </Button>
           </DialogFooter>
         </DialogContent>

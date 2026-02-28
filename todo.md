@@ -669,3 +669,8 @@
 - [x] Seleção múltipla de CTOs, CEOs e cabos com clique
 - [x] Painel de ações em lote (exportar seleção, excluir seleção)
 - [x] Indicação visual dos elementos selecionados (borda cyan nos marcadores, espessura aumentada nos cabos)
+
+## Bugs v5.31
+- [x] Mapa de infraestrutura não aparece (mapa em branco) — corrigido carregamento duplo do Google Maps com singleton promise
+- [x] Botões de adicionar CEO/CTO/cabo no mapa apenas selecionavam o botão sem abrir formulário — corrigido
+- [x] Melhorar fluxo: cadastrar CEO/CTO/cabo diretamente pelo mapa e arrastar para posicionar — implementado diálogo moderno de seleção/criação
