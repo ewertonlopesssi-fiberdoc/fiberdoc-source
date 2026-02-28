@@ -463,7 +463,9 @@ export default function InfrastructureMap() {
       if (toEl) latlngs.push([Number(toEl.lat), Number(toEl.lng)]);
       if (latlngs.length < 2) return;
       const isSelected = groupSelectedRoutes.has(r.id);
-      const polyline = L.polyline(latlngs, { color: r.color ?? "#22d3ee", weight: isSelected ? 6 : 3, opacity: 0.9 }).addTo(mapRef.current!);
+      // Ocultar a polyline da rota que está sendo editada (evita duplicação)
+      const isBeingEdited = r.id === editingRouteId;
+      const polyline = L.polyline(latlngs, { color: r.color ?? "#22d3ee", weight: isSelected ? 6 : 3, opacity: isBeingEdited ? 0 : 0.9 }).addTo(mapRef.current!);
       polyline.on("click", () => {
         if (groupSelectMode) { toggleGroupRoute(r.id); return; }
         setSidePanel({ kind: "route", route: r });
@@ -478,10 +480,10 @@ export default function InfrastructureMap() {
         html: `<div style="background:rgba(0,0,0,0.72);color:#fff;font-size:10px;font-weight:600;padding:2px 5px;border-radius:4px;white-space:nowrap;pointer-events:none;border:1px solid rgba(255,255,255,0.15);">${distText}</div>`,
         className: "", iconSize: [0, 0], iconAnchor: [0, 0],
       });
-      const labelMarker = L.marker(midPt, { icon: labelIcon, interactive: false, keyboard: false }).addTo(mapRef.current!);
+      const labelMarker = L.marker(midPt, { icon: labelIcon, interactive: false, keyboard: false, opacity: isBeingEdited ? 0 : 1 } as any).addTo(mapRef.current!);
       routeLabelsRef.current[r.id] = labelMarker;
     });
-  }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute]);
+  }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute, editingRouteId]);
 
   useEffect(() => { renderMarkers(); }, [renderMarkers]);
   useEffect(() => { renderRoutes(); }, [renderRoutes]);
@@ -567,12 +569,38 @@ export default function InfrastructureMap() {
     if (!mapRef.current) return;
     clearEditRouteMarkers();
     editingRoutePathRef.current = [...path];
-
-    // Polyline de prévia
+    // Polyline de prévia (com duplo clique para inserir ponto)
     editRoutePolylineRef.current = L.polyline(
       path.map(p => [p.lat, p.lng] as L.LatLngExpression),
-      { color: routeColor, weight: 4, opacity: 1, dashArray: "8, 4" }
-    ).addTo(mapRef.current);
+      { color: routeColor, weight: 8, opacity: 0.6, dashArray: "8, 4" }
+    ).addTo(mapRef.current!);
+    editRoutePolylineRef.current.on("dblclick", (e: L.LeafletMouseEvent) => {
+      L.DomEvent.stopPropagation(e);
+      const clickPt = { lat: e.latlng.lat, lng: e.latlng.lng };
+      // Encontrar o segmento mais próximo do clique
+      const pts = editingRoutePathRef.current;
+      let bestIdx = 1;
+      let bestDist = Infinity;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i]; const b = pts[i + 1];
+        // Distância do ponto ao segmento
+        const dx = b.lng - a.lng; const dy = b.lat - a.lat;
+        const lenSq = dx * dx + dy * dy;
+        let t = lenSq > 0 ? ((clickPt.lng - a.lng) * dx + (clickPt.lat - a.lat) * dy) / lenSq : 0;
+        t = Math.max(0, Math.min(1, t));
+        const projLat = a.lat + t * dy; const projLng = a.lng + t * dx;
+        const d = Math.hypot(clickPt.lat - projLat, clickPt.lng - projLng);
+        if (d < bestDist) { bestDist = d; bestIdx = i + 1; }
+      }
+      const newPath = [
+        ...pts.slice(0, bestIdx),
+        clickPt,
+        ...pts.slice(bestIdx),
+      ];
+      editingRoutePathRef.current = newPath;
+      setEditingRoutePath([...newPath]);
+      renderEditRouteMarkers(newPath, routeColor);
+    });
 
     // Marcadores de vértice (arrastáveis)
     path.forEach((pt, idx) => {
