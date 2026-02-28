@@ -800,3 +800,11 @@
 - [x] Desfazer fusão pelo mapa: clicar em via fusionada oferece opção de remover fusão
 - [x] Botão "Abrir detalhes" no painel lateral que navega para /cto/:id ou /ceo/:id
 - [x] Gerar pacote de deployment v5.39
+
+## v5.40 — Sincronização Mapa ↔ Cadastro CEO/CTO
+
+- [x] Editar CEO pelo mapa atualiza também o registro na tabela ceos (nome, status)
+- [x] Editar CTO pelo mapa atualiza também o registro na tabela ctos (nome, capacidade, status)
+- [x] Excluir CEO pelo mapa remove também o registro na tabela ceos
+- [x] Excluir CTO pelo mapa remove também o registro na tabela ctos
+- [x] Gerar pacote de deployment v5.40

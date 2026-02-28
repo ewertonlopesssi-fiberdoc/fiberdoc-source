@@ -95,7 +95,7 @@ export default function InfrastructureMap() {
   const [drawingPath, setDrawingPath] = useState<{ lat: number; lng: number }[]>([]);
   const [routeDialogOpen, setRouteDialogOpen] = useState(false);
   const [routeForm, setRouteForm] = useState({ name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: "" });
-  const [deleteElementId, setDeleteElementId] = useState<number | null>(null);
+  const [deleteElementId, setDeleteElementId] = useState<{ id: number; type: string; referenceId: number } | null>(null);
   const [deleteRouteId, setDeleteRouteId] = useState<number | null>(null);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<"kml" | "kmz">("kmz");
@@ -312,8 +312,14 @@ export default function InfrastructureMap() {
   });
   const createCeoMut = trpc.ceos.create.useMutation({ onError: (e) => toast.error(e.message) });
   const createCtoMut = trpc.ctos.create.useMutation({ onError: (e) => toast.error(e.message) });
+  const deleteCeoMut = trpc.ceos.delete.useMutation({
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteCtoMut = trpc.ctos.delete.useMutation({
+    onError: (e) => toast.error(e.message),
+  });
   const deleteElementMut = trpc.infraMap.deleteElement.useMutation({
-    onSuccess: () => { refetchElements(); setDeleteElementId(null); setSidePanel(null); toast.success("Elemento removido"); },
+    onSuccess: () => { refetchElements(); setDeleteElementId(null); setSidePanel(null); toast.success("Excluído com sucesso"); },
     onError: (e) => toast.error(e.message),
   });
   const createRouteMut = trpc.infraMap.createRoute.useMutation({
@@ -926,7 +932,7 @@ export default function InfrastructureMap() {
             </SelectContent>
           </Select>
         </div>
-        {isAdmin && <Button variant="destructive" size="sm" className="w-full gap-2" onClick={() => { setDeleteElementId(el.id); setSidePanel(null); }}><Trash2 className="w-3.5 h-3.5" /> Remover do Mapa</Button>}
+        {isAdmin && <Button variant="destructive" size="sm" className="w-full gap-2" onClick={() => { setDeleteElementId({ id: el.id, type: el.type, referenceId: el.referenceId }); setSidePanel(null); }}><Trash2 className="w-3.5 h-3.5" /> Excluir {el.type === "cto" ? "CTO" : "CEO"}</Button>}
       </div>
     );
   };
@@ -1224,11 +1230,24 @@ export default function InfrastructureMap() {
       {/* Confirmação exclusão elemento */}
       <Dialog open={deleteElementId !== null} onOpenChange={() => setDeleteElementId(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Remover do Mapa</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">Deseja remover este elemento do mapa? O CEO/CTO não será excluído do sistema.</p>
+          <DialogHeader><DialogTitle>Excluir {deleteElementId?.type === "cto" ? "CTO" : "CEO"}</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Deseja excluir permanentemente este elemento? Ele será removido do mapa <strong>e do cadastro</strong>. Esta ação não pode ser desfeita.</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteElementId(null)}>Cancelar</Button>
-            <Button variant="destructive" onClick={() => deleteElementId && deleteElementMut.mutate({ id: deleteElementId })} disabled={deleteElementMut.isPending}>{deleteElementMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Remover"}</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteElementMut.isPending}
+              onClick={() => {
+                if (!deleteElementId) return;
+                // Remove do cadastro (ceos/ctos)
+                if (deleteElementId.type === "cto") deleteCtoMut.mutate({ id: deleteElementId.referenceId });
+                else deleteCeoMut.mutate({ id: deleteElementId.referenceId });
+                // Remove do mapa
+                deleteElementMut.mutate({ id: deleteElementId.id });
+              }}
+            >
+              {deleteElementMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Excluir"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1310,9 +1329,9 @@ export default function InfrastructureMap() {
                 const el = sidePanel?.kind === "element" ? sidePanel.element : null;
                 if (!el) return;
                 if (el.type === "cto") {
-                  updateCtoMut.mutate({ id: el.id, name: editElementForm.name, capacity: editElementForm.capacity, status: editElementForm.status as any });
+                  updateCtoMut.mutate({ id: el.referenceId, name: editElementForm.name, capacity: editElementForm.capacity, status: editElementForm.status as any });
                 } else {
-                  updateCeoMut.mutate({ id: el.id, name: editElementForm.name, status: editElementForm.status as any });
+                  updateCeoMut.mutate({ id: el.referenceId, name: editElementForm.name, status: editElementForm.status as any });
                 }
               }}
             >
