@@ -2,13 +2,15 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "path";
+import fs from "fs";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerLocalAuthRoutes, seedDefaultAdmin } from "../localAuth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { startBackupScheduler } from "../backupScheduler";
+import { startBackupScheduler, LOCAL_BACKUP_DIR } from "../backupScheduler";
 import { startSnmpPoller } from "../snmpPoller";
 import { generateIpReportPdf } from "../ipReportPdf";
 import { generateEquipmentReportPdf } from "../equipmentReportPdf";
@@ -114,6 +116,27 @@ async function startServer() {
       res.json({ ok: true, message: "Atualização iniciada" });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Download de backup local (para servidores sem S3)
+  app.get("/api/backup/download/:filename", (req, res) => {
+    try {
+      const filename = req.params.filename;
+      // Sanitizar nome do arquivo para evitar path traversal
+      if (!filename || filename.includes("..") || filename.includes("/") || !filename.endsWith(".json")) {
+        return res.status(400).json({ error: "Nome de arquivo inválido" });
+      }
+      const filePath = path.join(LOCAL_BACKUP_DIR, filename);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Arquivo não encontrado" });
+      }
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      fs.createReadStream(filePath).pipe(res);
+    } catch (err: any) {
+      console.error("[backup-download] erro:", err);
+      if (!res.headersSent) res.status(500).json({ error: "Erro ao baixar backup" });
     }
   });
 

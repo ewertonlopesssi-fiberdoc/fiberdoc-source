@@ -1816,8 +1816,8 @@ export const appRouter = router({
     createRoute: adminProcedure
       .input(z.object({
         name: z.string().optional(),
-        fromElementId: z.number(),
-        toElementId: z.number(),
+        fromElementId: z.number().optional(),
+        toElementId: z.number().optional(),
         fiberCount: z.number().int().min(1).default(12),
         cableType: z.string().default("FO"),
         color: z.string().default("#22d3ee"),
@@ -1825,7 +1825,7 @@ export const appRouter = router({
         notes: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        const id = await createMapRoute(input);
+        const id = await createMapRoute(input as any);
         return { id };
       }),
     updateRoute: adminProcedure

@@ -83,6 +83,11 @@ export default function InfrastructureMap() {
   const [routeFrom, setRouteFrom] = useState<number | null>(null);
   const [routeTo, setRouteTo] = useState<number | null>(null);
   const [routeDialogOpen, setRouteDialogOpen] = useState(false);
+  // Traçado livre de cabo
+  const [drawingPath, setDrawingPath] = useState<google.maps.LatLngLiteral[]>([]);
+  const previewPolylineRef = useRef<google.maps.Polyline | null>(null);
+  const mousePolylineRef = useRef<google.maps.Polyline | null>(null);
+  const drawingMarkersRef = useRef<any[]>([]);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const [routeForm, setRouteForm] = useState({
@@ -279,14 +284,13 @@ export default function InfrastructureMap() {
           return;
         }
         if (addingRouteMode) {
-          if (routeFrom === null) {
-            setRouteFrom(elId);
-            toast.info(`Origem: ${name}. Clique no destino.`);
-          } else if (routeFrom !== elId) {
-            setRouteTo(elId);
-            setRouteDialogOpen(true);
-            setRouteForm(f => ({ ...f, name: "" }));
-          }
+          // No modo de traçado livre, clicar em marcador adiciona snap point
+          const pos = marker.position as google.maps.LatLng | google.maps.LatLngLiteral | null;
+          if (!pos) return;
+          const lat = typeof (pos as any).lat === "function" ? (pos as any).lat() : (pos as any).lat;
+          const lng = typeof (pos as any).lng === "function" ? (pos as any).lng() : (pos as any).lng;
+          setDrawingPath(prev => [...prev, { lat, lng }]);
+          toast.info(`Ponto adicionado: ${name}`);
         } else {
           setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts } });
         }
@@ -400,6 +404,107 @@ export default function InfrastructureMap() {
     return () => { google.maps.event.removeListener(listener); };
   }, [addingMode, mapReady]);
 
+  // ─── Traçado livre de cabo ─────────────────────────────────────────────────
+  // Atualiza a polyline de prévia sempre que drawingPath muda
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    if (!addingRouteMode) {
+      // Limpar prévia ao sair do modo
+      if (previewPolylineRef.current) { previewPolylineRef.current.setMap(null); previewPolylineRef.current = null; }
+      if (mousePolylineRef.current) { mousePolylineRef.current.setMap(null); mousePolylineRef.current = null; }
+      drawingMarkersRef.current.forEach(m => { try { m.map = null; } catch {} });
+      drawingMarkersRef.current = [];
+      return;
+    }
+    // Criar/atualizar polyline de prévia
+    if (!previewPolylineRef.current) {
+      previewPolylineRef.current = new google.maps.Polyline({
+        map: mapRef.current,
+        strokeColor: "#22d3ee",
+        strokeOpacity: 0.9,
+        strokeWeight: 3,
+        zIndex: 10,
+      });
+    }
+    previewPolylineRef.current.setPath(drawingPath);
+    // Atualizar marcadores de ponto (pequenos círculos)
+    drawingMarkersRef.current.forEach(m => { try { m.map = null; } catch {} });
+    drawingMarkersRef.current = [];
+    drawingPath.forEach((pt, idx) => {
+      const dot = document.createElement("div");
+      dot.style.cssText = `
+        width: ${idx === 0 || idx === drawingPath.length - 1 ? 14 : 10}px;
+        height: ${idx === 0 || idx === drawingPath.length - 1 ? 14 : 10}px;
+        background: ${idx === 0 ? "#22c55e" : idx === drawingPath.length - 1 ? "#f59e0b" : "#22d3ee"};
+        border: 2px solid white; border-radius: 50%;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+      `;
+      const m = new (google.maps as any).marker.AdvancedMarkerElement({
+        map: mapRef.current,
+        position: pt,
+        content: dot,
+        zIndex: 20,
+      });
+      drawingMarkersRef.current.push(m);
+    });
+  }, [drawingPath, addingRouteMode, mapReady]);
+
+  // Capturar cliques no mapa para adicionar pontos ao traçado
+  useEffect(() => {
+    if (!mapRef.current || !mapReady || !addingRouteMode) return;
+    mapRef.current.setOptions({ draggableCursor: "crosshair" });
+    // Listener de clique para adicionar ponto
+    const clickListener = mapRef.current.addListener("click", (e: google.maps.MapMouseEvent) => {
+      if (!e.latLng) return;
+      const pt = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+      setDrawingPath(prev => [...prev, pt]);
+    });
+    // Listener de mousemove para linha de prévia até o cursor
+    const moveListener = mapRef.current.addListener("mousemove", (e: google.maps.MapMouseEvent) => {
+      if (!e.latLng || drawingPath.length === 0) return;
+      if (!mousePolylineRef.current) {
+        mousePolylineRef.current = new google.maps.Polyline({
+          map: mapRef.current,
+          strokeColor: "#22d3ee",
+          strokeOpacity: 0.35,
+          strokeWeight: 2,
+          icons: [{ icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 3 }, offset: "0", repeat: "12px" }],
+          zIndex: 9,
+        });
+      }
+      const last = drawingPath[drawingPath.length - 1];
+      mousePolylineRef.current.setPath([last, { lat: e.latLng.lat(), lng: e.latLng.lng() }]);
+    });
+    return () => {
+      google.maps.event.removeListener(clickListener);
+      google.maps.event.removeListener(moveListener);
+      mapRef.current?.setOptions({ draggableCursor: "" });
+    };
+  }, [addingRouteMode, mapReady, drawingPath]);
+
+  // Confirmar traçado e abrir diálogo de configuração do cabo
+  const confirmDrawing = useCallback(() => {
+    if (drawingPath.length < 2) {
+      toast.error("Adicione pelo menos 2 pontos ao traçado");
+      return;
+    }
+    setRouteDialogOpen(true);
+    setRouteForm(f => ({ ...f, name: "" }));
+  }, [drawingPath]);
+
+  // Desfazer último ponto
+  const undoLastPoint = useCallback(() => {
+    setDrawingPath(prev => prev.slice(0, -1));
+  }, []);
+
+  // Cancelar traçado
+  const cancelDrawing = useCallback(() => {
+    setAddingRouteMode(false);
+    setDrawingPath([]);
+    setRouteFrom(null);
+    setRouteTo(null);
+  }, []);
+
   //   // ─── Exportar KML/KMZ ──────────────────────────────────────────────────
   const openExportDialog = () => {
     // Inicializar seleção com todos os elementos
@@ -479,17 +584,20 @@ export default function InfrastructureMap() {
 
   // ─── Criar rota ───────────────────────────────────────────────────────────────
   const handleCreateRoute = () => {
-    if (routeFrom === null || routeTo === null) return;
+    // No modo de traçado livre, fromElementId e toElementId são opcionais
+    const pathStr = drawingPath.length >= 2 ? JSON.stringify(drawingPath) : undefined;
     createRouteMut.mutate({
-      fromElementId: routeFrom,
-      toElementId: routeTo,
+      ...(routeFrom !== null ? { fromElementId: routeFrom } : {}),
+      ...(routeTo !== null ? { toElementId: routeTo } : {}),
       name: routeForm.name || undefined,
       cableType: routeForm.cableType || undefined,
       fiberCount: routeForm.fiberCount || undefined,
       color: routeForm.color || undefined,
       notes: routeForm.notes || undefined,
+      path: pathStr,
     });
     setRouteTo(null);
+    setDrawingPath([]);
   };
 
   // ─── Painel lateral ───────────────────────────────────────────────────────────
@@ -741,15 +849,29 @@ export default function InfrastructureMap() {
       )}
 
       {/* Instruções de modo */}
-      {(addingMode || addingRouteMode) && (
+      {addingMode && (
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
           <Navigation className="w-3.5 h-3.5" />
-          {addingMode
-            ? `Clique no mapa para posicionar um ${addingMode.toUpperCase()}`
-            : routeFrom === null
-              ? "Clique no marcador de ORIGEM do cabo"
-              : "Agora clique no marcador de DESTINO do cabo"
-          }
+          Clique no mapa para posicionar um {addingMode.toUpperCase()}
+          <button onClick={() => setAddingMode(null)} className="ml-auto text-amber-300 hover:text-amber-200 underline">Cancelar</button>
+        </div>
+      )}
+      {addingRouteMode && (
+        <div className="px-4 py-2 bg-cyan-500/10 border-b border-cyan-500/30 text-cyan-400 text-xs flex items-center gap-2">
+          <Cable className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="flex-1">
+            {drawingPath.length === 0
+              ? "Clique em qualquer ponto do mapa para iniciar o traçado do cabo. Clique sobre um CEO/CTO para vincular."
+              : `${drawingPath.length} ponto${drawingPath.length !== 1 ? "s" : ""} — continue clicando ou confirme o traçado.`
+            }
+          </span>
+          {drawingPath.length > 0 && (
+            <button onClick={undoLastPoint} className="text-cyan-300 hover:text-cyan-200 underline text-xs flex-shrink-0">Desfazer</button>
+          )}
+          {drawingPath.length >= 2 && (
+            <button onClick={confirmDrawing} className="bg-cyan-500 text-white px-2 py-0.5 rounded text-xs hover:bg-cyan-400 flex-shrink-0">Confirmar traçado</button>
+          )}
+          <button onClick={cancelDrawing} className="text-cyan-300 hover:text-cyan-200 underline text-xs flex-shrink-0">Cancelar</button>
         </div>
       )}
 
@@ -863,12 +985,43 @@ export default function InfrastructureMap() {
       </div>
 
       {/* Dialog de criação de rota */}
-      <Dialog open={routeDialogOpen} onOpenChange={(o) => { if (!o) { setRouteDialogOpen(false); setRouteFrom(null); setAddingRouteMode(false); setDeleteRouteId(null); } }}>
+      <Dialog open={routeDialogOpen} onOpenChange={(o) => { if (!o) { setRouteDialogOpen(false); setAddingRouteMode(false); setDeleteRouteId(null); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Novo Cabo / Rota</DialogTitle>
+            <DialogTitle>Configurar Cabo</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            {drawingPath.length >= 2 && (
+              <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-3 text-xs text-cyan-400">
+                Traçado com <strong>{drawingPath.length} pontos</strong> será salvo. Vincule opcionalmente a CEO/CTO de origem e destino.
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Origem (opcional)</Label>
+                <Select value={routeFrom !== null ? String(routeFrom) : "none"} onValueChange={v => setRouteFrom(v === "none" ? null : Number(v))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sem vínculo" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sem vínculo</SelectItem>
+                    {(elements as any[]).map((e: any) => (
+                      <SelectItem key={e.id} value={String(e.id)}>{e.type.toUpperCase()} — {e.name ?? `#${e.id}`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Destino (opcional)</Label>
+                <Select value={routeTo !== null ? String(routeTo) : "none"} onValueChange={v => setRouteTo(v === "none" ? null : Number(v))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sem vínculo" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sem vínculo</SelectItem>
+                    {(elements as any[]).map((e: any) => (
+                      <SelectItem key={e.id} value={String(e.id)}>{e.type.toUpperCase()} — {e.name ?? `#${e.id}`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="space-y-1">
               <Label>Nome (opcional)</Label>
               <Input value={routeForm.name} onChange={e => setRouteForm(f => ({ ...f, name: e.target.value }))} placeholder="Cabo-01" />

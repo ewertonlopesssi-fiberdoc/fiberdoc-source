@@ -2,7 +2,14 @@
  * Backup Scheduler Service
  * Runs as a background process inside the Express server.
  * Checks every 5 minutes if a scheduled backup is due and executes it.
+ *
+ * Storage strategy:
+ *  1. If BUILT_IN_FORGE_API_URL + BUILT_IN_FORGE_API_KEY are set → upload to S3 (Manus cloud)
+ *  2. Otherwise → save to local disk at BACKUP_LOCAL_DIR (default: /opt/fiberdoc/backups)
+ *     and serve via /api/backup/download/:filename (authenticated Express route)
  */
+import path from "path";
+import fs from "fs";
 import { storagePut } from "./storage";
 import {
   exportFullBackup,
@@ -12,8 +19,21 @@ import {
   deleteOldBackupEntries,
 } from "./db";
 import { notifyOwner } from "./_core/notification";
+import { ENV } from "./_core/env";
 
 let schedulerInterval: ReturnType<typeof setInterval> | null = null;
+
+/** Directory where local backups are stored when S3 is not configured */
+export const LOCAL_BACKUP_DIR =
+  process.env.BACKUP_LOCAL_DIR ||
+  (process.env.NODE_ENV === "production"
+    ? "/opt/fiberdoc/backups"
+    : path.join(process.cwd(), ".local-backups"));
+
+/** Returns true if Manus S3 credentials are available */
+function hasS3Credentials(): boolean {
+  return !!(ENV.forgeApiUrl && ENV.forgeApiKey);
+}
 
 /**
  * Calculates the next run Date based on schedule config.
@@ -60,12 +80,27 @@ export function calcNextRun(
 }
 
 /**
- * Executes a backup: exports data, uploads to S3, saves history entry.
+ * Saves backup buffer to local disk.
+ * Returns the absolute file path.
+ */
+function saveLocalBackup(filename: string, buffer: Buffer): string {
+  if (!fs.existsSync(LOCAL_BACKUP_DIR)) {
+    fs.mkdirSync(LOCAL_BACKUP_DIR, { recursive: true });
+  }
+  const filePath = path.join(LOCAL_BACKUP_DIR, filename);
+  fs.writeFileSync(filePath, buffer);
+  return filePath;
+}
+
+/**
+ * Executes a backup: exports data, uploads to S3 or saves locally, saves history entry.
  */
 export async function runBackup(trigger: "manual" | "scheduled"): Promise<{
   success: boolean;
   filename: string;
   fileUrl?: string;
+  localPath?: string;
+  storageMode: "s3" | "local";
   totalRecords: number;
   fileSizeBytes: number;
   error?: string;
@@ -81,14 +116,29 @@ export async function runBackup(trigger: "manual" | "scheduled"): Promise<{
     const totalRecords = Object.values(backup.counts).reduce((a, b) => a + b, 0);
     const fileSizeBytes = buffer.byteLength;
 
-    // Upload to S3
-    const fileKey = `backups/${filename}`;
-    const { url: fileUrl } = await storagePut(fileKey, buffer, "application/json");
+    let fileUrl: string | undefined;
+    let localPath: string | undefined;
+    let storageMode: "s3" | "local";
+
+    if (hasS3Credentials()) {
+      // Upload to S3 (Manus cloud storage)
+      const fileKey = `backups/${filename}`;
+      const result = await storagePut(fileKey, buffer, "application/json");
+      fileUrl = result.url;
+      storageMode = "s3";
+      console.log(`[BackupScheduler] Backup uploaded to S3: ${fileUrl}`);
+    } else {
+      // Save locally when S3 is not configured (standalone server)
+      localPath = saveLocalBackup(filename, buffer);
+      storageMode = "local";
+      console.log(`[BackupScheduler] Backup saved locally: ${localPath}`);
+    }
 
     await createBackupHistoryEntry({
       filename,
       fileUrl,
-      fileKey,
+      fileKey: fileUrl ? `backups/${filename}` : undefined,
+      localPath,
       fileSizeBytes,
       totalRecords,
       status: "success",
@@ -98,13 +148,14 @@ export async function runBackup(trigger: "manual" | "scheduled"): Promise<{
     if (trigger === "scheduled") {
       await notifyOwner({
         title: "✅ Backup automático gerado",
-        content: `Backup gerado em ${now.toLocaleString("pt-BR")}\nArquivo: ${filename}\nRegistros: ${totalRecords}\nTamanho: ${(fileSizeBytes / 1024).toFixed(1)} KB`,
-      });
+        content: `Backup gerado em ${now.toLocaleString("pt-BR")}\nArquivo: ${filename}\nRegistros: ${totalRecords}\nTamanho: ${(fileSizeBytes / 1024).toFixed(1)} KB\nArmazenamento: ${storageMode === "s3" ? "Nuvem (S3)" : "Local (" + localPath + ")"}`,
+      }).catch(() => {});
     }
 
-    return { success: true, filename, fileUrl, totalRecords, fileSizeBytes };
+    return { success: true, filename, fileUrl, localPath, storageMode, totalRecords, fileSizeBytes };
   } catch (err: any) {
     const errorMessage = err?.message ?? String(err);
+    console.error("[BackupScheduler] Backup failed:", errorMessage);
 
     await createBackupHistoryEntry({
       filename,
@@ -122,7 +173,7 @@ export async function runBackup(trigger: "manual" | "scheduled"): Promise<{
       }).catch(() => {});
     }
 
-    return { success: false, filename, totalRecords: 0, fileSizeBytes: 0, error: errorMessage };
+    return { success: false, filename, storageMode: "local", totalRecords: 0, fileSizeBytes: 0, error: errorMessage };
   }
 }
 
@@ -167,7 +218,8 @@ async function checkAndRunSchedule(): Promise<void> {
  */
 export function startBackupScheduler(): void {
   if (schedulerInterval) return;
-  console.log("[BackupScheduler] Started (checking every 5 minutes).");
+  const mode = hasS3Credentials() ? "S3 (Manus cloud)" : `local (${LOCAL_BACKUP_DIR})`;
+  console.log(`[BackupScheduler] Started (checking every 5 minutes). Storage mode: ${mode}`);
   // Run immediately on start to catch any missed backups
   checkAndRunSchedule();
   schedulerInterval = setInterval(checkAndRunSchedule, 5 * 60 * 1000);

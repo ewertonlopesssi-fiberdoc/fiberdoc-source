@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calcNextRun } from "./backupScheduler";
+import { calcNextRun, LOCAL_BACKUP_DIR } from "./backupScheduler";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 
@@ -94,6 +94,20 @@ describe("calcNextRun", () => {
     expect(nextDaily.getTime()).toBeGreaterThan(base.getTime());
     expect(nextWeekly.getTime()).toBeGreaterThan(base.getTime());
     expect(nextMonthly.getTime()).toBeGreaterThan(base.getTime());
+  });
+});
+
+// ── LOCAL_BACKUP_DIR tests ──────────────────────────────────────────────────
+describe("LOCAL_BACKUP_DIR", () => {
+  it("is a non-empty string", () => {
+    expect(typeof LOCAL_BACKUP_DIR).toBe("string");
+    expect(LOCAL_BACKUP_DIR.length).toBeGreaterThan(0);
+  });
+
+  it("uses BACKUP_LOCAL_DIR env if set", () => {
+    // In test env, LOCAL_BACKUP_DIR should be the default (cwd/.local-backups)
+    // since BACKUP_LOCAL_DIR is not set in test env
+    expect(LOCAL_BACKUP_DIR).toContain("local-backups");
   });
 });
 

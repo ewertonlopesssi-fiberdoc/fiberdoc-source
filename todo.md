@@ -678,3 +678,18 @@
 ## v5.32 — Cabo pelo Mapa e Busca de Endereço
 - [x] Criar cabo clicando em dois marcadores (CEO/CTO) no mapa sem informar IDs manualmente
 - [x] Busca de endereço com Google Places Autocomplete no toolbar do mapa
+
+## v5.33 — Traçado Livre de Cabo
+- [ ] Modo de traçado livre: clicar em qualquer ponto do mapa para desenhar o percurso da fibra
+- [ ] Prévia em tempo real da polyline enquanto o usuário clica nos pontos
+- [ ] Diálogo de confirmação com seleção de origem/destino (CEO/CTO) e configuração do cabo
+- [ ] Desfazer último ponto (Backspace/botão Desfazer)
+- [ ] Vincular cabo a CEO/CTO arrastando o ponto sobre o ícone (snap por drag)
+
+## Bugs v5.33 — Backup sem credenciais Manus
+- [x] Backup falha com "Storage proxy credentials missing" em servidores físicos sem BUILT_IN_FORGE_API_KEY
+- [x] Implementado armazenamento local: quando S3 não disponível, salva em /opt/fiberdoc/backups/
+- [x] Coluna localPath adicionada à tabela backup_history (migration 0033)
+- [x] Rota Express GET /api/backup/download/:filename para servir arquivos locais
+- [x] Frontend atualizado: botão de download usa /api/backup/download/:filename quando localPath presente
+- [x] 169 testes passando

@@ -226,10 +226,10 @@ export default function Backup() {
               disabled={runManualMutation.isPending}
             >
               <CloudUpload className="w-4 h-4" />
-              {runManualMutation.isPending ? "Enviando para nuvem..." : "Gerar e salvar na nuvem"}
+              {runManualMutation.isPending ? "Gerando backup..." : "Gerar e salvar backup"}
             </Button>
             <p className="text-xs text-muted-foreground">
-              O backup em nuvem fica registrado no histórico abaixo e pode ser baixado a qualquer momento.
+              O backup fica registrado no histórico abaixo. Se a nuvem não estiver configurada, é salvo localmente no servidor.
             </p>
           </CardContent>
         </Card>
@@ -425,14 +425,20 @@ export default function Backup() {
                     <Badge variant="outline" className="text-xs">
                       {entry.trigger === "scheduled" ? "Auto" : "Manual"}
                     </Badge>
-                    {entry.fileUrl && (
+                    {(entry.fileUrl || (entry as any).localPath) && (
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-cyan-400 hover:text-cyan-300"
+                        title={(entry as any).localPath ? "Baixar backup (armazenado localmente no servidor)" : "Baixar backup da nuvem"}
                         asChild
                       >
-                        <a href={entry.fileUrl} download={entry.filename} target="_blank" rel="noreferrer">
+                        <a
+                          href={entry.fileUrl || `/api/backup/download/${entry.filename}`}
+                          download={entry.filename}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
                           <Download className="w-3.5 h-3.5" />
                         </a>
                       </Button>

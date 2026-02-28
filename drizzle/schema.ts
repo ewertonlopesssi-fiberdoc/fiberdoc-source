@@ -263,6 +263,7 @@ export const backupHistory = mysqlTable("backup_history", {
   filename: varchar("filename", { length: 256 }).notNull(),
   fileUrl: text("fileUrl"),                       // URL S3 do arquivo
   fileKey: varchar("fileKey", { length: 512 }),   // chave S3
+  localPath: varchar("localPath", { length: 512 }), // caminho local (quando sem S3)
   fileSizeBytes: int("fileSizeBytes"),
   totalRecords: int("totalRecords"),
   status: mysqlEnum("backup_status", ["success", "error"]).default("success").notNull(),
@@ -610,8 +611,8 @@ export type InsertMapElement = typeof mapElements.$inferInsert;
 export const mapRoutes = mysqlTable("map_routes", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 128 }),
-  fromElementId: int("fromElementId").notNull(),                      // FK map_elements.id
-  toElementId: int("toElementId").notNull(),                          // FK map_elements.id
+  fromElementId: int("fromElementId"),                               // FK map_elements.id (null = cabo livre sem vínculo)
+  toElementId: int("toElementId"),                                    // FK map_elements.id (null = cabo livre sem vínculo)
   fiberCount: int("fiberCount").default(12),
   cableType: varchar("cableType", { length: 64 }).default("FO"),      // FO, Metálico, etc.
   color: varchar("color", { length: 16 }).default("#22d3ee"),         // Cor da linha no mapa
