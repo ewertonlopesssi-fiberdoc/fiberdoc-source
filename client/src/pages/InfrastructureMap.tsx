@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -71,9 +71,26 @@ export default function InfrastructureMap() {
   const utils = trpc.useUtils();
   const { data: elements = [], refetch: refetchElements } = trpc.infraMap.elements.useQuery();
   const { data: routes = [], refetch: refetchRoutes } = trpc.infraMap.routes.useQuery();
+  const { data: routesOccupancy = [] } = trpc.infraMap.routesOccupancy.useQuery();
   const { data: ctos = [], refetch: refetchCtos } = trpc.ctos.list.useQuery();
   const { data: ceosRaw = [], refetch: refetchCeos } = trpc.ceos.list.useQuery({});
   const ceos = ceosRaw as any[];
+
+  // Mapa de ocupação por routeId
+  const occupancyMap = useMemo(() => {
+    const m: Record<number, number> = {};
+    (routesOccupancy as any[]).forEach((o: any) => { m[o.routeId] = o.pct; });
+    return m;
+  }, [routesOccupancy]);
+  const getOccupancyColor = useCallback((routeId: number, baseColor: string) => {
+    const pct = occupancyMap[routeId];
+    if (pct === undefined) return baseColor;
+    if (pct === 0) return "#22c55e";        // verde — livre
+    if (pct < 50)  return "#22d3ee";        // ciano — uso baixo
+    if (pct < 80)  return "#eab308";        // amarelo — parcial
+    if (pct < 100) return "#f97316";        // laranja — quase saturado
+    return "#ef4444";                       // vermelho — saturado
+  }, [occupancyMap]);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -119,6 +136,20 @@ export default function InfrastructureMap() {
   const [pickNewName, setPickNewName] = useState("");
   const [pickNewAddress, setPickNewAddress] = useState("");
   const [pickNewCapacity, setPickNewCapacity] = useState(8);
+  const [geocodeLoading, setGeocodeLoading] = useState(false);
+  const fetchReverseGeocode = useCallback(async (lat: number, lng: number) => {
+    setGeocodeLoading(true);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=pt-BR`);
+      const data = await res.json();
+      if (data?.display_name) setPickNewAddress(data.display_name);
+      else toast.error("Endereço não encontrado para esta localização");
+    } catch {
+      toast.error("Erro ao buscar endereço");
+    } finally {
+      setGeocodeLoading(false);
+    }
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
   const [satelliteMode, setSatelliteMode] = useState(false);
@@ -135,6 +166,10 @@ export default function InfrastructureMap() {
   const editRouteMidMarkersRef = useRef<L.CircleMarker[]>([]);
   const editRoutePolylineRef = useRef<L.Polyline | null>(null);
   const editingRoutePathRef = useRef<{ lat: number; lng: number }[]>([]);
+  // Snap: IDs dos elementos vinculados durante edição (podem mudar ao arrastar endpoints)
+  const snapFromIdRef = useRef<number | null>(null);
+  const snapToIdRef = useRef<number | null>(null);
+  const snapIndicatorRef = useRef<L.CircleMarker | null>(null);
 
   // Edição inline de CEO/CTO/Cabo pelo painel lateral
   const [editElementDialogOpen, setEditElementDialogOpen] = useState(false);
@@ -465,7 +500,9 @@ export default function InfrastructureMap() {
       const isSelected = groupSelectedRoutes.has(r.id);
       // Ocultar a polyline da rota que está sendo editada (evita duplicação)
       const isBeingEdited = r.id === editingRouteId;
-      const polyline = L.polyline(latlngs, { color: r.color ?? "#22d3ee", weight: isSelected ? 6 : 3, opacity: isBeingEdited ? 0 : 0.9 }).addTo(mapRef.current!);
+      // Cor baseada na ocupação de fibras
+      const routeColor = getOccupancyColor(r.id, r.color ?? "#22d3ee");
+      const polyline = L.polyline(latlngs, { color: routeColor, weight: isSelected ? 6 : 3, opacity: isBeingEdited ? 0 : 0.9 }).addTo(mapRef.current!);
       polyline.on("click", () => {
         if (groupSelectMode) { toggleGroupRoute(r.id); return; }
         setSidePanel({ kind: "route", route: r });
@@ -483,7 +520,7 @@ export default function InfrastructureMap() {
       const labelMarker = L.marker(midPt, { icon: labelIcon, interactive: false, keyboard: false, opacity: isBeingEdited ? 0 : 1 } as any).addTo(mapRef.current!);
       routeLabelsRef.current[r.id] = labelMarker;
     });
-  }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute, editingRouteId]);
+  }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute, editingRouteId, occupancyMap, getOccupancyColor]);
 
   useEffect(() => { renderMarkers(); }, [renderMarkers]);
   useEffect(() => { renderRoutes(); }, [renderRoutes]);
@@ -614,7 +651,8 @@ export default function InfrastructureMap() {
         bubblingMouseEvents: false,
       }).addTo(mapRef.current!);
 
-      // Arrastar vértice
+      // Arrastar vértice (com snap ao CEO/CTO mais próximo para endpoints)
+      const SNAP_THRESHOLD_DEG = 0.008; // ~800m em graus
       let dragging = false;
       cm.on("mousedown", (e: L.LeafletMouseEvent) => {
         L.DomEvent.stopPropagation(e);
@@ -622,12 +660,31 @@ export default function InfrastructureMap() {
         mapRef.current!.dragging.disable();
         const onMove = (ev: L.LeafletMouseEvent) => {
           if (!dragging) return;
-          cm.setLatLng(ev.latlng);
+          let moveLat = ev.latlng.lat;
+          let moveLng = ev.latlng.lng;
+          // Snap apenas para endpoints
+          let snappedEl: any = null;
+          if (isEndpoint) {
+            let bestDist = SNAP_THRESHOLD_DEG;
+            (elements as any[]).forEach((el: any) => {
+              const d = Math.hypot(moveLat - Number(el.lat), moveLng - Number(el.lng));
+              if (d < bestDist) { bestDist = d; snappedEl = el; }
+            });
+            if (snappedEl) { moveLat = Number(snappedEl.lat); moveLng = Number(snappedEl.lng); }
+          }
+          cm.setLatLng([moveLat, moveLng]);
           const newPath = [...editingRoutePathRef.current];
-          newPath[idx] = { lat: ev.latlng.lat, lng: ev.latlng.lng };
+          newPath[idx] = { lat: moveLat, lng: moveLng };
           editingRoutePathRef.current = newPath;
           if (editRoutePolylineRef.current) {
             editRoutePolylineRef.current.setLatLngs(newPath.map(p => [p.lat, p.lng] as L.LatLngExpression));
+          }
+          // Indicador visual de snap
+          if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
+          if (snappedEl && mapRef.current) {
+            snapIndicatorRef.current = L.circleMarker([moveLat, moveLng], {
+              radius: 14, color: "#22c55e", fillColor: "#22c55e", fillOpacity: 0.25, weight: 3,
+            }).addTo(mapRef.current);
           }
           // Atualizar marcadores de ponto médio
           editRouteMidMarkersRef.current.forEach(m => m.remove());
@@ -639,6 +696,19 @@ export default function InfrastructureMap() {
           mapRef.current!.dragging.enable();
           mapRef.current!.off("mousemove", onMove);
           mapRef.current!.off("mouseup", onUp);
+          if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
+          // Atualizar snap ID se endpoint grudou em um elemento
+          if (isEndpoint) {
+            const finalPt = editingRoutePathRef.current[idx];
+            let snappedId: number | null = null;
+            (elements as any[]).forEach((el: any) => {
+              if (Math.abs(finalPt.lat - Number(el.lat)) < 0.0001 && Math.abs(finalPt.lng - Number(el.lng)) < 0.0001) {
+                snappedId = el.id;
+              }
+            });
+            if (idx === 0) snapFromIdRef.current = snappedId;
+            else snapToIdRef.current = snappedId;
+          }
           setEditingRoutePath([...editingRoutePathRef.current]);
         };
         mapRef.current!.on("mousemove", onMove);
@@ -709,6 +779,8 @@ export default function InfrastructureMap() {
     setEditingRouteId(route.id);
     setEditingRoutePath(pts);
     editingRoutePathRef.current = pts;
+    snapFromIdRef.current = route.fromElementId ?? null;
+    snapToIdRef.current = route.toElementId ?? null;
     renderEditRouteMarkers(pts, route.color ?? "#22d3ee");
     setSidePanel(null);
   }, [elements, renderEditRouteMarkers]);
@@ -716,17 +788,22 @@ export default function InfrastructureMap() {
   // Cancelar edição de traçado
   const cancelEditRoutePath = useCallback(() => {
     clearEditRouteMarkers();
+    if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
     setEditingRouteId(null);
     setEditingRoutePath([]);
     editingRoutePathRef.current = [];
+    snapFromIdRef.current = null;
+    snapToIdRef.current = null;
   }, [clearEditRouteMarkers]);
 
   // Salvar traçado editado
   const saveEditRoutePath = useCallback(() => {
     if (!editingRouteId) return;
-    const route = (routes as any[]).find((r: any) => r.id === editingRouteId);
-    const fromEl = (elements as any[]).find((e: any) => e.id === route?.fromElementId);
-    const toEl   = (elements as any[]).find((e: any) => e.id === route?.toElementId);
+    // Usar os IDs de snap (podem ter mudado ao arrastar endpoints)
+    const newFromId = snapFromIdRef.current;
+    const newToId   = snapToIdRef.current;
+    const fromEl = (elements as any[]).find((e: any) => e.id === newFromId);
+    const toEl   = (elements as any[]).find((e: any) => e.id === newToId);
     // Remover os endpoints (fromEl e toEl) do path salvo — eles são inferidos pelos elementos
     let pts = [...editingRoutePathRef.current];
     if (fromEl) {
@@ -741,9 +818,14 @@ export default function InfrastructureMap() {
         pts = pts.slice(0, -1);
       }
     }
-    updateRoutePathMut.mutate({ id: editingRouteId, path: JSON.stringify(pts) });
+    updateRoutePathMut.mutate({
+      id: editingRouteId,
+      path: JSON.stringify(pts),
+      fromElementId: newFromId ?? undefined,
+      toElementId: newToId ?? undefined,
+    });
     cancelEditRoutePath();
-  }, [editingRouteId, routes, elements, updateRoutePathMut, cancelEditRoutePath]);
+  }, [editingRouteId, elements, updateRoutePathMut, cancelEditRoutePath]);
 
   // Busca de endereço via Nominatim (OpenStreetMap)
   const handleSearch = useCallback(async () => {
@@ -1452,7 +1534,17 @@ export default function InfrastructureMap() {
             ) : (
               <div className="space-y-3">
                 <div className="space-y-1.5"><Label>Nome *</Label><Input value={pickNewName} onChange={e => setPickNewName(e.target.value)} placeholder={`Nome do ${pickDialogType.toUpperCase()}`} /></div>
-                <div className="space-y-1.5"><Label>Endereço</Label><Input value={pickNewAddress} onChange={e => setPickNewAddress(e.target.value)} placeholder="Endereço (opcional)" /></div>
+                <div className="space-y-1.5">
+                  <Label>Endereço</Label>
+                  <div className="flex gap-2">
+                    <Input value={pickNewAddress} onChange={e => setPickNewAddress(e.target.value)} placeholder="Endereço (opcional)" className="flex-1" />
+                    <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1 text-xs" onClick={() => fetchReverseGeocode(pickDialogLat, pickDialogLng)} disabled={geocodeLoading}>
+                      {geocodeLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Navigation className="w-3 h-3" />}
+                      {geocodeLoading ? "" : "Auto"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Clique em "Auto" para preencher pelo GPS</p>
+                </div>
                 {pickDialogType === "cto" && <div className="space-y-1.5"><Label>Capacidade (portas)</Label><Input type="number" value={pickNewCapacity} onChange={e => setPickNewCapacity(Number(e.target.value))} min={1} /></div>}
               </div>
             )}

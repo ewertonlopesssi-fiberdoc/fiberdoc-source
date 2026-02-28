@@ -128,6 +128,8 @@ type EquipmentForm = {
   powerSource: string;
   powerSourceLabel: string;
   powerSourceId: string;  // FK para fonte cadastrada
+  voltage: string;
+  powerConsumptionW: string;
   // Campos de rede
   vlan: string;
   interfaceIp: string;
@@ -157,6 +159,8 @@ const defaultForm: EquipmentForm = {
   powerSource: "",
   powerSourceLabel: "",
   powerSourceId: "",
+  voltage: "",
+  powerConsumptionW: "",
   vlan: "",
   interfaceIp: "",
   ipBlockId: "",
@@ -372,6 +376,8 @@ export default function Equipments() {
       powerSource: (eq as any).powerSource ?? "",
       powerSourceLabel: (eq as any).powerSourceLabel ?? "",
       powerSourceId: (eq as any).powerSourceId?.toString() ?? "",
+      voltage: (eq as any).voltage?.toString() ?? "",
+      powerConsumptionW: (eq as any).powerConsumptionW?.toString() ?? "",
       vlan: (eq as any).vlan?.toString() ?? "",
       interfaceIp: (eq as any).interfaceIp ?? "",
       ipBlockId: (eq as any).ipBlockId?.toString() ?? "",
@@ -403,6 +409,8 @@ export default function Equipments() {
       powerSource: form.powerSource as any || undefined,
       powerSourceLabel: form.powerSourceLabel || undefined,
       powerSourceId: form.powerSourceId ? parseInt(form.powerSourceId) : undefined,
+      voltage: form.voltage ? parseFloat(form.voltage) : undefined,
+      powerConsumptionW: form.powerConsumptionW ? parseFloat(form.powerConsumptionW) : undefined,
       vlan: form.vlan ? parseInt(form.vlan) : undefined,
       interfaceIp: form.interfaceIp || undefined,
       ipBlockId: form.ipBlockId ? parseInt(form.ipBlockId) : undefined,
@@ -568,6 +576,8 @@ export default function Equipments() {
                         {(eq as any).powerType && (eq as any).powerSource ? " · " : ""}
                         {POWER_SOURCES.find((p) => p.value === (eq as any).powerSource)?.label ?? ""}
                         {(eq as any).powerSourceLabel ? ` (${(eq as any).powerSourceLabel})` : ""}
+                        {(eq as any).voltage ? ` · ${(eq as any).voltage}V` : ""}
+                        {(eq as any).powerConsumptionW ? ` · ${(eq as any).powerConsumptionW}W` : ""}
                       </span>
                     </div>
                   )}
@@ -787,6 +797,32 @@ export default function Equipments() {
                 Vincule a uma fonte cadastrada para monitoramento SNMP. Cadastre fontes em{" "}
                 <a href="/fontes-energia" target="_blank" className="text-yellow-400 hover:underline">Fontes de Energia</a>.
               </p>
+            </div>
+
+            {/* Tensão e Consumo */}
+            <div className="space-y-1.5">
+              <Label>Tensão de Operação (V)</Label>
+              <Input
+                type="number"
+                step="0.1"
+                min="0"
+                value={form.voltage}
+                onChange={(e) => setForm({ ...form, voltage: e.target.value })}
+                placeholder="Ex: 220 ou 48"
+                className="bg-background border-border/50"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Consumo Elétrico (W)</Label>
+              <Input
+                type="number"
+                step="0.1"
+                min="0"
+                value={form.powerConsumptionW}
+                onChange={(e) => setForm({ ...form, powerConsumptionW: e.target.value })}
+                placeholder="Ex: 150"
+                className="bg-background border-border/50"
+              />
             </div>
 
             {/* Imagem do Equipamento — Upload */}

@@ -79,6 +79,8 @@ export const equipments = mysqlTable("equipments", {
   powerSource: mysqlEnum("power_source", ["rectifier", "inverter", "ups", "grid", "other"]),  // Fonte de alimentação (legado)
   powerSourceLabel: varchar("powerSourceLabel", { length: 128 }),      // Identificação da fonte (legado)
   powerSourceId: int("powerSourceId"),                                 // FK para power_sources cadastradas
+  voltage: float("voltage"),                                           // Tensão de operação (V)
+  powerConsumptionW: float("powerConsumptionW"),                       // Consumo elétrico (W)
   notes: text("notes"),
   // Campos de rede
   vlan: int("vlan"),                                                          // VLAN ID (ex: 100)

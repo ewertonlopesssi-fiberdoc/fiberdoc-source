@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2";
 import {
@@ -642,6 +642,26 @@ export async function getDashboardStats() {
   }
   capacityAlerts.sort((a, b) => b.occupancyRate - a.occupancyRate);
 
+  // Comprimento total da rede (soma dos traçados de cabos)
+  const allRoutes = await db.execute(sql`SELECT path FROM map_routes`) as any;
+  const haversineKm = (a: {lat:number;lng:number}, b: {lat:number;lng:number}) => {
+    const R = 6371;
+    const dLat = (b.lat - a.lat) * Math.PI / 180;
+    const dLng = (b.lng - a.lng) * Math.PI / 180;
+    const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+  };
+  let totalNetworkKm = 0;
+  const routeRows: any[] = Array.isArray(allRoutes[0]) ? allRoutes[0] : (allRoutes.rows ?? allRoutes);
+  const totalRoutes = routeRows.length;
+  for (const r of routeRows) {
+    try {
+      if (!r.path) continue;
+      const pts: {lat:number;lng:number}[] = JSON.parse(r.path);
+      for (let i = 1; i < pts.length; i++) totalNetworkKm += haversineKm(pts[i-1], pts[i]);
+    } catch {}
+  }
+
   return {
     totalEquipments: Number(equipmentCount?.count ?? 0),
     totalFibers: Number(fiberCount?.count ?? 0),
@@ -657,6 +677,8 @@ export async function getDashboardStats() {
     recentHistory,
     capacityAlerts,
     alertThreshold,
+    totalNetworkKm: Math.round(totalNetworkKm * 10) / 10,
+    totalRoutes,
   };
 }
 
@@ -2391,4 +2413,38 @@ export async function getAllRouteGroupMemberships(): Promise<MapRouteGroup[]> {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(mapRouteGroups);
+}
+
+// ─── Ocupação de Fibras por Rota ─────────────────────────────────────────────
+export async function getRoutesOccupancy(): Promise<{ routeId: number; fiberCount: number; fusedCount: number; pct: number }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const routes = await db.select().from(mapRoutes);
+  const result: { routeId: number; fiberCount: number; fusedCount: number; pct: number }[] = [];
+  for (const route of routes) {
+    const fiberCount = route.fiberCount ?? 12;
+    let fusedCount = 0;
+    // Contar vias fusionadas no CEO de origem
+    if (route.fromElementId) {
+      const el = await db.select().from(mapElements).where(eq(mapElements.id, route.fromElementId)).limit(1);
+      if (el[0]?.type === "ceo") {
+        const tubes = await db.select().from(ceoTubes).where(eq(ceoTubes.ceoId, el[0].referenceId!));
+        for (const tube of tubes) {
+          const fused = await db.select().from(ceoVias)
+            .where(and(eq(ceoVias.tubeId, tube.id), isNotNull(ceoVias.fusedToViaId)));
+          fusedCount += fused.length;
+        }
+      } else if (el[0]?.type === "cto") {
+        const tubes = await db.select().from(ctoTubes).where(eq(ctoTubes.ctoId, el[0].referenceId!));
+        for (const tube of tubes) {
+          const fused = await db.select().from(ctoVias)
+            .where(and(eq(ctoVias.tubeId, tube.id), isNotNull(ctoVias.fusedToViaId)));
+          fusedCount += fused.length;
+        }
+      }
+    }
+    const pct = fiberCount > 0 ? Math.min(100, Math.round((fusedCount / fiberCount) * 100)) : 0;
+    result.push({ routeId: route.id, fiberCount, fusedCount, pct });
+  }
+  return result;
 }

@@ -23,6 +23,8 @@ import {
   BatteryCharging,
   Gauge,
   Radio,
+  Route,
+  MapPin,
 } from "lucide-react";
 import {
   BarChart,
@@ -239,6 +241,22 @@ export default function Dashboard() {
           icon={TrendingUp}
           subtitle="das portas"
           color={portOccupancyRate > 80 ? "danger" : "primary"}
+        />
+        <StatCard
+          title="Rede de Cabos"
+          value={stats?.totalNetworkKm != null ? `${stats.totalNetworkKm} km` : "—"}
+          icon={Route}
+          subtitle={`${stats?.totalRoutes ?? 0} cabos cadastrados`}
+          color="warning"
+          onClick={() => setLocation("/mapa")}
+        />
+        <StatCard
+          title="CEOs / CTOs"
+          value={(stats?.ctoStats?.total ?? 0)}
+          icon={MapPin}
+          subtitle={`${stats?.ctoStats?.active ?? 0} ativos`}
+          color="success"
+          onClick={() => setLocation("/mapa")}
         />
       </div>
 

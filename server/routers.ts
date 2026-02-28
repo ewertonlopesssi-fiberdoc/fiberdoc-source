@@ -255,6 +255,8 @@ export const appRouter = router({
         powerSource: z.enum(["rectifier", "inverter", "ups", "grid", "other"]).optional(),
         powerSourceLabel: z.string().optional(),
         powerSourceId: z.number().optional().nullable(),
+        voltage: z.number().optional().nullable(),
+        powerConsumptionW: z.number().optional().nullable(),
         // Campos de rede
         vlan: z.number().int().min(1).max(4094).optional().nullable(),
         interfaceIp: z.string().optional().nullable(),
@@ -298,6 +300,8 @@ export const appRouter = router({
         powerSource: z.enum(["rectifier", "inverter", "ups", "grid", "other"]).optional().nullable(),
         powerSourceLabel: z.string().optional().nullable(),
         powerSourceId: z.number().optional().nullable(),
+        voltage: z.number().optional().nullable(),
+        powerConsumptionW: z.number().optional().nullable(),
         // Campos de rede
         vlan: z.number().int().min(1).max(4094).optional().nullable(),
         interfaceIp: z.string().optional().nullable(),
@@ -2178,6 +2182,11 @@ ${fiberFolder}
 
         // PDF: retorna dados para o frontend gerar
         return { format: "pdf", csv: null, rows };
+      }),
+    routesOccupancy: protectedProcedure
+      .query(async () => {
+        const dbMod = await import("./db");
+        return dbMod.getRoutesOccupancy();
       }),
   }),
   // ─── SGP Config ───────────────────────────────────────────────────────────────
