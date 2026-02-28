@@ -2124,8 +2124,24 @@ export async function getMapRoutes(): Promise<MapRoute[]> {
 export async function createMapRoute(data: Omit<InsertMapRoute, "id" | "createdAt" | "updatedAt">): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(mapRoutes).values(data);
-  return (result[0] as any).insertId;
+  // Usar SQL raw para garantir que fromElementId e toElementId sejam sempre passados
+  // como valores inteiros (nunca como DEFAULT), pois no servidor físico são NOT NULL
+  const fromId = (data.fromElementId != null && data.fromElementId > 0) ? data.fromElementId : 0;
+  const toId   = (data.toElementId   != null && data.toElementId   > 0) ? data.toElementId   : 0;
+  const name       = (data.name  && data.name.trim()  !== "") ? data.name.trim()  : "Cabo";
+  const fiberCount = data.fiberCount ?? 12;
+  const cableType  = data.cableType  ?? "FO";
+  const color      = data.color      ?? "#22d3ee";
+  const path       = data.path       ?? "[]";
+  const notes      = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : null;
+  // Usar pool diretamente para SQL raw (evita que Drizzle gere DEFAULT em campos NOT NULL)
+  if (!_pool) _pool = createPool();
+  const [result] = await _pool.promise().execute(
+    `INSERT INTO map_routes (name, fromElementId, toElementId, fiberCount, cableType, color, path, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [name, fromId, toId, fiberCount, cableType, color, path, notes]
+  );
+  return (result as any).insertId;
 }
 export async function updateMapRoute(id: number, data: Partial<Omit<InsertMapRoute, "id" | "createdAt" | "updatedAt">>): Promise<void> {
   const db = await getDb();

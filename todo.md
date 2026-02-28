@@ -845,3 +845,8 @@
 
 - [x] Omitir notes do INSERT quando vazio (compatível com NOT NULL sem default)
 - [x] Gerar pacote de deployment v5.42.2
+
+## v5.42.3 — Correção INSERT map_routes NOT NULL
+
+- [ ] Corrigir createRoute no db.ts para passar valores explícitos em name, fromElementId, toElementId e notes
+- [ ] Gerar pacote de deployment v5.42.3
