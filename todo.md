@@ -651,3 +651,12 @@
 - [x] Marcadores arrastáveis no mapa (draggable AdvancedMarkerElement + salvar posição ao soltar)
 - [x] Importação de CTOs via CSV (nome, endereço, capacidade, lat, lng)
 - [x] Widget de CTOs no Dashboard (total, ocupação média, link para mapa)
+
+## v5.28 — Exportação Avançada e Alertas de CTOs
+- [x] Exportação KML/KMZ com seleção granular (escolher quais fibras, CTOs e CEOs exportar)
+- [x] Empacotamento KMZ (ZIP do KML) compatível com Google Earth Desktop
+- [x] Filtro de CTOs por percentual de ocupação (ex: acima de 80%)
+- [x] Alertas de alta ocupação de CTOs integrados ao sistema de alertas existente
+
+## Bugs
+- [x] Erro ao salvar nome/logo nas configurações do sistema (investigado: procedures funcionam corretamente, erro ocorre quando sessão expira)

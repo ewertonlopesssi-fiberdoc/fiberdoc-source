@@ -97,6 +97,8 @@ import {
   getMapElements, upsertMapElement, deleteMapElement,
   getMapRoutes, createMapRoute, updateMapRoute, deleteMapRoute,
   getSgpConfig, saveSgpConfig,
+  getCtoAlertConfig, saveCtoAlertConfig,
+  getCtoAlerts, countActiveCtoAlerts, acknowledgeCtoAlert, resolveCtoAlert, checkAndCreateCtoAlerts,
 } from "./db";
 import { getRacks, getRackById, createRack, updateRack, deleteRack } from "./db";
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
@@ -1848,14 +1850,33 @@ export const appRouter = router({
         return { ok: true };
       }),
     exportKml: protectedProcedure
-      .input(z.object({ format: z.enum(["kml", "kmz"]).default("kml") }))
+      .input(z.object({
+        format: z.enum(["kml", "kmz"]).default("kml"),
+        // Seleção granular: se omitido, exporta tudo
+        elementIds: z.array(z.number()).optional(),   // IDs de mapElements
+        routeIds: z.array(z.number()).optional(),     // IDs de mapRoutes
+        includeFibers: z.boolean().default(false),    // incluir fibras ópticas como linhas
+        fiberIds: z.array(z.number()).optional(),     // IDs de fibras específicas
+      }))
       .query(async ({ input }) => {
-        const [elements, routes, allCtos, allCeos] = await Promise.all([
+        const dbMod = await import("./db");
+        const [allElements, allRoutes, allCtos, allCeos, allFibers] = await Promise.all([
           getMapElements(),
           getMapRoutes(),
           getCtos(),
-          import("./db").then(m => m.getCeos()),
+          dbMod.getCeos(),
+          input.includeFibers ? dbMod.getFibers() : Promise.resolve([]),
         ]);
+        // Filtrar elementos e rotas conforme seleção
+        const elements = input.elementIds?.length
+          ? (allElements as any[]).filter((e: any) => input.elementIds!.includes(e.id))
+          : allElements as any[];
+        const routes = input.routeIds?.length
+          ? (allRoutes as any[]).filter((r: any) => input.routeIds!.includes(r.id))
+          : allRoutes as any[];
+        const fibers = input.fiberIds?.length
+          ? (allFibers as any[]).filter((f: any) => input.fiberIds!.includes(f.id))
+          : allFibers as any[];
         const ctoMap = new Map(allCtos.map((c: any) => [c.id, c]));
         const ceoMap = new Map((allCeos as any[]).map((c: any) => [c.id, c]));
         const placemarks = elements.map((el: any) => {
@@ -1891,6 +1912,24 @@ export const appRouter = router({
     <LineString><tessellate>1</tessellate><coordinates>${coords}</coordinates></LineString>
   </Placemark>`;
         }).filter(Boolean).join("\n");
+        // Folder de fibras ópticas (apenas as que têm coordenadas de origem/destino via CEO)
+        const fibermarks = fibers.map((f: any) => {
+          // Fibras podem ter ceos associados — usar nome e status
+          const name = f.name ?? `Fibra-${f.id}`;
+          const color = f.status === "active" ? "ff00ff00" : f.status === "maintenance" ? "ff00ffff" : "ff0000ff";
+          // Se não há coordenadas de rota, pular
+          if (!f.path) return "";
+          let coords = "";
+          try { coords = (JSON.parse(f.path) as { lat: number; lng: number }[]).map(p => `${p.lng},${p.lat},0`).join(" "); } catch { return ""; }
+          if (!coords) return "";
+          return `  <Placemark>
+    <name>${name}</name>
+    <description>${f.type ?? "FO"} — ${f.fiberCount ?? ""} fibras — Status: ${f.status ?? "active"}</description>
+    <Style><LineStyle><color>${color}</color><width>2</width></LineStyle></Style>
+    <LineString><tessellate>1</tessellate><coordinates>${coords}</coordinates></LineString>
+  </Placemark>`;
+        }).filter(Boolean).join("\n");
+        const fiberFolder = fibermarks ? `  <Folder><name>Fibras Ópticas</name>\n${fibermarks}\n  </Folder>` : "";
         const kml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
 <Document>
@@ -1902,9 +1941,65 @@ ${placemarks}
   <Folder><name>Cabos</name>
 ${linemarks}
   </Folder>
+${fiberFolder}
 </Document>
 </kml>`;
-        return { kml, format: input.format };
+        // KMZ = ZIP contendo doc.kml
+        if (input.format === "kmz") {
+          const { createHash } = await import("crypto");
+          // Criar ZIP simples (sem compressão) com o KML
+          const kmlBuf = Buffer.from(kml, "utf-8");
+          const fileName = "doc.kml";
+          const fileNameBuf = Buffer.from(fileName);
+          // Local file header
+          const localHeader = Buffer.alloc(30 + fileNameBuf.length);
+          localHeader.writeUInt32LE(0x04034b50, 0); // signature
+          localHeader.writeUInt16LE(20, 4); // version needed
+          localHeader.writeUInt16LE(0, 6); // flags
+          localHeader.writeUInt16LE(0, 8); // compression: stored
+          localHeader.writeUInt16LE(0, 10); // mod time
+          localHeader.writeUInt16LE(0, 12); // mod date
+          const crc = (() => { let c = 0xFFFFFFFF; for (let i = 0; i < kmlBuf.length; i++) { c ^= kmlBuf[i]; for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (c & 1 ? 0xEDB88320 : 0); } return (c ^ 0xFFFFFFFF) >>> 0; })();
+          localHeader.writeUInt32LE(crc, 14); // crc32
+          localHeader.writeUInt32LE(kmlBuf.length, 18); // compressed size
+          localHeader.writeUInt32LE(kmlBuf.length, 22); // uncompressed size
+          localHeader.writeUInt16LE(fileNameBuf.length, 26); // filename length
+          localHeader.writeUInt16LE(0, 28); // extra field length
+          fileNameBuf.copy(localHeader, 30);
+          // Central directory
+          const centralDir = Buffer.alloc(46 + fileNameBuf.length);
+          centralDir.writeUInt32LE(0x02014b50, 0); // signature
+          centralDir.writeUInt16LE(20, 4); // version made by
+          centralDir.writeUInt16LE(20, 6); // version needed
+          centralDir.writeUInt16LE(0, 8); // flags
+          centralDir.writeUInt16LE(0, 10); // compression
+          centralDir.writeUInt16LE(0, 12); // mod time
+          centralDir.writeUInt16LE(0, 14); // mod date
+          centralDir.writeUInt32LE(crc, 16); // crc32
+          centralDir.writeUInt32LE(kmlBuf.length, 20); // compressed size
+          centralDir.writeUInt32LE(kmlBuf.length, 24); // uncompressed size
+          centralDir.writeUInt16LE(fileNameBuf.length, 28); // filename length
+          centralDir.writeUInt16LE(0, 30); // extra field length
+          centralDir.writeUInt16LE(0, 32); // comment length
+          centralDir.writeUInt16LE(0, 34); // disk number start
+          centralDir.writeUInt16LE(0, 36); // internal attributes
+          centralDir.writeUInt32LE(0, 38); // external attributes
+          centralDir.writeUInt32LE(0, 42); // relative offset of local header
+          fileNameBuf.copy(centralDir, 46);
+          // End of central directory
+          const eocd = Buffer.alloc(22);
+          eocd.writeUInt32LE(0x06054b50, 0); // signature
+          eocd.writeUInt16LE(0, 4); // disk number
+          eocd.writeUInt16LE(0, 6); // disk with central dir
+          eocd.writeUInt16LE(1, 8); // entries on disk
+          eocd.writeUInt16LE(1, 10); // total entries
+          eocd.writeUInt32LE(centralDir.length, 12); // central dir size
+          eocd.writeUInt32LE(localHeader.length + kmlBuf.length, 16); // central dir offset
+          eocd.writeUInt16LE(0, 20); // comment length
+          const kmzBuf = Buffer.concat([localHeader, kmlBuf, centralDir, eocd]);
+          return { kml, kmzBase64: kmzBuf.toString("base64"), format: "kmz" };
+        }
+        return { kml, kmzBase64: null, format: input.format };
       }),
   }),
   // ─── SGP Config ───────────────────────────────────────────────────────────────
@@ -1979,6 +2074,44 @@ ${linemarks}
       .mutation(async ({ input }) => {
         await deleteRack(input.id);
         return { ok: true };
+      }),
+  }),
+  // ─── Alertas de CTOs ─────────────────────────────────────────────────────────
+  ctoAlerts: router({
+    list: protectedProcedure
+      .input(z.object({ onlyActive: z.boolean().optional(), limit: z.number().optional() }))
+      .query(({ input }) => getCtoAlerts(input)),
+    activeCount: publicProcedure
+      .query(() => countActiveCtoAlerts()),
+    getConfig: protectedProcedure
+      .query(() => getCtoAlertConfig()),
+    saveConfig: adminProcedure
+      .input(z.object({
+        enabled: z.boolean(),
+        warningThreshold: z.number().min(1).max(100),
+        criticalThreshold: z.number().min(1).max(100),
+        checkIntervalMinutes: z.number().min(1).max(1440),
+      }))
+      .mutation(async ({ input }) => {
+        await saveCtoAlertConfig(input);
+        return { ok: true };
+      }),
+    acknowledge: adminProcedure
+      .input(z.object({ id: z.number(), by: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        await acknowledgeCtoAlert(input.id, input.by ?? ctx.user.name ?? 'admin');
+        return { ok: true };
+      }),
+    resolve: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await resolveCtoAlert(input.id);
+        return { ok: true };
+      }),
+    check: adminProcedure
+      .mutation(async () => {
+        const created = await checkAndCreateCtoAlerts();
+        return { created };
       }),
   }),
 });

@@ -634,3 +634,29 @@ export const sgpConfig = mysqlTable("sgp_config", {
 });
 export type SgpConfig = typeof sgpConfig.$inferSelect;
 export type InsertSgpConfig = typeof sgpConfig.$inferInsert;
+// ─── Alertas de Ocupação de CTOs ──────────────────────────────────────────────
+export const ctoAlerts = mysqlTable("cto_alerts", {
+  id: int("id").autoincrement().primaryKey(),
+  ctoId: int("ctoId").notNull().references(() => ctos.id, { onDelete: "cascade" }),
+  occupancyPct: int("occupancyPct").notNull(),                        // % de ocupação que disparou o alerta
+  threshold: int("threshold").notNull().default(80),                  // Threshold configurado
+  severity: mysqlEnum("cto_alert_severity", ["warning", "critical"]).notNull().default("warning"),
+  message: text("message").notNull(),
+  acknowledgedAt: timestamp("acknowledgedAt"),
+  acknowledgedBy: varchar("acknowledgedBy", { length: 128 }),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CtoAlert = typeof ctoAlerts.$inferSelect;
+export type InsertCtoAlert = typeof ctoAlerts.$inferInsert;
+// ─── Configuração de Alertas de CTOs ─────────────────────────────────────────
+export const ctoAlertConfig = mysqlTable("cto_alert_config", {
+  id: int("id").autoincrement().primaryKey(),
+  enabled: boolean("enabled").default(false),
+  warningThreshold: int("warningThreshold").default(80),              // % para aviso
+  criticalThreshold: int("criticalThreshold").default(90),            // % para crítico
+  checkIntervalMinutes: int("checkIntervalMinutes").default(60),      // Verificar a cada N minutos
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CtoAlertConfig = typeof ctoAlertConfig.$inferSelect;

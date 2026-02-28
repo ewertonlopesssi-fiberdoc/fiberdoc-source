@@ -218,6 +218,13 @@
       "when": 1772239790201,
       "tag": "0030_mighty_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1772242830763,
+      "tag": "0031_free_diamondback",
+      "breakpoints": true
     }
   ]
 }

@@ -36,6 +36,7 @@ export default function Ctos() {
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterOccupancy, setFilterOccupancy] = useState<string>("all"); // "all" | "above50" | "above70" | "above80" | "above90"
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -88,7 +89,14 @@ export default function Ctos() {
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
       (c.address ?? "").toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterStatus === "all" || c.status === filterStatus;
-    return matchSearch && matchStatus;
+    const pctFilter = (c.capacity ?? 0) > 0 ? Math.round(((c.usedPorts ?? 0) / c.capacity) * 100) : 0;
+    const matchOccupancy =
+      filterOccupancy === "all" ? true :
+      filterOccupancy === "above50" ? pctFilter >= 50 :
+      filterOccupancy === "above70" ? pctFilter >= 70 :
+      filterOccupancy === "above80" ? pctFilter >= 80 :
+      filterOccupancy === "above90" ? pctFilter >= 90 : true;
+    return matchSearch && matchStatus && matchOccupancy;
   });
 
   const stats = {
@@ -158,6 +166,18 @@ export default function Ctos() {
             <SelectItem value="active">Ativo</SelectItem>
             <SelectItem value="maintenance">Manutenção</SelectItem>
             <SelectItem value="inactive">Inativo</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={filterOccupancy} onValueChange={setFilterOccupancy}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Ocupação" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Qualquer ocupação</SelectItem>
+            <SelectItem value="above50">≥ 50% ocupada</SelectItem>
+            <SelectItem value="above70">≥ 70% ocupada</SelectItem>
+            <SelectItem value="above80">≥ 80% ocupada</SelectItem>
+            <SelectItem value="above90">≥ 90% ocupada</SelectItem>
           </SelectContent>
         </Select>
       </div>

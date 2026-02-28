@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { MapView } from "@/components/Map";
@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import {
   Map, Layers, Download, Plus, X, Eye, EyeOff, Loader2,
   Radio, Box, Cable, Navigation, Users, ChevronRight, Trash2,
-  ToggleLeft, ToggleRight
+  ToggleLeft, ToggleRight, Filter, FileDown, CheckSquare, Square
 } from "lucide-react";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -87,6 +87,12 @@ export default function InfrastructureMap() {
   const [deleteRouteId, setDeleteRouteId] = useState<number | null>(null);
   const [deleteElementId, setDeleteElementId] = useState<number | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"kml" | "kmz">("kml");
+  const [exportIncludeFibers, setExportIncludeFibers] = useState(false);
+  const [exportSelectedElements, setExportSelectedElements] = useState<Set<number>>(new Set());
+  const [exportSelectedRoutes, setExportSelectedRoutes] = useState<Set<number>>(new Set());
+  const [exportSelectAll, setExportSelectAll] = useState(true);
   const [sgpLoading, setSgpLoading] = useState(false);
   const [sgpClients, setSgpClients] = useState<any[]>([]);
 
@@ -294,21 +300,78 @@ export default function InfrastructureMap() {
     return () => { google.maps.event.removeListener(listener); };
   }, [addingMode, mapReady, ctos, ceos, elements, upsertElementMut]);
 
-  // ─── Exportar KML ─────────────────────────────────────────────────────────────
+  //   // ─── Exportar KML/KMZ ──────────────────────────────────────────────────
+  const openExportDialog = () => {
+    // Inicializar seleção com todos os elementos
+    setExportSelectedElements(new Set((elements as any[]).map((e: any) => e.id)));
+    setExportSelectedRoutes(new Set((routes as any[]).map((r: any) => r.id)));
+    setExportSelectAll(true);
+    setExportDialogOpen(true);
+  };
+
+  const toggleExportSelectAll = () => {
+    if (exportSelectAll) {
+      setExportSelectedElements(new Set());
+      setExportSelectedRoutes(new Set());
+    } else {
+      setExportSelectedElements(new Set((elements as any[]).map((e: any) => e.id)));
+      setExportSelectedRoutes(new Set((routes as any[]).map((r: any) => r.id)));
+    }
+    setExportSelectAll(!exportSelectAll);
+  };
+
+  const toggleElement = (id: number) => {
+    setExportSelectedElements(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleRoute = (id: number) => {
+    setExportSelectedRoutes(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const handleExportKml = async () => {
     setExportLoading(true);
     try {
-      const result = await (trpc as any).infraMap.exportKml.query({ format: "kml" });
-      const blob = new Blob([result.kml], { type: "application/vnd.google-earth.kml+xml" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0, 10)}.kml`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("KML exportado com sucesso");
+      const elementIds = exportSelectAll ? undefined : Array.from(exportSelectedElements);
+      const routeIds = exportSelectAll ? undefined : Array.from(exportSelectedRoutes);
+      const result = await (trpc as any).infraMap.exportKml.query({
+        format: exportFormat,
+        elementIds,
+        routeIds,
+        includeFibers: exportIncludeFibers,
+      });
+      if (exportFormat === "kmz" && result.kmzBase64) {
+        const binary = atob(result.kmzBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: "application/vnd.google-earth.kmz" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0, 10)}.kmz`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("KMZ exportado com sucesso");
+      } else {
+        const blob = new Blob([result.kml], { type: "application/vnd.google-earth.kml+xml" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0, 10)}.kml`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("KML exportado com sucesso");
+      }
+      setExportDialogOpen(false);
     } catch (e: any) {
-      toast.error(e.message ?? "Erro ao exportar KML");
+      toast.error(e.message ?? "Erro ao exportar");
     } finally {
       setExportLoading(false);
     }
@@ -536,10 +599,10 @@ export default function InfrastructureMap() {
         <div className="ml-auto flex items-center gap-2">
           <Button
             size="sm" variant="outline" className="h-7 gap-1 text-xs"
-            onClick={handleExportKml} disabled={exportLoading}
+            onClick={openExportDialog}
           >
-            {exportLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-            KML
+            <FileDown className="w-3 h-3" />
+            Exportar KML/KMZ
           </Button>
         </div>
       </div>
@@ -678,6 +741,133 @@ export default function InfrastructureMap() {
             <Button variant="outline" onClick={() => setDeleteRouteId(null)}>Cancelar</Button>
             <Button variant="destructive" onClick={() => deleteRouteId && deleteRouteMut.mutate({ id: deleteRouteId })} disabled={deleteRouteMut.isPending}>
               Excluir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de Exportação KML/KMZ */}
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileDown className="w-5 h-5 text-cyan-400" />
+              Exportar KML / KMZ
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Formato */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Formato de saída</Label>
+              <div className="flex gap-3">
+                {(["kml", "kmz"] as const).map(fmt => (
+                  <button
+                    key={fmt}
+                    onClick={() => setExportFormat(fmt)}
+                    className={`flex-1 py-2 px-4 rounded-lg border text-sm font-medium transition-colors ${
+                      exportFormat === fmt
+                        ? "border-cyan-500 bg-cyan-500/10 text-cyan-400"
+                        : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/40"
+                    }`}
+                  >
+                    .{fmt.toUpperCase()}
+                    <span className="block text-xs font-normal mt-0.5">
+                      {fmt === "kml" ? "Google Earth / GPS" : "Compactado (Google Earth Desktop)"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Incluir fibras */}
+            <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/20">
+              <button onClick={() => setExportIncludeFibers(v => !v)} className="flex-shrink-0">
+                {exportIncludeFibers
+                  ? <CheckSquare className="w-5 h-5 text-cyan-400" />
+                  : <Square className="w-5 h-5 text-muted-foreground" />}
+              </button>
+              <div>
+                <p className="text-sm font-medium">Incluir Fibras Ópticas</p>
+                <p className="text-xs text-muted-foreground">Adiciona as fibras com coordenadas de rota como linhas no mapa</p>
+              </div>
+            </div>
+            {/* Seleção de elementos */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Elementos e Rotas</Label>
+                <button
+                  onClick={toggleExportSelectAll}
+                  className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                >
+                  {exportSelectAll ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                  {exportSelectAll ? "Desmarcar tudo" : "Selecionar tudo"}
+                </button>
+              </div>
+              {/* CEOs e CTOs */}
+              {(elements as any[]).length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Equipamentos ({(elements as any[]).length})</p>
+                  <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                    {(elements as any[]).map((el: any) => {
+                      const isCto = el.type === "cto";
+                      const ref = isCto
+                        ? (ctos as any[]).find((c: any) => c.id === el.referenceId)
+                        : ceos.find((c: any) => c.id === el.referenceId);
+                      const name = ref?.name ?? (isCto ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`);
+                      const checked = exportSelectedElements.has(el.id);
+                      return (
+                        <button
+                          key={el.id}
+                          onClick={() => toggleElement(el.id)}
+                          className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-muted/40 text-sm text-left"
+                        >
+                          {checked ? <CheckSquare className="w-4 h-4 text-cyan-400 flex-shrink-0" /> : <Square className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
+                          <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${
+                            isCto ? "bg-purple-500/20 text-purple-400" : "bg-blue-500/20 text-blue-400"
+                          }`}>{el.type.toUpperCase()}</span>
+                          <span className="truncate">{name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {/* Rotas de cabo */}
+              {(routes as any[]).length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Rotas de Cabo ({(routes as any[]).length})</p>
+                  <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                    {(routes as any[]).map((r: any) => {
+                      const checked = exportSelectedRoutes.has(r.id);
+                      return (
+                        <button
+                          key={r.id}
+                          onClick={() => toggleRoute(r.id)}
+                          className="w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-muted/40 text-sm text-left"
+                        >
+                          {checked ? <CheckSquare className="w-4 h-4 text-cyan-400 flex-shrink-0" /> : <Square className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
+                          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: r.color ?? "#22d3ee" }} />
+                          <span className="truncate">{r.name ?? `Cabo ${r.id}`}</span>
+                          <span className="text-xs text-muted-foreground ml-auto flex-shrink-0">{r.cableType} • {r.fiberCount}F</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {(elements as any[]).length === 0 && (routes as any[]).length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">Nenhum elemento no mapa para exportar</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancelar</Button>
+            <Button
+              onClick={handleExportKml}
+              disabled={exportLoading || (exportSelectedElements.size === 0 && exportSelectedRoutes.size === 0 && !exportSelectAll)}
+              className="gap-2"
+            >
+              {exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+              Exportar .{exportFormat.toUpperCase()}
             </Button>
           </DialogFooter>
         </DialogContent>

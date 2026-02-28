@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   Connection,
@@ -1883,7 +1883,7 @@ export async function deleteRack(id: number): Promise<void> {
 }
 
 // ─── CTOs ─────────────────────────────────────────────────────────────────────
-import { ctos, Cto, InsertCto, mapElements, MapElement, InsertMapElement, mapRoutes, MapRoute, InsertMapRoute, sgpConfig, SgpConfig, InsertSgpConfig } from "../drizzle/schema";
+import { ctos, Cto, InsertCto, mapElements, MapElement, InsertMapElement, mapRoutes, MapRoute, InsertMapRoute, sgpConfig, SgpConfig, InsertSgpConfig, ctoAlerts, CtoAlert, ctoAlertConfig, CtoAlertConfig } from "../drizzle/schema";
 
 export async function getCtos(): Promise<Cto[]> {
   const db = await getDb();
@@ -1977,4 +1977,119 @@ export async function saveSgpConfig(data: { baseUrl: string; token: string; app:
   } else {
     await db.insert(sgpConfig).values(data);
   }
+}
+
+// ─── Alertas de Ocupação de CTOs ──────────────────────────────────────────────
+export async function getCtoAlertConfig(): Promise<CtoAlertConfig | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(ctoAlertConfig).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function saveCtoAlertConfig(data: {
+  enabled: boolean;
+  warningThreshold: number;
+  criticalThreshold: number;
+  checkIntervalMinutes: number;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(ctoAlertConfig).limit(1);
+  if (existing.length > 0) {
+    await db.update(ctoAlertConfig).set(data).where(eq(ctoAlertConfig.id, existing[0].id));
+  } else {
+    await db.insert(ctoAlertConfig).values(data);
+  }
+}
+
+export async function getCtoAlerts(opts?: {
+  onlyActive?: boolean;
+  limit?: number;
+}): Promise<(CtoAlert & { ctoName: string })[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [];
+  if (opts?.onlyActive) {
+    conditions.push(isNull(ctoAlerts.resolvedAt));
+  }
+  const rows = await db
+    .select({
+      id: ctoAlerts.id,
+      ctoId: ctoAlerts.ctoId,
+      ctoName: ctos.name,
+      occupancyPct: ctoAlerts.occupancyPct,
+      threshold: ctoAlerts.threshold,
+      severity: ctoAlerts.severity,
+      message: ctoAlerts.message,
+      acknowledgedAt: ctoAlerts.acknowledgedAt,
+      acknowledgedBy: ctoAlerts.acknowledgedBy,
+      resolvedAt: ctoAlerts.resolvedAt,
+      createdAt: ctoAlerts.createdAt,
+      updatedAt: ctoAlerts.updatedAt,
+    })
+    .from(ctoAlerts)
+    .leftJoin(ctos, eq(ctoAlerts.ctoId, ctos.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(ctoAlerts.createdAt))
+    .limit(opts?.limit ?? 100);
+  return rows.map(r => ({ ...r, ctoName: r.ctoName ?? `CTO-${r.ctoId}` })) as any;
+}
+
+export async function countActiveCtoAlerts(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(ctoAlerts)
+    .where(isNull(ctoAlerts.resolvedAt));
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function acknowledgeCtoAlert(id: number, by: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(ctoAlerts)
+    .set({ acknowledgedAt: new Date(), acknowledgedBy: by })
+    .where(eq(ctoAlerts.id, id));
+}
+
+export async function resolveCtoAlert(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(ctoAlerts).set({ resolvedAt: new Date() }).where(eq(ctoAlerts.id, id));
+}
+
+export async function checkAndCreateCtoAlerts(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const config = await getCtoAlertConfig();
+  if (!config?.enabled) return 0;
+  const allCtos = await getCtos();
+  let created = 0;
+  for (const cto of allCtos) {
+    const capacity = cto.capacity ?? 0;
+    if (capacity === 0) continue;
+    const pct = Math.round(((cto.usedPorts ?? 0) / capacity) * 100);
+    const isCritical = pct >= (config.criticalThreshold ?? 90);
+    const isWarning = pct >= (config.warningThreshold ?? 80);
+    if (!isWarning && !isCritical) continue;
+    // Verificar se já existe alerta ativo para esta CTO
+    const existing = await db.select().from(ctoAlerts)
+      .where(and(eq(ctoAlerts.ctoId, cto.id), isNull(ctoAlerts.resolvedAt)))
+      .limit(1);
+    if (existing.length > 0) continue; // Já tem alerta ativo
+    const severity = isCritical ? "critical" : "warning";
+    const threshold = isCritical ? (config.criticalThreshold ?? 90) : (config.warningThreshold ?? 80);
+    const message = `CTO "${cto.name}" com ${pct}% de ocupação (${cto.usedPorts}/${capacity} portas). Threshold: ${threshold}%.`;
+    await db.insert(ctoAlerts).values({
+      ctoId: cto.id,
+      occupancyPct: pct,
+      threshold,
+      severity,
+      message,
+    });
+    created++;
+  }
+  return created;
 }
