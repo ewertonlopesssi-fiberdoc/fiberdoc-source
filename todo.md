@@ -704,3 +704,10 @@
 - [x] Adaptar exportação KML/KMZ
 - [x] Preparar suporte a VITE_GOOGLE_MAPS_KEY para migração futura
 - [x] Gerar pacote de deployment v5.34
+
+## v5.35 — Satélite, Google Maps e Importação KML
+
+- [x] Botão de alternância de camada no toolbar (Ruas / Satélite ESRI)
+- [x] Suporte a Google Maps via VITE_GOOGLE_MAPS_KEY (detecção automática no .env)
+- [x] Importação de posições CEO/CTO via arquivo KML (upload + parser + diálogo de confirmação)
+- [x] Gerar pacote de deployment v5.35

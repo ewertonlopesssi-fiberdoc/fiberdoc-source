@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import {
   Map, Download, Plus, X, Eye, EyeOff, Loader2,
   Radio, Box, Cable, Navigation, Users, Trash2,
-  FileDown, MousePointer2, Search
+  FileDown, MousePointer2, Search, Layers, Upload
 } from "lucide-react";
 import L from "leaflet";
 
@@ -96,6 +96,12 @@ export default function InfrastructureMap() {
   const [pickNewCapacity, setPickNewCapacity] = useState(8);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
+  const [satelliteMode, setSatelliteMode] = useState(false);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const [kmlImportOpen, setKmlImportOpen] = useState(false);
+  const [kmlImportLoading, setKmlImportLoading] = useState(false);
+  const [kmlImportResult, setKmlImportResult] = useState<{ added: number; skipped: number; errors: string[] } | null>(null);
+  const kmlFileRef = useRef<HTMLInputElement | null>(null);
 
   const toggleGroupSelectMode = useCallback(() => {
     setGroupSelectMode(v => {
@@ -146,13 +152,15 @@ export default function InfrastructureMap() {
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
     const map = L.map(mapContainerRef.current, { center: [-15.7801, -47.9292], zoom: 5, zoomControl: true });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 19,
-    }).addTo(map);
+    });
+    osmLayer.addTo(map);
+    tileLayerRef.current = osmLayer;
     mapRef.current = map;
     setMapReady(true);
-    return () => { map.remove(); mapRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; };
   }, []);
 
   // Renderizar marcadores
@@ -290,6 +298,69 @@ export default function InfrastructureMap() {
     } catch { toast.error("Erro ao buscar endereço"); }
     finally { setSearchLoading(false); }
   }, [searchQuery]);
+
+  // Alternar camada de satélite
+  const toggleSatellite = useCallback(() => {
+    if (!mapRef.current) return;
+    const newMode = !satelliteMode;
+    setSatelliteMode(newMode);
+    if (tileLayerRef.current) { tileLayerRef.current.remove(); }
+    if (newMode) {
+      // ESRI World Imagery (satélite gratuito)
+      tileLayerRef.current = L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        { attribution: "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community", maxZoom: 19 }
+      );
+    } else {
+      tileLayerRef.current = L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', maxZoom: 19 }
+      );
+    }
+    tileLayerRef.current.addTo(mapRef.current);
+    tileLayerRef.current.bringToBack();
+  }, [satelliteMode]);
+
+  // Importar posições CEO/CTO via KML
+  const handleKmlImport = useCallback(async (file: File) => {
+    setKmlImportLoading(true);
+    setKmlImportResult(null);
+    try {
+      const text = await file.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, "application/xml");
+      const placemarks = Array.from(doc.querySelectorAll("Placemark"));
+      let added = 0; let skipped = 0; const errors: string[] = [];
+      for (const pm of placemarks) {
+        const name = pm.querySelector("name")?.textContent?.trim() ?? "";
+        const coordText = pm.querySelector("Point > coordinates")?.textContent?.trim();
+        if (!coordText) { skipped++; continue; }
+        const parts = coordText.split(",");
+        if (parts.length < 2) { skipped++; continue; }
+        const lng = parseFloat(parts[0]); const lat = parseFloat(parts[1]);
+        if (isNaN(lat) || isNaN(lng)) { errors.push(`Coordenadas inválidas: ${name}`); continue; }
+        // Detectar tipo pelo nome ou pela descrição
+        const desc = pm.querySelector("description")?.textContent?.toLowerCase() ?? "";
+        const nameLower = name.toLowerCase();
+        const isCto = nameLower.includes("cto") || desc.includes("cto");
+        const type: "ceo" | "cto" = isCto ? "cto" : "ceo";
+        try {
+          if (type === "cto") {
+            const cto = await createCtoMut.mutateAsync({ name: name || `CTO-KML-${added + 1}`, capacity: 8, lat, lng });
+            await upsertElementMut.mutateAsync({ type: "cto", referenceId: (cto as any).id, lat, lng });
+          } else {
+            const ceo = await createCeoMut.mutateAsync({ name: name || `CEO-KML-${added + 1}`, location: "" });
+            await upsertElementMut.mutateAsync({ type: "ceo", referenceId: (ceo as any).id, lat, lng });
+          }
+          added++;
+        } catch (e: any) { errors.push(`${name}: ${e.message}`); }
+      }
+      setKmlImportResult({ added, skipped, errors });
+      if (added > 0) { refetchElements(); toast.success(`${added} elemento${added !== 1 ? "s" : ""} importado${added !== 1 ? "s" : ""} do KML`); }
+      else toast.error("Nenhum elemento importado");
+    } catch (e: any) { toast.error("Erro ao processar KML: " + (e.message ?? "")); }
+    finally { setKmlImportLoading(false); }
+  }, [createCtoMut, createCeoMut, upsertElementMut, refetchElements]);
 
   // Exportar KML/KMZ
   const openExportDialog = () => {
@@ -475,9 +546,17 @@ export default function InfrastructureMap() {
               className="h-7 pl-6 pr-2 text-xs bg-background border border-border rounded-md w-44 focus:outline-none focus:ring-1 focus:ring-ring" />
             {searchLoading && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
           </div>
+          <Button size="sm" variant={satelliteMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${satelliteMode ? "bg-emerald-700 hover:bg-emerald-800 border-emerald-600" : ""}`} onClick={toggleSatellite} title={satelliteMode ? "Voltar para mapa de ruas" : "Ativar imagem de satélite"}>
+            <Layers className="w-3 h-3" />{satelliteMode ? "Satélite" : "Ruas"}
+          </Button>
           <Button size="sm" variant={groupSelectMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${groupSelectMode ? "bg-cyan-600 hover:bg-cyan-700 border-cyan-500" : ""}`} onClick={toggleGroupSelectMode}>
             <MousePointer2 className="w-3 h-3" />{groupSelectMode ? `Seleção (${groupTotalSelected})` : "Selecionar"}
           </Button>
+          {isAdmin && (
+            <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => { setKmlImportResult(null); setKmlImportOpen(true); }} title="Importar posições de CEO/CTO de um arquivo KML">
+              <Upload className="w-3 h-3" />Importar KML
+            </Button>
+          )}
           <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={openExportDialog}>
             <FileDown className="w-3 h-3" />Exportar KML/KMZ
           </Button>
@@ -647,6 +726,44 @@ export default function InfrastructureMap() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteRouteId(null)}>Cancelar</Button>
             <Button variant="destructive" onClick={() => deleteRouteId && deleteRouteMut.mutate({ id: deleteRouteId })} disabled={deleteRouteMut.isPending}>{deleteRouteMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Excluir"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Importação de posições via KML */}
+      <Dialog open={kmlImportOpen} onOpenChange={v => { setKmlImportOpen(v); if (!v) setKmlImportResult(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Upload className="w-4 h-4" />Importar Posições via KML</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm text-muted-foreground space-y-1">
+              <p>Selecione um arquivo <strong>.kml</strong> exportado do Google Earth, Google Maps ou outro sistema.</p>
+              <p className="text-xs">Elementos com "CTO" no nome serão importados como CTOs; os demais como CEOs.</p>
+            </div>
+            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+              onClick={() => kmlFileRef.current?.click()}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleKmlImport(f); }}>
+              {kmlImportLoading ? (
+                <div className="flex flex-col items-center gap-2"><Loader2 className="w-8 h-8 animate-spin text-primary" /><span className="text-sm text-muted-foreground">Importando...</span></div>
+              ) : (
+                <div className="flex flex-col items-center gap-2"><Upload className="w-8 h-8 text-muted-foreground" /><span className="text-sm text-muted-foreground">Clique ou arraste o arquivo KML aqui</span><span className="text-xs text-muted-foreground">Apenas arquivos .kml</span></div>
+              )}
+            </div>
+            <input ref={kmlFileRef} type="file" accept=".kml" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleKmlImport(f); e.target.value = ""; }} />
+            {kmlImportResult && (
+              <div className="rounded-lg border border-border p-3 space-y-1.5">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  {kmlImportResult.added > 0 ? <span className="text-emerald-400">✓ {kmlImportResult.added} elemento{kmlImportResult.added !== 1 ? "s" : ""} importado{kmlImportResult.added !== 1 ? "s" : ""}</span> : <span className="text-red-400">Nenhum elemento importado</span>}
+                </div>
+                {kmlImportResult.skipped > 0 && <div className="text-xs text-muted-foreground">{kmlImportResult.skipped} ignorado{kmlImportResult.skipped !== 1 ? "s" : ""} (sem coordenadas de ponto)</div>}
+                {kmlImportResult.errors.length > 0 && (
+                  <div className="text-xs text-red-400 space-y-0.5">{kmlImportResult.errors.map((e, i) => <div key={i}>⚠ {e}</div>)}</div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setKmlImportOpen(false)}>Fechar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
