@@ -18,6 +18,91 @@ import {
 } from "lucide-react";
 import L from "leaflet";
 
+// Sub-componente para seletores de tubo (evita hooks em IIFE)
+function TubeSelectors({ fromElId, toElId, fromTubeId, toTubeId, onChange }: {
+  fromElId: number | null;
+  toElId: number | null;
+  fromTubeId: number | null;
+  toTubeId: number | null;
+  onChange: (field: "fromTubeId" | "toTubeId", value: number | null) => void;
+}) {
+  const fromTubesQuery = trpc.infraMap.tubesByElement.useQuery(
+    { elementId: fromElId! },
+    { enabled: fromElId != null }
+  );
+  const toTubesQuery = trpc.infraMap.tubesByElement.useQuery(
+    { elementId: toElId! },
+    { enabled: toElId != null }
+  );
+  const fromTubes = (fromTubesQuery.data ?? []) as { id: number; identifier: string; totalVias: number; color: string | null; type: string }[];
+  const toTubes = (toTubesQuery.data ?? []) as { id: number; identifier: string; totalVias: number; color: string | null; type: string }[];
+  if (!fromElId && !toElId) return null;
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div className="space-y-1.5">
+        <Label className="flex items-center gap-1 text-xs text-muted-foreground"><span className="text-emerald-400 font-bold">DE</span> Tubo na Origem</Label>
+        {fromElId ? (
+          fromTubesQuery.isLoading ? (
+            <div className="text-xs text-muted-foreground py-1">Carregando tubos...</div>
+          ) : fromTubes.length === 0 ? (
+            <div className="text-xs text-muted-foreground italic py-1">Nenhum tubo cadastrado</div>
+          ) : (
+            <Select
+              value={fromTubeId != null ? String(fromTubeId) : "none"}
+              onValueChange={v => onChange("fromTubeId", v === "none" ? null : Number(v))}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Nenhum">{fromTubes.find(t => t.id === fromTubeId)?.identifier ?? "Nenhum"}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Nenhum</SelectItem>
+                {fromTubes.map(t => (
+                  <SelectItem key={t.id} value={String(t.id)}>
+                    <span className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold text-emerald-400">{t.type === "splitter" ? "SPL" : "TUB"}</span>
+                      {t.identifier} <span className="text-muted-foreground">({t.totalVias}v)</span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )
+        ) : <div className="text-xs text-muted-foreground italic py-1">Selecione a origem</div>}
+      </div>
+      <div className="space-y-1.5">
+        <Label className="flex items-center gap-1 text-xs text-muted-foreground"><span className="text-cyan-400 font-bold">PARA</span> Tubo no Destino</Label>
+        {toElId ? (
+          toTubesQuery.isLoading ? (
+            <div className="text-xs text-muted-foreground py-1">Carregando tubos...</div>
+          ) : toTubes.length === 0 ? (
+            <div className="text-xs text-muted-foreground italic py-1">Nenhum tubo cadastrado</div>
+          ) : (
+            <Select
+              value={toTubeId != null ? String(toTubeId) : "none"}
+              onValueChange={v => onChange("toTubeId", v === "none" ? null : Number(v))}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Nenhum">{toTubes.find(t => t.id === toTubeId)?.identifier ?? "Nenhum"}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Nenhum</SelectItem>
+                {toTubes.map(t => (
+                  <SelectItem key={t.id} value={String(t.id)}>
+                    <span className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold text-cyan-400">{t.type === "splitter" ? "SPL" : "TUB"}</span>
+                      {t.identifier} <span className="text-muted-foreground">({t.totalVias}v)</span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )
+        ) : <div className="text-xs text-muted-foreground italic py-1">Selecione o destino</div>}
+      </div>
+    </div>
+  );
+}
+
 type MapElement = {
   id: number; type: "ceo" | "cto"; referenceId: number;
   lat: number; lng: number; name?: string; status?: string;
@@ -25,6 +110,7 @@ type MapElement = {
 };
 type MapRoute = {
   id: number; fromElementId: number; toElementId: number;
+  fromTubeId?: number | null; toTubeId?: number | null;
   name?: string | null; cableType?: string | null; fiberCount?: number | null;
   color?: string | null; notes?: string | null; path?: string | null;
 };
@@ -175,7 +261,7 @@ export default function InfrastructureMap() {
   const [editElementDialogOpen, setEditElementDialogOpen] = useState(false);
   const [editElementForm, setEditElementForm] = useState({ name: "", address: "", capacity: 8, status: "active", notes: "" });
   const [editRouteDialogOpen, setEditRouteDialogOpen] = useState(false);
-  const [editRouteForm, setEditRouteForm] = useState({ name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: "", fromElementId: null as number | null, toElementId: null as number | null });
+  const [editRouteForm, setEditRouteForm] = useState({ name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: "", fromElementId: null as number | null, toElementId: null as number | null, fromTubeId: null as number | null, toTubeId: null as number | null });
 
   // Grupos/Pastas
   const { data: mapGroups = [], refetch: refetchGroups } = trpc.mapGroups.list.useQuery();
@@ -1033,7 +1119,7 @@ export default function InfrastructureMap() {
           {isAdmin && (
             <div className="flex gap-2">
               <Button variant="outline" size="sm" className="flex-1 gap-2" onClick={() => {
-                setEditRouteForm({ name: r.name ?? "", cableType: r.cableType ?? "FO", fiberCount: r.fiberCount ?? 12, color: r.color ?? "#22d3ee", notes: r.notes ?? "", fromElementId: r.fromElementId ?? null, toElementId: r.toElementId ?? null });
+                setEditRouteForm({ name: r.name ?? "", cableType: r.cableType ?? "FO", fiberCount: r.fiberCount ?? 12, color: r.color ?? "#22d3ee", notes: r.notes ?? "", fromElementId: r.fromElementId ?? null, toElementId: r.toElementId ?? null, fromTubeId: (r as any).fromTubeId ?? null, toTubeId: (r as any).toTubeId ?? null });
                 setEditRouteDialogOpen(true);
               }}><span className="text-xs">✏️</span> Editar</Button>
               <Button variant="outline" size="sm" className="flex-1 gap-2 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10" onClick={() => startEditRoutePath(r)}>
@@ -1825,6 +1911,14 @@ export default function InfrastructureMap() {
                 </div>
               );
             })()}
+            {/* Seletores de Tubo */}
+            <TubeSelectors
+              fromElId={editRouteForm.fromElementId}
+              toElId={editRouteForm.toElementId}
+              fromTubeId={editRouteForm.fromTubeId}
+              toTubeId={editRouteForm.toTubeId}
+              onChange={(field, value) => setEditRouteForm(f => ({ ...f, [field]: value }))}
+            />
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Tipo de Cabo</Label>
@@ -1873,6 +1967,8 @@ export default function InfrastructureMap() {
                   notes: editRouteForm.notes,
                   fromElementId: editRouteForm.fromElementId,
                   toElementId: editRouteForm.toElementId,
+                  fromTubeId: editRouteForm.fromTubeId,
+                  toTubeId: editRouteForm.toTubeId,
                 });
               }}
             >

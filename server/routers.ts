@@ -1931,6 +1931,8 @@ export const appRouter = router({
         name: z.string().optional(),
         fromElementId: z.number().optional(),
         toElementId: z.number().optional(),
+        fromTubeId: z.number().nullable().optional(),
+        toTubeId: z.number().nullable().optional(),
         fiberCount: z.number().int().min(1).default(12),
         cableType: z.string().default("FO"),
         color: z.string().default("#22d3ee"),
@@ -1952,6 +1954,8 @@ export const appRouter = router({
         notes: z.string().optional(),
         fromElementId: z.number().nullable().optional(),
         toElementId: z.number().nullable().optional(),
+        fromTubeId: z.number().nullable().optional(),
+        toTubeId: z.number().nullable().optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
@@ -2187,6 +2191,12 @@ ${fiberFolder}
       .query(async () => {
         const dbMod = await import("./db");
         return dbMod.getRoutesOccupancy();
+      }),
+    tubesByElement: protectedProcedure
+      .input(z.object({ elementId: z.number() }))
+      .query(async ({ input }) => {
+        const dbMod = await import("./db");
+        return dbMod.getTubesByMapElement(input.elementId);
       }),
   }),
   // ─── SGP Config ───────────────────────────────────────────────────────────────

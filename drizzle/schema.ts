@@ -615,6 +615,8 @@ export const mapRoutes = mysqlTable("map_routes", {
   name: varchar("name", { length: 128 }),
   fromElementId: int("fromElementId"),                               // FK map_elements.id (null = cabo livre sem vínculo)
   toElementId: int("toElementId"),                                    // FK map_elements.id (null = cabo livre sem vínculo)
+  fromTubeId: int("fromTubeId"),                                      // FK ceo_tubes.id ou cto_tubes.id (tubo de entrada na origem)
+  toTubeId: int("toTubeId"),                                          // FK ceo_tubes.id ou cto_tubes.id (tubo de entrada no destino)
   fiberCount: int("fiberCount").default(12),
   cableType: varchar("cableType", { length: 64 }).default("FO"),      // FO, Metálico, etc.
   color: varchar("color", { length: 16 }).default("#22d3ee"),         // Cor da linha no mapa

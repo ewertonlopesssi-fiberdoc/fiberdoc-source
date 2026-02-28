@@ -2448,3 +2448,21 @@ export async function getRoutesOccupancy(): Promise<{ routeId: number; fiberCoun
   }
   return result;
 }
+
+// ─── Tubos por elemento do mapa (para vínculo de cabo ao tubo) ────────────────
+export async function getTubesByMapElement(elementId: number): Promise<{ id: number; identifier: string; totalVias: number; color: string | null; type: string }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const [el] = await db.select().from(mapElements).where(eq(mapElements.id, elementId));
+  if (!el) return [];
+  if (el.type === "ceo") {
+    const rows = await db.select().from(ceoTubes).where(eq(ceoTubes.ceoId, el.referenceId));
+    return rows.sort((a, b) => a.identifier.localeCompare(b.identifier, "pt-BR", { numeric: true }))
+      .map(r => ({ id: r.id, identifier: r.identifier, totalVias: r.totalVias, color: r.color, type: r.type ?? "tube" }));
+  } else if (el.type === "cto") {
+    const rows = await db.select().from(ctoTubes).where(eq(ctoTubes.ctoId, el.referenceId));
+    return rows.sort((a, b) => a.identifier.localeCompare(b.identifier, "pt-BR", { numeric: true }))
+      .map(r => ({ id: r.id, identifier: r.identifier, totalVias: r.totalVias, color: r.color, type: r.type ?? "tube" }));
+  }
+  return [];
+}
