@@ -574,3 +574,13 @@
 
 ## v5.23
 - [x] Filtro por cor de via e por status (fusionada/livre) no TubePanel do CEO
+
+## v5.24
+- [x] Corrigir topologia de racks: quantidade de U dos equipamentos e mapa não exibidos corretamente (servidor de produção com versão antiga do Topology.tsx)
+
+## v5.25 — PWA
+- [x] Criar manifest.json com nome, cores e ícones do FiberDoc
+- [x] Criar service worker para cache offline básico
+- [x] Configurar Vite para incluir manifest e service worker no build
+- [x] Gerar ícones PWA (192x192 e 512x512)
+- [x] Gerar URL do Equipments.tsx atualizado para produção
