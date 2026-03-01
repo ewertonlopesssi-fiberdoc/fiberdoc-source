@@ -63,17 +63,18 @@ export default function Ctos() {
           const data = await res.json();
           if (data?.display_name) {
             setForm(f => ({ ...f, address: data.display_name }));
-            toast.success("Localização preenchida! Abrindo mapa para posicionar a CTO...", { duration: 4000 });
-          } else {
-            toast.success("Coordenadas preenchidas. Abrindo mapa para posicionar a CTO...", { duration: 4000 });
           }
-        } catch {
-          toast.success("Coordenadas preenchidas. Abrindo mapa para posicionar a CTO...", { duration: 4000 });
-        } finally {
-          setGeoLoading(false);
-          setDialogOpen(false);
-          setTimeout(() => setLocation(`/mapa?lat=${lat}&lng=${lng}&zoom=17&addMode=cto`), 400);
+        } catch { /* ignora erro de geocodificação */ }
+        setGeoLoading(false);
+        // Modo edição: apenas preenche os campos, não fecha o dialog
+        if (editId !== null) {
+          toast.success("Coordenadas e endereço atualizados! Clique em Salvar para confirmar.", { duration: 4000 });
+          return;
         }
+        // Modo criação: fecha o dialog e abre o mapa com modo de adição
+        toast.success("Localização preenchida! Abrindo mapa para posicionar a CTO...", { duration: 4000 });
+        setDialogOpen(false);
+        setTimeout(() => setLocation(`/mapa?lat=${lat}&lng=${lng}&zoom=17&addMode=cto`), 400);
       },
       (err) => {
         setGeoLoading(false);
@@ -353,29 +354,28 @@ export default function Ctos() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="col-span-2 space-y-1">
-                <div className="flex items-center justify-between mb-1">
-                  <Label>Coordenadas GPS</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleGetLocation}
-                    disabled={geoLoading}
-                    className="h-7 gap-1.5 text-xs border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
-                  >
-                    {geoLoading ? (
-                      <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Obtendo...</>
-                    ) : (
-                      <><LocateFixed className="h-3.5 w-3.5" /> Usar Minha Localização</>
-                    )}
-                  </Button>
-                </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label>Coordenadas GPS</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleGetLocation}
+                  disabled={geoLoading}
+                  className="w-full h-11 gap-2 text-sm font-medium border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 hover:border-emerald-500/70 active:scale-[0.98] transition-all"
+                >
+                  {geoLoading ? (
+                    <><Loader2 className="h-5 w-5 animate-spin" /> Obtendo localização GPS...</>
+                  ) : (
+                    <><LocateFixed className="h-5 w-5" /> {editId ? "Atualizar Minha Localização" : "Usar Minha Localização"}</>
+                  )}
+                </Button>
                 <div className="grid grid-cols-2 gap-2">
                   <Input type="number" step="any" value={form.lat} onChange={(e) => setForm(f => ({ ...f, lat: e.target.value }))} placeholder="Latitude: -23.5505" />
                   <Input type="number" step="any" value={form.lng} onChange={(e) => setForm(f => ({ ...f, lng: e.target.value }))} placeholder="Longitude: -46.6333" />
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-1">Clique no botão para preencher automaticamente com a posição atual do dispositivo.</p>
+                {editId && (
+                  <p className="text-[11px] text-emerald-400/70">Toque no botão para capturar a posição atual e depois toque em Salvar.</p>
+                )}
               </div>
               <div className="col-span-2 space-y-1">
                 <Label>Observações</Label>

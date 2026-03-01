@@ -894,3 +894,12 @@
 - [x] InfrastructureMap lê ?addMode= e ativa setAddingMode("ceo"|"cto") automaticamente
 - [x] Toast orienta o técnico a clicar no mapa para posicionar o marcador (6s de duração)
 - [x] Parâmetro addMode é removido da URL após ativar o modo
+
+## v5.57 — Botão GPS no dialog de Editar CTO/CEO
+
+- [x] Botão GPS grande (h-11, w-full) no dialog de edição de CTO — otimizado para mobile
+- [x] Botão GPS grande (h-11, w-full) no dialog de edição de CEO — otimizado para mobile
+- [x] No modo edição: preenche lat/lng e endereço sem fechar o dialog nem redirecionar
+- [x] No modo criação: fecha o dialog e abre o mapa com modo de adição ativado
+- [x] Label do botão muda: "Atualizar Minha Localização" (edição) vs "Usar Minha Localização" (criação)
+- [x] Hint de instrucao exibido apenas no modo edição: "Toque no botão... depois toque em Salvar"

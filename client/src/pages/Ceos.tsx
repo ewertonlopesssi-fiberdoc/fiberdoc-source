@@ -64,26 +64,25 @@ export default function Ceos() {
       async (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
+        let address = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
         try {
           const res = await fetch(
             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=pt-BR`
           );
           const data = await res.json();
-          if (data?.display_name) {
-            setForm(f => ({ ...f, location: data.display_name }));
-            toast.success("Localização preenchida! Abrindo mapa para posicionar a CEO...", { duration: 4000 });
-          } else {
-            setForm(f => ({ ...f, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
-            toast.success("Coordenadas preenchidas. Abrindo mapa para posicionar a CEO...", { duration: 4000 });
-          }
-        } catch {
-          setForm(f => ({ ...f, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
-          toast.success("Coordenadas preenchidas. Abrindo mapa para posicionar a CEO...", { duration: 4000 });
-        } finally {
-          setGeoLoading(false);
-          setDialogOpen(false);
-          setTimeout(() => setLocation(`/mapa?lat=${lat}&lng=${lng}&zoom=17&addMode=ceo`), 400);
+          if (data?.display_name) address = data.display_name;
+        } catch { /* ignora erro de geocodificação */ }
+        setForm(f => ({ ...f, location: address }));
+        setGeoLoading(false);
+        // Modo edição: apenas preenche o endereço, não fecha o dialog
+        if (editId !== null) {
+          toast.success("✅ Localização obtida! Clique em Salvar para confirmar.", { duration: 4000 });
+          return;
         }
+        // Modo criação: fecha o dialog e abre o mapa com modo de adição
+        toast.success("Localização preenchida! Abrindo mapa para posicionar a CEO...", { duration: 4000 });
+        setDialogOpen(false);
+        setTimeout(() => setLocation(`/mapa?lat=${lat}&lng=${lng}&zoom=17&addMode=ceo`), 400);
       },
       (err) => {
         setGeoLoading(false);
@@ -299,30 +298,29 @@ export default function Ceos() {
               />
             </div>
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label>Localização / Endereço</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleGetLocation}
-                  disabled={geoLoading}
-                  className="h-7 gap-1.5 text-xs border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
-                >
-                  {geoLoading ? (
-                    <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Obtendo...</>
-                  ) : (
-                    <><LocateFixed className="h-3.5 w-3.5" /> Usar Minha Localização</>
-                  )}
-                </Button>
-              </div>
+              <Label>Localização / Endereço</Label>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleGetLocation}
+                disabled={geoLoading}
+                className="w-full h-11 gap-2 text-sm font-medium border-amber-500/50 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/70 active:scale-[0.98] transition-all"
+              >
+                {geoLoading ? (
+                  <><Loader2 className="h-5 w-5 animate-spin" /> Obtendo localização GPS...</>
+                ) : (
+                  <><LocateFixed className="h-5 w-5" /> {editId ? "Atualizar Minha Localização" : "Usar Minha Localização"}</>
+                )}
+              </Button>
               <Input
                 value={form.location}
                 onChange={e => setForm({ ...form, location: e.target.value })}
                 placeholder="Ex: Poste 123, Rua das Flores, 456"
                 className="bg-background border-border/50"
               />
-              <p className="text-[11px] text-muted-foreground">Clique no botão para preencher automaticamente com a posição atual do dispositivo.</p>
+              {editId && (
+                <p className="text-[11px] text-amber-400/70">Toque no botão para capturar a posição atual e depois toque em Salvar.</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
