@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Search, Edit, Trash2, MapPin, Wifi, WifiOff, Wrench, Box, Upload } from "lucide-react";
+import { Plus, Search, Edit, Trash2, MapPin, Wifi, WifiOff, Wrench, Box, Upload, LocateFixed, Loader2 } from "lucide-react";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   active: { label: "Ativo", color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
@@ -41,8 +41,47 @@ export default function Ctos() {
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [geoLoading, setGeoLoading] = useState(false);
 
   const utils = trpc.useUtils();
+
+  async function handleGetLocation() {
+    if (!navigator.geolocation) {
+      toast.error("Geolocalização não suportada neste dispositivo");
+      return;
+    }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setForm(f => ({ ...f, lat, lng }));
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=pt-BR`
+          );
+          const data = await res.json();
+          if (data?.display_name) {
+            setForm(f => ({ ...f, address: data.display_name }));
+            toast.success("Localização e endereço preenchidos!");
+          } else {
+            toast.success(`Coordenadas preenchidas: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+          }
+        } catch {
+          toast.success(`Coordenadas preenchidas: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+        } finally {
+          setGeoLoading(false);
+        }
+      },
+      (err) => {
+        setGeoLoading(false);
+        if (err.code === 1) toast.error("Permissão de localização negada. Habilite o GPS no navegador.");
+        else if (err.code === 2) toast.error("Posição indisponível. Verifique o GPS do dispositivo.");
+        else toast.error("Tempo esgotado ao obter localização.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }
   const { data: ctos = [], refetch } = trpc.ctos.list.useQuery();
 
   const createMut = trpc.ctos.create.useMutation({
@@ -312,13 +351,29 @@ export default function Ctos() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1">
-                <Label>Latitude</Label>
-                <Input type="number" step="any" value={form.lat} onChange={(e) => setForm(f => ({ ...f, lat: e.target.value }))} placeholder="-23.5505" />
-              </div>
-              <div className="space-y-1">
-                <Label>Longitude</Label>
-                <Input type="number" step="any" value={form.lng} onChange={(e) => setForm(f => ({ ...f, lng: e.target.value }))} placeholder="-46.6333" />
+              <div className="col-span-2 space-y-1">
+                <div className="flex items-center justify-between mb-1">
+                  <Label>Coordenadas GPS</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleGetLocation}
+                    disabled={geoLoading}
+                    className="h-7 gap-1.5 text-xs border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                  >
+                    {geoLoading ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Obtendo...</>
+                    ) : (
+                      <><LocateFixed className="h-3.5 w-3.5" /> Usar Minha Localização</>
+                    )}
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input type="number" step="any" value={form.lat} onChange={(e) => setForm(f => ({ ...f, lat: e.target.value }))} placeholder="Latitude: -23.5505" />
+                  <Input type="number" step="any" value={form.lng} onChange={(e) => setForm(f => ({ ...f, lng: e.target.value }))} placeholder="Longitude: -46.6333" />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">Clique no botão para preencher automaticamente com a posição atual do dispositivo.</p>
               </div>
               <div className="col-span-2 space-y-1">
                 <Label>Observações</Label>

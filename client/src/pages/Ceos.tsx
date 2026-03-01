@@ -14,7 +14,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Plus, Search, Box, MapPin, Layers, Pencil, Trash2, ChevronRight } from "lucide-react";
+import { Plus, Search, Box, MapPin, Layers, Pencil, Trash2, ChevronRight, LocateFixed, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useRole } from "@/hooks/useRole";
 
@@ -49,9 +49,49 @@ export default function Ceos() {
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState<CeoForm>(defaultForm);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [geoLoading, setGeoLoading] = useState(false);
 
   const { isAdmin } = useRole();
   const utils = trpc.useUtils();
+
+  async function handleGetLocation() {
+    if (!navigator.geolocation) {
+      toast.error("Geolocalização não suportada neste dispositivo");
+      return;
+    }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=pt-BR`
+          );
+          const data = await res.json();
+          if (data?.display_name) {
+            setForm(f => ({ ...f, location: data.display_name }));
+            toast.success("Endereço preenchido com sua localização atual!");
+          } else {
+            setForm(f => ({ ...f, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
+            toast.success(`Coordenadas preenchidas: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+          }
+        } catch {
+          setForm(f => ({ ...f, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
+          toast.success(`Coordenadas preenchidas: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+        } finally {
+          setGeoLoading(false);
+        }
+      },
+      (err) => {
+        setGeoLoading(false);
+        if (err.code === 1) toast.error("Permissão de localização negada. Habilite o GPS no navegador.");
+        else if (err.code === 2) toast.error("Posição indisponível. Verifique o GPS do dispositivo.");
+        else toast.error("Tempo esgotado ao obter localização.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }
 
   const { data: ceos = [], isLoading } = trpc.ceos.list.useQuery({});
   const { data: rooms = [] } = trpc.rooms.list.useQuery();
@@ -257,13 +297,30 @@ export default function Ceos() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Localização / Endereço</Label>
+              <div className="flex items-center justify-between">
+                <Label>Localização / Endereço</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGetLocation}
+                  disabled={geoLoading}
+                  className="h-7 gap-1.5 text-xs border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+                >
+                  {geoLoading ? (
+                    <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Obtendo...</>
+                  ) : (
+                    <><LocateFixed className="h-3.5 w-3.5" /> Usar Minha Localização</>
+                  )}
+                </Button>
+              </div>
               <Input
                 value={form.location}
                 onChange={e => setForm({ ...form, location: e.target.value })}
                 placeholder="Ex: Poste 123, Rua das Flores, 456"
                 className="bg-background border-border/50"
               />
+              <p className="text-[11px] text-muted-foreground">Clique no botão para preencher automaticamente com a posição atual do dispositivo.</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
