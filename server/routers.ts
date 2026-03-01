@@ -801,11 +801,16 @@ export const appRouter = router({
         await updateCeo(id, data as any);
       }),
 
-    delete: protectedProcedure
+     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => deleteCeo(input.id)),
+    mapElement: protectedProcedure
+      .input(z.object({ ceoId: z.number() }))
+      .query(async ({ input }) => {
+        const all = await getMapElements();
+        return all.find(e => e.type === 'ceo' && e.referenceId === input.ceoId) ?? null;
+      }),
   }),
-
   // ─── Tubos / Splitters do CEO ─────────────────────────────────────────────
   ceoTubes: router({
     byCeo: protectedProcedure
@@ -1903,6 +1908,12 @@ export const appRouter = router({
           }
         }
         return { created, errors };
+      }),
+    mapElement: protectedProcedure
+      .input(z.object({ ctoId: z.number() }))
+      .query(async ({ input }) => {
+        const all = await getMapElements();
+        return all.find(e => e.type === 'cto' && e.referenceId === input.ctoId) ?? null;
       }),
   }),
   // ─── Mapa de Infraestrutura ───────────────────────────────────────────────────

@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Plus, Radio, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle,
+  ArrowLeft, Plus, Radio, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle, MapPin,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/hooks/useRole";
@@ -644,6 +644,7 @@ export default function CtoDetail() {
   const { data: tubes = [], isLoading: tubesLoading } = trpc.ctoTubes.byCto.useQuery({ ctoId }, { enabled: ctoId > 0 });
   const { data: allVias = [] } = trpc.ctoVias.byCto.useQuery({ ctoId }, { enabled: ctoId > 0 });
   const { data: fibers = [] } = trpc.fibers.list.useQuery({});
+  const { data: ctoMapEl } = trpc.ctos.mapElement.useQuery({ ctoId }, { enabled: ctoId > 0 });
 
   const createTubeMutation = trpc.ctoTubes.create.useMutation({
     onSuccess: () => {
@@ -926,6 +927,17 @@ export default function CtoDetail() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {ctoMapEl && (
+            <Button
+              variant="outline"
+              onClick={() => setLocation(`/mapa?lat=${ctoMapEl.lat}&lng=${ctoMapEl.lng}&highlight=${ctoMapEl.id}`)}
+              className="gap-2 border-border/50"
+              title="Ver localização no mapa"
+            >
+              <MapPin className="h-4 w-4" />
+              Ver no Mapa
+            </Button>
+          )}
           {tubeList.length > 0 && (
             <Button variant="outline" onClick={handleOpenPrintFilter} className="gap-2">
               <Printer className="h-4 w-4" />

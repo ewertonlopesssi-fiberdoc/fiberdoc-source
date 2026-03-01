@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Plus, Box, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle,
+  ArrowLeft, Plus, Box, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle, MapPin,
 } from "lucide-react";
 import { CeoFusionPrint } from "@/components/CeoFusionPrint";
 import { cn } from "@/lib/utils";
@@ -649,6 +649,7 @@ export default function CeoDetail() {
   const { data: tubes = [], isLoading: tubesLoading } = trpc.ceoTubes.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
   const { data: allVias = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
   const { data: fibers = [] } = trpc.fibers.list.useQuery({});
+  const { data: ceoMapEl } = trpc.ceos.mapElement.useQuery({ ceoId }, { enabled: ceoId > 0 });
 
   function handleOpenPrintFilter() {
     // Pré-selecionar todos os tubos
@@ -955,6 +956,17 @@ export default function CeoDetail() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {ceoMapEl && (
+            <Button
+              variant="outline"
+              onClick={() => setLocation(`/mapa?lat=${ceoMapEl.lat}&lng=${ceoMapEl.lng}&highlight=${ceoMapEl.id}`)}
+              className="gap-2 border-border/50"
+              title="Ver localização no mapa"
+            >
+              <MapPin className="h-4 w-4" />
+              Ver no Mapa
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={handleOpenPrintFilter}

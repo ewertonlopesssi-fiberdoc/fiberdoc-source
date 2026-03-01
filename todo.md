@@ -850,3 +850,15 @@
 
 - [ ] Corrigir createRoute no db.ts para passar valores explícitos em name, fromElementId, toElementId e notes
 - [ ] Gerar pacote de deployment v5.42.3
+
+## v5.52 — Botão "Ver no Mapa" nos detalhes de CEO e CTO
+
+- [x] Procedure ceos.mapElement: retorna o map_element vinculado ao CEO (lat, lng, id)
+- [x] Procedure ctos.mapElement: retorna o map_element vinculado ao CTO (lat, lng, id)
+- [x] Botão "Ver no Mapa" na página CeoDetail (visível apenas quando CEO está no mapa)
+- [x] Botão "Ver no Mapa" na página CtoDetail (visível apenas quando CTO está no mapa)
+- [x] InfrastructureMap lê parâmetros ?lat=&lng=&highlight= da URL ao carregar
+- [x] Mapa centraliza na posição do CEO/CTO com zoom 17
+- [x] Marcador pisca 3 vezes para destacar visualmente o elemento
+- [x] Painel lateral abre automaticamente com os detalhes do CEO/CTO destacado
+- [x] URL limpa após aplicar os parâmetros (sem re-execução no re-render)

@@ -1079,6 +1079,41 @@ export default function InfrastructureMap() {
     setExportSelectAll(false); setExportDialogOpen(true);
   };
 
+  // ─── URL params: centralizar e destacar marcador ────────────────────────────
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || (elements as any[]).length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const lat = parseFloat(params.get("lat") ?? "");
+    const lng = parseFloat(params.get("lng") ?? "");
+    const highlightId = parseInt(params.get("highlight") ?? "");
+    if (!isNaN(lat) && !isNaN(lng)) {
+      mapRef.current.setView([lat, lng], 17);
+    }
+    if (!isNaN(highlightId)) {
+      const el = (elements as any[]).find((e: any) => e.id === highlightId);
+      if (el) {
+        const marker = markersRef.current[el.id];
+        if (marker) {
+          let count = 0;
+          const blink = setInterval(() => {
+            const iconEl = marker.getElement();
+            if (iconEl) iconEl.style.filter = count % 2 === 0 ? "drop-shadow(0 0 12px #f59e0b) brightness(1.5)" : "";
+            count++;
+            if (count >= 6) { clearInterval(blink); const iconEl2 = marker.getElement(); if (iconEl2) iconEl2.style.filter = ""; }
+          }, 400);
+        }
+        const ctoRef = el.type === "cto" ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : null;
+        const ceoRef = el.type === "ceo" ? ceos.find((c: any) => c.id === el.referenceId) : null;
+        const ref = ctoRef ?? ceoRef;
+        setSidePanel({ kind: "element", element: { ...el, name: ref?.name ?? el.type.toUpperCase(), status: ref?.status, capacity: ref?.capacity, usedPorts: ref?.usedPorts } });
+      }
+    }
+    if (params.has("lat") || params.has("highlight")) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, elements]);
+
   // Painel lateral
   const renderSidePanel = () => {
     if (!sidePanel) return null;
