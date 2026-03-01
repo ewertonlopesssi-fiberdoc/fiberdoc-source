@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
-  Plus, CircuitBoard, Trash2, Server, ArrowLeft, Layers, Zap, Pencil, X,
+  Plus, CircuitBoard, Trash2, Server, ArrowLeft, Layers, Zap, Pencil, X, Search,
 } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { useRole } from "@/hooks/useRole";
@@ -239,6 +239,9 @@ export default function Ports() {
   const [slotForm, setSlotForm] = useState<SlotForm>(defaultSlotForm);
   const [deleteSlotId, setDeleteSlotId] = useState<number | null>(null);
 
+  // Busca inline de portas
+  const [portSearch, setPortSearch] = useState("");
+
   // Criação em lote
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkCount, setBulkCount] = useState("12");
@@ -455,7 +458,17 @@ export default function Ports() {
   const faultyCount   = allPorts.filter(p => p.status === "faulty").length;
 
   // Portas sem slot
-  const unslottedPorts = allPorts.filter(p => !(p as any).slotId);
+  const searchTerm = portSearch.trim().toLowerCase();
+  const filteredPorts = searchTerm
+    ? allPorts.filter(p =>
+        String(p.portNumber).includes(searchTerm) ||
+        (p.label ?? "").toLowerCase().includes(searchTerm) ||
+        (p.type ?? "").toLowerCase().includes(searchTerm) ||
+        (p.speed ?? "").toLowerCase().includes(searchTerm) ||
+        (p.status ?? "").toLowerCase().includes(searchTerm)
+      )
+    : allPorts;
+  const unslottedPorts = filteredPorts.filter(p => !(p as any).slotId);
 
   return (
     <div className="space-y-6 max-w-7xl">
@@ -472,7 +485,24 @@ export default function Ports() {
             Gestão de portas e slots · {allPorts.length} portas · {slots.length} slot{slots.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              value={portSearch}
+              onChange={e => setPortSearch(e.target.value)}
+              placeholder="Buscar porta..."
+              className="pl-8 h-9 w-44 text-sm border-border/50 bg-background/50"
+            />
+            {portSearch && (
+              <button
+                onClick={() => setPortSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           {isAdmin && (
             <Button variant="outline" onClick={() => { setEditSlotId(null); setSlotForm(defaultSlotForm); setSlotDialogOpen(true); }} className="gap-2 border-border/50">
               <Layers className="h-4 w-4" />
@@ -555,8 +585,14 @@ export default function Ports() {
 
           {/* Aba: Todas */}
           <TabsContent value="all" className="mt-0 space-y-6">
+            {searchTerm && (
+              <p className="text-xs text-muted-foreground">
+                {filteredPorts.length} porta{filteredPorts.length !== 1 ? "s" : ""} encontrada{filteredPorts.length !== 1 ? "s" : ""} para "{portSearch}"
+              </p>
+            )}
             {slots.map(slot => {
-              const slotPorts = allPorts.filter(p => (p as any).slotId === slot.id);
+              const slotPorts = filteredPorts.filter(p => (p as any).slotId === slot.id);
+              if (searchTerm && slotPorts.length === 0) return null;
               return (
                 <div key={slot.id}>
                   <SlotHeader slot={slot} onEdit={() => handleEditSlot(slot)} onDelete={() => setDeleteSlotId(slot.id)} isAdmin={isAdmin} />
@@ -573,12 +609,18 @@ export default function Ports() {
                 <PortGrid ports={unslottedPorts} onEdit={handleEditPort} />
               </div>
             )}
+            {filteredPorts.length === 0 && searchTerm && (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                <Search className="h-8 w-8 opacity-30" />
+                <p className="text-sm">Nenhuma porta encontrada para "{portSearch}"</p>
+              </div>
+            )}
             {allPorts.length > 0 && <PortLegend />}
           </TabsContent>
 
           {/* Abas individuais por slot */}
           {slots.map(slot => {
-            const slotPorts = allPorts.filter(p => (p as any).slotId === slot.id);
+            const slotPorts = filteredPorts.filter(p => (p as any).slotId === slot.id);
             return (
               <TabsContent key={slot.id} value={String(slot.id)} className="mt-0 space-y-4">
                 <SlotHeader slot={slot} onEdit={() => handleEditSlot(slot)} onDelete={() => setDeleteSlotId(slot.id)} isAdmin={isAdmin} />

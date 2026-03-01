@@ -919,3 +919,11 @@
 - [x] Agrupar portas por slot na listagem mobile do equipamento
 - [x] Exibir cabeçalho de seção "Slot X" antes de cada grupo de portas
 - [x] Mostrar contagem de portas livres/ocupadas por slot no cabeçalho
+
+## v5.60 — Busca de portas inline na página de gestão de portas
+
+- [x] Campo de busca ao lado dos botões "Novo Slot"/"Criar em Lote"/"Nova Porta"
+- [x] Filtrar portas em tempo real por número, label, tipo, velocidade ou status
+- [x] Manter agrupamento por slot mesmo com filtro ativo
+- [x] Ocultar grupos de slot que ficarem vazios após o filtro
+- [x] Exibir contagem de resultados e estado vazio com ícone de busca
