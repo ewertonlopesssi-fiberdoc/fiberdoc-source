@@ -68,7 +68,11 @@ function makeCtoIcon() {
   });
 }
 
-export default function MobileMap() {
+interface MobileMapProps {
+  onOpenDetail?: (type: "ceo" | "cto", id: number) => void;
+}
+
+export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
   const { serverUrl, token } = useMobileAuth();
   const client = createMobileTrpcClient(serverUrl, token);
 
@@ -345,6 +349,19 @@ export default function MobileMap() {
           {/* Observações */}
           {notes && <p className="text-xs text-zinc-400 italic">{notes}</p>}
 
+          {/* Botão deep-link para aba CEO/CTO */}
+          {onOpenDetail && (
+            <button
+              onClick={() => {
+                const id = panelType === "ceo" ? selectedCeo?.id : selectedCto?.id;
+                if (id) { onOpenDetail(panelType, id); setPanelOpen(false); }
+              }}
+              className="w-full flex items-center justify-center gap-2 bg-cyan-500/10 border border-cyan-500/30 rounded-xl py-2.5 text-xs text-cyan-300 hover:bg-cyan-500/20 transition-colors"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+              Abrir na aba {panelType === "ceo" ? "CEO" : "CTO"}
+            </button>
+          )}
           {/* Botões de ação */}
           <div className="grid grid-cols-2 gap-2 pt-1">
             {isOnline() && (

@@ -988,3 +988,11 @@
 - [x] MobileCeos: gestão completa de tubos e vias com edição de fusões
 - [x] MobileCtos: gestão completa de tubos e vias com edição de fusões
 - [x] 169 testes passando, 0 erros TypeScript
+
+## v5.67 — Deep-link Mapa Mobile → Aba CEO/CTO
+
+- [x] Botão "Abrir detalhes" no painel do MobileMap navega para aba CEO ou CTO
+- [x] MobileApp passa callback de navegação para MobileMap
+- [x] MobileCeos recebe prop initialCeoId e abre o detalhe directamente
+- [x] MobileCtos recebe prop initialCtoId e abre o detalhe directamente
+- [x] Gerar pacote de actualização v5.67

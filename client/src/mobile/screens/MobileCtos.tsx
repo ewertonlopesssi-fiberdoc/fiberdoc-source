@@ -65,7 +65,12 @@ const STATUS_COLOR: Record<string, string> = {
   maintenance: "bg-amber-500/20 text-amber-300",
 };
 
-export default function MobileCtos() {
+interface MobileCtosProps {
+  initialCtoId?: number | null;
+  onDeepLinkConsumed?: () => void;
+}
+
+export default function MobileCtos({ initialCtoId, onDeepLinkConsumed }: MobileCtosProps = {}) {
   const { serverUrl, token } = useMobileAuth();
   const client = createMobileTrpcClient(serverUrl, token);
 
@@ -141,6 +146,19 @@ export default function MobileCtos() {
   }, [serverUrl, token]);
 
   useEffect(() => { loadCtos(); }, [loadCtos]);
+
+  // Deep-link: abrir detalhe directamente quando initialCtoId é fornecido pelo MobileApp
+  useEffect(() => {
+    if (!initialCtoId || ctos.length === 0) return;
+    const target = ctos.find(c => c.id === initialCtoId);
+    if (target) {
+      setSelected(target);
+      loadTubes(target.id);
+      setView("detail");
+      onDeepLinkConsumed?.();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCtoId, ctos]);
 
   const loadTubes = useCallback(async (ctoId: number) => {
     try {

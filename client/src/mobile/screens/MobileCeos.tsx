@@ -56,7 +56,12 @@ type View =
   | "tubes" | "editTube" | "newTube"
   | "vias" | "editVia" | "setFusion";
 
-export default function MobileCeos() {
+interface MobileCeosProps {
+  initialCeoId?: number | null;
+  onDeepLinkConsumed?: () => void;
+}
+
+export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileCeosProps = {}) {
   const { serverUrl, token } = useMobileAuth();
   const client = createMobileTrpcClient(serverUrl, token);
 
@@ -132,6 +137,19 @@ export default function MobileCeos() {
   }, [serverUrl, token]);
 
   useEffect(() => { loadCeos(); }, [loadCeos]);
+
+  // Deep-link: abrir detalhe directamente quando initialCeoId é fornecido pelo MobileApp
+  useEffect(() => {
+    if (!initialCeoId || ceos.length === 0) return;
+    const target = ceos.find(c => c.id === initialCeoId);
+    if (target) {
+      setSelected(target);
+      loadTubes(target.id);
+      setView("detail");
+      onDeepLinkConsumed?.();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCeoId, ceos]);
 
   const loadTubes = useCallback(async (ceoId: number) => {
     try {

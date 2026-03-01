@@ -16,23 +16,47 @@ function MobileShell() {
   const { isConfigured, isAuthenticated } = useMobileAuth();
   const [online, setOnline] = useState(navigator.onLine);
 
-  // Deep-link: /mobile?eq=ID abre diretamente o equipamento
+  // Deep-link via URL: /mobile?eq=ID abre directamente o equipamento
   const params = new URLSearchParams(window.location.search);
   const deepEqId = params.get("eq") ? Number(params.get("eq")) : null;
   const [activeTab, setActiveTab] = useState<Tab>(deepEqId ? "equipamentos" : "equipamentos");
 
+  // Deep-link interno: ao tocar "Abrir detalhes" no mapa, navegar para CEO/CTO
+  const [deepCeoId, setDeepCeoId] = useState<number | null>(null);
+  const [deepCtoId, setDeepCtoId] = useState<number | null>(null);
+
   useEffect(() => {
-    const onOnline = () => setOnline(true);
+    const onOnline  = () => setOnline(true);
     const onOffline = () => setOnline(false);
-    window.addEventListener("online", onOnline);
+    window.addEventListener("online",  onOnline);
     window.addEventListener("offline", onOffline);
     return () => {
-      window.removeEventListener("online", onOnline);
+      window.removeEventListener("online",  onOnline);
       window.removeEventListener("offline", onOffline);
     };
   }, []);
 
-  if (!isConfigured) return <MobileSetup />;
+  // Callback chamado pelo MobileMap ao tocar "Abrir detalhes"
+  function handleOpenDetail(type: "ceo" | "cto", id: number) {
+    if (type === "ceo") {
+      setDeepCeoId(id);
+      setDeepCtoId(null);
+      setActiveTab("ceos");
+    } else {
+      setDeepCtoId(id);
+      setDeepCeoId(null);
+      setActiveTab("ctos");
+    }
+  }
+
+  // Limpar deep-link quando o utilizador muda de aba manualmente
+  function handleTabChange(tab: Tab) {
+    if (tab !== "ceos") setDeepCeoId(null);
+    if (tab !== "ctos") setDeepCtoId(null);
+    setActiveTab(tab);
+  }
+
+  if (!isConfigured)    return <MobileSetup />;
   if (!isAuthenticated) return <MobileLogin />;
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
@@ -57,11 +81,11 @@ function MobileShell() {
       {/* Conteúdo da aba ativa */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {activeTab === "equipamentos" && <MobileEquipments initialEquipmentId={deepEqId} />}
-        {activeTab === "ceos" && <MobileCeos />}
-        {activeTab === "ctos"      && <MobileCtos />}
-        {activeTab === "mapa"      && <MobileMap />}
-        {activeTab === "relatorio" && <MobileReport />}
-        {activeTab === "perfil" && <MobileProfile />}
+        {activeTab === "ceos"         && <MobileCeos initialCeoId={deepCeoId} onDeepLinkConsumed={() => setDeepCeoId(null)} />}
+        {activeTab === "ctos"         && <MobileCtos initialCtoId={deepCtoId} onDeepLinkConsumed={() => setDeepCtoId(null)} />}
+        {activeTab === "mapa"         && <MobileMap onOpenDetail={handleOpenDetail} />}
+        {activeTab === "relatorio"    && <MobileReport />}
+        {activeTab === "perfil"       && <MobileProfile />}
       </div>
 
       {/* Bottom navigation */}
@@ -73,13 +97,13 @@ function MobileShell() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => handleTabChange(tab.id)}
                 className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 transition-colors relative ${active ? "text-cyan-400" : "text-zinc-500 hover:text-zinc-300"}`}
               >
                 <Icon className="w-5 h-5" />
                 <span className="text-[9px] font-medium leading-tight">{tab.label}</span>
                 {active && (
-                  <div className="absolute bottom-0 w-8 h-0.5 bg-cyan-400 rounded-full" />
+                  <div className="absolute bottom-0 w-6 h-0.5 bg-cyan-400 rounded-full" />
                 )}
               </button>
             );
