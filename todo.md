@@ -996,3 +996,11 @@
 - [x] MobileCeos recebe prop initialCeoId e abre o detalhe directamente
 - [x] MobileCtos recebe prop initialCtoId e abre o detalhe directamente
 - [x] Gerar pacote de actualização v5.67
+
+## v5.68 — Gestão de Fusões no Painel Lateral do Mapa Desktop
+
+- [x] Botão de identificar fusão em cada via livre no painel lateral do mapa (CEO e CTO)
+- [x] Botão de remover fusão em cada via fusionada no painel lateral do mapa (CEO e CTO)
+- [x] Dialog de fusão inline no painel lateral (seleccionar tubo destino + via destino)
+- [x] Indicador visual de via fusionada (cor diferente) no painel lateral
+- [x] Gerar pacote de actualização v5.68

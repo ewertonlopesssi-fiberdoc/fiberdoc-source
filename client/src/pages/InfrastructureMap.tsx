@@ -14,7 +14,7 @@ import {
   Radio, Box, Cable, Navigation, Users, Trash2,
   FileDown, MousePointer2, Search, Layers, Upload,
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
-  Pencil, Link2, GitMerge, AlertTriangle, FileText
+  Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText
 } from "lucide-react";
 import L from "leaflet";
 
@@ -541,6 +541,14 @@ export default function InfrastructureMap() {
     { ceoId: sidePanelRefId },
     { enabled: sidePanelType === "ceo" && sidePanelRefId > 0 }
   );
+
+  // Auto-expandir todos os tubos quando carregados no painel lateral
+  useEffect(() => {
+    const tubes = (sidePanelType === "cto" ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
+    if (tubes && tubes.length > 0) {
+      setExpandedTubeIds(new Set(tubes.map((t: any) => t.id)));
+    }
+  }, [ctoTubesQuery.data, ceoTubesQuery.data, sidePanelType]);
 
   // Inicializar mapa Leaflet
   useEffect(() => {
@@ -1441,8 +1449,16 @@ export default function InfrastructureMap() {
                                   {via.label
                                     ? <span className="truncate font-medium">{via.label}</span>
                                     : <span className="text-muted-foreground/50 italic">livre</span>}
-                                  {isFused && <span className="ml-auto text-emerald-400/70 text-[10px] shrink-0">✕ desfazer</span>}
-                                  {!isFused && <span className="ml-auto text-muted-foreground/40 text-[10px] shrink-0">⊕ fundir</span>}
+                                  {isFused && (
+                                    <span className="ml-auto flex items-center gap-0.5 text-[10px] text-red-400 font-semibold shrink-0">
+                                      <Link2Off className="w-2.5 h-2.5" /> desfazer
+                                    </span>
+                                  )}
+                                  {!isFused && (
+                                    <span className="ml-auto flex items-center gap-0.5 text-[10px] text-cyan-400 font-semibold shrink-0">
+                                      <Link2 className="w-2.5 h-2.5" /> fundir
+                                    </span>
+                                  )}
                                 </button>
                                 <button
                                   className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-accent/50 transition-all shrink-0"
