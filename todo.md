@@ -945,3 +945,11 @@
 - [x] Editar velocidade da porta no mobile
 - [x] Vincular porta a um equipamento no mobile (connectedToEquipmentId + connectedToPortId)
 - [x] Salvar todas as alterações via trpc.ports.update
+
+## v5.64 — Exibir vínculo atual da porta no mobile
+
+- [x] Card "Vínculo Atual" exibido no topo da tela editPort
+- [x] Exibe nome do equipamento e número/label da porta destino
+- [x] Botão "Remover" para desvincular com um toque (limpa connectedEqId e connectedPortId)
+- [x] Portas do equipamento vinculado são pré-carregadas ao abrir a tela
+- [x] Estado "Sem vínculo" exibido com ícone quando a porta não tem conexão

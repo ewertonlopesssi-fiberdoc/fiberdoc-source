@@ -657,6 +657,12 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
                             setPortConnectedPortId(port.connectedToPortId ?? null);
                             setConnEqPorts([]);
                             setError(null);
+                            // Pré-carregar portas do equipamento vinculado
+                            if (port.connectedToEquipmentId) {
+                              client.ports.byEquipment.query({ equipmentId: port.connectedToEquipmentId })
+                                .then(data => setConnEqPorts(data as unknown as Port[]))
+                                .catch(() => {});
+                            }
                             setView("editPort");
                           }}
                           className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-800/50 transition-colors text-left"
@@ -705,6 +711,51 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
             <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
               <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-red-300">{error}</p>
+            </div>
+          )}
+
+          {/* Card de Vínculo Atual */}
+          {selectedPort.connectedToEquipmentId ? (
+            <div className="bg-zinc-900 border border-cyan-500/30 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
+                  <Cable className="w-3 h-3" /> Vínculo Atual
+                </p>
+                <button
+                  onClick={() => {
+                    setPortConnectedEqId(null);
+                    setPortConnectedPortId(null);
+                    setConnEqPorts([]);
+                  }}
+                  className="text-[10px] text-red-400 hover:text-red-300 flex items-center gap-0.5"
+                >
+                  <X className="w-3 h-3" /> Remover
+                </button>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-zinc-500">Equipamento:</span>
+                  <span className="text-xs text-white font-medium">
+                    {equipments.find(e => e.id === selectedPort.connectedToEquipmentId)?.name ?? `#${selectedPort.connectedToEquipmentId}`}
+                  </span>
+                </div>
+                {selectedPort.connectedToPortId && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-zinc-500">Porta:</span>
+                    <span className="text-xs text-white font-mono">
+                      {(() => {
+                        const p = connEqPorts.find(p => p.id === selectedPort.connectedToPortId);
+                        return p ? `Porta ${p.portNumber}${p.label ? ` — ${p.label}` : ""}` : `#${selectedPort.connectedToPortId}`;
+                      })()}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-zinc-900 border border-zinc-700/50 rounded-xl p-3 flex items-center gap-2">
+              <Cable className="w-4 h-4 text-zinc-600" />
+              <p className="text-xs text-zinc-500">Sem vínculo com outro equipamento</p>
             </div>
           )}
 
