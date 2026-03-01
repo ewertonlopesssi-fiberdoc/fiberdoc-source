@@ -5,11 +5,12 @@ import MobileLogin from "./screens/MobileLogin";
 import MobileEquipments from "./screens/MobileEquipments";
 import MobileCeos from "./screens/MobileCeos";
 import MobileCtos from "./screens/MobileCtos";
+import MobileMap from "./screens/MobileMap";
 import MobileReport from "./screens/MobileReport";
 import MobileProfile from "./screens/MobileProfile";
-import { Server, Cable, BarChart2, User, Wifi, WifiOff, Radio } from "lucide-react";
+import { Server, Cable, BarChart2, User, WifiOff, Radio, Map } from "lucide-react";
 
-type Tab = "equipamentos" | "ceos" | "ctos" | "relatorio" | "perfil";
+type Tab = "equipamentos" | "ceos" | "ctos" | "mapa" | "relatorio" | "perfil";
 
 function MobileShell() {
   const { isConfigured, isAuthenticated } = useMobileAuth();
@@ -35,11 +36,12 @@ function MobileShell() {
   if (!isAuthenticated) return <MobileLogin />;
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
-    { id: "equipamentos", label: "Equip.", icon: Server },
-    { id: "ceos", label: "CEO", icon: Cable },
-    { id: "ctos", label: "CTO", icon: Radio },
-    { id: "relatorio", label: "Relatório", icon: BarChart2 },
-    { id: "perfil", label: "Perfil", icon: User },
+    { id: "equipamentos", label: "Equip.",    icon: Server    },
+    { id: "ceos",         label: "CEO",       icon: Cable     },
+    { id: "ctos",         label: "CTO",       icon: Radio     },
+    { id: "mapa",         label: "Mapa",      icon: Map       },
+    { id: "relatorio",    label: "Relatório", icon: BarChart2 },
+    { id: "perfil",       label: "Perfil",    icon: User      },
   ];
 
   return (
@@ -56,7 +58,8 @@ function MobileShell() {
       <div className="flex-1 overflow-y-auto min-h-0">
         {activeTab === "equipamentos" && <MobileEquipments initialEquipmentId={deepEqId} />}
         {activeTab === "ceos" && <MobileCeos />}
-        {activeTab === "ctos" && <MobileCtos />}
+        {activeTab === "ctos"      && <MobileCtos />}
+        {activeTab === "mapa"      && <MobileMap />}
         {activeTab === "relatorio" && <MobileReport />}
         {activeTab === "perfil" && <MobileProfile />}
       </div>
@@ -71,12 +74,10 @@ function MobileShell() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-colors ${
-                  active ? "text-cyan-400" : "text-zinc-500 hover:text-zinc-300"
-                }`}
+                className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 transition-colors relative ${active ? "text-cyan-400" : "text-zinc-500 hover:text-zinc-300"}`}
               >
                 <Icon className="w-5 h-5" />
-                <span className="text-[10px] font-medium">{tab.label}</span>
+                <span className="text-[9px] font-medium leading-tight">{tab.label}</span>
                 {active && (
                   <div className="absolute bottom-0 w-8 h-0.5 bg-cyan-400 rounded-full" />
                 )}

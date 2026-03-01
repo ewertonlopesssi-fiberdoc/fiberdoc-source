@@ -967,3 +967,24 @@
 - [ ] Ao registrar fusão no menu CEO/CTO, o painel lateral do mapa atualiza automaticamente
 - [ ] Botão para desfazer fusão também disponível no painel lateral do mapa
 - [ ] Indicador visual de via fundida (cor diferente) no painel lateral do mapa
+
+## v5.66 — Aba Mapa no Mobile + Tubos/Vias em CEO e CTO Mobile
+
+- [x] Aba "Mapa" adicionada na navegação mobile (6ª aba com ícone Map)
+- [x] Componente MobileMap.tsx com mapa Leaflet (OpenStreetMap)
+- [x] Marcadores CEO (roxo) e CTO (verde) no mapa mobile
+- [x] Painel deslizante ao tocar num marcador (ocupa 70% da tela)
+- [x] Painel: ver detalhes do CEO/CTO (nome, endereço, status, capacidade)
+- [x] Painel: editar CEO/CTO directamente (nome, endereço, GPS, status, notas)
+- [x] Painel: listar tubos do CEO/CTO com indicador de cor
+- [x] Painel: criar novo tubo (identificador, tipo, total de vias, cor)
+- [x] Painel: listar vias de um tubo com status de fusão e etiqueta
+- [x] Painel: editar tubo (identificador, cor) e excluir com confirmação
+- [x] Painel: editar via (etiqueta, observações)
+- [x] Painel: identificar fusão (seleccionar tubo destino + via destino)
+- [x] Painel: remover fusão com um toque
+- [x] Legenda de marcadores (CEO/CTO) no canto superior esquerdo do mapa
+- [x] Botão de recarregar dados no cabeçalho
+- [x] MobileCeos: gestão completa de tubos e vias com edição de fusões
+- [x] MobileCtos: gestão completa de tubos e vias com edição de fusões
+- [x] 169 testes passando, 0 erros TypeScript
