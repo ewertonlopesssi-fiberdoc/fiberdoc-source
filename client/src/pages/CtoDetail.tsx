@@ -218,6 +218,8 @@ function TubePanel({
       toast.success("Fusão identificada!");
       utils.ctoVias.byTube.invalidate({ tubeId: tube.id });
       utils.ctoVias.byCto.invalidate({ ctoId });
+      // Sincronização bidirecional: invalidar todas as queries de ctoVias (inclui o mapa)
+      utils.ctoVias.byTube.invalidate();
       setFusionDialog(null);
       setFusionTubeId("");
       setFusionViaNumber("");
@@ -230,6 +232,8 @@ function TubePanel({
       toast.success("Fusão removida!");
       utils.ctoVias.byTube.invalidate({ tubeId: tube.id });
       utils.ctoVias.byCto.invalidate({ ctoId });
+      // Sincronização bidirecional: invalidar todas as queries de ctoVias (inclui o mapa)
+      utils.ctoVias.byTube.invalidate();
     },
     onError: e => toast.error("Erro: " + e.message),
   });

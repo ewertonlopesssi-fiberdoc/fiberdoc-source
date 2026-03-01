@@ -953,3 +953,17 @@
 - [x] Botão "Remover" para desvincular com um toque (limpa connectedEqId e connectedPortId)
 - [x] Portas do equipamento vinculado são pré-carregadas ao abrir a tela
 - [x] Estado "Sem vínculo" exibido com ícone quando a porta não tem conexão
+
+## v5.65 — Correção: Identificar Fusão no mapa não lista tubos
+
+- [ ] Investigar por que o seletor de tubo/splitter aparece vazio no dialog do mapa
+- [ ] Corrigir o carregamento dos tubos no painel lateral do mapa (CTO)
+
+## v5.65 — Identificar Fusão bidirecional (mapa ↔ menu CEO/CTO)
+
+- [ ] Botão "Identificar Fusão" nas vias do painel lateral do mapa (CTO e CEO)
+- [ ] Dialog de fusão no mapa lista os tubos/vias disponíveis do mesmo elemento
+- [ ] Ao registrar fusão no mapa, o menu CEO/CTO atualiza automaticamente (invalidate)
+- [ ] Ao registrar fusão no menu CEO/CTO, o painel lateral do mapa atualiza automaticamente
+- [ ] Botão para desfazer fusão também disponível no painel lateral do mapa
+- [ ] Indicador visual de via fundida (cor diferente) no painel lateral do mapa

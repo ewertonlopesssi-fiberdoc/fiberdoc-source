@@ -396,20 +396,45 @@ export default function InfrastructureMap() {
   const [fusionSourceVia, setFusionSourceVia] = useState<{ id: number; viaNumber: number; tubeId: number; isCto: boolean; isFused: boolean } | null>(null);
   const [fusionTargetTubeId, setFusionTargetTubeId] = useState<string>("");
   const [fusionTargetViaId, setFusionTargetViaId] = useState<string>("");
+  const mapUtils = trpc.useUtils();
   const setCtoFusionMut = trpc.ctoVias.setFusion.useMutation({
-    onSuccess: () => { ctoViasQuery.refetch(); setFusionDialogOpen(false); toast.success("Fusão registrada"); },
+    onSuccess: () => {
+      ctoViasQuery.refetch();
+      // Invalidar queries do menu CTO para sincronização bidirecional
+      mapUtils.ctoVias.byCto.invalidate({ ctoId: sidePanelRefId });
+      mapUtils.ctoVias.byTube.invalidate();
+      setFusionDialogOpen(false);
+      toast.success("Fusão registrada");
+    },
     onError: (e) => toast.error(e.message),
   });
   const clearCtoFusionMut = trpc.ctoVias.clearFusion.useMutation({
-    onSuccess: () => { ctoViasQuery.refetch(); toast.success("Fusão removida"); },
+    onSuccess: () => {
+      ctoViasQuery.refetch();
+      mapUtils.ctoVias.byCto.invalidate({ ctoId: sidePanelRefId });
+      mapUtils.ctoVias.byTube.invalidate();
+      toast.success("Fusão removida");
+    },
     onError: (e) => toast.error(e.message),
   });
   const setCeoFusionMut = trpc.ceoVias.setFusion.useMutation({
-    onSuccess: () => { ceoViasQuery.refetch(); setFusionDialogOpen(false); toast.success("Fusão registrada"); },
+    onSuccess: () => {
+      ceoViasQuery.refetch();
+      // Invalidar queries do menu CEO para sincronização bidirecional
+      mapUtils.ceoVias.byCeo.invalidate({ ceoId: sidePanelRefId });
+      mapUtils.ceoVias.byTube.invalidate();
+      setFusionDialogOpen(false);
+      toast.success("Fusão registrada");
+    },
     onError: (e) => toast.error(e.message),
   });
   const clearCeoFusionMut = trpc.ceoVias.clearFusion.useMutation({
-    onSuccess: () => { ceoViasQuery.refetch(); toast.success("Fusão removida"); },
+    onSuccess: () => {
+      ceoViasQuery.refetch();
+      mapUtils.ceoVias.byCeo.invalidate({ ceoId: sidePanelRefId });
+      mapUtils.ceoVias.byTube.invalidate();
+      toast.success("Fusão removida");
+    },
     onError: (e) => toast.error(e.message),
   });
 
