@@ -886,3 +886,11 @@
 - [x] Botão "Minha Localização" no header do CtoDetail (atualiza address+lat+lng via mutation ctos.update)
 - [x] Ao obter localização nos formulários de Ceos/Ctos, fechar dialog e abrir mapa centralizado
 - [x] InfrastructureMap lê parâmetro ?zoom= da URL (padrão 17) e centraliza mesmo sem elementos no mapa
+
+## v5.56 — Posicionamento automático no mapa ao obter localização GPS
+
+- [x] Ao clicar "Usar Minha Localização" em Ceos.tsx (criação), passa ?addMode=ceo na URL do mapa
+- [x] Ao clicar "Usar Minha Localização" em Ctos.tsx (criação), passa ?addMode=cto na URL do mapa
+- [x] InfrastructureMap lê ?addMode= e ativa setAddingMode("ceo"|"cto") automaticamente
+- [x] Toast orienta o técnico a clicar no mapa para posicionar o marcador (6s de duração)
+- [x] Parâmetro addMode é removido da URL após ativar o modo

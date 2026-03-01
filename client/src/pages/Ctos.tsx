@@ -63,16 +63,16 @@ export default function Ctos() {
           const data = await res.json();
           if (data?.display_name) {
             setForm(f => ({ ...f, address: data.display_name }));
-            toast.success("Localização e endereço preenchidos! Abrindo mapa...", { duration: 3000 });
+            toast.success("Localização preenchida! Abrindo mapa para posicionar a CTO...", { duration: 4000 });
           } else {
-            toast.success(`Coordenadas preenchidas. Abrindo mapa...`, { duration: 3000 });
+            toast.success("Coordenadas preenchidas. Abrindo mapa para posicionar a CTO...", { duration: 4000 });
           }
         } catch {
-          toast.success(`Coordenadas preenchidas. Abrindo mapa...`, { duration: 3000 });
+          toast.success("Coordenadas preenchidas. Abrindo mapa para posicionar a CTO...", { duration: 4000 });
         } finally {
           setGeoLoading(false);
           setDialogOpen(false);
-          setTimeout(() => setLocation(`/mapa?lat=${lat}&lng=${lng}&zoom=17`), 400);
+          setTimeout(() => setLocation(`/mapa?lat=${lat}&lng=${lng}&zoom=17&addMode=cto`), 400);
         }
       },
       (err) => {

@@ -1091,6 +1091,19 @@ export default function InfrastructureMap() {
     if (!isNaN(lat) && !isNaN(lng)) {
       mapRef.current.setView([lat, lng], zoomLevel);
     }
+    // Ativar modo de adição automático (addMode=ceo|cto)
+    const addModeParam = params.get("addMode") as "ceo" | "cto" | null;
+    if (addModeParam === "ceo" || addModeParam === "cto") {
+      setAddingMode(addModeParam);
+      toast.success(
+        addModeParam === "cto"
+          ? "📍 Modo CTO ativado — clique no mapa para posicionar a CTO"
+          : "📍 Modo CEO ativado — clique no mapa para posicionar a CEO",
+        { duration: 6000 }
+      );
+      window.history.replaceState({}, "", window.location.pathname);
+      return;
+    }
     // Se não há elementos para destacar, limpar URL e sair
     if ((elements as any[]).length === 0) {
       if (params.has("lat") || params.has("highlight") || params.has("zoom")) {

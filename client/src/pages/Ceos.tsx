@@ -71,18 +71,18 @@ export default function Ceos() {
           const data = await res.json();
           if (data?.display_name) {
             setForm(f => ({ ...f, location: data.display_name }));
-            toast.success("Endereço preenchido! Abrindo mapa...", { duration: 3000 });
+            toast.success("Localização preenchida! Abrindo mapa para posicionar a CEO...", { duration: 4000 });
           } else {
             setForm(f => ({ ...f, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
-            toast.success("Coordenadas preenchidas. Abrindo mapa...", { duration: 3000 });
+            toast.success("Coordenadas preenchidas. Abrindo mapa para posicionar a CEO...", { duration: 4000 });
           }
         } catch {
           setForm(f => ({ ...f, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
-          toast.success("Coordenadas preenchidas. Abrindo mapa...", { duration: 3000 });
+          toast.success("Coordenadas preenchidas. Abrindo mapa para posicionar a CEO...", { duration: 4000 });
         } finally {
           setGeoLoading(false);
           setDialogOpen(false);
-          setTimeout(() => setLocation(`/mapa?lat=${lat}&lng=${lng}&zoom=17`), 400);
+          setTimeout(() => setLocation(`/mapa?lat=${lat}&lng=${lng}&zoom=17&addMode=ceo`), 400);
         }
       },
       (err) => {
