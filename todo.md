@@ -906,13 +906,9 @@
 
 ## v5.58 — Página /mobile: abas CEO e CTO para técnico em campo
 
-- [ ] Adicionar abas CEO, CTO e Equipamentos na página /mobile
-- [ ] Aba CEO: listagem com busca, status, endereço; toque abre painel de detalhes
-- [ ] Aba CTO: listagem com busca, status, capacidade/portas; toque abre painel de detalhes
-- [ ] Painel de detalhes CEO: nome, endereço, status, botão GPS para atualizar localização
-- [ ] Painel de detalhes CTO: nome, endereço, lat/lng, capacidade, botão GPS para atualizar
-- [ ] Botão GPS no painel de detalhes: preenche e salva diretamente (sem dialog extra)
-- [ ] Layout responsivo e touch-friendly (botões grandes, espaçamento adequado)
+- [x] Aba CTO adicionada na navegação mobile (MobileCtos.tsx completo)
+- [x] Aba CEO com botão GPS no painel de edição (MobileCeos.tsx atualizado)
+- [x] Layout responsivo e touch-friendly (botões grandes, espaçamento adequado)
 
 ## v5.59 — Portas mobile agrupadas por slot
 
@@ -927,3 +923,25 @@
 - [x] Manter agrupamento por slot mesmo com filtro ativo
 - [x] Ocultar grupos de slot que ficarem vazios após o filtro
 - [x] Exibir contagem de resultados e estado vazio com ícone de busca
+
+## v5.61 — Busca de portas no mobile
+
+- [x] Campo de busca na tela de portas do equipamento no mobile
+- [x] Filtrar portas por número, label, tipo ou status em tempo real
+- [x] Manter agrupamento por slot com filtro ativo
+
+## v5.62 — Coordenadas padrão do mapa nas configurações do sistema
+
+- [x] Campo de lat/lng padrão nas configurações do sistema
+- [x] Botão GPS para capturar a posição atual como padrão
+- [x] Salvar as coordenadas no banco (tabela system_settings)
+- [x] InfrastructureMap lê as coordenadas padrão ao inicializar
+- [x] Zoom padrão também configurável
+
+## v5.63 — Edição completa de portas no mobile
+
+- [x] Editar etiqueta/label da porta no mobile
+- [x] Editar tipo de conector (LC, SC, SFP+, GPON...) no mobile
+- [x] Editar velocidade da porta no mobile
+- [x] Vincular porta a um equipamento no mobile (connectedToEquipmentId + connectedToPortId)
+- [x] Salvar todas as alterações via trpc.ports.update

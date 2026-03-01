@@ -53,7 +53,34 @@ type Port = {
   id: number; portNumber: number; label?: string | null; type: string;
   speed?: string | null; status: string; notes?: string | null;
   equipmentId: number; slotId?: number | null;
+  connectedToEquipmentId?: number | null;
+  connectedToPortId?: number | null;
+  connectedEquipmentName?: string | null;
+  connectedPortNumber?: string | null;
 };
+
+const PORT_TYPE_OPTIONS = [
+  { value: "lc", label: "LC" },
+  { value: "sc", label: "SC" },
+  { value: "fc", label: "FC" },
+  { value: "st", label: "ST" },
+  { value: "mpo", label: "MPO" },
+  { value: "rj45", label: "RJ45" },
+  { value: "sfp", label: "SFP" },
+  { value: "sfp_plus", label: "SFP+" },
+  { value: "qsfp", label: "QSFP" },
+  { value: "other", label: "Outro" },
+];
+
+const PORT_SPEED_OPTIONS = [
+  { value: "100m", label: "100M" },
+  { value: "1g", label: "1G" },
+  { value: "10g", label: "10G" },
+  { value: "25g", label: "25G" },
+  { value: "40g", label: "40G" },
+  { value: "100g", label: "100G" },
+  { value: "400g", label: "400G" },
+];
 
 type View = "list" | "detail" | "edit" | "ports" | "editPort" | "maintenance";
 
@@ -72,8 +99,15 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
   const [selectedPort, setSelectedPort] = useState<Port | null>(null);
   const [portStatus, setPortStatus] = useState("");
   const [portNotes, setPortNotes] = useState("");
+  const [portLabel, setPortLabel] = useState("");
+  const [portType, setPortType] = useState("");
+  const [portSpeed, setPortSpeed] = useState("");
+  const [portConnectedEqId, setPortConnectedEqId] = useState<number | null>(null);
+  const [portConnectedPortId, setPortConnectedPortId] = useState<number | null>(null);
+  const [connEqPorts, setConnEqPorts] = useState<Port[]>([]);
   const [maintenanceNote, setMaintenanceNote] = useState("");
   const [maintenanceType, setMaintenanceType] = useState("preventive");
+  const [portSearch, setPortSearch] = useState("");
 
   const client = createMobileTrpcClient(serverUrl, token);
 
@@ -190,8 +224,11 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
         id: selectedPort.id,
         status: portStatus as any,
         notes: portNotes || null,
-        portNumber: selectedPort.portNumber,
-        type: selectedPort.type as any,
+        label: portLabel || null,
+        type: portType as any,
+        speed: portSpeed as any || undefined,
+        connectedToEquipmentId: portConnectedEqId ?? null,
+        connectedToPortId: portConnectedPortId ?? null,
       } as any);
       if (selected) await loadPorts(selected.id);
       setView("ports");
@@ -199,6 +236,15 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
       setError(e?.message ?? "Erro ao salvar porta");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function loadConnEqPorts(eqId: number) {
+    try {
+      const data = await client.ports.byEquipment.query({ equipmentId: eqId });
+      setConnEqPorts(data as unknown as Port[]);
+    } catch {
+      setConnEqPorts([]);
     }
   }
 
@@ -512,11 +558,19 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
     const occupied = ports.filter(p => p.status === "occupied").length;
     const total = ports.length;
     const pct = total > 0 ? Math.round((occupied / total) * 100) : 0;
-
-    // Agrupar portas por slotId (null = sem slot)
+    // Filtrar e agrupar portas por slotId
+    const portSearchTerm = portSearch.trim().toLowerCase();
+    const filteredPorts = portSearchTerm
+      ? ports.filter(p =>
+          String(p.portNumber).includes(portSearchTerm) ||
+          (p.label ?? "").toLowerCase().includes(portSearchTerm) ||
+          (p.type ?? "").toLowerCase().includes(portSearchTerm) ||
+          (p.status ?? "").toLowerCase().includes(portSearchTerm)
+        )
+      : ports;
     const portGroupMap = new Map<number | null, Port[]>();
     const portGroupOrder: (number | null)[] = [];
-    for (const port of ports) {
+    for (const port of filteredPorts) {
       const key = port.slotId ?? null;
       if (!portGroupMap.has(key)) { portGroupMap.set(key, []); portGroupOrder.push(key); }
       portGroupMap.get(key)!.push(port);
@@ -529,6 +583,23 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
             <ChevronLeft className="w-4 h-4" /> {selected.name}
           </button>
           <h1 className="text-base font-bold text-white">Portas</h1>
+          <div className="relative mt-2">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+            <input
+              value={portSearch}
+              onChange={e => setPortSearch(e.target.value)}
+              placeholder="Buscar porta..."
+              className="w-full pl-8 pr-8 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
+            />
+            {portSearch && (
+              <button
+                onClick={() => setPortSearch("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
           {total > 0 && (
             <div className="mt-2">
               <div className="flex justify-between text-xs text-zinc-400 mb-1">
@@ -579,6 +650,12 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
                             setSelectedPort(port);
                             setPortStatus(port.status);
                             setPortNotes(port.notes ?? "");
+                            setPortLabel(port.label ?? "");
+                            setPortType(port.type ?? "");
+                            setPortSpeed(port.speed ?? "");
+                            setPortConnectedEqId(port.connectedToEquipmentId ?? null);
+                            setPortConnectedPortId(port.connectedToPortId ?? null);
+                            setConnEqPorts([]);
                             setError(null);
                             setView("editPort");
                           }}
@@ -624,20 +701,6 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Info da porta (somente leitura) */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-2">
-            <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">Informações</p>
-            {[
-              ["Tipo", selectedPort.type?.toUpperCase()],
-              ["Velocidade", selectedPort.speed?.toUpperCase()],
-            ].filter(([, v]) => v).map(([l, v]) => (
-              <div key={l as string} className="flex justify-between">
-                <span className="text-xs text-zinc-500">{l as string}</span>
-                <span className="text-xs text-zinc-200 font-mono">{v as string}</span>
-              </div>
-            ))}
-          </div>
-
           {error && (
             <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
               <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
@@ -645,25 +708,98 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
             </div>
           )}
 
+          {/* Etiqueta */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Etiqueta / Descrição</label>
+            <input
+              value={portLabel}
+              onChange={e => setPortLabel(e.target.value)}
+              placeholder="Ex: Cliente João, Uplink SW-01..."
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
+            />
+          </div>
+
+          {/* Tipo de conector */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-2 block">Tipo de Conector</label>
+            <div className="grid grid-cols-5 gap-1.5">
+              {PORT_TYPE_OPTIONS.map(opt => (
+                <button key={opt.value} onClick={() => setPortType(opt.value)}
+                  className={`py-2 rounded-lg text-xs font-medium border transition-colors ${
+                    portType === opt.value
+                      ? "bg-cyan-500 border-cyan-500 text-zinc-900"
+                      : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700"
+                  }`}>{opt.label}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Velocidade */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-2 block">Velocidade</label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {PORT_SPEED_OPTIONS.map(opt => (
+                <button key={opt.value} onClick={() => setPortSpeed(portSpeed === opt.value ? "" : opt.value)}
+                  className={`py-2 rounded-lg text-xs font-medium border transition-colors ${
+                    portSpeed === opt.value
+                      ? "bg-violet-500 border-violet-500 text-white"
+                      : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700"
+                  }`}>{opt.label}</button>
+              ))}
+            </div>
+          </div>
+
           {/* Status */}
           <div>
-            <label className="text-xs text-zinc-400 mb-2 block">Status da Porta</label>
+            <label className="text-xs text-zinc-400 mb-2 block">Status</label>
             <div className="grid grid-cols-2 gap-2">
-              {Object.entries(PORT_STATUS_LABELS).map(([val, label]) => (
-                <button
-                  key={val}
-                  onClick={() => setPortStatus(val)}
+              {Object.entries(PORT_STATUS_LABELS).map(([val, lbl]) => (
+                <button key={val} onClick={() => setPortStatus(val)}
                   className={`py-2.5 rounded-xl text-sm font-medium border transition-colors ${
                     portStatus === val
                       ? "bg-cyan-500 border-cyan-500 text-zinc-900"
                       : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700"
-                  }`}
-                >
-                  {label}
-                </button>
+                  }`}>{lbl}</button>
               ))}
             </div>
           </div>
+
+          {/* Vincular a equipamento */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Vincular a Equipamento</label>
+            <select
+              value={portConnectedEqId ?? ""}
+              onChange={async e => {
+                const id = e.target.value ? Number(e.target.value) : null;
+                setPortConnectedEqId(id);
+                setPortConnectedPortId(null);
+                if (id) await loadConnEqPorts(id);
+                else setConnEqPorts([]);
+              }}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
+            >
+              <option value="">Nenhum</option>
+              {equipments.filter(e => e.id !== selected?.id).map(e => (
+                <option key={e.id} value={e.id}>{e.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {portConnectedEqId && connEqPorts.length > 0 && (
+            <div>
+              <label className="text-xs text-zinc-400 mb-1 block">Porta no Equipamento Vinculado</label>
+              <select
+                value={portConnectedPortId ?? ""}
+                onChange={e => setPortConnectedPortId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
+              >
+                <option value="">Nenhuma porta específica</option>
+                {connEqPorts.map(p => (
+                  <option key={p.id} value={p.id}>Porta {p.portNumber}{p.label ? ` — ${p.label}` : ""} ({p.type?.toUpperCase()})</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Observações */}
           <div>
@@ -682,7 +818,7 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
             disabled={saving}
             className="w-full bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-zinc-900 font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors"
           >
-            {saving ? <div className="w-4 h-4 border-2 border-zinc-900/30 border-t-zinc-900 rounded-full animate-spin" /> : <><Check className="w-4 h-4" /> Salvar Status</>}
+            {saving ? <div className="w-4 h-4 border-2 border-zinc-900/30 border-t-zinc-900 rounded-full animate-spin" /> : <><Check className="w-4 h-4" /> Salvar Porta</>}
           </button>
         </div>
       </div>

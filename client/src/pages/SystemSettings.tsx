@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves, Bell, RefreshCw, CheckCircle2, XCircle, Clock, History, PackageOpen, Cpu, Plus, Pencil, Trash2 } from "lucide-react";
+import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves, Bell, RefreshCw, CheckCircle2, XCircle, Clock, History, PackageOpen, Cpu, Plus, Pencil, Trash2, MapPin, LocateFixed, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -205,6 +205,11 @@ export default function SystemSettingsPage() {
   const [logoFile, setLogoFile] = useState<{ base64: string; mimeType: string; filename: string } | null>(null);
   const [isDraggingLogo, setIsDraggingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  // ─── Coordenadas padrão do mapa ──────────────────────────────────────────────
+  const [mapDefaultLat, setMapDefaultLat] = useState("");
+  const [mapDefaultLng, setMapDefaultLng] = useState("");
+  const [mapDefaultZoom, setMapDefaultZoom] = useState("13");
+  const [geoLoadingMap, setGeoLoadingMap] = useState(false);
 
   // ─── Atualização Remota ──────────────────────────────────────────────────────
   const [updateFile, setUpdateFile] = useState<File | null>(null);
@@ -333,6 +338,9 @@ export default function SystemSettingsPage() {
     setAlertThreshold(parseInt((settings as any).capacityAlertThreshold ?? "80", 10) || 80);
     setTelegramToken((settings as any).telegram_bot_token ?? "");
     setTelegramChatId((settings as any).telegram_chat_id ?? "");
+    setMapDefaultLat((settings as any).mapDefaultLat ?? "");
+    setMapDefaultLng((settings as any).mapDefaultLng ?? "");
+    setMapDefaultZoom((settings as any).mapDefaultZoom ?? "13");
     setInitialized(true);
   }
 
@@ -361,11 +369,17 @@ export default function SystemSettingsPage() {
         const res = await uploadLogoMutation.mutateAsync(logoFile);
         logoUrl = res.url;
       }
+      const mapLat = parseFloat(mapDefaultLat);
+      const mapLng = parseFloat(mapDefaultLng);
+      const mapZoom = parseInt(mapDefaultZoom);
       await saveMutation.mutateAsync({
         systemName,
         theme: selectedTheme,
         capacityAlertThreshold: alertThreshold,
         ...(logoUrl ? { logoUrl } : {}),
+        ...(!isNaN(mapLat) ? { mapDefaultLat: mapLat } : {}),
+        ...(!isNaN(mapLng) ? { mapDefaultLng: mapLng } : {}),
+        ...(!isNaN(mapZoom) ? { mapDefaultZoom: mapZoom } : {}),
       });
       applyTheme(selectedTheme);
       await refetch();
@@ -878,6 +892,59 @@ export default function SystemSettingsPage() {
             </div>
           </DialogContent>
         </Dialog>
+        {/* Posição Padrão do Mapa */}
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-emerald-400" />
+              Posição Padrão do Mapa
+            </CardTitle>
+            <CardDescription>Coordenadas que o mapa de infraestrutura usa ao abrir. Clique em "Usar Minha Localização" para capturar a posição atual.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Latitude</Label>
+                <Input value={mapDefaultLat} onChange={e => setMapDefaultLat(e.target.value)} placeholder="Ex: -7.8144" className="font-mono text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label>Longitude</Label>
+                <Input value={mapDefaultLng} onChange={e => setMapDefaultLng(e.target.value)} placeholder="Ex: -37.9248" className="font-mono text-sm" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label>Zoom padrão (1–20)</Label>
+              <Input type="number" min={1} max={20} value={mapDefaultZoom} onChange={e => setMapDefaultZoom(e.target.value)} className="w-24 font-mono text-sm" />
+            </div>
+            <Button
+              type="button" variant="outline"
+              className="w-full gap-2 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
+              disabled={geoLoadingMap}
+              onClick={() => {
+                if (!navigator.geolocation) { toast.error("GPS não disponível neste dispositivo."); return; }
+                setGeoLoadingMap(true);
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    setMapDefaultLat(pos.coords.latitude.toFixed(7));
+                    setMapDefaultLng(pos.coords.longitude.toFixed(7));
+                    setGeoLoadingMap(false);
+                    toast.success("Localização capturada! Clique em Salvar para aplicar.");
+                  },
+                  (err) => {
+                    setGeoLoadingMap(false);
+                    if (err.code === 1) toast.error("Permissão de GPS negada.");
+                    else toast.error("Não foi possível obter a localização.");
+                  },
+                  { enableHighAccuracy: true, timeout: 10000 }
+                );
+              }}
+            >
+              {geoLoadingMap ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
+              {geoLoadingMap ? "Obtendo localização..." : "Usar Minha Localização"}
+            </Button>
+          </CardContent>
+        </Card>
+
         {/* Botão Salvar */}
         <div className="flex justify-end gap-3 pb-6">
           <Button

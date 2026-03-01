@@ -1144,6 +1144,9 @@ export const appRouter = router({
         capacityAlertThreshold: z.number().min(1).max(100).optional(),
         telegram_bot_token: z.string().optional(),
         telegram_chat_id: z.string().optional(),
+        mapDefaultLat: z.number().optional(),
+        mapDefaultLng: z.number().optional(),
+        mapDefaultZoom: z.number().min(1).max(20).optional(),
       }))
       .mutation(async ({ input }) => {
         const settings: Record<string, string> = {};
@@ -1153,6 +1156,9 @@ export const appRouter = router({
         if (input.capacityAlertThreshold !== undefined) settings.capacityAlertThreshold = String(input.capacityAlertThreshold);
         if (input.telegram_bot_token !== undefined) settings.telegram_bot_token = input.telegram_bot_token;
         if (input.telegram_chat_id !== undefined) settings.telegram_chat_id = input.telegram_chat_id;
+        if (input.mapDefaultLat !== undefined) settings.mapDefaultLat = String(input.mapDefaultLat);
+        if (input.mapDefaultLng !== undefined) settings.mapDefaultLng = String(input.mapDefaultLng);
+        if (input.mapDefaultZoom !== undefined) settings.mapDefaultZoom = String(input.mapDefaultZoom);
         await setSystemSettings(settings);
         return { success: true };
       }),

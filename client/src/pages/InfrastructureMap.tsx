@@ -161,6 +161,7 @@ export default function InfrastructureMap() {
   const { data: ctos = [], refetch: refetchCtos } = trpc.ctos.list.useQuery();
   const { data: ceosRaw = [], refetch: refetchCeos } = trpc.ceos.list.useQuery({});
   const ceos = ceosRaw as any[];
+  const { data: sysConfig } = trpc.systemConfig.get.useQuery();
 
   // Mapa de ocupação por routeId
   const occupancyMap = useMemo(() => {
@@ -519,7 +520,12 @@ export default function InfrastructureMap() {
   // Inicializar mapa Leaflet
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
-    const map = L.map(mapContainerRef.current, { center: [-15.7801, -47.9292], zoom: 5, zoomControl: true });
+    const cfgLat = parseFloat((sysConfig as any)?.mapDefaultLat ?? "");
+    const cfgLng = parseFloat((sysConfig as any)?.mapDefaultLng ?? "");
+    const cfgZoom = parseInt((sysConfig as any)?.mapDefaultZoom ?? "");
+    const initCenter: [number, number] = (!isNaN(cfgLat) && !isNaN(cfgLng)) ? [cfgLat, cfgLng] : [-15.7801, -47.9292];
+    const initZoom = !isNaN(cfgZoom) ? cfgZoom : 5;
+    const map = L.map(mapContainerRef.current, { center: initCenter, zoom: initZoom, zoomControl: true });
     const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 19,
