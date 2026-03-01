@@ -862,3 +862,10 @@
 - [x] Marcador pisca 3 vezes para destacar visualmente o elemento
 - [x] Painel lateral abre automaticamente com os detalhes do CEO/CTO destacado
 - [x] URL limpa após aplicar os parâmetros (sem re-execução no re-render)
+
+## v5.53 — Correção: excluir CTO/CEO remove marcador do mapa
+
+- [x] Ao excluir CTO pelo menu, remover automaticamente o map_element vinculado
+- [x] Ao excluir CEO pelo menu, remover automaticamente o map_element vinculado
+- [x] deleteCto: agora faz cascade em cto_vias, cto_tubes, map_elements e ctos
+- [x] deleteCeo: agora remove map_element vinculado antes de excluir o CEO

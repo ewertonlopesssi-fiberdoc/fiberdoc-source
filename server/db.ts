@@ -858,6 +858,8 @@ export async function deleteCeo(id: number) {
     await db.delete(ceoVias).where(eq(ceoVias.tubeId, tube.id));
   }
   await db.delete(ceoTubes).where(eq(ceoTubes.ceoId, id));
+  // Remove o marcador do mapa vinculado a este CEO (se existir)
+  await db.delete(mapElements).where(and(eq(mapElements.type, "ceo"), eq(mapElements.referenceId, id)));
   await db.delete(ceos).where(eq(ceos.id, id));
 }
 
@@ -2109,6 +2111,14 @@ export async function updateCto(id: number, data: Partial<Omit<InsertCto, "id" |
 export async function deleteCto(id: number): Promise<void> {
   const db = await getDb();
   if (!db) return;
+  // Remove vias e tubos em cascata
+  const tubes = await db.select().from(ctoTubes).where(eq(ctoTubes.ctoId, id));
+  for (const tube of tubes) {
+    await db.delete(ctoVias).where(eq(ctoVias.tubeId, tube.id));
+  }
+  await db.delete(ctoTubes).where(eq(ctoTubes.ctoId, id));
+  // Remove o marcador do mapa vinculado a esta CTO (se existir)
+  await db.delete(mapElements).where(and(eq(mapElements.type, "cto"), eq(mapElements.referenceId, id)));
   await db.delete(ctos).where(eq(ctos.id, id));
 }
 
