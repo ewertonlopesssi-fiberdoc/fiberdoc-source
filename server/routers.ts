@@ -2393,6 +2393,56 @@ ${fiberFolder}
         return { ok: true };
       }),
   }),
+  fusionReport: router({
+    byCeo: protectedProcedure
+      .input(z.object({ ceoId: z.number() }))
+      .query(async ({ input }) => {
+        const tubes = await getTubesByCeo(input.ceoId);
+        const allVias = await getViasByCeo(input.ceoId);
+        return tubes.map(tube => ({
+          ...tube,
+          vias: allVias
+            .filter(v => v.tubeId === tube.id)
+            .sort((a, b) => a.viaNumber - b.viaNumber)
+            .map(via => ({
+              ...via,
+              fusedToLabel: via.fusedToViaId
+                ? (() => {
+                    const dest = allVias.find(v => v.id === via.fusedToViaId);
+                    const destTube = dest ? tubes.find(t => t.id === dest.tubeId) : null;
+                    return dest
+                      ? `Via ${dest.viaNumber}${dest.label ? ` — ${dest.label}` : ""}${destTube ? ` (${destTube.identifier})` : ""}`
+                      : null;
+                  })()
+                : null,
+            })),
+        }));
+      }),
+    byCto: protectedProcedure
+      .input(z.object({ ctoId: z.number() }))
+      .query(async ({ input }) => {
+        const tubes = await getTubesByCto(input.ctoId);
+        const allVias = await getViasByCto(input.ctoId);
+        return tubes.map(tube => ({
+          ...tube,
+          vias: allVias
+            .filter(v => v.tubeId === tube.id)
+            .sort((a, b) => a.viaNumber - b.viaNumber)
+            .map(via => ({
+              ...via,
+              fusedToLabel: via.fusedToViaId
+                ? (() => {
+                    const dest = allVias.find(v => v.id === via.fusedToViaId);
+                    const destTube = dest ? tubes.find(t => t.id === dest.tubeId) : null;
+                    return dest
+                      ? `Via ${dest.viaNumber}${dest.label ? ` — ${dest.label}` : ""}${destTube ? ` (${destTube.identifier})` : ""}`
+                      : null;
+                  })()
+                : null,
+            })),
+        }));
+      }),
+  }),
 });
 export type AppRouter = typeof appRouter;
 

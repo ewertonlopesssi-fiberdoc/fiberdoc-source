@@ -15,6 +15,7 @@ import { startBackupScheduler, LOCAL_BACKUP_DIR } from "../backupScheduler";
 import { startSnmpPoller } from "../snmpPoller";
 import { generateIpReportPdf } from "../ipReportPdf";
 import { generateEquipmentReportPdf } from "../equipmentReportPdf";
+import { generateFusionReportPdf } from "../fusionReportPdf";
 import multer from "multer";
 import { applyUpdate, getUpdateStatus, getCurrentVersion, getUpdateHistory } from "../systemUpdate";
 
@@ -77,6 +78,24 @@ async function startServer() {
       if (!res.headersSent) {
         res.status(500).json({ error: "Erro ao gerar PDF" });
       }
+    }
+  });
+
+  // Relatório de Fusões em PDF (CEO ou CTO)
+  app.get("/api/fusion-report/:type/:id", async (req, res) => {
+    try {
+      const type = req.params.type as "ceo" | "cto";
+      const id = parseInt(req.params.id);
+      if (!id || !Number.isFinite(id) || (type !== "ceo" && type !== "cto")) {
+        return res.status(400).json({ error: "Parâmetros inválidos" });
+      }
+      const pdfBuffer = await generateFusionReportPdf(type, id);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="FiberDoc_Fusoes_${type.toUpperCase()}_${id}_${new Date().toISOString().slice(0,10)}.pdf"`);
+      res.send(pdfBuffer);
+    } catch (err) {
+      console.error("[fusion-report-pdf] erro:", err);
+      if (!res.headersSent) res.status(500).json({ error: "Erro ao gerar PDF" });
     }
   });
 

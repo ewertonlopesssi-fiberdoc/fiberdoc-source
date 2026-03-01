@@ -424,6 +424,33 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
               <Layers className="w-3.5 h-3.5" /> Tubos ({tubes.length})
             </button>
           </div>
+          {/* Botão Exportar PDF de Fusões */}
+          {isOnline() && (() => {
+            const refId = panelType === "ceo" ? selectedCeo?.id : selectedCto?.id;
+            const name = panelType === "ceo" ? selectedCeo?.name : selectedCto?.name;
+            if (!refId) return null;
+            return (
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`${serverUrl}/api/fusion-report/${panelType}/${refId}`, {
+                      headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    });
+                    if (!res.ok) { setError("Falha ao gerar PDF"); return; }
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url; a.download = `fusoes_${(name ?? panelType).replace(/\s+/g, "_")}.pdf`;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                  } catch { setError("Erro ao exportar PDF"); }
+                }}
+                className="w-full flex items-center justify-center gap-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-xl py-2.5 text-xs text-cyan-300 hover:bg-cyan-500/20 transition-colors"
+              >
+                <Layers className="w-3.5 h-3.5" /> Exportar Fusões PDF
+              </button>
+            );
+          })()}
         </div>
       </>
     );
@@ -885,6 +912,32 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
               )}
             </div>
           )}
+          {/* Preview da via de destino seleccionada */}
+          {fusionTubeId && fusionViaId && (() => {
+            const destVia = targetTubeVias.find(v => String(v.id) === fusionViaId);
+            const destTube = tubes.find(t => String(t.id) === fusionTubeId);
+            if (!destVia || !destTube || !selectedVia || !selectedTube) return null;
+            return (
+              <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3 space-y-2">
+                <p className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wide">Confirmar Fusão</p>
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                  <div className="rounded-lg bg-zinc-800/60 px-2 py-2 text-center">
+                    <p className="text-[9px] text-zinc-500 mb-0.5">Origem</p>
+                    <p className="text-sm font-bold text-white">Via {selectedVia.viaNumber}</p>
+                    {selectedVia.label && <p className="text-[10px] text-zinc-400 truncate">{selectedVia.label}</p>}
+                    <p className="text-[9px] text-zinc-500 mt-0.5">{selectedTube.identifier}</p>
+                  </div>
+                  <div className="text-cyan-400 text-xl font-bold">⇄</div>
+                  <div className="rounded-lg bg-zinc-800/60 px-2 py-2 text-center">
+                    <p className="text-[9px] text-zinc-500 mb-0.5">Destino</p>
+                    <p className="text-sm font-bold text-white">Via {destVia.viaNumber}</p>
+                    {destVia.label && <p className="text-[10px] text-zinc-400 truncate">{destVia.label}</p>}
+                    <p className="text-[9px] text-zinc-500 mt-0.5">{destTube.identifier}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
           <button
             onClick={async () => {
               if (!fusionTubeId || !fusionViaId) { setError("Selecione o tubo e a via destino"); return; }

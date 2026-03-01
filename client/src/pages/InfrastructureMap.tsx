@@ -393,7 +393,8 @@ export default function InfrastructureMap() {
 
   // ─── Fusões pelo Mapa ─────────────────────────────────────────────────────
   const [fusionDialogOpen, setFusionDialogOpen] = useState(false);
-  const [fusionSourceVia, setFusionSourceVia] = useState<{ id: number; viaNumber: number; tubeId: number; isCto: boolean; isFused: boolean } | null>(null);
+  const [fusionPdfLoading, setFusionPdfLoading] = useState(false);
+  const [fusionSourceVia, setFusionSourceVia] = useState<{ id: number; viaNumber: number; tubeId: number; isCto: boolean; isFused: boolean; label?: string | null } | null>(null);
   const [fusionTargetTubeId, setFusionTargetTubeId] = useState<string>("");
   const [fusionTargetViaId, setFusionTargetViaId] = useState<string>("");
   const mapUtils = trpc.useUtils();
@@ -1335,6 +1336,31 @@ export default function InfrastructureMap() {
             </Button>
           )}
         </div>
+        {/* Botão Exportar PDF de Fusões */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full gap-1.5 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10"
+          disabled={fusionPdfLoading}
+          onClick={async () => {
+            setFusionPdfLoading(true);
+            try {
+              const refId = el.referenceId;
+              const name = el.name ?? (isCto ? "CTO" : "CEO");
+              const res = await fetch(`/api/fusion-report/${isCto ? "cto" : "ceo"}/${refId}`, { credentials: "include" });
+              if (!res.ok) throw new Error("Falha ao gerar relatório");
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = `fusoes_${name.replace(/\s+/g, "_")}.pdf`;
+              document.body.appendChild(a); a.click();
+              document.body.removeChild(a); URL.revokeObjectURL(url);
+            } catch { /* ignora */ } finally { setFusionPdfLoading(false); }
+          }}
+        >
+          {fusionPdfLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+          Exportar Fusões PDF
+        </Button>
         {/* Painel de Tubos e Vias */}
         {(() => {
           const tubes = (isCto ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
@@ -1437,7 +1463,7 @@ export default function InfrastructureMap() {
                                       if (isCto) clearCtoFusionMut.mutate({ viaId: via.id });
                                       else clearCeoFusionMut.mutate({ viaId: via.id });
                                     } else {
-                                      setFusionSourceVia({ id: via.id, viaNumber: via.viaNumber, tubeId: tube.id, isCto, isFused: false });
+                                      setFusionSourceVia({ id: via.id, viaNumber: via.viaNumber, tubeId: tube.id, isCto, isFused: false, label: via.label });
                                       setFusionTargetTubeId("");
                                       setFusionTargetViaId("");
                                       setFusionDialogOpen(true);
@@ -2373,6 +2399,31 @@ export default function InfrastructureMap() {
                     </Select>
                   </div>
                 )}
+                {/* Preview da via de destino seleccionada */}
+                {fusionTargetTubeId && fusionTargetViaId && fusionTargetViaId !== "__none" && (() => {
+                  const destVia = targetVias.find((v: any) => String(v.id) === fusionTargetViaId);
+                  const srcVia = fusionSourceVia;
+                  if (!destVia || !srcVia) return null;
+                  return (
+                    <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-cyan-400 uppercase tracking-wide">Confirmar Fusão</p>
+                      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                        <div className="rounded-md bg-muted/40 px-2.5 py-2 text-center">
+                          <p className="text-[10px] text-muted-foreground mb-0.5">Origem</p>
+                          <p className="text-sm font-bold text-white">Via {srcVia.viaNumber}</p>
+                          {srcVia.label && <p className="text-[11px] text-zinc-400 truncate">{srcVia.label}</p>}
+                        </div>
+                        <div className="text-cyan-400 text-lg font-bold">⇄</div>
+                        <div className="rounded-md bg-muted/40 px-2.5 py-2 text-center">
+                          <p className="text-[10px] text-muted-foreground mb-0.5">Destino</p>
+                          <p className="text-sm font-bold text-white">Via {destVia.viaNumber}</p>
+                          {destVia.label && <p className="text-[11px] text-zinc-400 truncate">{destVia.label}</p>}
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-zinc-500 text-center">Tubo: <span className="text-zinc-300">{targetTube?.identifier}</span></p>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}

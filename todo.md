@@ -1011,3 +1011,20 @@
 - [x] Botão "Minha Localização" no rodapé do mapa mobile (centraliza no GPS do técnico)
 - [x] Marcador de posição actual do técnico no mapa (ponto azul pulsante)
 - [x] Gerar pacote de actualização v5.69
+
+## v5.70 — Preview da Via de Destino na Fusão
+
+- [x] Dialog de fusão no mapa desktop mostra preview "Via X — Label" da via de destino seleccionada
+- [x] PanelSetFusion no mobile mostra preview "Via X — Label" da via de destino seleccionada
+- [x] Painel de confirmação com origem e destino lado a lado antes de guardar
+- [x] Gerar pacote de actualização v5.70
+
+## v5.70 — Preview de Fusão + Relatório PDF de Fusões
+
+- [x] Endpoint tRPC fusionReport.byCeo e fusionReport.byCto com dados completos de tubos/vias/fusões
+- [x] Preview da via de destino no Dialog de fusão do mapa desktop
+- [x] Preview da via de destino no PanelSetFusion do mobile
+- [x] Botão "Exportar PDF" no painel lateral do mapa desktop (CEO/CTO)
+- [x] Botão "Exportar PDF" no PanelDetail do mobile
+- [x] Geração do PDF no servidor com tabela de tubos, vias e fusões
+- [x] Gerar pacote de actualização v5.70
