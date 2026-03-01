@@ -262,6 +262,8 @@ export default function InfrastructureMap() {
   const [editElementForm, setEditElementForm] = useState({ name: "", address: "", capacity: 8, status: "active", notes: "" });
   const [editRouteDialogOpen, setEditRouteDialogOpen] = useState(false);
   const [editRouteForm, setEditRouteForm] = useState({ name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: "", fromElementId: null as number | null, toElementId: null as number | null, fromTubeId: null as number | null, toTubeId: null as number | null });
+  const [fromSearch, setFromSearch] = useState("");
+  const [toSearch, setToSearch] = useState("");
 
   // Grupos/Pastas
   const { data: mapGroups = [], refetch: refetchGroups } = trpc.mapGroups.list.useQuery();
@@ -1846,8 +1848,6 @@ export default function InfrastructureMap() {
             </div>
             {/* Seletores De / Para com busca */}
             {(() => {
-              const [fromSearch, setFromSearch] = React.useState("");
-              const [toSearch, setToSearch] = React.useState("");
               const allEls = (elements as any[]).map((el: any) => {
                 const ref = el.type === "cto"
                   ? (ctos as any[]).find((c: any) => c.id === el.referenceId)
