@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Plus, Radio, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle, MapPin,
+  ArrowLeft, Plus, Radio, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle, MapPin, LocateFixed, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/hooks/useRole";
@@ -637,6 +637,7 @@ export default function CtoDetail() {
   });
   const [printFilterOpen, setPrintFilterOpen] = useState(false);
   const [selectedTubeIds, setSelectedTubeIds] = useState<Set<number>>(new Set());
+  const [geoLoading, setGeoLoading] = useState(false);
 
   const { isAdmin } = useRole();
   const utils = trpc.useUtils();
@@ -645,6 +646,48 @@ export default function CtoDetail() {
   const { data: allVias = [] } = trpc.ctoVias.byCto.useQuery({ ctoId }, { enabled: ctoId > 0 });
   const { data: fibers = [] } = trpc.fibers.list.useQuery({});
   const { data: ctoMapEl } = trpc.ctos.mapElement.useQuery({ ctoId }, { enabled: ctoId > 0 });
+
+  const updateCtoMutation = trpc.ctos.update.useMutation({
+    onSuccess: () => {
+      toast.success("Localização da CTO atualizada!");
+      utils.ctos.byId.invalidate({ id: ctoId });
+      utils.ctos.list.invalidate();
+    },
+    onError: e => toast.error("Erro ao atualizar: " + e.message),
+  });
+
+  async function handleGetLocation() {
+    if (!navigator.geolocation) {
+      toast.error("Geolocalização não suportada neste dispositivo");
+      return;
+    }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=pt-BR`
+          );
+          const data = await res.json();
+          const newAddress = data?.display_name ?? `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          updateCtoMutation.mutate({ id: ctoId, address: newAddress, lat, lng });
+        } catch {
+          updateCtoMutation.mutate({ id: ctoId, address: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, lat, lng });
+        } finally {
+          setGeoLoading(false);
+        }
+      },
+      (err) => {
+        setGeoLoading(false);
+        if (err.code === 1) toast.error("Permissão de localização negada. Habilite o GPS no navegador.");
+        else if (err.code === 2) toast.error("Posição indisponível. Verifique o GPS do dispositivo.");
+        else toast.error("Tempo esgotado ao obter localização.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }
 
   const createTubeMutation = trpc.ctoTubes.create.useMutation({
     onSuccess: () => {
@@ -927,6 +970,21 @@ export default function CtoDetail() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {isAdmin && (
+            <Button
+              variant="outline"
+              onClick={handleGetLocation}
+              disabled={geoLoading || updateCtoMutation.isPending}
+              className="gap-2 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+              title="Atualizar localização com GPS do dispositivo"
+            >
+              {geoLoading || updateCtoMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Obtendo...</>
+              ) : (
+                <><LocateFixed className="h-4 w-4" /> Minha Localização</>
+              )}
+            </Button>
+          )}
           {ctoMapEl && (
             <Button
               variant="outline"

@@ -1081,13 +1081,22 @@ export default function InfrastructureMap() {
 
   // ─── URL params: centralizar e destacar marcador ────────────────────────────
   useEffect(() => {
-    if (!mapReady || !mapRef.current || (elements as any[]).length === 0) return;
+    if (!mapReady || !mapRef.current) return;
     const params = new URLSearchParams(window.location.search);
     const lat = parseFloat(params.get("lat") ?? "");
     const lng = parseFloat(params.get("lng") ?? "");
     const highlightId = parseInt(params.get("highlight") ?? "");
+    const zoomParam = parseInt(params.get("zoom") ?? "");
+    const zoomLevel = !isNaN(zoomParam) ? zoomParam : 17;
     if (!isNaN(lat) && !isNaN(lng)) {
-      mapRef.current.setView([lat, lng], 17);
+      mapRef.current.setView([lat, lng], zoomLevel);
+    }
+    // Se não há elementos para destacar, limpar URL e sair
+    if ((elements as any[]).length === 0) {
+      if (params.has("lat") || params.has("highlight") || params.has("zoom")) {
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+      return;
     }
     if (!isNaN(highlightId)) {
       const el = (elements as any[]).find((e: any) => e.id === highlightId);
@@ -1108,7 +1117,7 @@ export default function InfrastructureMap() {
         setSidePanel({ kind: "element", element: { ...el, name: ref?.name ?? el.type.toUpperCase(), status: ref?.status, capacity: ref?.capacity, usedPorts: ref?.usedPorts } });
       }
     }
-    if (params.has("lat") || params.has("highlight")) {
+    if (params.has("lat") || params.has("highlight") || params.has("zoom")) {
       window.history.replaceState({}, "", window.location.pathname);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

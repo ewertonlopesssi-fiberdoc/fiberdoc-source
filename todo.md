@@ -879,3 +879,10 @@
 - [x] Fazer geocodificação reversa via Nominatim para preencher o endereço
 - [x] Mostrar estado de carregamento enquanto obtém a localização
 - [x] Tratar erros (permissão negada, GPS indisponível)
+
+## v5.55 — Geolocalização avançada: detalhe CEO/CTO + mapa automático
+
+- [x] Botão "Minha Localização" no header do CeoDetail (atualiza location via mutation ceos.update)
+- [x] Botão "Minha Localização" no header do CtoDetail (atualiza address+lat+lng via mutation ctos.update)
+- [x] Ao obter localização nos formulários de Ceos/Ctos, fechar dialog e abrir mapa centralizado
+- [x] InfrastructureMap lê parâmetro ?zoom= da URL (padrão 17) e centraliza mesmo sem elementos no mapa

@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Plus, Box, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle, MapPin,
+  ArrowLeft, Plus, Box, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle, MapPin, LocateFixed, Loader2,
 } from "lucide-react";
 import { CeoFusionPrint } from "@/components/CeoFusionPrint";
 import { cn } from "@/lib/utils";
@@ -642,6 +642,7 @@ export default function CeoDetail() {
   });
   const [printFilterOpen, setPrintFilterOpen] = useState(false);
   const [selectedTubeIds, setSelectedTubeIds] = useState<Set<number>>(new Set());
+  const [geoLoading, setGeoLoading] = useState(false);
 
   const { isAdmin } = useRole();
   const utils = trpc.useUtils();
@@ -650,6 +651,48 @@ export default function CeoDetail() {
   const { data: allVias = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
   const { data: fibers = [] } = trpc.fibers.list.useQuery({});
   const { data: ceoMapEl } = trpc.ceos.mapElement.useQuery({ ceoId }, { enabled: ceoId > 0 });
+
+  const updateCeoMutation = trpc.ceos.update.useMutation({
+    onSuccess: () => {
+      toast.success("Localização da CEO atualizada!");
+      utils.ceos.byId.invalidate({ id: ceoId });
+      utils.ceos.list.invalidate();
+    },
+    onError: e => toast.error("Erro ao atualizar: " + e.message),
+  });
+
+  async function handleGetLocation() {
+    if (!navigator.geolocation) {
+      toast.error("Geolocalização não suportada neste dispositivo");
+      return;
+    }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=pt-BR`
+          );
+          const data = await res.json();
+          const newLocation = data?.display_name ?? `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          updateCeoMutation.mutate({ id: ceoId, location: newLocation });
+        } catch {
+          updateCeoMutation.mutate({ id: ceoId, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}` });
+        } finally {
+          setGeoLoading(false);
+        }
+      },
+      (err) => {
+        setGeoLoading(false);
+        if (err.code === 1) toast.error("Permissão de localização negada. Habilite o GPS no navegador.");
+        else if (err.code === 2) toast.error("Posição indisponível. Verifique o GPS do dispositivo.");
+        else toast.error("Tempo esgotado ao obter localização.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }
 
   function handleOpenPrintFilter() {
     // Pré-selecionar todos os tubos
@@ -956,6 +999,21 @@ export default function CeoDetail() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {isAdmin && (
+            <Button
+              variant="outline"
+              onClick={handleGetLocation}
+              disabled={geoLoading || updateCeoMutation.isPending}
+              className="gap-2 border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+              title="Atualizar localização com GPS do dispositivo"
+            >
+              {geoLoading || updateCeoMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Obtendo...</>
+              ) : (
+                <><LocateFixed className="h-4 w-4" /> Minha Localização</>
+              )}
+            </Button>
+          )}
           {ceoMapEl && (
             <Button
               variant="outline"
