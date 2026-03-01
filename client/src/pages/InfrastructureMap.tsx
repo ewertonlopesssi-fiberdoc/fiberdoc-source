@@ -1116,6 +1116,28 @@ export default function InfrastructureMap() {
             </div>
             {r.notes && <div className="pt-1 text-muted-foreground text-xs">{r.notes}</div>}
           </div>
+          {/* Ocupação real por tubo */}
+          {(() => {
+            const occ = (routesOccupancy as any[]).find((o: any) => o.routeId === r.id);
+            if (!occ) return null;
+            const pct = occ.pct as number;
+            const barColor = pct >= 100 ? "#ef4444" : pct >= 80 ? "#f97316" : pct >= 50 ? "#eab308" : pct > 0 ? "#22d3ee" : "#22c55e";
+            const label = pct >= 100 ? "Saturado" : pct >= 80 ? "Quase saturado" : pct >= 50 ? "Parcial" : pct > 0 ? "Uso baixo" : "Livre";
+            return (
+              <div className="space-y-1.5 border border-border rounded-md p-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground font-medium">Ocupação de Fibras</span>
+                  <span className="text-xs font-bold" style={{ color: barColor }}>{pct}% — {label}</span>
+                </div>
+                {occ.tubeLabel && (
+                  <div className="text-[10px] text-muted-foreground/70">Tubo: <span className="text-muted-foreground font-medium">{occ.tubeLabel}</span> · {occ.fusedCount}/{occ.fiberCount} vias</div>
+                )}
+                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                  <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: barColor }} />
+                </div>
+              </div>
+            );
+          })()}
           {isAdmin && (
             <div className="flex gap-2">
               <Button variant="outline" size="sm" className="flex-1 gap-2" onClick={() => {

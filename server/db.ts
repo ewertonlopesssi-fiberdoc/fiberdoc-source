@@ -2416,35 +2416,77 @@ export async function getAllRouteGroupMemberships(): Promise<MapRouteGroup[]> {
 }
 
 // ─── Ocupação de Fibras por Rota ─────────────────────────────────────────────
-export async function getRoutesOccupancy(): Promise<{ routeId: number; fiberCount: number; fusedCount: number; pct: number }[]> {
+export async function getRoutesOccupancy(): Promise<{ routeId: number; fiberCount: number; fusedCount: number; pct: number; tubeLabel: string | null }[]> {
   const db = await getDb();
   if (!db) return [];
   const routes = await db.select().from(mapRoutes);
-  const result: { routeId: number; fiberCount: number; fusedCount: number; pct: number }[] = [];
+  const result: { routeId: number; fiberCount: number; fusedCount: number; pct: number; tubeLabel: string | null }[] = [];
+
+  // Helper: contar vias fusionadas em um tubo específico (CEO ou CTO)
+  async function countFusedInTube(tubeId: number, elType: "ceo" | "cto"): Promise<{ count: number; label: string | null; totalVias: number }> {
+    if (elType === "ceo") {
+      const [tube] = await db!.select().from(ceoTubes).where(eq(ceoTubes.id, tubeId)).limit(1);
+      if (!tube) return { count: 0, label: null, totalVias: 0 };
+      const fused = await db!.select().from(ceoVias).where(and(eq(ceoVias.tubeId, tubeId), isNotNull(ceoVias.fusedToViaId)));
+      return { count: fused.length, label: tube.identifier, totalVias: tube.totalVias };
+    } else {
+      const [tube] = await db!.select().from(ctoTubes).where(eq(ctoTubes.id, tubeId)).limit(1);
+      if (!tube) return { count: 0, label: null, totalVias: 0 };
+      const fused = await db!.select().from(ctoVias).where(and(eq(ctoVias.tubeId, tubeId), isNotNull(ctoVias.fusedToViaId)));
+      return { count: fused.length, label: tube.identifier, totalVias: tube.totalVias };
+    }
+  }
+
+  // Helper: contar vias fusionadas em todos os tubos de um elemento
+  async function countFusedInElement(elementId: number): Promise<number> {
+    const [el] = await db!.select().from(mapElements).where(eq(mapElements.id, elementId)).limit(1);
+    if (!el) return 0;
+    let total = 0;
+    if (el.type === "ceo") {
+      const tubes = await db!.select().from(ceoTubes).where(eq(ceoTubes.ceoId, el.referenceId!));
+      for (const tube of tubes) {
+        const fused = await db!.select().from(ceoVias).where(and(eq(ceoVias.tubeId, tube.id), isNotNull(ceoVias.fusedToViaId)));
+        total += fused.length;
+      }
+    } else if (el.type === "cto") {
+      const tubes = await db!.select().from(ctoTubes).where(eq(ctoTubes.ctoId, el.referenceId!));
+      for (const tube of tubes) {
+        const fused = await db!.select().from(ctoVias).where(and(eq(ctoVias.tubeId, tube.id), isNotNull(ctoVias.fusedToViaId)));
+        total += fused.length;
+      }
+    }
+    return total;
+  }
+
   for (const route of routes) {
     const fiberCount = route.fiberCount ?? 12;
     let fusedCount = 0;
-    // Contar vias fusionadas no CEO de origem
-    if (route.fromElementId) {
-      const el = await db.select().from(mapElements).where(eq(mapElements.id, route.fromElementId)).limit(1);
-      if (el[0]?.type === "ceo") {
-        const tubes = await db.select().from(ceoTubes).where(eq(ceoTubes.ceoId, el[0].referenceId!));
-        for (const tube of tubes) {
-          const fused = await db.select().from(ceoVias)
-            .where(and(eq(ceoVias.tubeId, tube.id), isNotNull(ceoVias.fusedToViaId)));
-          fusedCount += fused.length;
-        }
-      } else if (el[0]?.type === "cto") {
-        const tubes = await db.select().from(ctoTubes).where(eq(ctoTubes.ctoId, el[0].referenceId!));
-        for (const tube of tubes) {
-          const fused = await db.select().from(ctoVias)
-            .where(and(eq(ctoVias.tubeId, tube.id), isNotNull(ctoVias.fusedToViaId)));
-          fusedCount += fused.length;
-        }
-      }
+    let tubeLabel: string | null = null;
+
+    // Prioridade: usar tubo vinculado (fromTubeId) para ocupação precisa
+    if (route.fromTubeId) {
+      // Precisamos saber o tipo do elemento de origem para buscar na tabela certa
+      const [fromEl] = route.fromElementId
+        ? await db.select().from(mapElements).where(eq(mapElements.id, route.fromElementId)).limit(1)
+        : [null];
+      const elType = (fromEl?.type ?? "ceo") as "ceo" | "cto";
+      const { count, label, totalVias } = await countFusedInTube(route.fromTubeId, elType);
+      fusedCount = count;
+      tubeLabel = label;
+      // Usar totalVias do tubo como referência se fiberCount não estiver definido
+      const effectiveFiberCount = fiberCount > 0 ? fiberCount : totalVias;
+      const pct = effectiveFiberCount > 0 ? Math.min(100, Math.round((fusedCount / effectiveFiberCount) * 100)) : 0;
+      result.push({ routeId: route.id, fiberCount: effectiveFiberCount, fusedCount, pct, tubeLabel });
+      continue;
     }
+
+    // Fallback: contar em todos os tubos do elemento de origem
+    if (route.fromElementId) {
+      fusedCount = await countFusedInElement(route.fromElementId);
+    }
+
     const pct = fiberCount > 0 ? Math.min(100, Math.round((fusedCount / fiberCount) * 100)) : 0;
-    result.push({ routeId: route.id, fiberCount, fusedCount, pct });
+    result.push({ routeId: route.id, fiberCount, fusedCount, pct, tubeLabel });
   }
   return result;
 }
