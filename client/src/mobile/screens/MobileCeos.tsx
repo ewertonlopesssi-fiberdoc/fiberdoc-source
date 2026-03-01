@@ -3,7 +3,7 @@ import { useMobileAuth } from "../MobileAuthContext";
 import { createMobileTrpcClient, saveOfflineCache, loadOfflineCache, isOnline } from "../mobileTrpc";
 import {
   Cable, ChevronRight, ChevronLeft, Search, RefreshCw, Edit2, Check,
-  AlertCircle, Plus, Trash2, Circle, Link2, Unlink,
+  AlertCircle, Plus, Trash2, Circle, Link2, Unlink, LocateFixed, Loader2,
 } from "lucide-react";
 
 const TUBE_COLORS: Record<string, string> = {
@@ -58,6 +58,28 @@ export default function MobileCeos() {
   const [addingTube, setAddingTube] = useState(false);
   const [addingVia, setAddingVia] = useState(false);
   const [newViaColor, setNewViaColor] = useState("blue");
+  const [geoLoading, setGeoLoading] = useState(false);
+
+  async function handleGetLocationCeo() {
+    if (!navigator.geolocation) { setError("Geolocalização não suportada"); return; }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        let address = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=pt-BR`);
+          const data = await res.json();
+          if (data?.display_name) address = data.display_name;
+        } catch { /* ignora */ }
+        setEditCeoForm(f => ({ ...f, location: address }));
+        setGeoLoading(false);
+      },
+      () => { setGeoLoading(false); setError("Não foi possível obter a localização. Verifique o GPS."); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }
 
   const client = createMobileTrpcClient(serverUrl, token);
 
@@ -328,9 +350,37 @@ export default function MobileCeos() {
               <p className="text-xs text-red-300">{error}</p>
             </div>
           )}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Nome</label>
+            <input
+              type="text"
+              value={editCeoForm.name ?? ""}
+              onChange={(e) => setEditCeoForm(f => ({ ...f, name: e.target.value || undefined }))}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Localização / Endereço</label>
+            <button
+              type="button"
+              onClick={handleGetLocationCeo}
+              disabled={geoLoading}
+              className="w-full h-11 flex items-center justify-center gap-2 text-sm font-medium border border-amber-500/50 text-amber-400 bg-transparent hover:bg-amber-500/10 rounded-xl mb-2 active:scale-[0.98] transition-all disabled:opacity-60"
+            >
+              {geoLoading
+                ? <><Loader2 className="w-5 h-5 animate-spin" /> Obtendo GPS...</>
+                : <><LocateFixed className="w-5 h-5" /> Atualizar Minha Localização</>}
+            </button>
+            <input
+              type="text"
+              value={editCeoForm.location ?? ""}
+              onChange={(e) => setEditCeoForm(f => ({ ...f, location: e.target.value || null }))}
+              placeholder="Endereço ou coordenadas"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
+            />
+            <p className="text-[11px] text-amber-400/70 mt-1">Toque no botão para capturar a posição atual e depois toque em Salvar.</p>
+          </div>
           {[
-            { label: "Nome", key: "name", type: "text" },
-            { label: "Localização", key: "location", type: "text" },
             { label: "Tipo", key: "type", type: "text" },
             { label: "Total de Tubos", key: "totalTubes", type: "number" },
           ].map(({ label, key, type }) => (

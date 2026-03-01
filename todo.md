@@ -903,3 +903,19 @@
 - [x] No modo criação: fecha o dialog e abre o mapa com modo de adição ativado
 - [x] Label do botão muda: "Atualizar Minha Localização" (edição) vs "Usar Minha Localização" (criação)
 - [x] Hint de instrucao exibido apenas no modo edição: "Toque no botão... depois toque em Salvar"
+
+## v5.58 — Página /mobile: abas CEO e CTO para técnico em campo
+
+- [ ] Adicionar abas CEO, CTO e Equipamentos na página /mobile
+- [ ] Aba CEO: listagem com busca, status, endereço; toque abre painel de detalhes
+- [ ] Aba CTO: listagem com busca, status, capacidade/portas; toque abre painel de detalhes
+- [ ] Painel de detalhes CEO: nome, endereço, status, botão GPS para atualizar localização
+- [ ] Painel de detalhes CTO: nome, endereço, lat/lng, capacidade, botão GPS para atualizar
+- [ ] Botão GPS no painel de detalhes: preenche e salva diretamente (sem dialog extra)
+- [ ] Layout responsivo e touch-friendly (botões grandes, espaçamento adequado)
+
+## v5.59 — Portas mobile agrupadas por slot
+
+- [x] Agrupar portas por slot na listagem mobile do equipamento
+- [x] Exibir cabeçalho de seção "Slot X" antes de cada grupo de portas
+- [x] Mostrar contagem de portas livres/ocupadas por slot no cabeçalho

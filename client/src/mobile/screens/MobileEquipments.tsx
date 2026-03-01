@@ -513,6 +513,15 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
     const total = ports.length;
     const pct = total > 0 ? Math.round((occupied / total) * 100) : 0;
 
+    // Agrupar portas por slotId (null = sem slot)
+    const portGroupMap = new Map<number | null, Port[]>();
+    const portGroupOrder: (number | null)[] = [];
+    for (const port of ports) {
+      const key = port.slotId ?? null;
+      if (!portGroupMap.has(key)) { portGroupMap.set(key, []); portGroupOrder.push(key); }
+      portGroupMap.get(key)!.push(port);
+    }
+
     return (
       <div className="flex flex-col h-full">
         <div className="bg-zinc-900 border-b border-zinc-800 px-4 pt-4 pb-3 flex-shrink-0">
@@ -547,36 +556,55 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
               <p className="text-sm">Nenhuma porta cadastrada</p>
             </div>
           ) : (
-            <div className="divide-y divide-zinc-800">
-              {ports.map((port) => (
-                <button
-                  key={port.id}
-                  onClick={() => {
-                    setSelectedPort(port);
-                    setPortStatus(port.status);
-                    setPortNotes(port.notes ?? "");
-                    setError(null);
-                    setView("editPort");
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-800/50 transition-colors text-left"
-                >
-                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${PORT_STATUS_COLORS[port.status] ?? "bg-zinc-500"}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-mono font-medium text-white">Porta {port.portNumber}</span>
-                      {port.label && <span className="text-xs text-zinc-400 truncate">— {port.label}</span>}
+            <div>
+              {portGroupOrder.map((slotId) => {
+                const slotPorts = portGroupMap.get(slotId)!;
+                const occ = slotPorts.filter(p => p.status === "occupied").length;
+                const fr = slotPorts.length - occ;
+                return (
+                  <div key={slotId ?? "no-slot"}>
+                    <div className="px-4 py-2 bg-zinc-800/60 border-y border-zinc-700/50 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                        {slotId !== null ? `Slot ${slotId}` : "Sem Slot"}
+                      </span>
+                      <span className="text-[10px] text-zinc-500">
+                        {occ} ocupada{occ !== 1 ? "s" : ""} · {fr} livre{fr !== 1 ? "s" : ""}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] text-zinc-500 uppercase">{port.type}</span>
-                      {port.speed && <span className="text-[10px] text-zinc-500">{port.speed.toUpperCase()}</span>}
+                    <div className="divide-y divide-zinc-800">
+                      {slotPorts.map((port) => (
+                        <button
+                          key={port.id}
+                          onClick={() => {
+                            setSelectedPort(port);
+                            setPortStatus(port.status);
+                            setPortNotes(port.notes ?? "");
+                            setError(null);
+                            setView("editPort");
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-800/50 transition-colors text-left"
+                        >
+                          <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${PORT_STATUS_COLORS[port.status] ?? "bg-zinc-500"}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-mono font-medium text-white">Porta {port.portNumber}</span>
+                              {port.label && <span className="text-xs text-zinc-400 truncate">— {port.label}</span>}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] text-zinc-500 uppercase">{port.type}</span>
+                              {port.speed && <span className="text-[10px] text-zinc-500">{port.speed.toUpperCase()}</span>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-xs text-zinc-400">{PORT_STATUS_LABELS[port.status] ?? port.status}</span>
+                            <ChevronRight className="w-3.5 h-3.5 text-zinc-600" />
+                          </div>
+                        </button>
+                      ))}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs text-zinc-400">{PORT_STATUS_LABELS[port.status] ?? port.status}</span>
-                    <ChevronRight className="w-3.5 h-3.5 text-zinc-600" />
-                  </div>
-                </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

@@ -4,11 +4,12 @@ import MobileSetup from "./screens/MobileSetup";
 import MobileLogin from "./screens/MobileLogin";
 import MobileEquipments from "./screens/MobileEquipments";
 import MobileCeos from "./screens/MobileCeos";
+import MobileCtos from "./screens/MobileCtos";
 import MobileReport from "./screens/MobileReport";
 import MobileProfile from "./screens/MobileProfile";
-import { Server, Cable, BarChart2, User, Wifi, WifiOff } from "lucide-react";
+import { Server, Cable, BarChart2, User, Wifi, WifiOff, Radio } from "lucide-react";
 
-type Tab = "equipamentos" | "ceos" | "relatorio" | "perfil";
+type Tab = "equipamentos" | "ceos" | "ctos" | "relatorio" | "perfil";
 
 function MobileShell() {
   const { isConfigured, isAuthenticated } = useMobileAuth();
@@ -34,8 +35,9 @@ function MobileShell() {
   if (!isAuthenticated) return <MobileLogin />;
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
-    { id: "equipamentos", label: "Equipamentos", icon: Server },
+    { id: "equipamentos", label: "Equip.", icon: Server },
     { id: "ceos", label: "CEO", icon: Cable },
+    { id: "ctos", label: "CTO", icon: Radio },
     { id: "relatorio", label: "Relatório", icon: BarChart2 },
     { id: "perfil", label: "Perfil", icon: User },
   ];
@@ -54,6 +56,7 @@ function MobileShell() {
       <div className="flex-1 overflow-y-auto min-h-0">
         {activeTab === "equipamentos" && <MobileEquipments initialEquipmentId={deepEqId} />}
         {activeTab === "ceos" && <MobileCeos />}
+        {activeTab === "ctos" && <MobileCtos />}
         {activeTab === "relatorio" && <MobileReport />}
         {activeTab === "perfil" && <MobileProfile />}
       </div>
