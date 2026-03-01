@@ -1004,3 +1004,10 @@
 - [x] Dialog de fusão inline no painel lateral (seleccionar tubo destino + via destino)
 - [x] Indicador visual de via fusionada (cor diferente) no painel lateral
 - [x] Gerar pacote de actualização v5.68
+
+## v5.69 — Filtros e GPS no Mapa Mobile
+
+- [x] Barra de filtros rápidos no topo do mapa mobile (Todos / CEO / CTO / Activos / Inativos)
+- [x] Botão "Minha Localização" no rodapé do mapa mobile (centraliza no GPS do técnico)
+- [x] Marcador de posição actual do técnico no mapa (ponto azul pulsante)
+- [x] Gerar pacote de actualização v5.69

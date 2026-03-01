@@ -115,6 +115,11 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
   // UI
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState<string | null>(null);
+  // Filtros e GPS
+  const [filterType, setFilterType] = useState<"all" | "ceo" | "cto">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "active" | "inactive">("all");
+  const [gpsLocating, setGpsLocating] = useState(false);
+  const myLocationMarkerRef = useRef<L.CircleMarker | null>(null);
 
   // ─── Carregar dados ─────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -204,6 +209,32 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
     return () => { map.remove(); mapRef.current = null; };
   }, []);
 
+  // ─── Função de localização do técnico ─────────────────────────────────
+  function handleMyLocation() {
+    if (!navigator.geolocation) { setError("Geolocalização não suportada neste dispositivo"); return; }
+    setGpsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        if (mapRef.current) {
+          // Remover marcador anterior
+          if (myLocationMarkerRef.current) { myLocationMarkerRef.current.remove(); myLocationMarkerRef.current = null; }
+          // Adicionar marcador pulsante de posição actual
+          const circle = L.circleMarker([lat, lng], {
+            radius: 10, color: "#3b82f6", fillColor: "#3b82f6",
+            fillOpacity: 0.8, weight: 3, opacity: 1,
+          }).addTo(mapRef.current);
+          circle.bindPopup("<b>Você está aqui</b>").openPopup();
+          myLocationMarkerRef.current = circle;
+          mapRef.current.setView([lat, lng], 16, { animate: true });
+        }
+        setGpsLocating(false);
+      },
+      () => { setGpsLocating(false); setError("Não foi possível obter a localização. Verifique as permissões de GPS."); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }
+
   // ─── Renderizar marcadores ──────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current || loading) return;
@@ -213,7 +244,21 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
 
     const bounds: L.LatLngExpression[] = [];
 
-    elements.forEach(el => {
+    // Aplicar filtros
+    const filteredElements = elements.filter(el => {
+      if (filterType !== "all" && el.type !== filterType) return false;
+      if (filterStatus !== "all") {
+        const ref = el.type === "ceo"
+          ? ceos.find(c => c.id === el.referenceId)
+          : ctos.find(c => c.id === el.referenceId);
+        const status = (ref as any)?.status ?? "active";
+        if (filterStatus === "active" && status !== "active") return false;
+        if (filterStatus === "inactive" && status === "active") return false;
+      }
+      return true;
+    });
+
+    filteredElements.forEach(el => {
       const isCeo = el.type === "ceo";
       const icon = isCeo ? makeCeoIcon() : makeCtoIcon();
       const marker = L.marker([el.lat, el.lng], { icon }).addTo(mapRef.current!);
@@ -240,7 +285,7 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
       try { mapRef.current.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [40, 40], maxZoom: 16 }); }
       catch { /* ignora */ }
     }
-  }, [elements, ceos, ctos, loading]);
+  }, [elements, ceos, ctos, loading, filterType, filterStatus]);
 
   // ─── GPS ────────────────────────────────────────────────────────────────
   function handleGetGps() {
@@ -873,13 +918,45 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
   return (
     <div className="flex flex-col h-full relative">
       {/* Cabeçalho */}
-      <div className="bg-zinc-900 border-b border-zinc-800 px-4 pt-4 pb-3 flex-shrink-0 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-white">Mapa</h1>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-500">{elements.length} elementos</span>
-          <button onClick={loadData} className="text-zinc-400 hover:text-white p-1">
-            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-          </button>
+      <div className="bg-zinc-900 border-b border-zinc-800 px-4 pt-3 pb-2.5 flex-shrink-0">
+        <div className="flex items-center justify-between mb-2.5">
+          <h1 className="text-lg font-bold text-white">Mapa</h1>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500">{elements.length} elem.</span>
+            <button onClick={loadData} className="text-zinc-400 hover:text-white p-1">
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+        </div>
+        {/* Filtros rápidos */}
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+          {(["all", "ceo", "cto"] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setFilterType(t)}
+              className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                filterType === t
+                  ? t === "ceo" ? "bg-violet-600 border-violet-500 text-white" : t === "cto" ? "bg-emerald-600 border-emerald-500 text-white" : "bg-cyan-600 border-cyan-500 text-white"
+                  : "bg-zinc-800 border-zinc-700 text-zinc-400"
+              }`}
+            >
+              {t === "all" ? "Todos" : t.toUpperCase()}
+            </button>
+          ))}
+          <div className="w-px bg-zinc-700 flex-shrink-0 mx-0.5" />
+          {(["all", "active", "inactive"] as const).map(s => (
+            <button
+              key={s}
+              onClick={() => setFilterStatus(s)}
+              className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                filterStatus === s
+                  ? s === "active" ? "bg-emerald-700 border-emerald-600 text-white" : s === "inactive" ? "bg-zinc-600 border-zinc-500 text-white" : "bg-zinc-700 border-zinc-600 text-zinc-200"
+                  : "bg-zinc-800 border-zinc-700 text-zinc-400"
+              }`}
+            >
+              {s === "all" ? "Todos status" : s === "active" ? "Activos" : "Inativos"}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -908,6 +985,20 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
             <span className="text-[11px] text-zinc-300">CTO</span>
           </div>
         </div>
+
+        {/* Botão Minha Localização — rodapé do mapa */}
+        {!panelOpen && (
+          <button
+            onClick={handleMyLocation}
+            disabled={gpsLocating}
+            className="absolute bottom-4 right-4 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-lg shadow-blue-900/40 transition-colors"
+            style={{ zIndex: 10 }}
+          >
+            {gpsLocating
+              ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Localizando...</>
+              : <><LocateFixed className="w-4 h-4" /> Onde estou</>}
+          </button>
+        )}
 
         {/* Painel deslizante */}
         {panelOpen && (
