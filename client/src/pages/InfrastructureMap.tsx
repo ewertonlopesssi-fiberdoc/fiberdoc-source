@@ -18,6 +18,7 @@ import {
   Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw
 } from "lucide-react";
 import L from "leaflet";
+import { unzipSync, strFromU8 } from "fflate";
 
 // Sub-componente para seletores de tubo (evita hooks em IIFE)
 function TubeSelectors({ fromElId, toElId, fromTubeId, toTubeId, onChange }: {
@@ -1095,25 +1096,11 @@ export default function InfrastructureMap() {
       let kmlText: string;
       if (file.name.toLowerCase().endsWith(".kmz")) {
         const buf = await file.arrayBuffer();
-        const bytes = new Uint8Array(buf);
-        let kmlFound = false;
-        let offset = 0;
-        while (offset < bytes.length - 30) {
-          if (bytes[offset] === 0x50 && bytes[offset+1] === 0x4B && bytes[offset+2] === 0x03 && bytes[offset+3] === 0x04) {
-            const compression = bytes[offset+8] | (bytes[offset+9] << 8);
-            const compSize = bytes[offset+18] | (bytes[offset+19] << 8) | (bytes[offset+20] << 16) | (bytes[offset+21] << 24);
-            const nameLen = bytes[offset+26] | (bytes[offset+27] << 8);
-            const extraLen = bytes[offset+28] | (bytes[offset+29] << 8);
-            const entryName = new TextDecoder().decode(bytes.slice(offset+30, offset+30+nameLen));
-            const dataStart = offset + 30 + nameLen + extraLen;
-            if (entryName.endsWith(".kml") && compression === 0) {
-              kmlText = new TextDecoder().decode(bytes.slice(dataStart, dataStart + compSize));
-              kmlFound = true; break;
-            }
-            offset = dataStart + compSize;
-          } else { offset++; }
-        }
-        if (!kmlFound) throw new Error("Nenhum ficheiro .kml encontrado dentro do KMZ");
+        const unzipped = unzipSync(new Uint8Array(buf));
+        // Procurar o primeiro ficheiro .kml dentro do ZIP (comprimido ou não)
+        const kmlEntry = Object.keys(unzipped).find(name => name.toLowerCase().endsWith(".kml"));
+        if (!kmlEntry) throw new Error("Nenhum ficheiro .kml encontrado dentro do KMZ");
+        kmlText = strFromU8(unzipped[kmlEntry]);
       } else {
         kmlText = await file.text();
       }

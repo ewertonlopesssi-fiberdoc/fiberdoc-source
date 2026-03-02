@@ -1099,3 +1099,4 @@
 - [ ] Pré-visualização antes de importar KML/KMZ: mostrar lista de elementos detectados (nome, tipo, cor) com possibilidade de corrigir tipo manualmente antes de confirmar
 - [x] Pré-visualização KML antes de importar: tabela editável com nome, tipo e cor por elemento, com checkbox de selecção individual e global
 - [x] Selecção de slot no formulário de conexão de porta (desktop Ports.tsx e mobile MobileEquipments.tsx): após seleccionar o equipamento, aparece dropdown de slot para filtrar as portas disponíveis
+- [x] Corrigir importação KMZ: substituir parser manual de bytes ZIP por fflate (suporta compressão DEFLATE usada pelo Google Earth)
