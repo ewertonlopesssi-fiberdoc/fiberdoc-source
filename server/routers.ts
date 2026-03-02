@@ -2247,47 +2247,32 @@ ${fiberFolder}
         if (!cfg || !cfg.active) return { clients: [], error: "SGP não configurado" };
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
-          // Se temos o sgpId, usar o endpoint de ONUs do splitter
+          // Endpoint correcto: /api/contrato/list/ com filtro splitter_id
           if (input.sgpId != null) {
-            const res = await sgpFetch(`${base}/api/fttx/splitter/${input.sgpId}/onu/list/`, cfg, { timeoutMs: 10000 });
+            const res = await sgpFetch(`${base}/api/contrato/list/`, cfg, {
+              extraFields: { splitter_id: String(input.sgpId) },
+              timeoutMs: 12000,
+            });
             if (res.ok) {
               const json = await res.json() as any;
-              const onus = Array.isArray(json) ? json : (json?.data ?? json?.results ?? []);
-              // Normalizar campos das ONUs para o formato esperado pela UI
-              const clients = onus.map((o: any) => ({
-                name: o.nome_cliente ?? o.cliente ?? o.login ?? o.serial ?? `ONU ${o.onu ?? o.id ?? ""}`,
-                serial: o.serial ?? o.mac ?? null,
-                status: o.status ?? o.situacao ?? null,
-                rx: o.rx_power ?? o.rx ?? null,
-                tx: o.tx_power ?? o.tx ?? null,
-                onu: o.onu ?? o.id ?? null,
-                contrato: o.contrato ?? o.id_contrato ?? null,
-                raw: o,
+              const results = json?.result ?? json?.data ?? json?.results ?? (Array.isArray(json) ? json : []);
+              const clients = results.map((c: any) => ({
+                name: c.nome ?? c.login ?? `Cliente ${c.cliente_id ?? ""}`,
+                status: c.status_conexao ?? c.status ?? null,
+                plano: c.plano ?? null,
+                rx: c.onu?.rx ?? null,
+                tx: c.onu?.tx ?? null,
+                mac: c.onu?.phy_addr ?? null,
+                contrato: c.contrato_id ?? c.contrato ?? null,
+                clienteId: c.cliente_id ?? null,
+                raw: c,
               }));
               return { clients, error: null };
             }
-            console.log("[SGP queryClientsByCto] onu/list endpoint failed, status:", res.status);
+            console.log("[SGP queryClientsByCto] contrato/list endpoint failed, status:", res.status);
           }
-          // Fallback: usar nome da CTO via cliente/listar
-          if (!input.ctoName) return { clients: [], error: null };
-          const res = await sgpFetch(`${base}/api/cliente/listar`, cfg, {
-            method: "POST",
-            extraFields: { cto: input.ctoName },
-            timeoutMs: 8000,
-          });
-          const json = await res.json() as any;
-          const rawClients = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
-          const clients = rawClients.map((c: any) => ({
-            name: c.nome ?? c.login ?? c.name ?? `Cliente`,
-            serial: null,
-            status: c.status ?? c.situacao ?? null,
-            rx: null,
-            tx: null,
-            onu: null,
-            contrato: c.id ?? c.contrato ?? null,
-            raw: c,
-          }));
-          return { clients, error: null };
+          // Sem sgpId: retornar vazio (não há forma de buscar por nome)
+          return { clients: [], error: null };
         } catch (e: any) {
           return { clients: [], error: e.message ?? "Erro ao consultar SGP" };
         }
