@@ -2261,8 +2261,14 @@ ${fiberFolder}
                 // Nome do cliente vinculado à ONU
                 name: (o.service_cliente ?? null) || (o.description?.trim() || null),
                 login: o.service_login ?? o.login ?? null,
-                // Status: service_status 1=Ativo, connection pode ser "Online"/"Offline"
-                status: o.connection ?? (o.service_status === 1 ? "Ativo" : o.service_status != null ? "Inativo" : null),
+                // Status: connection=1 não retorna dados neste SGP
+                // Heurística: se info_rx tem valor numérico, ONU está online
+                status: (() => {
+                  if (o.connection != null) return o.connection;
+                  const rx = parseFloat(o.info_rx);
+                  if (!isNaN(rx)) return "Online";
+                  return "Offline";
+                })(),
                 phy_addr: o.phy_addr ?? null,          // MAC da ONU
                 onu: o.onuid ?? o.id ?? null,           // número da ONU na PON
                 slot: o.slot ?? null,

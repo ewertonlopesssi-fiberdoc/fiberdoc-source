@@ -1092,3 +1092,5 @@
 - [x] Actualizar UI desktop e mobile para exibir ONUs com serial, status (online/offline) e sinal óptico (RX/TX dBm)
 - [x] Mostrar sinal RX/TX, status Online/Offline e descrição da ONU no painel lateral da CTO (desktop e mobile)
 - [x] Badge de ONUs nos marcadores de CTO no mapa: onu_count do splitter/all como total, actualiza para X online/Y total após clique
+- [x] Corrigir badge de ONUs: campo connection não está a ser lido correctamente (mostra 0/3 em vez de 2/3)
+- [x] Adicionar bolinha verde/cinza ao lado do nome do cliente na lista de ONUs (indicador de status online/offline)
