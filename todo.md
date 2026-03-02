@@ -1067,3 +1067,4 @@
 - [ ] Botão "Relatório SGP PDF" no CtoDetail (desktop) e no PanelDetail do mobile
 - [ ] Gerar pacote de actualização v5.73
 - [x] Botão "Vincular ao SGP" no painel lateral da CTO no mapa (desktop e mobile) com dialog de selecção da CTO SGP correspondente
+- [x] Feedback visual de carregamento na lista de CTOs do SGP no dialog desktop e modal mobile

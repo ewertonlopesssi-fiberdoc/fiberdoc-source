@@ -2647,11 +2647,23 @@ export default function InfrastructureMap() {
               className="h-8 text-sm"
             />
             {sgpCtosQuery.isLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
-                <Loader2 className="w-4 h-4 animate-spin" /> Carregando CTOs do SGP...
+              <div className="border border-border rounded-md p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                  <span>A carregar CTOs do SGP...</span>
+                </div>
+                {[1, 2, 3, 4, 5].map(i => (
+                  <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded animate-pulse">
+                    <div className="h-3 bg-muted rounded flex-1" style={{ width: `${55 + i * 7}%`, opacity: 1 - i * 0.12 }} />
+                    <div className="h-3 bg-muted rounded w-8" />
+                  </div>
+                ))}
               </div>
             ) : sgpCtosQuery.data?.error ? (
-              <div className="text-sm text-red-400 py-2">{sgpCtosQuery.data.error}</div>
+              <div className="flex items-center gap-2 text-sm text-red-400 border border-red-500/20 bg-red-500/5 rounded-md px-3 py-2.5">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{sgpCtosQuery.data.error}</span>
+              </div>
             ) : (
               <div className="max-h-64 overflow-y-auto space-y-1 border border-border rounded-md p-1">
                 {((sgpCtosQuery.data?.ctos ?? []) as any[])
@@ -2669,7 +2681,9 @@ export default function InfrastructureMap() {
                       }`}
                       onClick={() => setLinkSgpSelectedId(c.id)}
                     >
-                      {linkSgpSelectedId === c.id && <Check className="w-3 h-3 text-cyan-400 flex-shrink-0" />}
+                      {linkSgpSelectedId === c.id
+                        ? <Check className="w-3 h-3 text-cyan-400 flex-shrink-0" />
+                        : <div className="w-3 h-3 flex-shrink-0" />}
                       <span className="flex-1 truncate font-medium">{c.ident ?? c.name ?? `CTO #${c.id}`}</span>
                       <span className="text-muted-foreground font-mono">#{c.id}</span>
                     </button>
@@ -2678,7 +2692,10 @@ export default function InfrastructureMap() {
                   const q = linkSgpSearch.toLowerCase();
                   return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
                 }).length === 0 && (
-                  <div className="text-xs text-muted-foreground text-center py-4">Nenhuma CTO encontrada</div>
+                  <div className="text-xs text-muted-foreground text-center py-6 flex flex-col items-center gap-1.5">
+                    <Users className="w-5 h-5 opacity-30" />
+                    {linkSgpSearch ? `Nenhuma CTO encontrada para "${linkSgpSearch}"` : "Nenhuma CTO disponível no SGP"}
+                  </div>
                 )}
               </div>
             )}
