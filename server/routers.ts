@@ -115,7 +115,7 @@ import {
   getTuyaReadingsByDevice, getLatestTuyaReadings,
 } from "./db";
 import { pollSingleTuyaDevice, testTuyaConnection, scheduleTuyaDevice, unscheduleTuyaDevice } from "./tuyaPoller";
-import { sgpCacheGet, sgpCacheInvalidateAll } from "./sgpCache";
+import { sgpCacheGet, sgpCacheInvalidateAll, sgpFetch } from "./sgpCache";
 import {
   getCtos, getCtoById, createCto, updateCto, deleteCto,
   getMapElements, upsertMapElement, deleteMapElement,
@@ -2247,11 +2247,10 @@ ${fiberFolder}
         if (!cfg || !cfg.active) return { clients: [], error: "SGP não configurado" };
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
-          const res = await fetch(`${base}/api/cliente/listar`, {
+          const res = await sgpFetch(`${base}/api/cliente/listar`, cfg, {
             method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams({ token: cfg.token, app: cfg.app, cto: input.ctoName }).toString(),
-            signal: AbortSignal.timeout(8000),
+            extraFields: { cto: input.ctoName },
+            timeoutMs: 8000,
           });
           const json = await res.json() as any;
           const clients = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
@@ -2270,10 +2269,7 @@ ${fiberFolder}
           const base = cfg.baseUrl.replace(/\/$/, "");
           // Testar conexão invalida o cache para forçar dados frescos
           sgpCacheInvalidateAll();
-          const res = await fetch(`${base}/api/fttx/splitter/all/`, {
-            headers: { token: cfg.token, app: cfg.app },
-            signal: AbortSignal.timeout(8000),
-          });
+          const res = await sgpFetch(`${base}/api/fttx/splitter/all/`, cfg, { timeoutMs: 8000 });
           if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
           return { ok: true, error: null };
         } catch (e: any) {
@@ -2289,10 +2285,7 @@ ${fiberFolder}
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
           const ctos = await sgpCacheGet("sgp:ctos", async () => {
-            const res = await fetch(`${base}/api/fttx/splitter/all/`, {
-              headers: { token: cfg.token, app: cfg.app },
-              signal: AbortSignal.timeout(15000),
-            });
+            const res = await sgpFetch(`${base}/api/fttx/splitter/all/`, cfg, { timeoutMs: 15000 });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json() as any;
             return Array.isArray(data) ? data : (data.results ?? data.data ?? []);
@@ -2343,15 +2336,14 @@ ${fiberFolder}
         if (!cfg || !cfg.active) return { ok: false, sgpId: null, error: "SGP não configurado" };
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
-          const body = new URLSearchParams({ token: cfg.token, app: cfg.app, ident: input.ident });
-          if (input.note) body.append("note", input.note);
-          if (input.lat) body.append("lat", input.lat);
-          if (input.lng) body.append("lng", input.lng);
-          const res = await fetch(`${base}/api/fttx/splitter/create/`, {
+          const createFields: Record<string, string> = { ident: input.ident };
+          if (input.note) createFields.note = input.note;
+          if (input.lat) createFields.lat = input.lat;
+          if (input.lng) createFields.lng = input.lng;
+          const res = await sgpFetch(`${base}/api/fttx/splitter/create/`, cfg, {
             method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: body.toString(),
-            signal: AbortSignal.timeout(10000),
+            extraFields: createFields,
+            timeoutMs: 10000,
           });
           if (!res.ok) return { ok: false, sgpId: null, error: `HTTP ${res.status}` };
           const data = await res.json() as any;
@@ -2370,10 +2362,7 @@ ${fiberFolder}
         if (!cfg || !cfg.active) return { onus: [], error: "SGP não configurado" };
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
-          const res = await fetch(`${base}/api/fttx/splitter/${input.sgpCtoId}/onu/list/`, {
-            headers: { token: cfg.token, app: cfg.app },
-            signal: AbortSignal.timeout(10000),
-          });
+          const res = await sgpFetch(`${base}/api/fttx/splitter/${input.sgpCtoId}/onu/list/`, cfg, { timeoutMs: 10000 });
           if (!res.ok) return { onus: [], error: `HTTP ${res.status}` };
           const data = await res.json() as any;
           const onus = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
@@ -2397,18 +2386,15 @@ ${fiberFolder}
         if (!cfg || !cfg.active) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "SGP não configurado" });
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
-          const body = new URLSearchParams({
-            token: cfg.token, app: cfg.app,
-            onu: String(input.onu),
-            slot: String(input.slot),
-            pon: String(input.pon),
-          });
-          if (input.contrato) body.append("contrato", String(input.contrato));
-          const res = await fetch(`${base}/api/fttx/olt/${input.oltId}/onu/authorize/`, {
+          const res = await sgpFetch(`${base}/api/fttx/olt/${input.oltId}/onu/authorize/`, cfg, {
             method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: body.toString(),
-            signal: AbortSignal.timeout(15000),
+            extraFields: {
+              onu: String(input.onu),
+              slot: String(input.slot),
+              pon: String(input.pon),
+              ...(input.contrato ? { contrato: String(input.contrato) } : {}),
+            },
+            timeoutMs: 15000,
           });
           if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `HTTP ${res.status}` });
           const data = await res.json();
@@ -2432,15 +2418,9 @@ ${fiberFolder}
         if (!cfg || !cfg.active) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "SGP não configurado" });
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
-          const qs = new URLSearchParams({
-            token: cfg.token, app: cfg.app,
-            onu: String(input.onu),
-            slot: String(input.slot),
-            pon: String(input.pon),
-          }).toString();
-          const res = await fetch(`${base}/api/fttx/olt/${input.oltId}/onu/reset/?${qs}`, {
-            headers: { token: cfg.token, app: cfg.app },
-            signal: AbortSignal.timeout(15000),
+          const res = await sgpFetch(`${base}/api/fttx/olt/${input.oltId}/onu/reset/`, cfg, {
+            extraFields: { onu: String(input.onu), slot: String(input.slot), pon: String(input.pon) },
+            timeoutMs: 15000,
           });
           if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `HTTP ${res.status}` });
           const data = await res.json();
@@ -2460,21 +2440,14 @@ ${fiberFolder}
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
           // Tenta endpoint de busca de clientes
-          const qs = new URLSearchParams({ token: cfg.token, app: cfg.app, q: input.query }).toString();
-          const res = await fetch(`${base}/api/clientes/?${qs}`, {
-            headers: { token: cfg.token, app: cfg.app },
-            signal: AbortSignal.timeout(8000),
-          });
+          const res = await sgpFetch(`${base}/api/clientes/`, cfg, { extraFields: { q: input.query }, timeoutMs: 8000 });
           if (res.ok) {
             const data = await res.json() as any;
             const clients = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
             return { clients, error: null };
           }
           // Fallback: endpoint de assinante
-          const res2 = await fetch(`${base}/api/assinante/?${qs}`, {
-            headers: { token: cfg.token, app: cfg.app },
-            signal: AbortSignal.timeout(8000),
-          });
+          const res2 = await sgpFetch(`${base}/api/assinante/`, cfg, { extraFields: { q: input.query }, timeoutMs: 8000 });
           if (res2.ok) {
             const data2 = await res2.json() as any;
             const clients = Array.isArray(data2) ? data2 : (data2.results ?? data2.data ?? []);
@@ -2494,10 +2467,7 @@ ${fiberFolder}
         try {
           // Buscar ONUs da CTO no SGP
           const base = cfg.baseUrl.replace(/\/$/, "");
-          const res = await fetch(`${base}/api/fttx/splitter/${input.sgpCtoId}/onu/list/`, {
-            headers: { token: cfg.token, app: cfg.app },
-            signal: AbortSignal.timeout(15000),
-          });
+          const res = await sgpFetch(`${base}/api/fttx/splitter/${input.sgpCtoId}/onu/list/`, cfg, { timeoutMs: 15000 });
           if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `SGP HTTP ${res.status}` });
           const data = await res.json() as any;
           const onus: any[] = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
@@ -2580,10 +2550,7 @@ ${fiberFolder}
           const base = cfg.baseUrl.replace(/\/$/, "");
           // Reutilizar cache da lista de CTOs (partilhado com listCtos)
           const sgpCtos: any[] = await sgpCacheGet("sgp:ctos", async () => {
-            const res = await fetch(`${base}/api/fttx/splitter/all/`, {
-              headers: { token: cfg.token, app: cfg.app },
-              signal: AbortSignal.timeout(15000),
-            });
+            const res = await sgpFetch(`${base}/api/fttx/splitter/all/`, cfg, { timeoutMs: 15000 });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json() as any;
             return Array.isArray(data) ? data : (data.results ?? data.data ?? []);

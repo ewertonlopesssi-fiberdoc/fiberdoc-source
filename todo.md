@@ -1083,3 +1083,4 @@
 - [ ] Interface de gestão do webhook na página de Integrações SGP
 - [x] Cache em memória (TTL 5min) nas procedures SGP para reduzir pedidos ao servidor externo
 - [x] Consulta ao SGP apenas sob demanda (botão Atualizar/Sincronizar) — sem consultas automáticas ao abrir página ou dialog
+- [x] Corrigir pedidos HTTP ao SGP: Authorization header + FormData com token e app=FIBERDOC
