@@ -145,9 +145,11 @@ const defaultSlotForm: SlotForm = {
 function PortGrid({
   ports,
   onEdit,
+  slots: slotMap = {},
 }: {
   ports: any[];
   onEdit: (port: any) => void;
+  slots?: Record<number, { slotNumber: string; label?: string }>;
 }) {
   if (ports.length === 0) {
     return (
@@ -190,6 +192,11 @@ function PortGrid({
               {portSpeed && (
                 <p className={`text-xs font-semibold mt-0.5 ${isHighSpeed ? "text-violet-300" : "text-muted-foreground/50"}`}>
                   {portSpeed.toUpperCase()}
+                </p>
+              )}
+              {(port as any).slotId && slotMap[(port as any).slotId] && (
+                <p className="text-[9px] text-blue-400/70 font-mono mt-0.5 truncate leading-tight">
+                  S{slotMap[(port as any).slotId].slotNumber}
                 </p>
               )}
             </button>
@@ -479,6 +486,9 @@ export default function Ports() {
       )
     : allPorts;
   const unslottedPorts = filteredPorts.filter(p => !(p as any).slotId);
+  // Mapa de slotId → { slotNumber, label } para badge nas portas
+  const slotMap: Record<number, { slotNumber: string; label?: string }> = {};
+  for (const s of slots) { slotMap[s.id] = { slotNumber: String(s.slotNumber), label: s.label ?? undefined }; }
 
   return (
     <div className="space-y-6 max-w-7xl">
@@ -582,6 +592,9 @@ export default function Ports() {
                       </Badge>
                     )}
                     <span className="text-muted-foreground/60">({slotPorts.length})</span>
+                    {slotPorts.some(p => !!(p as any).connectedToPortId) && (
+                      <span className="inline-flex items-center justify-center w-1.5 h-1.5 rounded-full bg-cyan-400 ml-0.5" title="Tem portas vinculadas" />
+                    )}
                   </TabsTrigger>
                 );
               })}
@@ -603,10 +616,11 @@ export default function Ports() {
             {slots.map(slot => {
               const slotPorts = filteredPorts.filter(p => (p as any).slotId === slot.id);
               if (searchTerm && slotPorts.length === 0) return null;
+              const linkedInSlot = slotPorts.filter(p => !!(p as any).connectedToPortId).length;
               return (
                 <div key={slot.id}>
-                  <SlotHeader slot={slot} onEdit={() => handleEditSlot(slot)} onDelete={() => setDeleteSlotId(slot.id)} isAdmin={isAdmin} />
-                  <PortGrid ports={slotPorts} onEdit={handleEditPort} />
+                  <SlotHeader slot={slot} onEdit={() => handleEditSlot(slot)} onDelete={() => setDeleteSlotId(slot.id)} isAdmin={isAdmin} linkedCount={linkedInSlot} />
+                  <PortGrid ports={slotPorts} onEdit={handleEditPort} slots={slotMap} />
                 </div>
               );
             })}
@@ -631,10 +645,11 @@ export default function Ports() {
           {/* Abas individuais por slot */}
           {slots.map(slot => {
             const slotPorts = filteredPorts.filter(p => (p as any).slotId === slot.id);
+            const linkedInSlotTab = slotPorts.filter(p => !!(p as any).connectedToPortId).length;
             return (
               <TabsContent key={slot.id} value={String(slot.id)} className="mt-0 space-y-4">
-                <SlotHeader slot={slot} onEdit={() => handleEditSlot(slot)} onDelete={() => setDeleteSlotId(slot.id)} isAdmin={isAdmin} />
-                <PortGrid ports={slotPorts} onEdit={handleEditPort} />
+                <SlotHeader slot={slot} onEdit={() => handleEditSlot(slot)} onDelete={() => setDeleteSlotId(slot.id)} isAdmin={isAdmin} linkedCount={linkedInSlotTab} />
+                <PortGrid ports={slotPorts} onEdit={handleEditPort} slots={slotMap} />
                 {slotPorts.length > 0 && <PortLegend />}
               </TabsContent>
             );
@@ -1066,7 +1081,7 @@ export default function Ports() {
 }
 
 // ─── SlotHeader ───────────────────────────────────────────────────────────────
-function SlotHeader({ slot, onEdit, onDelete, isAdmin }: { slot: any; onEdit: () => void; onDelete: () => void; isAdmin: boolean }) {
+function SlotHeader({ slot, onEdit, onDelete, isAdmin, linkedCount = 0 }: { slot: any; onEdit: () => void; onDelete: () => void; isAdmin: boolean; linkedCount?: number }) {
   return (
     <div className="flex items-center gap-3 mb-3">
       <div className="flex items-center gap-2">
@@ -1085,6 +1100,12 @@ function SlotHeader({ slot, onEdit, onDelete, isAdmin }: { slot: any; onEdit: ()
             {slot.portType && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-border/40 text-muted-foreground">
                 {PORT_TYPES_FLAT.find(t => t.value === slot.portType)?.label ?? slot.portType.toUpperCase()}
+              </Badge>
+            )}
+            {linkedCount > 0 && (
+              <Badge className="text-[10px] px-1.5 py-0 bg-cyan-500/15 border border-cyan-500/40 text-cyan-400 gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                {linkedCount} vinculada{linkedCount !== 1 ? "s" : ""}
               </Badge>
             )}
           </div>

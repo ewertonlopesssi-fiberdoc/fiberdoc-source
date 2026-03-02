@@ -1100,3 +1100,5 @@
 - [x] Pré-visualização KML antes de importar: tabela editável com nome, tipo e cor por elemento, com checkbox de selecção individual e global
 - [x] Selecção de slot no formulário de conexão de porta (desktop Ports.tsx e mobile MobileEquipments.tsx): após seleccionar o equipamento, aparece dropdown de slot para filtrar as portas disponíveis
 - [x] Corrigir importação KMZ: substituir parser manual de bytes ZIP por fflate (suporta compressão DEFLATE usada pelo Google Earth)
+- [x] Mostrar slot na listagem de portas: badge 'S{N}' em cada card de porta quando pertence a um slot (visível na aba Todas e nas abas individuais)
+- [x] Indicador visual de conexão no slot: badge ciano '2 vinculadas' no SlotHeader e ponto ciano nas abas de slot que têm portas com vínculo activo
