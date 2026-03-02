@@ -1109,13 +1109,42 @@ export default function InfrastructureMap() {
       const parser = new DOMParser();
       const doc = parser.parseFromString(kmlText!, "application/xml");
 
-      // Mapear styleUrl → href do ícone para detecção de tipo
+      // Mapear styleUrl → href do ícone e cor do LineStyle
       const styleIconMap: Record<string, string> = {};
+      const styleColorMap: Record<string, string> = {};
       doc.querySelectorAll("Style").forEach(style => {
         const id = style.getAttribute("id");
         const href = style.querySelector("IconStyle > Icon > href")?.textContent ?? "";
         if (id) styleIconMap["#" + id] = href.toLowerCase();
+        // Cor do LineStyle: formato KML é AABBGGRR, converter para #RRGGBB
+        const kmlColor = style.querySelector("LineStyle > color")?.textContent?.trim();
+        if (id && kmlColor && kmlColor.length === 8) {
+          const rr = kmlColor.slice(6, 8); const gg = kmlColor.slice(4, 6); const bb = kmlColor.slice(2, 4);
+          styleColorMap["#" + id] = `#${rr}${gg}${bb}`;
+        }
       });
+
+      // Converter cor KML inline (AABBGGRR) para HEX RGB
+      const kmlColorToHex = (kmlColor: string): string | null => {
+        if (!kmlColor || kmlColor.length !== 8) return null;
+        const rr = kmlColor.slice(6, 8); const gg = kmlColor.slice(4, 6); const bb = kmlColor.slice(2, 4);
+        return `#${rr}${gg}${bb}`;
+      };
+
+      // Extrair nome da fibra da descrição:
+      // Padrões suportados: "fibra X para CTO Y", "fibra X sentido CTO Y", "fibra X sent CEO Y"
+      const extractFiberName = (rawName: string, desc: string): string => {
+        // Regex: captura tudo antes de " para ", " sentido " ou " sent "
+        const pattern = /^(.+?)\s+(?:para|sentido|sent)\s+/i;
+        // Prioridade 1: nome do placemark
+        const namePara = rawName.match(pattern);
+        if (namePara) return namePara[1].trim();
+        // Prioridade 2: extrair da descrição
+        const descPara = desc.match(pattern);
+        if (descPara) return descPara[1].trim();
+        // Fallback: usar o nome completo
+        return rawName;
+      };
 
       // Função para detectar tipo de elemento
       const detectType = (pm: Element, folderName: string): "cto" | "ceo" | "cabo" | null => {
@@ -1178,7 +1207,16 @@ export default function InfrastructureMap() {
             }).filter(p => !isNaN(p.lat) && !isNaN(p.lng));
             if (pathPoints.length < 2) { skipped++; continue; }
             const pathStr = JSON.stringify(pathPoints);
-            await createRouteMut.mutateAsync({ name: name || `Cabo-KML-${added + 1}`, path: pathStr, fiberCount: 12, cableType: "FO", color: "#22d3ee" });
+            // Extrair nome da fibra da descrição ("fibra X para CTO Y" → "fibra X")
+            const desc = pm.querySelector("description")?.textContent?.trim() ?? "";
+            const fiberName = extractFiberName(name || `Cabo-KML-${added + 1}`, desc);
+            // Determinar cor: 1º inline ExtendedData/color, 2º LineStyle do estilo, 3º default cyan
+            const styleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
+            const inlineColor = pm.querySelector("LineStyle > color")?.textContent?.trim();
+            const cableColor = (inlineColor ? kmlColorToHex(inlineColor) : null)
+              ?? styleColorMap[styleUrl]
+              ?? "#22d3ee";
+            await createRouteMut.mutateAsync({ name: fiberName, path: pathStr, fiberCount: 12, cableType: "FO", color: cableColor });
             added++;
           } else {
             // Importar ponto (CTO ou CEO)
