@@ -138,6 +138,19 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
     return () => clearTimeout(t);
   }, [linkSgpSearch]);
 
+  // ─── Clientes SGP (mobile) ─────────────────────────────────────────────
+  const [sgpClients, setSgpClients] = useState<any[]>([]);
+  const [sgpClientsLoading, setSgpClientsLoading] = useState(false);
+  useEffect(() => {
+    if (!selectedCto?.sgpId || !isOnline()) { setSgpClients([]); return; }
+    setSgpClientsLoading(true);
+    client.sgp.queryClientsByCto.query({ ctoName: selectedCto.name ?? "", sgpId: selectedCto.sgpId })
+      .then((res: any) => { setSgpClients(res.clients ?? []); })
+      .catch(() => { setSgpClients([]); })
+      .finally(() => setSgpClientsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCto?.id, selectedCto?.sgpId]);
+
   // ─── Carregar dados ─────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -504,6 +517,30 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
                   </button>
                 )}
               </div>
+            </div>
+          )}
+          {/* Clientes SGP (apenas CTO com sgpId) */}
+          {panelType === "cto" && selectedCto?.sgpId && isOnline() && (
+            <div className="border-t border-zinc-800 pt-2">
+              <div className="flex items-center gap-1.5 text-xs text-zinc-400 mb-1.5">
+                <Users className="w-3.5 h-3.5" /> Clientes SGP
+              </div>
+              {sgpClientsLoading ? (
+                <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Consultando SGP...
+                </div>
+              ) : sgpClients.length > 0 ? (
+                <div className="space-y-1 max-h-28 overflow-y-auto">
+                  {sgpClients.map((c: any, i: number) => (
+                    <div key={i} className="text-xs flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                      <span className="truncate text-zinc-300">{c.name ?? c.login ?? c.nome ?? `Cliente ${i + 1}`}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-zinc-500">Nenhum cliente vinculado</div>
+              )}
             </div>
           )}
           {/* Botão Exportar PDF de Fusões */}

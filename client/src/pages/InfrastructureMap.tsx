@@ -557,8 +557,11 @@ export default function InfrastructureMap() {
   const deleteGroupMut = trpc.infraMap.deleteElement.useMutation();
   const deleteGroupRouteMut = trpc.infraMap.deleteRoute.useMutation();
   const sgpQuery = trpc.sgp.queryClientsByCto.useQuery(
-    { ctoName: sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? (sidePanel.element.name ?? "") : "" },
-    { enabled: sidePanel?.kind === "element" && sidePanel.element.type === "cto" && !!sidePanel.element.name }
+    {
+      ctoName: sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? (sidePanel.element.name ?? "") : "",
+      sgpId: sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? (sidePanel.element.sgpId ?? null) : null,
+    },
+    { enabled: sidePanel?.kind === "element" && sidePanel.element.type === "cto" && (!!sidePanel.element.sgpId || !!sidePanel.element.name) }
   );
   // Queries de tubos/vias para o painel lateral
   const sidePanelRefId = sidePanel?.kind === "element" ? sidePanel.element.referenceId : 0;

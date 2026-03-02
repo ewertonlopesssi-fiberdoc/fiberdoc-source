@@ -2241,12 +2241,24 @@ ${fiberFolder}
         return { ok: true };
       }),
     queryClientsByCto: protectedProcedure
-      .input(z.object({ ctoName: z.string() }))
+      .input(z.object({ ctoName: z.string(), sgpId: z.number().nullable().optional() }))
       .query(async ({ input }) => {
         const cfg = await getSgpConfig();
         if (!cfg || !cfg.active) return { clients: [], error: "SGP não configurado" };
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
+          // Se temos o sgpId, usar o endpoint directo do splitter
+          if (input.sgpId != null) {
+            const res = await sgpFetch(`${base}/api/fttx/splitter/${input.sgpId}/cliente/list/`, cfg, { timeoutMs: 10000 });
+            if (res.ok) {
+              const json = await res.json() as any;
+              const clients = Array.isArray(json) ? json : (json?.data ?? json?.results ?? json?.clientes ?? []);
+              return { clients, error: null };
+            }
+            // Fallback: tentar endpoint de cliente/listar com o nome
+          }
+          // Fallback: usar nome da CTO
+          if (!input.ctoName) return { clients: [], error: null };
           const res = await sgpFetch(`${base}/api/cliente/listar`, cfg, {
             method: "POST",
             extraFields: { cto: input.ctoName },

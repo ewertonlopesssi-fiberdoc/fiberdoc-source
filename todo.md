@@ -1084,3 +1084,7 @@
 - [x] Cache em memória (TTL 5min) nas procedures SGP para reduzir pedidos ao servidor externo
 - [x] Consulta ao SGP apenas sob demanda (botão Atualizar/Sincronizar) — sem consultas automáticas ao abrir página ou dialog
 - [x] Corrigir pedidos HTTP ao SGP: Authorization header + FormData com token e app=FIBERDOC
+- [ ] Corrigir queryClientsByCto para usar sgpId (ID do splitter) em vez do nome da CTO
+- [x] Corrigir queryClientsByCto para usar sgpId e endpoint directo do splitter
+- [x] Corrigir sgpFetch para usar POST com FormData em todos os pedidos SGP
+- [x] Exibir clientes SGP no painel mobile (MobileMap)
