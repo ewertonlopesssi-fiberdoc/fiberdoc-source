@@ -3,13 +3,15 @@
  * Evita pedidos repetidos ao servidor SGP e reduz o risco de bloqueio por rate-limit.
  * TTL padrão: 5 minutos (300 000 ms).
  */
+import { request as undiciRequest, FormData as UndiciFormData } from "undici";
 
 /**
  * Faz um pedido HTTP ao SGP com o formato confirmado pelo suporte:
- * - Header: Authorization: <token>
- * - Body: multipart/form-data com campos token e app (sempre, mesmo em GET via --request GET)
- * O cURL do suporte usa --request GET com --form, o que equivale a POST com body.
- * Por isso todos os pedidos ao SGP usam POST com FormData.
+ * curl --location --request GET <url> --header 'Authorization: <token>' --form 'token=...' --form 'app=...'
+ *
+ * O cURL --request GET com --form envia method=GET com body multipart/form-data.
+ * O fetch nativo do Node.js não permite GET com body, por isso usamos undici
+ * que replica exactamente o comportamento do cURL.
  */
 export async function sgpFetch(
   url: string,
@@ -19,19 +21,24 @@ export async function sgpFetch(
     extraFields?: Record<string, string>;
     timeoutMs?: number;
   } = {},
-): Promise<Response> {
-  const { extraFields = {}, timeoutMs = 15000 } = options;
-  // O SGP usa sempre POST com multipart/form-data (o --request GET do cURL com --form é na prática um POST)
-  const form = new FormData();
+): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> {
+  const { method = "GET", extraFields = {}, timeoutMs = 15000 } = options;
+  const form = new UndiciFormData();
   form.append("token", cfg.token);
   form.append("app", cfg.app);
   for (const [k, v] of Object.entries(extraFields)) form.append(k, v);
-  return fetch(url, {
-    method: "POST",
+  const { statusCode, body } = await undiciRequest(url, {
+    method,
     headers: { Authorization: cfg.token },
-    body: form,
-    signal: AbortSignal.timeout(timeoutMs),
+    body: form as any,
+    bodyTimeout: timeoutMs,
+    headersTimeout: timeoutMs,
   });
+  return {
+    ok: statusCode >= 200 && statusCode < 300,
+    status: statusCode,
+    json: () => body.json() as Promise<unknown>,
+  };
 }
 
 const SGP_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
