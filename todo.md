@@ -1079,3 +1079,6 @@
 - [x] Histórico de vínculos SGP na BD (tabela sgp_link_history)
 - [x] Botão "Sincronizar todos" com sugestões por semelhança de nome
 - [x] Script de actualização automática (cURL/shell)
+- [ ] Endpoint /api/sgp/auto-sync com token secreto para actualização automática de vínculos CTO ↔ SGP
+- [ ] Interface de gestão do webhook na página de Integrações SGP
+- [x] Cache em memória (TTL 5min) nas procedures SGP para reduzir pedidos ao servidor externo

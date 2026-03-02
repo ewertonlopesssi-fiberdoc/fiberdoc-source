@@ -115,6 +115,7 @@ import {
   getTuyaReadingsByDevice, getLatestTuyaReadings,
 } from "./db";
 import { pollSingleTuyaDevice, testTuyaConnection, scheduleTuyaDevice, unscheduleTuyaDevice } from "./tuyaPoller";
+import { sgpCacheGet, sgpCacheInvalidateAll } from "./sgpCache";
 import {
   getCtos, getCtoById, createCto, updateCto, deleteCto,
   getMapElements, upsertMapElement, deleteMapElement,
@@ -2236,6 +2237,7 @@ ${fiberFolder}
       }))
       .mutation(async ({ input }) => {
         await saveSgpConfig(input);
+        sgpCacheInvalidateAll(); // invalidar cache ao alterar configuração
         return { ok: true };
       }),
     queryClientsByCto: protectedProcedure
@@ -2266,6 +2268,8 @@ ${fiberFolder}
         if (!cfg || !cfg.active) return { ok: false, error: "SGP não configurado" };
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
+          // Testar conexão invalida o cache para forçar dados frescos
+          sgpCacheInvalidateAll();
           const res = await fetch(`${base}/api/fttx/splitter/all/`, {
             headers: { token: cfg.token, app: cfg.app },
             signal: AbortSignal.timeout(8000),
@@ -2284,13 +2288,15 @@ ${fiberFolder}
         if (!cfg || !cfg.active) return { ctos: [], error: "SGP não configurado" };
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
-          const res = await fetch(`${base}/api/fttx/splitter/all/`, {
-            headers: { token: cfg.token, app: cfg.app },
-            signal: AbortSignal.timeout(15000),
+          const ctos = await sgpCacheGet("sgp:ctos", async () => {
+            const res = await fetch(`${base}/api/fttx/splitter/all/`, {
+              headers: { token: cfg.token, app: cfg.app },
+              signal: AbortSignal.timeout(15000),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json() as any;
+            return Array.isArray(data) ? data : (data.results ?? data.data ?? []);
           });
-          if (!res.ok) return { ctos: [], error: `HTTP ${res.status}` };
-          const data = await res.json() as any;
-          const ctos = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
           return { ctos, error: null };
         } catch (e: any) {
           return { ctos: [], error: e.message ?? "Erro ao listar CTOs" };
@@ -2572,13 +2578,16 @@ ${fiberFolder}
         if (!cfg || !cfg.active) return { suggestions: [], error: "SGP não configurado" };
         try {
           const base = cfg.baseUrl.replace(/\/$/, "");
-          const res = await fetch(`${base}/api/fttx/splitter/all/`, {
-            headers: { token: cfg.token, app: cfg.app },
-            signal: AbortSignal.timeout(15000),
+          // Reutilizar cache da lista de CTOs (partilhado com listCtos)
+          const sgpCtos: any[] = await sgpCacheGet("sgp:ctos", async () => {
+            const res = await fetch(`${base}/api/fttx/splitter/all/`, {
+              headers: { token: cfg.token, app: cfg.app },
+              signal: AbortSignal.timeout(15000),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json() as any;
+            return Array.isArray(data) ? data : (data.results ?? data.data ?? []);
           });
-          if (!res.ok) return { suggestions: [], error: `HTTP ${res.status}` };
-          const data = await res.json() as any;
-          const sgpCtos: any[] = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
           const localCtos = await getCtos();
           // Normalizar nome para comparação: remover espaços, maiúsculas, caracteres especiais
           const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");

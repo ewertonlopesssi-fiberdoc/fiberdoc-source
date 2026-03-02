@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  FiberDoc — Script de Implantação v5.65
+#  FiberDoc — Script de Implantação v5.76
 #  Uso: bash deploy.sh [FIBERDOC_DIR] [FIBERDOC_SERVICE]
 #  Padrões: /opt/fiberdoc  e  fiberdoc
 # =============================================================================
@@ -13,7 +13,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "============================================================"
-echo "  FiberDoc — Implantação v5.65"
+echo "  FiberDoc — Implantação v5.76"
 echo "  Diretório: ${FIBERDOC_DIR}"
 echo "  Serviço:   ${FIBERDOC_SERVICE}"
 echo "  Data/Hora: $(date '+%d/%m/%Y %H:%M:%S')"
@@ -59,13 +59,15 @@ cp "${SCRIPT_DIR}/package.json" "${FIBERDOC_DIR}/package.json"
 [[ -f "${SCRIPT_DIR}/pnpm-lock.yaml" ]] && cp "${SCRIPT_DIR}/pnpm-lock.yaml" "${FIBERDOC_DIR}/pnpm-lock.yaml" || true
 echo "      Artefactos copiados."
 
-# ── 6. Instalar dependências de produção ─────────────────────────────────────
-echo "[4/6] Instalando dependências de produção ..."
+# ── 6. Instalar dependências ─────────────────────────────────────────────────
+# NOTA: o dist/index.js importa 'vite' no topo mesmo em produção (bundle esbuild),
+# por isso é necessário instalar TODAS as dependências (incluindo devDependencies).
+echo "[4/6] Instalando dependências ..."
 cd "${FIBERDOC_DIR}"
 if command -v pnpm &>/dev/null; then
-  pnpm install --prod --frozen-lockfile 2>&1 | tail -5
+  pnpm install --frozen-lockfile 2>&1 | tail -5
 elif command -v npm &>/dev/null; then
-  npm install --omit=dev 2>&1 | tail -5
+  npm install 2>&1 | tail -5
 else
   echo "[AVISO] pnpm/npm não encontrado — node_modules pode estar desatualizado."
 fi
@@ -162,6 +164,6 @@ fi
 
 echo ""
 echo "============================================================"
-echo "  FiberDoc v5.65 implantado com sucesso!"
+echo "  FiberDoc v5.76 implantado com sucesso!"
 echo "  Backup anterior: ${BACKUP_DIR}/fiberdoc_backup_${TIMESTAMP}.tar.gz"
 echo "============================================================"
