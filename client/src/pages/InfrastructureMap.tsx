@@ -120,15 +120,31 @@ const STATUS_COLOR: Record<string, string> = {
   active: "#22c55e", maintenance: "#f59e0b", inactive: "#ef4444",
 };
 
-function createLeafletIcon(type: "ceo" | "cto", status: string, name: string, selected = false) {
+function createLeafletIcon(
+  type: "ceo" | "cto",
+  status: string,
+  name: string,
+  selected = false,
+  onuBadge?: { total: number; online?: number } | null
+) {
   const color = STATUS_COLOR[status] ?? "#6b7280";
   const outline = selected ? "3px solid #22d3ee" : "3px solid white";
   const shape = type === "cto"
     ? `<rect x="3" y="3" width="18" height="18" rx="2" fill="white"/>`
     : `<circle cx="12" cy="12" r="7" fill="white"/>`;
   const safeName = name.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const iconHtml = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><div style="width:28px;height:28px;background:${color};border:${outline};border-radius:${type === "cto" ? "4px" : "50%"};box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;"><svg width="14" height="14" viewBox="0 0 24 24">${shape}</svg></div><div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div></div>`;
-  return L.divIcon({ html: iconHtml, className: "", iconSize: [80, 46], iconAnchor: [40, 14] });
+  // Badge de ONUs: verde se todos online, amarelo se parcial, cinza se só total
+  let badgeHtml = "";
+  if (type === "cto" && onuBadge && onuBadge.total > 0) {
+    const hasOnline = onuBadge.online != null;
+    const allOnline = hasOnline && onuBadge.online === onuBadge.total;
+    const noneOnline = hasOnline && onuBadge.online === 0;
+    const badgeColor = !hasOnline ? "rgba(100,116,139,0.9)" : allOnline ? "rgba(16,185,129,0.9)" : noneOnline ? "rgba(239,68,68,0.85)" : "rgba(234,179,8,0.9)";
+    const badgeText = hasOnline ? `${onuBadge.online}/${onuBadge.total}` : `${onuBadge.total}`;
+    badgeHtml = `<div style="background:${badgeColor};color:white;font-size:9px;font-weight:700;padding:0px 3px;border-radius:3px;margin-top:1px;white-space:nowrap;line-height:14px;">${badgeText}</div>`;
+  }
+  const iconHtml = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><div style="width:28px;height:28px;background:${color};border:${outline};border-radius:${type === "cto" ? "4px" : "50%"};box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;"><svg width="14" height="14" viewBox="0 0 24 24">${shape}</svg></div><div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>${badgeHtml}</div>`;
+  return L.divIcon({ html: iconHtml, className: "", iconSize: [80, onuBadge && onuBadge.total > 0 ? 58 : 46], iconAnchor: [40, 14] });
 }
 
 // Calcula distância em metros entre dois pontos (Haversine)
@@ -162,6 +178,20 @@ export default function InfrastructureMap() {
   const { data: ceosRaw = [], refetch: refetchCeos } = trpc.ceos.list.useQuery({});
   const ceos = ceosRaw as any[];
   const { data: sysConfig } = trpc.systemConfig.get.useQuery();
+  // Contagem de ONUs por sgpId (total do splitter/all, online actualizado após clique)
+  const { data: onuCountsData } = trpc.sgp.getOnuCounts.useQuery(undefined, { staleTime: 5 * 60 * 1000 });
+  // Estado local para guardar contagem online após cada consulta ao /onu/all/
+  const [onlineCounts, setOnlineCounts] = useState<Record<number, number>>({});
+  // Mapa sgpId → { total, online? } para passar ao createLeafletIcon
+  const onuCountMap = useMemo(() => {
+    const m: Record<number, { total: number; online?: number }> = {};
+    const counts = (onuCountsData as any)?.counts ?? {};
+    for (const [id, v] of Object.entries(counts)) {
+      const numId = Number(id);
+      m[numId] = { total: (v as any).total ?? 0, online: onlineCounts[numId] };
+    }
+    return m;
+  }, [onuCountsData, onlineCounts]);
 
   // Mapa de ocupação por routeId
   const occupancyMap = useMemo(() => {
@@ -563,6 +593,14 @@ export default function InfrastructureMap() {
     },
     { enabled: sidePanel?.kind === "element" && sidePanel.element.type === "cto" && (!!sidePanel.element.sgpId || !!sidePanel.element.name) }
   );
+  // Quando sgpQuery retorna, actualizar onlineCounts para o sgpId actual
+  useEffect(() => {
+    if (!sgpQuery.data?.clients?.length) return;
+    const currentSgpId = sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? (sidePanel.element.sgpId ?? null) : null;
+    if (currentSgpId == null) return;
+    const onlineCount = (sgpQuery.data.clients as any[]).filter((c: any) => String(c.status ?? "").toLowerCase() === "online").length;
+    setOnlineCounts(prev => ({ ...prev, [currentSgpId]: onlineCount }));
+  }, [sgpQuery.data, sidePanel]);
   // Queries de tubos/vias para o painel lateral
   const sidePanelRefId = sidePanel?.kind === "element" ? sidePanel.element.referenceId : 0;
   const sidePanelType = sidePanel?.kind === "element" ? sidePanel.element.type : null;
@@ -628,7 +666,10 @@ export default function InfrastructureMap() {
       const name = ref?.name ?? (isCto ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`);
       const status = ref?.status ?? "active";
       const isSelected = groupSelectedElements.has(el.id);
-      const icon = createLeafletIcon(el.type, status, name, isSelected);
+      // Badge de ONUs: usar sgpId da CTO para buscar contagem no onuCountMap
+      const sgpIdForBadge = isCto ? (ref?.sgpId ?? null) : null;
+      const onuBadgeData = sgpIdForBadge != null ? (onuCountMap[sgpIdForBadge] ?? null) : null;
+      const icon = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData);
       const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isAdmin }).addTo(mapRef.current!);
       if (isAdmin) {
         marker.on("dragend", () => {
@@ -648,7 +689,7 @@ export default function InfrastructureMap() {
       });
       markersRef.current[el.id] = marker;
     });
-  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin]);
+  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, onuCountMap]);
 
   // Renderizar rotas
   const renderRoutes = useCallback(() => {

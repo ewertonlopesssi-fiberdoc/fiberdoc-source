@@ -2259,7 +2259,7 @@ ${fiberFolder}
               const onus = Array.isArray(json) ? json : (json?.data ?? json?.results ?? []);
               const clients = onus.map((o: any) => ({
                 // Nome do cliente vinculado à ONU
-                name: o.service_cliente ?? (o.description?.trim() || null),
+                name: (o.service_cliente ?? null) || (o.description?.trim() || null),
                 login: o.service_login ?? o.login ?? null,
                 // Status: service_status 1=Ativo, connection pode ser "Online"/"Offline"
                 status: o.connection ?? (o.service_status === 1 ? "Ativo" : o.service_status != null ? "Inativo" : null),
@@ -2653,6 +2653,34 @@ ${fiberFolder}
         }
         return { ok: true, linked };
       }),
+    // ─── Contagem de ONUs por splitter (para badges no mapa) ──────────────────────
+    // Retorna { [sgpId]: { total, online } } para todas as CTOs vinculadas
+    // "total" vem do onu_count do splitter/all/ (zero chamadas extras)
+    // "online" é populado sob demanda quando queryClientsByCto é chamada
+    getOnuCounts: protectedProcedure
+      .query(async () => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { counts: {} };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const sgpCtos: any[] = await sgpCacheGet("sgp:ctos", async () => {
+            const res = await sgpFetch(`${base}/api/fttx/splitter/all/`, cfg, { timeoutMs: 15000 });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json() as any;
+            return Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+          });
+          const counts: Record<number, { total: number }> = {};
+          for (const s of sgpCtos) {
+            if (s.id != null) {
+              counts[s.id] = { total: s.onu_count ?? 0 };
+            }
+          }
+          return { counts };
+        } catch {
+          return { counts: {} };
+        }
+      }),
+
     // ─── IDs SGP já vinculados a CTOs locais (com nome da CTO local) ───────────────
     linkedSgpIds: protectedProcedure
       .query(async () => {
