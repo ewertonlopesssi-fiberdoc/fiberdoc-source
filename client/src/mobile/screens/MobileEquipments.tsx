@@ -103,8 +103,10 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
   const [portType, setPortType] = useState("");
   const [portSpeed, setPortSpeed] = useState("");
   const [portConnectedEqId, setPortConnectedEqId] = useState<number | null>(null);
+  const [portConnectedSlotId, setPortConnectedSlotId] = useState<number | null>(null);
   const [portConnectedPortId, setPortConnectedPortId] = useState<number | null>(null);
   const [connEqPorts, setConnEqPorts] = useState<Port[]>([]);
+  const [connEqSlots, setConnEqSlots] = useState<any[]>([]);
   const [maintenanceNote, setMaintenanceNote] = useState("");
   const [maintenanceType, setMaintenanceType] = useState("preventive");
   const [portSearch, setPortSearch] = useState("");
@@ -241,10 +243,15 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
 
   async function loadConnEqPorts(eqId: number) {
     try {
-      const data = await client.ports.byEquipment.query({ equipmentId: eqId });
-      setConnEqPorts(data as unknown as Port[]);
+      const [portsData, slotsData] = await Promise.all([
+        client.ports.byEquipment.query({ equipmentId: eqId }),
+        client.slots.byEquipment.query({ equipmentId: eqId }),
+      ]);
+      setConnEqPorts(portsData as unknown as Port[]);
+      setConnEqSlots(slotsData as any[]);
     } catch {
       setConnEqPorts([]);
+      setConnEqSlots([]);
     }
   }
 
@@ -654,6 +661,7 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
                             setPortType(port.type ?? "");
                             setPortSpeed(port.speed ?? "");
                             setPortConnectedEqId(port.connectedToEquipmentId ?? null);
+                            setPortConnectedSlotId(null);
                             setPortConnectedPortId(port.connectedToPortId ?? null);
                             setConnEqPorts([]);
                             setError(null);
@@ -823,9 +831,10 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
               onChange={async e => {
                 const id = e.target.value ? Number(e.target.value) : null;
                 setPortConnectedEqId(id);
+                setPortConnectedSlotId(null);
                 setPortConnectedPortId(null);
                 if (id) await loadConnEqPorts(id);
-                else setConnEqPorts([]);
+                else { setConnEqPorts([]); setConnEqSlots([]); }
               }}
               className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
             >
@@ -836,6 +845,24 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
             </select>
           </div>
 
+          {portConnectedEqId && connEqSlots.length > 0 && (
+            <div>
+              <label className="text-xs text-zinc-400 mb-1 block">Slot no Equipamento Vinculado</label>
+              <select
+                value={portConnectedSlotId ?? ""}
+                onChange={e => {
+                  setPortConnectedSlotId(e.target.value ? Number(e.target.value) : null);
+                  setPortConnectedPortId(null);
+                }}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
+              >
+                <option value="">Todos os slots</option>
+                {connEqSlots.map((s: any) => (
+                  <option key={s.id} value={s.id}>Slot {s.slotNumber}{s.label ? ` — ${s.label}` : ""}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {portConnectedEqId && connEqPorts.length > 0 && (
             <div>
               <label className="text-xs text-zinc-400 mb-1 block">Porta no Equipamento Vinculado</label>
@@ -845,7 +872,10 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
               >
                 <option value="">Nenhuma porta específica</option>
-                {connEqPorts.map(p => (
+                {(portConnectedSlotId
+                  ? connEqPorts.filter((p: any) => p.slotId === portConnectedSlotId)
+                  : connEqPorts
+                ).map(p => (
                   <option key={p.id} value={p.id}>Porta {p.portNumber}{p.label ? ` — ${p.label}` : ""} ({p.type?.toUpperCase()})</option>
                 ))}
               </select>

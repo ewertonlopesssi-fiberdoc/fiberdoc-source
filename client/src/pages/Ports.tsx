@@ -119,12 +119,13 @@ type PortForm = {
   slotId: string; // "" = sem slot
   sortOrder: string;
   connectedToEquipmentId: string; // "" = sem vínculo
+  connectedToSlotId: string;     // "" = sem filtro de slot
   connectedToPortId: string;     // "" = sem vínculo
 };
 
 const defaultPortForm: PortForm = {
   portNumber: "", label: "", type: "lc", speed: "", status: "free", notes: "", slotId: "", sortOrder: "0",
-  connectedToEquipmentId: "", connectedToPortId: "",
+  connectedToEquipmentId: "", connectedToSlotId: "", connectedToPortId: "",
 };
 
 type SlotForm = {
@@ -271,6 +272,14 @@ export default function Ports() {
     { equipmentId: connectedEquipmentId ?? 0 },
     { enabled: !!connectedEquipmentId && connectedEquipmentId !== equipmentId }
   );
+  const { data: connectedEquipmentSlots = [] } = trpc.slots.byEquipment.useQuery(
+    { equipmentId: connectedEquipmentId ?? 0 },
+    { enabled: !!connectedEquipmentId && connectedEquipmentId !== equipmentId }
+  );
+  // Portas filtradas pelo slot seleccionado (ou todas se nenhum slot)
+  const filteredConnectedPorts = portForm.connectedToSlotId
+    ? connectedEquipmentPorts.filter((p: any) => String(p.slotId) === portForm.connectedToSlotId)
+    : connectedEquipmentPorts;
 
   // ─── Mutations de Porta ───────────────────────────────────────────────────
   const createPortMutation = trpc.ports.create.useMutation({
@@ -360,6 +369,7 @@ export default function Ports() {
       slotId: port.slotId ? String(port.slotId) : "",
       sortOrder: String(port.sortOrder ?? 0),
       connectedToEquipmentId: port.connectedToEquipmentId ? String(port.connectedToEquipmentId) : "",
+      connectedToSlotId: "",
       connectedToPortId: port.connectedToPortId ? String(port.connectedToPortId) : "",
     });
     setPortDialogOpen(true);
@@ -742,7 +752,7 @@ export default function Ports() {
               </Label>
               <Select
                 value={portForm.connectedToEquipmentId || "__none__"}
-                onValueChange={v => setPortForm({ ...portForm, connectedToEquipmentId: v === "__none__" ? "" : v, connectedToPortId: "" })}
+                onValueChange={v => setPortForm({ ...portForm, connectedToEquipmentId: v === "__none__" ? "" : v, connectedToSlotId: "", connectedToPortId: "" })}
               >
                 <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Nenhum equipamento" /></SelectTrigger>
                 <SelectContent>
@@ -754,6 +764,22 @@ export default function Ports() {
                   ))}
                 </SelectContent>
               </Select>
+              {portForm.connectedToEquipmentId && connectedEquipmentSlots.length > 0 && (
+                <Select
+                  value={portForm.connectedToSlotId || "__none__"}
+                  onValueChange={v => setPortForm({ ...portForm, connectedToSlotId: v === "__none__" ? "" : v, connectedToPortId: "" })}
+                >
+                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Todos os slots" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Todos os slots</SelectItem>
+                    {(connectedEquipmentSlots as any[]).map((s: any) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        Slot {s.slotNumber}{s.label ? ` — ${s.label}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               {portForm.connectedToEquipmentId && (
                 <Select
                   value={portForm.connectedToPortId || "__none__"}
@@ -762,7 +788,7 @@ export default function Ports() {
                   <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione a porta" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">Nenhuma porta</SelectItem>
-                    {connectedEquipmentPorts.map((p: any) => (
+                    {(filteredConnectedPorts as any[]).map((p: any) => (
                       <SelectItem key={p.id} value={String(p.id)}>
                         Porta {p.portNumber}{p.label ? ` — ${p.label}` : ""}
                       </SelectItem>
