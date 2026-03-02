@@ -1068,3 +1068,6 @@
 - [ ] Gerar pacote de actualização v5.73
 - [x] Botão "Vincular ao SGP" no painel lateral da CTO no mapa (desktop e mobile) com dialog de selecção da CTO SGP correspondente
 - [x] Feedback visual de carregamento na lista de CTOs do SGP no dialog desktop e modal mobile
+- [x] Botão "Tentar novamente" no estado de erro do dialog Vincular ao SGP (desktop e mobile)
+- [x] Contagem de CTOs disponíveis no cabeçalho do dialog Vincular ao SGP
+- [x] Destaque visual para CTOs do SGP já vinculadas a outras CTOs locais

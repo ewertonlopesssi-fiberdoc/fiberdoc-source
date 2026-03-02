@@ -14,7 +14,7 @@ import {
   Radio, Box, Cable, Navigation, Users, Trash2,
   FileDown, MousePointer2, Search, Layers, Upload,
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
-  Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink
+  Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw
 } from "lucide-react";
 import L from "leaflet";
 
@@ -399,6 +399,7 @@ export default function InfrastructureMap() {
   const [linkSgpSearch, setLinkSgpSearch] = useState("");
   const [linkSgpSelectedId, setLinkSgpSelectedId] = useState<number | null>(null);
   const sgpCtosQuery = trpc.sgp.listCtos.useQuery(undefined, { enabled: linkSgpDialogOpen });
+  const linkedSgpIdsQuery = trpc.sgp.linkedSgpIds.useQuery(undefined, { enabled: linkSgpDialogOpen });
   const linkCtoToSgpMut = trpc.sgp.linkCtoToSgp.useMutation({
     onSuccess: () => {
       refetchCtos();
@@ -2634,6 +2635,12 @@ export default function InfrastructureMap() {
             <DialogTitle className="flex items-center gap-2">
               <Users className="w-4 h-4 text-cyan-400" />
               Vincular CTO ao SGP
+              {/* Contagem de CTOs disponíveis */}
+              {!sgpCtosQuery.isLoading && !sgpCtosQuery.data?.error && (
+                <span className="ml-auto text-[11px] font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                  {(sgpCtosQuery.data?.ctos ?? []).length} CTOs
+                </span>
+              )}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
@@ -2645,6 +2652,7 @@ export default function InfrastructureMap() {
               value={linkSgpSearch}
               onChange={e => setLinkSgpSearch(e.target.value)}
               className="h-8 text-sm"
+              disabled={sgpCtosQuery.isLoading}
             />
             {sgpCtosQuery.isLoading ? (
               <div className="border border-border rounded-md p-3 space-y-2">
@@ -2660,45 +2668,68 @@ export default function InfrastructureMap() {
                 ))}
               </div>
             ) : sgpCtosQuery.data?.error ? (
-              <div className="flex items-center gap-2 text-sm text-red-400 border border-red-500/20 bg-red-500/5 rounded-md px-3 py-2.5">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>{sgpCtosQuery.data.error}</span>
+              <div className="flex flex-col gap-2 border border-red-500/20 bg-red-500/5 rounded-md px-3 py-3">
+                <div className="flex items-center gap-2 text-sm text-red-400">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span className="flex-1">{sgpCtosQuery.data.error}</span>
+                </div>
+                <button
+                  className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 self-start"
+                  onClick={() => sgpCtosQuery.refetch()}
+                >
+                  <RefreshCw className="w-3 h-3" /> Tentar novamente
+                </button>
               </div>
-            ) : (
-              <div className="max-h-64 overflow-y-auto space-y-1 border border-border rounded-md p-1">
-                {((sgpCtosQuery.data?.ctos ?? []) as any[])
-                  .filter((c: any) => {
-                    const q = linkSgpSearch.toLowerCase();
-                    return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
-                  })
-                  .map((c: any) => (
-                    <button
-                      key={c.id}
-                      className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center gap-2 transition-colors ${
-                        linkSgpSelectedId === c.id
-                          ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
-                          : "hover:bg-muted/50"
-                      }`}
-                      onClick={() => setLinkSgpSelectedId(c.id)}
-                    >
-                      {linkSgpSelectedId === c.id
-                        ? <Check className="w-3 h-3 text-cyan-400 flex-shrink-0" />
-                        : <div className="w-3 h-3 flex-shrink-0" />}
-                      <span className="flex-1 truncate font-medium">{c.ident ?? c.name ?? `CTO #${c.id}`}</span>
-                      <span className="text-muted-foreground font-mono">#{c.id}</span>
-                    </button>
-                  ))}
-                {((sgpCtosQuery.data?.ctos ?? []) as any[]).filter((c: any) => {
-                  const q = linkSgpSearch.toLowerCase();
-                  return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
-                }).length === 0 && (
-                  <div className="text-xs text-muted-foreground text-center py-6 flex flex-col items-center gap-1.5">
-                    <Users className="w-5 h-5 opacity-30" />
-                    {linkSgpSearch ? `Nenhuma CTO encontrada para "${linkSgpSearch}"` : "Nenhuma CTO disponível no SGP"}
-                  </div>
-                )}
-              </div>
-            )}
+            ) : (() => {
+              const linkedIds = new Set(linkedSgpIdsQuery.data?.ids ?? []);
+              // Excluir o sgpId da CTO actual (para não marcar como já vinculada a si própria)
+              const currentSgpId = sidePanel?.kind === "element" ? sidePanel.element.sgpId : null;
+              if (currentSgpId) linkedIds.delete(currentSgpId);
+              const filtered = ((sgpCtosQuery.data?.ctos ?? []) as any[]).filter((c: any) => {
+                const q = linkSgpSearch.toLowerCase();
+                return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
+              });
+              return (
+                <div className="max-h-64 overflow-y-auto space-y-1 border border-border rounded-md p-1">
+                  {filtered.map((c: any) => {
+                    const alreadyLinked = linkedIds.has(c.id);
+                    const isSelected = linkSgpSelectedId === c.id;
+                    return (
+                      <button
+                        key={c.id}
+                        className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center gap-2 transition-colors ${
+                          isSelected
+                            ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                            : alreadyLinked
+                            ? "opacity-50 cursor-not-allowed"
+                            : "hover:bg-muted/50"
+                        }`}
+                        onClick={() => !alreadyLinked && setLinkSgpSelectedId(c.id)}
+                        disabled={alreadyLinked}
+                        title={alreadyLinked ? "Já vinculada a outra CTO local" : undefined}
+                      >
+                        {isSelected
+                          ? <Check className="w-3 h-3 text-cyan-400 flex-shrink-0" />
+                          : alreadyLinked
+                          ? <Link2 className="w-3 h-3 text-amber-400/60 flex-shrink-0" />
+                          : <div className="w-3 h-3 flex-shrink-0" />}
+                        <span className="flex-1 truncate font-medium">{c.ident ?? c.name ?? `CTO #${c.id}`}</span>
+                        {alreadyLinked && (
+                          <span className="text-[10px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded flex-shrink-0">vinculada</span>
+                        )}
+                        <span className="text-muted-foreground font-mono">#{c.id}</span>
+                      </button>
+                    );
+                  })}
+                  {filtered.length === 0 && (
+                    <div className="text-xs text-muted-foreground text-center py-6 flex flex-col items-center gap-1.5">
+                      <Users className="w-5 h-5 opacity-30" />
+                      {linkSgpSearch ? `Nenhuma CTO encontrada para "${linkSgpSearch}"` : "Nenhuma CTO disponível no SGP"}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setLinkSgpDialogOpen(false)}>Cancelar</Button>

@@ -2541,6 +2541,13 @@ ${fiberFolder}
         await updateCto(input.ctoId, { sgpId: null });
         return { ok: true };
       }),
+    // ─── IDs SGP já vinculados a CTOs locais ──────────────────────────────────
+    linkedSgpIds: protectedProcedure
+      .query(async () => {
+        const all = await getCtos();
+        const ids = all.filter(c => c.sgpId != null).map(c => c.sgpId as number);
+        return { ids };
+      }),
   }),
   // ─── Racks ────────────────────────────────────────────────────────────────────
   racks: router({

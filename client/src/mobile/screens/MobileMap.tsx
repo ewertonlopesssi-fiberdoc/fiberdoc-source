@@ -127,6 +127,8 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
   const [linkSgpCtos, setLinkSgpCtos] = useState<any[]>([]);
   const [linkSgpLoading, setLinkSgpLoading] = useState(false);
   const [linkSgpSaving, setLinkSgpSaving] = useState(false);
+  const [linkSgpError, setLinkSgpError] = useState<string | null>(null);
+  const [linkSgpLinkedIds, setLinkSgpLinkedIds] = useState<Set<number>>(new Set());
 
   // ─── Carregar dados ─────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -461,13 +463,29 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
                     onClick={async () => {
                       setLinkSgpSearch("");
                       setLinkSgpSelectedId(null);
+                      setLinkSgpError(null);
                       setLinkSgpLoading(true);
                       setLinkSgpOpen(true);
                       try {
-                        const res = await client.sgp.listCtos.query();
-                        setLinkSgpCtos((res as any).ctos ?? []);
-                      } catch { setLinkSgpCtos([]); }
-                      finally { setLinkSgpLoading(false); }
+                        const [ctosRes, linkedRes] = await Promise.all([
+                          client.sgp.listCtos.query(),
+                          client.sgp.linkedSgpIds.query(),
+                        ]);
+                        const ctosData = ctosRes as any;
+                        if (ctosData.error) {
+                          setLinkSgpError(ctosData.error);
+                          setLinkSgpCtos([]);
+                        } else {
+                          setLinkSgpCtos(ctosData.ctos ?? []);
+                        }
+                        const ids = (linkedRes as any).ids ?? [];
+                        // Excluir o sgpId da CTO actual
+                        const currentSgpId = selectedCto?.sgpId;
+                        setLinkSgpLinkedIds(new Set(ids.filter((id: number) => id !== currentSgpId)));
+                      } catch (e: any) {
+                        setLinkSgpError(e.message ?? "Erro ao carregar CTOs");
+                        setLinkSgpCtos([]);
+                      } finally { setLinkSgpLoading(false); }
                     }}
                   >
                     + Vincular ao SGP
@@ -1130,6 +1148,12 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
                 <div className="flex items-center gap-2">
                   <Users className="w-4 h-4 text-cyan-400" />
                   <span className="text-sm font-bold text-white">Vincular ao SGP</span>
+                  {/* Contagem de CTOs */}
+                  {!linkSgpLoading && !linkSgpError && linkSgpCtos.length > 0 && (
+                    <span className="text-[10px] text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded-full">
+                      {linkSgpCtos.length} CTOs
+                    </span>
+                  )}
                 </div>
                 <button onClick={() => setLinkSgpOpen(false)} className="text-zinc-500 hover:text-white">
                   <X className="w-4 h-4" />
@@ -1142,6 +1166,7 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
                 value={linkSgpSearch}
                 onChange={e => setLinkSgpSearch(e.target.value)}
                 className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none"
+                disabled={linkSgpLoading}
               />
               {linkSgpLoading ? (
                 <div className="flex-1 space-y-2 py-1">
@@ -1156,41 +1181,85 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div className="flex-1 overflow-y-auto space-y-1">
-                  {linkSgpCtos
-                    .filter((c: any) => {
-                      const q = linkSgpSearch.toLowerCase();
-                      return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
-                    })
-                    .map((c: any) => (
-                      <button
-                        key={c.id}
-                        className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2 transition-colors ${
-                          linkSgpSelectedId === c.id
-                            ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
-                            : "bg-zinc-900 border border-zinc-800 text-white"
-                        }`}
-                        onClick={() => setLinkSgpSelectedId(c.id)}
-                      >
-                        {linkSgpSelectedId === c.id
-                          ? <Check className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-                          : <div className="w-3.5 h-3.5 flex-shrink-0" />}
-                        <span className="flex-1 truncate font-medium">{c.ident ?? c.name ?? `CTO #${c.id}`}</span>
-                        <span className="text-zinc-500 font-mono text-[10px]">#{c.id}</span>
-                      </button>
-                    ))}
-                  {linkSgpCtos.filter((c: any) => {
-                    const q = linkSgpSearch.toLowerCase();
-                    return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
-                  }).length === 0 && (
-                    <div className="flex flex-col items-center gap-2 text-zinc-500 text-xs text-center py-8">
-                      <Users className="w-6 h-6 opacity-30" />
-                      {linkSgpSearch ? `Nenhuma CTO encontrada para "${linkSgpSearch}"` : "Nenhuma CTO disponível no SGP"}
-                    </div>
-                  )}
+              ) : linkSgpError ? (
+                <div className="flex-1 flex flex-col gap-3 items-center justify-center py-6">
+                  <div className="flex items-center gap-2 text-red-400 text-xs">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>{linkSgpError}</span>
+                  </div>
+                  <button
+                    className="flex items-center gap-1.5 text-xs text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 rounded-xl px-4 py-2"
+                    onClick={async () => {
+                      setLinkSgpError(null);
+                      setLinkSgpLoading(true);
+                      try {
+                        const [ctosRes, linkedRes] = await Promise.all([
+                          client.sgp.listCtos.query(),
+                          client.sgp.linkedSgpIds.query(),
+                        ]);
+                        const ctosData = ctosRes as any;
+                        if (ctosData.error) {
+                          setLinkSgpError(ctosData.error);
+                          setLinkSgpCtos([]);
+                        } else {
+                          setLinkSgpCtos(ctosData.ctos ?? []);
+                        }
+                        const ids = (linkedRes as any).ids ?? [];
+                        const currentSgpId = selectedCto?.sgpId;
+                        setLinkSgpLinkedIds(new Set(ids.filter((id: number) => id !== currentSgpId)));
+                      } catch (e: any) {
+                        setLinkSgpError(e.message ?? "Erro ao carregar CTOs");
+                      } finally { setLinkSgpLoading(false); }
+                    }}
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Tentar novamente
+                  </button>
                 </div>
-              )}
+              ) : (() => {
+                const filtered = linkSgpCtos.filter((c: any) => {
+                  const q = linkSgpSearch.toLowerCase();
+                  return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
+                });
+                return (
+                  <div className="flex-1 overflow-y-auto space-y-1">
+                    {filtered.map((c: any) => {
+                      const alreadyLinked = linkSgpLinkedIds.has(c.id);
+                      const isSelected = linkSgpSelectedId === c.id;
+                      return (
+                        <button
+                          key={c.id}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2 transition-colors ${
+                            isSelected
+                              ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                              : alreadyLinked
+                              ? "opacity-50 cursor-not-allowed bg-zinc-900 border border-zinc-800"
+                              : "bg-zinc-900 border border-zinc-800 text-white"
+                          }`}
+                          onClick={() => !alreadyLinked && setLinkSgpSelectedId(c.id)}
+                          disabled={alreadyLinked}
+                        >
+                          {isSelected
+                            ? <Check className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+                            : alreadyLinked
+                            ? <Link2 className="w-3.5 h-3.5 text-amber-400/60 flex-shrink-0" />
+                            : <div className="w-3.5 h-3.5 flex-shrink-0" />}
+                          <span className="flex-1 truncate font-medium">{c.ident ?? c.name ?? `CTO #${c.id}`}</span>
+                          {alreadyLinked && (
+                            <span className="text-[10px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded flex-shrink-0">vinculada</span>
+                          )}
+                          <span className="text-zinc-500 font-mono text-[10px]">#{c.id}</span>
+                        </button>
+                      );
+                    })}
+                    {filtered.length === 0 && (
+                      <div className="flex flex-col items-center gap-2 text-zinc-500 text-xs text-center py-8">
+                        <Users className="w-6 h-6 opacity-30" />
+                        {linkSgpSearch ? `Nenhuma CTO encontrada para "${linkSgpSearch}"` : "Nenhuma CTO disponível no SGP"}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <button
                 disabled={!linkSgpSelectedId || linkSgpSaving}
                 className="w-full py-3 rounded-xl text-sm font-semibold bg-cyan-600 text-white disabled:opacity-40 flex items-center justify-center gap-2"
