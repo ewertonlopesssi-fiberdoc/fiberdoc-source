@@ -85,10 +85,11 @@ export default function SgpConfig() {
 
   // ─── Sincronizar todos (sugestões automáticas) ────────────────────────────
   const [showSuggest, setShowSuggest] = useState(false);
+  const [suggestFetched, setSuggestFetched] = useState(false);
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<number>>(new Set());
   const [bulkLinking, setBulkLinking] = useState(false);
   const { data: suggestData, isLoading: loadingSuggest, refetch: refetchSuggest } =
-    trpc.sgp.suggestLinks.useQuery(undefined, { enabled: showSuggest && !!config?.active });
+    trpc.sgp.suggestLinks.useQuery(undefined, { enabled: suggestFetched && !!config?.active });
   const bulkLinkMut = trpc.sgp.bulkLink.useMutation({
     onSuccess: (r) => {
       setBulkLinking(false);
@@ -118,8 +119,9 @@ export default function SgpConfig() {
     bulkLinkMut.mutate({ links });
   };
 
+  const [ctosFetched, setCtosFetched] = useState(false);
   const { data: sgpCtosData, isLoading: loadingCtos, refetch: refetchCtos } =
-    trpc.sgp.listCtos.useQuery(undefined, { enabled: showCtos && !!config?.active });
+    trpc.sgp.listCtos.useQuery(undefined, { enabled: ctosFetched && !!config?.active });
 
   const { data: fiberCtos } = trpc.ctos.list.useQuery(undefined, { enabled: showCtos });
 
@@ -206,7 +208,11 @@ export default function SgpConfig() {
                 variant="outline"
                 size="sm"
                 className="gap-2"
-                onClick={() => { setShowCtos(v => !v); if (!showCtos) refetchCtos(); }}
+                onClick={() => {
+                  setShowCtos(v => !v);
+                  // Só busca ao SGP se ainda não foi carregado
+                  if (!showCtos && !ctosFetched) setCtosFetched(true);
+                }}
               >
                 <ArrowLeftRight className="w-4 h-4" />
                 {showCtos ? "Ocultar CTOs SGP" : "Sincronizar CTOs"}
@@ -232,7 +238,11 @@ export default function SgpConfig() {
               </div>
               <Button
                 variant="outline" size="sm" className="gap-2"
-                onClick={() => { setShowSuggest(v => !v); if (!showSuggest) refetchSuggest(); }}
+                onClick={() => {
+                  setShowSuggest(v => !v);
+                  // Só busca ao SGP se ainda não foi carregado
+                  if (!showSuggest && !suggestFetched) setSuggestFetched(true);
+                }}
               >
                 {showSuggest ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 {showSuggest ? "Ocultar sugestões" : "Ver sugestões"}

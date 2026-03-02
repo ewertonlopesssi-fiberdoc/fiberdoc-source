@@ -394,13 +394,15 @@ export default function InfrastructureMap() {
   // ─── Fusões pelo Mapa ─────────────────────────────────────────────────────
   const [fusionDialogOpen, setFusionDialogOpen] = useState(false);
   const [fusionPdfLoading, setFusionPdfLoading] = useState(false);
-  // ─── Vincular CTO ao SGP ──────────────────────────────────────────────────
+  // ─── Vincular CTO ao SGP ──────────────────────────────────────────────
   const [linkSgpDialogOpen, setLinkSgpDialogOpen] = useState(false);
+  const [linkSgpFetched, setLinkSgpFetched] = useState(false);
   const [linkSgpSearch, setLinkSgpSearch] = useState("");
   const [linkSgpSearchDebounced, setLinkSgpSearchDebounced] = useState("");
   const [linkSgpSelectedId, setLinkSgpSelectedId] = useState<number | null>(null);
-  const sgpCtosQuery = trpc.sgp.listCtos.useQuery(undefined, { enabled: linkSgpDialogOpen });
-  const linkedSgpIdsQuery = trpc.sgp.linkedSgpIds.useQuery(undefined, { enabled: linkSgpDialogOpen });
+  // On-demand: só consulta o SGP quando o utilizador abre o dialog pela primeira vez
+  const sgpCtosQuery = trpc.sgp.listCtos.useQuery(undefined, { enabled: linkSgpFetched });
+  const linkedSgpIdsQuery = trpc.sgp.linkedSgpIds.useQuery(undefined, { enabled: linkSgpFetched });
   // Debounce de 300ms na pesquisa SGP
   useEffect(() => {
     const t = setTimeout(() => setLinkSgpSearchDebounced(linkSgpSearch), 300);
@@ -1351,7 +1353,7 @@ export default function InfrastructureMap() {
                 ) : (
                   <button
                     className="text-[10px] text-cyan-400 hover:text-cyan-300 underline"
-                    onClick={() => { setLinkSgpSearch(""); setLinkSgpSelectedId(null); setLinkSgpDialogOpen(true); }}
+                    onClick={() => { setLinkSgpSearch(""); setLinkSgpSelectedId(null); setLinkSgpDialogOpen(true); setLinkSgpFetched(true); }}
                   >
                     + Vincular ao SGP
                   </button>

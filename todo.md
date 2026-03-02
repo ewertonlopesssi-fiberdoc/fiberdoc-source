@@ -1082,3 +1082,4 @@
 - [ ] Endpoint /api/sgp/auto-sync com token secreto para actualização automática de vínculos CTO ↔ SGP
 - [ ] Interface de gestão do webhook na página de Integrações SGP
 - [x] Cache em memória (TTL 5min) nas procedures SGP para reduzir pedidos ao servidor externo
+- [x] Consulta ao SGP apenas sob demanda (botão Atualizar/Sincronizar) — sem consultas automáticas ao abrir página ou dialog
