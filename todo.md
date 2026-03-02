@@ -1102,3 +1102,6 @@
 - [x] Corrigir importação KMZ: substituir parser manual de bytes ZIP por fflate (suporta compressão DEFLATE usada pelo Google Earth)
 - [x] Mostrar slot na listagem de portas: badge 'S{N}' em cada card de porta quando pertence a um slot (visível na aba Todas e nas abas individuais)
 - [x] Indicador visual de conexão no slot: badge ciano '2 vinculadas' no SlotHeader e ponto ciano nas abas de slot que têm portas com vínculo activo
+- [x] Corrigir exportação KMZ: substituir ZIP manual por fflate (erro 'e[l] is not a function')
+- [x] Corrigir exportação KMZ: suportar rotas importadas via KML (sem fromElementId/toElementId)
+- [x] Edição de traçado de linhas importadas via KML: startEditRoutePath suporta rotas sem elementos de origem/destino

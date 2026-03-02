@@ -997,12 +997,14 @@ export default function InfrastructureMap() {
   const startEditRoutePath = useCallback((route: MapRoute) => {
     if (!mapRef.current) return;
     // Montar path completo (fromEl + path + toEl)
+    // Suporta rotas importadas via KML (sem fromElementId/toElementId — apenas path)
     const fromEl = (elements as any[]).find((e: any) => e.id === route.fromElementId);
     const toEl   = (elements as any[]).find((e: any) => e.id === route.toElementId);
     const pts: { lat: number; lng: number }[] = [];
     if (fromEl) pts.push({ lat: Number(fromEl.lat), lng: Number(fromEl.lng) });
     if (route.path) { try { (JSON.parse(route.path) as any[]).forEach((p: any) => pts.push({ lat: p.lat, lng: p.lng })); } catch {} }
     if (toEl)   pts.push({ lat: Number(toEl.lat),   lng: Number(toEl.lng) });
+    if (pts.length < 2) { toast.error("Esta rota não tem traçado editável (sem pontos suficientes)"); return; }
     setEditingRouteId(route.id);
     setEditingRoutePath(pts);
     editingRoutePathRef.current = pts;
@@ -1010,6 +1012,7 @@ export default function InfrastructureMap() {
     snapToIdRef.current = route.toElementId ?? null;
     renderEditRouteMarkers(pts, route.color ?? "#22d3ee");
     setSidePanel(null);
+    toast.info("Arraste os pontos para editar o traçado. Clique duplo na linha para adicionar ponto. Clique direito num ponto para remover.", { duration: 5000 });
   }, [elements, renderEditRouteMarkers]);
 
   // Cancelar edição de traçado

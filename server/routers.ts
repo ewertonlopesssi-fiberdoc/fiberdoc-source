@@ -2040,15 +2040,20 @@ export const appRouter = router({
         const linemarks = routes.map((r: any) => {
           const fromEl = elements.find((e: any) => e.id === r.fromElementId);
           const toEl = elements.find((e: any) => e.id === r.toElementId);
-          if (!fromEl || !toEl) return "";
-          let coords = `${fromEl.lng},${fromEl.lat},0`;
+          // Suportar rotas importadas via KML (sem fromElementId/toElementId — apenas path)
+          let coords = "";
+          if (fromEl) coords += `${fromEl.lng},${fromEl.lat},0`;
           if (r.path) {
             try {
               const pts = JSON.parse(r.path) as { lat: number; lng: number }[];
-              coords += " " + pts.map(p => `${p.lng},${p.lat},0`).join(" ");
+              if (pts.length > 0) {
+                if (coords) coords += " ";
+                coords += pts.map(p => `${p.lng},${p.lat},0`).join(" ");
+              }
             } catch {}
           }
-          coords += ` ${toEl.lng},${toEl.lat},0`;
+          if (toEl) coords += (coords ? " " : "") + `${toEl.lng},${toEl.lat},0`;
+          if (!coords) return ""; // sem coordenadas, ignorar
           const color = (r.color ?? "#22d3ee").replace("#", "ff");
           return `  <Placemark>
     <name>${r.name ?? `Cabo ${r.id}`}</name>
@@ -2089,60 +2094,14 @@ ${linemarks}
 ${fiberFolder}
 </Document>
 </kml>`;
-        // KMZ = ZIP contendo doc.kml
+        // KMZ = ZIP contendo doc.kml (usando fflate para ZIP correcto)
         if (input.format === "kmz") {
-          const { createHash } = await import("crypto");
-          // Criar ZIP simples (sem compressão) com o KML
-          const kmlBuf = Buffer.from(kml, "utf-8");
-          const fileName = "doc.kml";
-          const fileNameBuf = Buffer.from(fileName);
-          // Local file header
-          const localHeader = Buffer.alloc(30 + fileNameBuf.length);
-          localHeader.writeUInt32LE(0x04034b50, 0); // signature
-          localHeader.writeUInt16LE(20, 4); // version needed
-          localHeader.writeUInt16LE(0, 6); // flags
-          localHeader.writeUInt16LE(0, 8); // compression: stored
-          localHeader.writeUInt16LE(0, 10); // mod time
-          localHeader.writeUInt16LE(0, 12); // mod date
-          const crc = (() => { let c = 0xFFFFFFFF; for (let i = 0; i < kmlBuf.length; i++) { c ^= kmlBuf[i]; for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (c & 1 ? 0xEDB88320 : 0); } return (c ^ 0xFFFFFFFF) >>> 0; })();
-          localHeader.writeUInt32LE(crc, 14); // crc32
-          localHeader.writeUInt32LE(kmlBuf.length, 18); // compressed size
-          localHeader.writeUInt32LE(kmlBuf.length, 22); // uncompressed size
-          localHeader.writeUInt16LE(fileNameBuf.length, 26); // filename length
-          localHeader.writeUInt16LE(0, 28); // extra field length
-          fileNameBuf.copy(localHeader, 30);
-          // Central directory
-          const centralDir = Buffer.alloc(46 + fileNameBuf.length);
-          centralDir.writeUInt32LE(0x02014b50, 0); // signature
-          centralDir.writeUInt16LE(20, 4); // version made by
-          centralDir.writeUInt16LE(20, 6); // version needed
-          centralDir.writeUInt16LE(0, 8); // flags
-          centralDir.writeUInt16LE(0, 10); // compression
-          centralDir.writeUInt16LE(0, 12); // mod time
-          centralDir.writeUInt16LE(0, 14); // mod date
-          centralDir.writeUInt32LE(crc, 16); // crc32
-          centralDir.writeUInt32LE(kmlBuf.length, 20); // compressed size
-          centralDir.writeUInt32LE(kmlBuf.length, 24); // uncompressed size
-          centralDir.writeUInt16LE(fileNameBuf.length, 28); // filename length
-          centralDir.writeUInt16LE(0, 30); // extra field length
-          centralDir.writeUInt16LE(0, 32); // comment length
-          centralDir.writeUInt16LE(0, 34); // disk number start
-          centralDir.writeUInt16LE(0, 36); // internal attributes
-          centralDir.writeUInt32LE(0, 38); // external attributes
-          centralDir.writeUInt32LE(0, 42); // relative offset of local header
-          fileNameBuf.copy(centralDir, 46);
-          // End of central directory
-          const eocd = Buffer.alloc(22);
-          eocd.writeUInt32LE(0x06054b50, 0); // signature
-          eocd.writeUInt16LE(0, 4); // disk number
-          eocd.writeUInt16LE(0, 6); // disk with central dir
-          eocd.writeUInt16LE(1, 8); // entries on disk
-          eocd.writeUInt16LE(1, 10); // total entries
-          eocd.writeUInt32LE(centralDir.length, 12); // central dir size
-          eocd.writeUInt32LE(localHeader.length + kmlBuf.length, 16); // central dir offset
-          eocd.writeUInt16LE(0, 20); // comment length
-          const kmzBuf = Buffer.concat([localHeader, kmlBuf, centralDir, eocd]);
-          return { kml, kmzBase64: kmzBuf.toString("base64"), format: "kmz" };
+          const { zipSync, strToU8 } = await import("fflate");
+          const kmlU8 = strToU8(kml);
+          // level:0 = stored (sem compressão) para máxima compatibilidade
+          const zipped = zipSync({ "doc.kml": [kmlU8, { level: 0 }] });
+          const kmzBase64 = Buffer.from(zipped).toString("base64");
+          return { kml, kmzBase64, format: "kmz" };
         }
         return { kml, kmzBase64: null, format: input.format };
       }),
