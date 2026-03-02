@@ -1988,6 +1988,43 @@ export const appRouter = router({
         await updateMapRoute(id, data);
         return { ok: true };
       }),
+    splitRoute: adminProcedure
+      .input(z.object({
+        id: z.number(),                    // rota a dividir
+        splitPointIndex: z.number().int(), // índice do ponto no path onde dividir
+        elementId: z.number(),             // CEO/CTO a inserir no ponto de divisão
+      }))
+      .mutation(async ({ input }) => {
+        const { id, splitPointIndex, elementId } = input;
+        // Buscar rota original
+        const routes = await getMapRoutes();
+        const route = routes.find(r => r.id === id);
+        if (!route) throw new TRPCError({ code: "NOT_FOUND", message: "Rota não encontrada" });
+        const path: Array<{ lat: number; lng: number }> = route.path ? JSON.parse(route.path) : [];
+        if (path.length < 2) throw new TRPCError({ code: "BAD_REQUEST", message: "Traçado insuficiente para dividir" });
+        const clampedIdx = Math.max(1, Math.min(splitPointIndex, path.length - 2));
+        // Segmento 1: do início até o ponto de divisão
+        const path1 = path.slice(0, clampedIdx + 1);
+        // Segmento 2: do ponto de divisão até o fim
+        const path2 = path.slice(clampedIdx);
+        // Actualizar rota original com o primeiro segmento
+        await updateMapRoute(id, {
+          path: JSON.stringify(path1),
+          toElementId: elementId,
+        });
+        // Criar nova rota com o segundo segmento
+        const newId = await createMapRoute({
+          name: route.name ? `${route.name} (2)` : undefined,
+          fromElementId: elementId,
+          toElementId: route.toElementId ?? undefined,
+          fiberCount: route.fiberCount ?? 12,
+          cableType: route.cableType ?? "FO",
+          color: route.color ?? "#22d3ee",
+          path: JSON.stringify(path2),
+          notes: route.notes ?? undefined,
+        } as any);
+        return { ok: true, newRouteId: newId };
+      }),
     deleteRoute: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {

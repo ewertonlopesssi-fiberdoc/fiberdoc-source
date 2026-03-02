@@ -292,6 +292,7 @@ export default function InfrastructureMap() {
   const [kmlPreviewItems, setKmlPreviewItems] = useState<KmlPreviewItem[]>([]);
   const [kmlPreviewOpen, setKmlPreviewOpen] = useState(false);
   const [kmlImportingPreview, setKmlImportingPreview] = useState(false);
+  const [kmlPreviewFilter, setKmlPreviewFilter] = useState<"all" | "cto" | "ceo" | "cabo">("all");
 
   // ─── Edição de Traçado de Cabo ────────────────────────────────────────────
   const [editingRouteId, setEditingRouteId] = useState<number | null>(null);
@@ -312,6 +313,18 @@ export default function InfrastructureMap() {
   const [editRouteForm, setEditRouteForm] = useState({ name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: "", fromElementId: null as number | null, toElementId: null as number | null, fromTubeId: null as number | null, toTubeId: null as number | null });
   const [fromSearch, setFromSearch] = useState("");
   const [toSearch, setToSearch] = useState("");
+  // Dividir cabo no meio
+  const [splitRouteOpen, setSplitRouteOpen] = useState(false);
+  const [splitRoutePointIdx, setSplitRoutePointIdx] = useState<number | null>(null);
+  const [splitRouteSearch, setSplitRouteSearch] = useState("");
+  const [splitRouteSelectedEl, setSplitRouteSelectedEl] = useState<number | null>(null);
+  // Associar extremos de cabos importados a equipamentos
+  const [linkEndpointsOpen, setLinkEndpointsOpen] = useState(false);
+  const [linkEndpointsRouteId, setLinkEndpointsRouteId] = useState<number | null>(null);
+  const [linkEndpointsFrom, setLinkEndpointsFrom] = useState<number | null>(null);
+  const [linkEndpointsTo, setLinkEndpointsTo] = useState<number | null>(null);
+  const [linkEndpointsFromSearch, setLinkEndpointsFromSearch] = useState("");
+  const [linkEndpointsToSearch, setLinkEndpointsToSearch] = useState("");
 
   // Grupos/Pastas
   const { data: mapGroups = [], refetch: refetchGroups } = trpc.mapGroups.list.useQuery();
@@ -596,6 +609,17 @@ export default function InfrastructureMap() {
   const createRouteMut = trpc.infraMap.createRoute.useMutation({
     onSuccess: () => { refetchRoutes(); setRouteDialogOpen(false); setRouteFrom(null); setAddingRouteMode(false); toast.success("Rota criada"); },
     onError: (e) => toast.error(e.message),
+  });
+  const splitRouteMut = trpc.infraMap.splitRoute.useMutation({
+    onSuccess: () => {
+      refetchRoutes();
+      refetchElements();
+      toast.success("Cabo dividido com sucesso");
+      setSplitRouteOpen(false);
+      setSplitRoutePointIdx(null);
+      cancelEditRoutePath();
+    },
+    onError: (e) => toast.error(e.message ?? "Erro ao dividir cabo"),
   });
   const deleteRouteMut = trpc.infraMap.deleteRoute.useMutation({
     onSuccess: () => { refetchRoutes(); setDeleteRouteId(null); setSidePanel(null); toast.success("Rota excluída"); },
@@ -1445,7 +1469,7 @@ export default function InfrastructureMap() {
             );
           })()}
           {isAdmin && (
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button variant="outline" size="sm" className="flex-1 gap-2" onClick={() => {
                 setEditRouteForm({ name: r.name ?? "", cableType: r.cableType ?? "FO", fiberCount: r.fiberCount ?? 12, color: r.color ?? "#22d3ee", notes: r.notes ?? "", fromElementId: r.fromElementId ?? null, toElementId: r.toElementId ?? null, fromTubeId: (r as any).fromTubeId ?? null, toTubeId: (r as any).toTubeId ?? null });
                 setEditRouteDialogOpen(true);
@@ -1453,6 +1477,18 @@ export default function InfrastructureMap() {
               <Button variant="outline" size="sm" className="flex-1 gap-2 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10" onClick={() => startEditRoutePath(r)}>
                 <Cable className="w-3.5 h-3.5" /> Traçado
               </Button>
+              {(!r.fromElementId || !r.toElementId) && (
+                <Button variant="outline" size="sm" className="flex-1 gap-2 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10 min-w-full" onClick={() => {
+                  setLinkEndpointsRouteId(r.id);
+                  setLinkEndpointsFrom((r.fromElementId as any) ?? null);
+                  setLinkEndpointsTo((r.toElementId as any) ?? null);
+                  setLinkEndpointsFromSearch("");
+                  setLinkEndpointsToSearch("");
+                  setLinkEndpointsOpen(true);
+                }}>
+                  <span className="text-xs">🔗</span> Associar Equipamentos
+                </Button>
+              )}
             </div>
           )}
           {/* Seletor de Grupo */}
@@ -1894,6 +1930,19 @@ export default function InfrastructureMap() {
             <span className="font-semibold">Editando traçado</span> — Arraste os pontos para mover. Clique no ponto semitransparente entre dois vértices para inserir. Duplo clique em um vértice intermediário para remover.
             <span className="ml-2 text-amber-300">{editingRoutePath.length} pontos</span>
           </span>
+          <button
+            onClick={() => {
+              if (editingRoutePath.length < 3) {
+                toast.error("Adicione pelo menos 3 pontos ao traçado para poder dividir");
+                return;
+              }
+              setSplitRoutePointIdx(Math.floor(editingRoutePath.length / 2));
+              setSplitRouteSearch("");
+              setSplitRouteSelectedEl(null);
+              setSplitRouteOpen(true);
+            }}
+            className="bg-purple-600 text-white px-3 py-0.5 rounded text-xs hover:bg-purple-500 font-semibold flex-shrink-0"
+          >✂ Dividir Cabo</button>
           <button
             onClick={saveEditRoutePath}
             className="bg-amber-500 text-white px-3 py-0.5 rounded text-xs hover:bg-amber-400 font-semibold flex-shrink-0"
@@ -2395,8 +2444,203 @@ export default function InfrastructureMap() {
         </DialogContent>
       </Dialog>
 
+      {/* ─── Diálogo de Divisão de Cabo ────────────────────────────────────── */}
+      <Dialog open={splitRouteOpen} onOpenChange={v => { if (!v) setSplitRouteOpen(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="text-purple-400">✂</span>
+              Dividir Cabo no Ponto {splitRoutePointIdx !== null ? splitRoutePointIdx + 1 : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="text-xs text-muted-foreground mb-3">
+            O cabo será dividido em dois segmentos. Seleccione o equipamento (CEO/CTO) a inserir no ponto de divisão.
+            O ponto de divisão pode ser ajustado arrastando os vértices no mapa antes de clicar em "Dividir Cabo".
+          </div>
+          {editingRoutePath.length >= 3 && splitRoutePointIdx !== null && (
+            <div className="mb-3 p-2 bg-muted/30 rounded text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Ponto de divisão:</span> vértice {splitRoutePointIdx + 1} de {editingRoutePath.length}
+              <div className="flex items-center gap-2 mt-1.5">
+                <button disabled={splitRoutePointIdx <= 1} onClick={() => setSplitRoutePointIdx(p => p !== null ? Math.max(1, p - 1) : p)}
+                  className="px-2 py-0.5 bg-muted rounded text-xs disabled:opacity-40 hover:bg-muted/80">◀</button>
+                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: `${((splitRoutePointIdx) / (editingRoutePath.length - 1)) * 100}%` }} />
+                </div>
+                <button disabled={splitRoutePointIdx >= editingRoutePath.length - 2} onClick={() => setSplitRoutePointIdx(p => p !== null ? Math.min(editingRoutePath.length - 2, p + 1) : p)}
+                  className="px-2 py-0.5 bg-muted rounded text-xs disabled:opacity-40 hover:bg-muted/80">▶</button>
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Equipamento no ponto de divisão *</label>
+            <input
+              type="text"
+              placeholder="Buscar CEO/CTO..."
+              value={splitRouteSearch}
+              onChange={e => setSplitRouteSearch(e.target.value)}
+              className="w-full bg-muted/50 border border-border rounded px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary mb-1.5"
+            />
+            <div className="max-h-40 overflow-y-auto rounded border border-border bg-muted/20 space-y-0.5 p-1">
+              {(elements as any[])
+                .filter((e: any) => !splitRouteSearch || (e.name ?? "").toLowerCase().includes(splitRouteSearch.toLowerCase()))
+                .slice(0, 25)
+                .map((e: any) => (
+                  <button
+                    key={e.id}
+                    className={`w-full text-left px-2 py-1 rounded text-xs transition-colors ${splitRouteSelectedEl === e.id ? "bg-purple-500/30 text-purple-300" : "hover:bg-muted/50 text-foreground"}`}
+                    onClick={() => setSplitRouteSelectedEl(e.id)}
+                  >
+                    <span className={`inline-block w-2 h-2 rounded-sm mr-1.5 ${e.type === "cto" ? "bg-purple-400" : "bg-blue-400"}`} />
+                    {e.name ?? `Elemento ${e.id}`}
+                    <span className="text-muted-foreground ml-1 text-[10px]">{e.type?.toUpperCase()}</span>
+                  </button>
+                ))}
+            </div>
+            {splitRouteSelectedEl !== null && (
+              <div className="text-[10px] text-purple-400 mt-1">
+                ✓ {(elements as any[]).find((e: any) => e.id === splitRouteSelectedEl)?.name ?? `Elemento ${splitRouteSelectedEl}`}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setSplitRouteOpen(false)}>Cancelar</Button>
+            <Button
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+              disabled={splitRouteSelectedEl === null || splitRoutePointIdx === null || splitRouteMut.isPending}
+              onClick={() => {
+                if (!editingRouteId || splitRoutePointIdx === null || splitRouteSelectedEl === null) return;
+                splitRouteMut.mutate({
+                  id: editingRouteId,
+                  splitPointIndex: splitRoutePointIdx,
+                  elementId: splitRouteSelectedEl,
+                });
+              }}
+            >
+              {splitRouteMut.isPending ? <><span className="animate-spin mr-1">⟳</span> Dividindo...</> : <>✂ Dividir Cabo</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Diálogo de Associação de Extremos de Cabo ─────────────────────── */}
+      <Dialog open={linkEndpointsOpen} onOpenChange={v => { if (!v) { setLinkEndpointsOpen(false); setLinkEndpointsRouteId(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Cable className="w-4 h-4 text-emerald-400" />
+              Associar Equipamentos ao Cabo
+            </DialogTitle>
+          </DialogHeader>
+          <div className="text-xs text-muted-foreground mb-4">
+            Seleccione os equipamentos (CEO/CTO) a ligar aos extremos deste cabo. Pode deixar um extremo sem equipamento.
+          </div>
+          <div className="space-y-4">
+            {/* Extremo Origem */}
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Extremo Origem (Início)</label>
+              <input
+                type="text"
+                placeholder="Buscar CEO/CTO..."
+                value={linkEndpointsFromSearch}
+                onChange={e => setLinkEndpointsFromSearch(e.target.value)}
+                className="w-full bg-muted/50 border border-border rounded px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary mb-1.5"
+              />
+              <div className="max-h-32 overflow-y-auto rounded border border-border bg-muted/20 space-y-0.5 p-1">
+                <button
+                  className={`w-full text-left px-2 py-1 rounded text-xs transition-colors ${linkEndpointsFrom === null ? "bg-primary/20 text-primary" : "hover:bg-muted/50 text-muted-foreground"}`}
+                  onClick={() => setLinkEndpointsFrom(null)}
+                >
+                  — Sem equipamento
+                </button>
+                {(elements as any[])
+                  .filter((e: any) => !linkEndpointsFromSearch || (e.name ?? "").toLowerCase().includes(linkEndpointsFromSearch.toLowerCase()))
+                  .slice(0, 20)
+                  .map((e: any) => (
+                    <button
+                      key={e.id}
+                      className={`w-full text-left px-2 py-1 rounded text-xs transition-colors ${linkEndpointsFrom === e.id ? "bg-emerald-500/20 text-emerald-400" : "hover:bg-muted/50 text-foreground"}`}
+                      onClick={() => setLinkEndpointsFrom(e.id)}
+                    >
+                      <span className={`inline-block w-2 h-2 rounded-sm mr-1.5 ${e.type === "cto" ? "bg-purple-400" : "bg-blue-400"}`} />
+                      {e.name ?? `Elemento ${e.id}`}
+                      <span className="text-muted-foreground ml-1 text-[10px]">{e.type?.toUpperCase()}</span>
+                    </button>
+                  ))}
+              </div>
+              {linkEndpointsFrom !== null && (
+                <div className="text-[10px] text-emerald-400 mt-1">
+                  ✓ {(elements as any[]).find((e: any) => e.id === linkEndpointsFrom)?.name ?? `Elemento ${linkEndpointsFrom}`}
+                </div>
+              )}
+            </div>
+            {/* Extremo Destino */}
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Extremo Destino (Fim)</label>
+              <input
+                type="text"
+                placeholder="Buscar CEO/CTO..."
+                value={linkEndpointsToSearch}
+                onChange={e => setLinkEndpointsToSearch(e.target.value)}
+                className="w-full bg-muted/50 border border-border rounded px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:border-primary mb-1.5"
+              />
+              <div className="max-h-32 overflow-y-auto rounded border border-border bg-muted/20 space-y-0.5 p-1">
+                <button
+                  className={`w-full text-left px-2 py-1 rounded text-xs transition-colors ${linkEndpointsTo === null ? "bg-primary/20 text-primary" : "hover:bg-muted/50 text-muted-foreground"}`}
+                  onClick={() => setLinkEndpointsTo(null)}
+                >
+                  — Sem equipamento
+                </button>
+                {(elements as any[])
+                  .filter((e: any) => !linkEndpointsToSearch || (e.name ?? "").toLowerCase().includes(linkEndpointsToSearch.toLowerCase()))
+                  .slice(0, 20)
+                  .map((e: any) => (
+                    <button
+                      key={e.id}
+                      className={`w-full text-left px-2 py-1 rounded text-xs transition-colors ${linkEndpointsTo === e.id ? "bg-emerald-500/20 text-emerald-400" : "hover:bg-muted/50 text-foreground"}`}
+                      onClick={() => setLinkEndpointsTo(e.id)}
+                    >
+                      <span className={`inline-block w-2 h-2 rounded-sm mr-1.5 ${e.type === "cto" ? "bg-purple-400" : "bg-blue-400"}`} />
+                      {e.name ?? `Elemento ${e.id}`}
+                      <span className="text-muted-foreground ml-1 text-[10px]">{e.type?.toUpperCase()}</span>
+                    </button>
+                  ))}
+              </div>
+              {linkEndpointsTo !== null && (
+                <div className="text-[10px] text-emerald-400 mt-1">
+                  ✓ {(elements as any[]).find((e: any) => e.id === linkEndpointsTo)?.name ?? `Elemento ${linkEndpointsTo}`}
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setLinkEndpointsOpen(false)}>Cancelar</Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={linkEndpointsFrom === null && linkEndpointsTo === null}
+              onClick={() => {
+                if (!linkEndpointsRouteId) return;
+                updateRoutePathMut.mutate({
+                  id: linkEndpointsRouteId,
+                  fromElementId: linkEndpointsFrom ?? undefined,
+                  toElementId: linkEndpointsTo ?? undefined,
+                }, {
+                  onSuccess: () => {
+                    toast.success("Extremos associados com sucesso");
+                    setLinkEndpointsOpen(false);
+                    setLinkEndpointsRouteId(null);
+                  },
+                  onError: (e) => toast.error(e.message ?? "Erro ao associar extremos"),
+                });
+              }}
+            >
+              <span className="text-xs mr-1">🔗</span> Associar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ─── Diálogo de Pré-visualização KML ─────────────────────────────────── */}
-      <Dialog open={kmlPreviewOpen} onOpenChange={v => { if (!v && !kmlImportingPreview) { setKmlPreviewOpen(false); setKmlPreviewItems([]); } }}>
+      <Dialog open={kmlPreviewOpen} onOpenChange={v => { if (!v && !kmlImportingPreview) { setKmlPreviewOpen(false); setKmlPreviewItems([]); setKmlPreviewFilter("all"); } }}>
         <DialogContent className="max-w-3xl h-[90vh] flex flex-col overflow-hidden p-0">
           <div className="flex flex-col h-full overflow-hidden px-6 pt-6 pb-4">
           <DialogHeader className="flex-shrink-0">
@@ -2409,7 +2653,27 @@ export default function InfrastructureMap() {
             </DialogTitle>
           </DialogHeader>
           <div className="text-xs text-muted-foreground mt-2 mb-3 flex-shrink-0">
-            Verifique os elementos detectados. Pode corrigir o tipo de cada elemento antes de confirmar a importação.
+            Verifique os elementos detectados. Pode corrigir o tipo e a cor de cada elemento antes de confirmar a importação.
+          </div>
+          {/* Filtros por tipo */}
+          <div className="flex items-center gap-1.5 mb-2 flex-shrink-0 flex-wrap">
+            {(["all", "cabo", "cto", "ceo"] as const).map(f => {
+              const labels: Record<string, string> = { all: "Todos", cabo: "Cabos", cto: "CTOs", ceo: "CEOs" };
+              const counts: Record<string, number> = {
+                all: kmlPreviewItems.length,
+                cabo: kmlPreviewItems.filter(i => i.type === "cabo").length,
+                cto: kmlPreviewItems.filter(i => i.type === "cto").length,
+                ceo: kmlPreviewItems.filter(i => i.type === "ceo").length,
+              };
+              const colors: Record<string, string> = { all: "bg-muted text-foreground", cabo: "bg-cyan-500/20 text-cyan-400 border-cyan-500/40", cto: "bg-purple-500/20 text-purple-400 border-purple-500/40", ceo: "bg-amber-500/20 text-amber-400 border-amber-500/40" };
+              const activeColors: Record<string, string> = { all: "bg-muted-foreground/20 text-foreground border-foreground/40", cabo: "bg-cyan-500/40 text-cyan-300 border-cyan-400", cto: "bg-purple-500/40 text-purple-300 border-purple-400", ceo: "bg-amber-500/40 text-amber-300 border-amber-400" };
+              return (
+                <button key={f} onClick={() => setKmlPreviewFilter(f)}
+                  className={`px-2.5 py-0.5 rounded-full text-xs border transition-colors ${kmlPreviewFilter === f ? activeColors[f] : colors[f]}`}>
+                  {labels[f]} <span className="opacity-70">({counts[f]})</span>
+                </button>
+              );
+            })}
           </div>
           <ScrollArea className="flex-1 min-h-0 rounded-md border border-border">
             <table className="w-full text-xs">
@@ -2418,18 +2682,20 @@ export default function InfrastructureMap() {
                   <th className="px-3 py-2 text-left font-medium w-8">
                     <input
                       type="checkbox"
-                      checked={kmlPreviewItems.length > 0 && kmlPreviewItems.every(i => i.include)}
-                      onChange={e => setKmlPreviewItems(prev => prev.map(it => ({ ...it, include: e.target.checked })))}
+                      checked={kmlPreviewItems.filter(i => kmlPreviewFilter === "all" || i.type === kmlPreviewFilter).length > 0 && kmlPreviewItems.filter(i => kmlPreviewFilter === "all" || i.type === kmlPreviewFilter).every(i => i.include)}
+                      onChange={e => setKmlPreviewItems(prev => prev.map(it => (kmlPreviewFilter === "all" || it.type === kmlPreviewFilter) ? { ...it, include: e.target.checked } : it))}
                       className="rounded border-border"
                     />
                   </th>
                   <th className="px-3 py-2 text-left font-medium">Nome</th>
                   <th className="px-3 py-2 text-left font-medium w-32">Tipo</th>
-                  <th className="px-3 py-2 text-left font-medium w-20">Cor</th>
+                  <th className="px-3 py-2 text-left font-medium w-24">Cor</th>
                 </tr>
               </thead>
               <tbody>
-                {kmlPreviewItems.map((item, i) => (
+                {kmlPreviewItems.filter(i => kmlPreviewFilter === "all" || i.type === kmlPreviewFilter).map((item) => {
+                  const i = kmlPreviewItems.indexOf(item);
+                  return (
                   <tr key={item.id} className={`border-b border-border/50 transition-colors ${item.include ? "hover:bg-muted/30" : "opacity-40 hover:bg-muted/20"}`}>
                     <td className="px-3 py-1.5">
                       <input
@@ -2461,17 +2727,21 @@ export default function InfrastructureMap() {
                       </select>
                     </td>
                     <td className="px-3 py-1.5">
-                      {item.color ? (
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-4 h-4 rounded-sm border border-border/50 flex-shrink-0" style={{ backgroundColor: item.color }} />
-                          <span className="font-mono text-[10px] text-muted-foreground">{item.color}</span>
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground/50">—</span>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="color"
+                          value={item.color ?? "#22d3ee"}
+                          onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, color: e.target.value } : it))}
+                          disabled={!item.include}
+                          className="w-6 h-6 rounded cursor-pointer border border-border/50 bg-transparent p-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Clique para alterar a cor"
+                        />
+                        <span className="font-mono text-[10px] text-muted-foreground hidden sm:inline">{item.color ?? "—"}</span>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </ScrollArea>

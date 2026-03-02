@@ -1105,3 +1105,11 @@
 - [x] Corrigir exportação KMZ: substituir ZIP manual por fflate (erro 'e[l] is not a function')
 - [x] Corrigir exportação KMZ: suportar rotas importadas via KML (sem fromElementId/toElementId)
 - [x] Edição de traçado de linhas importadas via KML: startEditRoutePath suporta rotas sem elementos de origem/destino
+- [ ] Cor editável na pré-visualização KML (input type="color" na coluna Cor)
+- [ ] Filtro por tipo na pré-visualização KML (Todos / CTOs / CEOs / Cabos)
+- [ ] Associar extremos de cabos importados a equipamentos (fromElementId/toElementId)
+- [ ] Ligar o meio do traçado de um cabo a uma CEO/CTO (dividir cabo em dois)
+- [x] Cor editável na pré-visualização KML (input type="color" por elemento)
+- [x] Filtro por tipo na pré-visualização KML (Todos / Cabos / CTOs / CEOs)
+- [x] Associar extremos de cabos importados a equipamentos (botão "Associar Equipamentos")
+- [x] Dividir cabo no meio ligando a uma CEO/CTO (botão "✂ Dividir Cabo" no toolbar de edição)
