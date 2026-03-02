@@ -1034,3 +1034,23 @@
 - [x] ceoVias.update propaga label à via fundida (fusedToViaId) quando label é alterado
 - [x] ctoVias.update propaga label à via fundida (fusedToViaId) quando label é alterado
 - [x] Gerar pacote de actualização v5.71
+
+## v5.72 — Integração SGP
+
+- [x] Tabela app_settings na BD para guardar credenciais SGP configuráveis
+- [x] Helper sgpApi.ts no servidor (fetch autenticado Token+App, fallback para env vars)
+- [x] Procedimentos tRPC settings.getSgp e settings.saveSgp (ler/gravar credenciais)
+- [x] Procedimento sgp.listCtos — listar CTOs do SGP
+- [x] Procedimento sgp.syncCto — importar CTO do SGP para FiberDoc
+- [x] Procedimento sgp.createCtoInSgp — criar CTO no SGP ao criar no FiberDoc
+- [x] Procedimento sgp.onusByCto — listar ONUs vinculadas a uma CTO do SGP
+- [x] Procedimento sgp.onuSignal — status de sinal de uma ONU
+- [x] Procedimento sgp.authorizeOnu — autorizar ONU via SGP
+- [x] Procedimento sgp.resetOnu — resetar ONU via SGP
+- [x] Procedimento sgp.searchClients — pesquisar clientes/contratos no SGP
+- [x] Página Integrações SGP no desktop com formulário de credenciais + lista de CTOs + sincronizar
+- [x] CtoDetail mostra ONUs por via com status Online/Offline e botões autorizar/resetar
+- [x] MobileCtos mostra ONUs por via com status e botões autorizar/resetar
+- [x] Marcadores do mapa mostram badge de status ONUs (verde=todas online, vermelho=alguma offline)
+- [x] Dialog de fusão tem campo de pesquisa de cliente SGP para vincular ao label da via
+- [x] Gerar pacote de actualização v5.72

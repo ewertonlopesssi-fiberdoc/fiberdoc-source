@@ -1,0 +1,1 @@
+ALTER TABLE `ctos` ADD `sgpId` int;

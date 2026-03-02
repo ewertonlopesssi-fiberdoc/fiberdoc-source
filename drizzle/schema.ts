@@ -591,6 +591,7 @@ export const ctos = mysqlTable("ctos", {
   lat: double("lat"),                                                  // Latitude
   lng: double("lng"),                                                  // Longitude
   notes: text("notes"),
+  sgpId: int("sgpId"),                                                 // ID da CTO no SGP (para sincronização)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -724,3 +725,12 @@ export const mapRouteGroups = mysqlTable("map_route_groups", {
   groupId: int("groupId").notNull(),
 });
 export type MapRouteGroup = typeof mapRouteGroups.$inferSelect;
+
+// ─── Configurações da Aplicação (Integrações) ─────────────────────────────────
+export const appSettings = mysqlTable("app_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  key: varchar("key", { length: 128 }).notNull().unique(),
+  value: text("value"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AppSetting = typeof appSettings.$inferSelect;

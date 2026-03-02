@@ -962,9 +962,16 @@ export const appRouter = router({
         fusedToTubeId: z.number(),
         fusedToViaId: z.number(),
         notes: z.string().optional(),
+        label: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         await setCtoViaFusion(input.viaId, input.fusedToTubeId, input.fusedToViaId, input.notes);
+        // Se um label foi fornecido (ex: nome do cliente SGP), aplica à via
+        if (input.label) {
+          await updateCtoVia(input.viaId, { label: input.label });
+          // Sincronização bidirecional: aplica o mesmo label à via fundida
+          await updateCtoVia(input.fusedToViaId, { label: input.label });
+        }
       }),
     clearFusion: protectedProcedure
       .input(z.object({ viaId: z.number() }))
@@ -2248,6 +2255,227 @@ ${fiberFolder}
           return { clients, error: null };
         } catch (e: any) {
           return { clients: [], error: e.message ?? "Erro ao consultar SGP" };
+        }
+      }),
+
+    // ─── Testar conexão ─────────────────────────────────────────────────────────
+    testConnection: adminProcedure
+      .mutation(async () => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { ok: false, error: "SGP não configurado" };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const res = await fetch(`${base}/api/fttx/splitter/all/`, {
+            headers: { token: cfg.token, app: cfg.app },
+            signal: AbortSignal.timeout(8000),
+          });
+          if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+          return { ok: true, error: null };
+        } catch (e: any) {
+          return { ok: false, error: e.message ?? "Erro de conexão" };
+        }
+      }),
+
+    // ─── Listar CTOs do SGP ───────────────────────────────────────────────────────
+    listCtos: protectedProcedure
+      .query(async () => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { ctos: [], error: "SGP não configurado" };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const res = await fetch(`${base}/api/fttx/splitter/all/`, {
+            headers: { token: cfg.token, app: cfg.app },
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!res.ok) return { ctos: [], error: `HTTP ${res.status}` };
+          const data = await res.json() as any;
+          const ctos = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+          return { ctos, error: null };
+        } catch (e: any) {
+          return { ctos: [], error: e.message ?? "Erro ao listar CTOs" };
+        }
+      }),
+
+    // ─── Sincronizar CTO do SGP para FiberDoc ────────────────────────────────────
+    syncCtoFromSgp: adminProcedure
+      .input(z.object({
+        sgpId: z.number(),
+        ident: z.string(),
+        note: z.string().optional(),
+        lat: z.number().nullable().optional(),
+        lng: z.number().nullable().optional(),
+        unPorts: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        // Verifica se já existe uma CTO com esse identificador
+        const existing = await getCtos();
+        const found = existing.find(c => c.name === input.ident || c.sgpId === input.sgpId);
+        if (found) return { id: found.id, created: false, message: "CTO já existe no FiberDoc" };
+        const id = await createCto({
+          name: input.ident,
+          sgpId: input.sgpId,
+          notes: input.note ?? "",
+          lat: input.lat ?? null,
+          lng: input.lng ?? null,
+          capacity: input.unPorts ?? 8,
+          status: "active",
+        });
+        return { id, created: true, message: "CTO importada com sucesso" };
+      }),
+
+    // ─── Criar CTO no SGP ao criar no FiberDoc ────────────────────────────────────
+    createCtoInSgp: adminProcedure
+      .input(z.object({
+        ident: z.string().min(1),
+        note: z.string().optional(),
+        lat: z.string().optional(),
+        lng: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { ok: false, sgpId: null, error: "SGP não configurado" };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const body = new URLSearchParams({ token: cfg.token, app: cfg.app, ident: input.ident });
+          if (input.note) body.append("note", input.note);
+          if (input.lat) body.append("lat", input.lat);
+          if (input.lng) body.append("lng", input.lng);
+          const res = await fetch(`${base}/api/fttx/splitter/create/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body.toString(),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!res.ok) return { ok: false, sgpId: null, error: `HTTP ${res.status}` };
+          const data = await res.json() as any;
+          const sgpId = data?.id ?? data?.splitter_id ?? null;
+          return { ok: true, sgpId, error: null };
+        } catch (e: any) {
+          return { ok: false, sgpId: null, error: e.message ?? "Erro ao criar CTO no SGP" };
+        }
+      }),
+
+    // ─── ONUs vinculadas a uma CTO ────────────────────────────────────────────────
+    onusByCto: protectedProcedure
+      .input(z.object({ sgpCtoId: z.number() }))
+      .query(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { onus: [], error: "SGP não configurado" };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const res = await fetch(`${base}/api/fttx/splitter/${input.sgpCtoId}/onu/list/`, {
+            headers: { token: cfg.token, app: cfg.app },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!res.ok) return { onus: [], error: `HTTP ${res.status}` };
+          const data = await res.json() as any;
+          const onus = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+          return { onus, error: null };
+        } catch (e: any) {
+          return { onus: [], error: e.message ?? "Erro ao listar ONUs" };
+        }
+      }),
+
+    // ─── Autorizar ONU ────────────────────────────────────────────────────────────
+    authorizeOnu: adminProcedure
+      .input(z.object({
+        oltId: z.number(),
+        onu: z.number(),
+        slot: z.number(),
+        pon: z.number(),
+        contrato: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "SGP não configurado" });
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const body = new URLSearchParams({
+            token: cfg.token, app: cfg.app,
+            onu: String(input.onu),
+            slot: String(input.slot),
+            pon: String(input.pon),
+          });
+          if (input.contrato) body.append("contrato", String(input.contrato));
+          const res = await fetch(`${base}/api/fttx/olt/${input.oltId}/onu/authorize/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body.toString(),
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `HTTP ${res.status}` });
+          const data = await res.json();
+          return { ok: true, data };
+        } catch (e: any) {
+          if (e instanceof TRPCError) throw e;
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: e.message });
+        }
+      }),
+
+    // ─── Resetar ONU ─────────────────────────────────────────────────────────────
+    resetOnu: adminProcedure
+      .input(z.object({
+        oltId: z.number(),
+        onu: z.number(),
+        slot: z.number(),
+        pon: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "SGP não configurado" });
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const qs = new URLSearchParams({
+            token: cfg.token, app: cfg.app,
+            onu: String(input.onu),
+            slot: String(input.slot),
+            pon: String(input.pon),
+          }).toString();
+          const res = await fetch(`${base}/api/fttx/olt/${input.oltId}/onu/reset/?${qs}`, {
+            headers: { token: cfg.token, app: cfg.app },
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `HTTP ${res.status}` });
+          const data = await res.json();
+          return { ok: true, data };
+        } catch (e: any) {
+          if (e instanceof TRPCError) throw e;
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: e.message });
+        }
+      }),
+
+    // ─── Pesquisar clientes no SGP ────────────────────────────────────────────────
+    searchClients: protectedProcedure
+      .input(z.object({ query: z.string().min(2) }))
+      .query(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { clients: [], error: "SGP não configurado" };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          // Tenta endpoint de busca de clientes
+          const qs = new URLSearchParams({ token: cfg.token, app: cfg.app, q: input.query }).toString();
+          const res = await fetch(`${base}/api/clientes/?${qs}`, {
+            headers: { token: cfg.token, app: cfg.app },
+            signal: AbortSignal.timeout(8000),
+          });
+          if (res.ok) {
+            const data = await res.json() as any;
+            const clients = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+            return { clients, error: null };
+          }
+          // Fallback: endpoint de assinante
+          const res2 = await fetch(`${base}/api/assinante/?${qs}`, {
+            headers: { token: cfg.token, app: cfg.app },
+            signal: AbortSignal.timeout(8000),
+          });
+          if (res2.ok) {
+            const data2 = await res2.json() as any;
+            const clients = Array.isArray(data2) ? data2 : (data2.results ?? data2.data ?? []);
+            return { clients, error: null };
+          }
+          return { clients: [], error: `HTTP ${res.status}` };
+        } catch (e: any) {
+          return { clients: [], error: e.message ?? "Erro ao pesquisar clientes" };
         }
       }),
   }),

@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   ArrowLeft, Plus, Radio, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle, MapPin, LocateFixed, Loader2,
+  Wifi, WifiOff, RefreshCw, Zap, RotateCcw, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/hooks/useRole";
@@ -207,9 +208,15 @@ function TubePanel({
   const [selectedFiberId, setSelectedFiberId] = useState<string>("");
   const [viaColorFilter, setViaColorFilter] = useState<number | null>(null);
   const [viaStatusFilter, setViaStatusFilter] = useState<"all" | "fused" | "free">("all");
+  const [sgpClientSearch, setSgpClientSearch] = useState("");
+  const [sgpClientSelected, setSgpClientSelected] = useState<{ id: number; name: string; login?: string } | null>(null);
 
   const { data: vias = [], isLoading } = trpc.ctoVias.byTube.useQuery({ tubeId: tube.id });
   const { data: allVias = [] } = trpc.ctoVias.byCto.useQuery({ ctoId });
+  const { data: sgpClients } = trpc.sgp.searchClients.useQuery(
+    { query: sgpClientSearch },
+    { enabled: sgpClientSearch.length >= 2 }
+  );
 
   const targetTubeVias = (allVias as Via[]).filter(v => v.tubeId === parseInt(fusionTubeId));
 
@@ -278,6 +285,13 @@ function TubePanel({
       viaId: fusionDialog.id,
       fusedToTubeId: parseInt(fusionTubeId),
       fusedToViaId: targetVia.id,
+      // Se um cliente SGP foi seleccionado, usa o nome como label da via
+      label: sgpClientSelected ? sgpClientSelected.name : undefined,
+    }, {
+      onSuccess: () => {
+        setSgpClientSearch("");
+        setSgpClientSelected(null);
+      },
     });
   }
 
@@ -506,6 +520,44 @@ function TubePanel({
                 </Select>
               </div>
             )}
+            {/* Vincular cliente SGP ao label */}
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5">
+                <Wifi className="w-3.5 h-3.5 text-cyan-400" />
+                Vincular cliente SGP (opcional)
+              </Label>
+              <Input
+                placeholder="Pesquisar por nome, login ou contrato..."
+                value={sgpClientSearch}
+                onChange={e => { setSgpClientSearch(e.target.value); setSgpClientSelected(null); }}
+                className="bg-background border-border/50"
+              />
+              {sgpClients && (sgpClients as any).clients?.length > 0 && !sgpClientSelected && (
+                <div className="rounded-md border border-border/50 bg-background max-h-36 overflow-y-auto">
+                  {((sgpClients as any).clients as any[]).slice(0, 8).map((c: any) => (
+                    <button
+                      key={c.id ?? c.login}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 transition-colors border-b border-border/30 last:border-0"
+                      onClick={() => {
+                        setSgpClientSelected({ id: c.id, name: c.nome ?? c.name ?? c.login, login: c.login });
+                        setSgpClientSearch(c.nome ?? c.name ?? c.login ?? "");
+                      }}
+                    >
+                      <span className="font-medium">{c.nome ?? c.name ?? c.login}</span>
+                      {c.login && <span className="text-muted-foreground ml-2 text-xs">{c.login}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {sgpClientSelected && (
+                <div className="flex items-center gap-2 p-2 rounded bg-cyan-500/10 border border-cyan-500/20 text-sm">
+                  <Wifi className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="text-cyan-300 font-medium">{sgpClientSelected.name}</span>
+                  {sgpClientSelected.login && <span className="text-muted-foreground text-xs">({sgpClientSelected.login})</span>}
+                  <button onClick={() => { setSgpClientSelected(null); setSgpClientSearch(""); }} className="ml-auto text-muted-foreground hover:text-foreground">×</button>
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFusionDialog(null)} className="border-border/50">Cancelar</Button>
@@ -625,6 +677,137 @@ function TubePanel({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// ─── Componente: Painel SGP ONUs ────────────────────────────────────────────
+function SgpOnuPanel({ ctoId: _ctoId, sgpCtoId, ctoName: _ctoName }: { ctoId: number; sgpCtoId: number; ctoName: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const { isAdmin } = useRole();
+  const { data, isLoading, refetch } = trpc.sgp.onusByCto.useQuery(
+    { sgpCtoId },
+    { enabled: expanded }
+  );
+  const authorizeMut = trpc.sgp.authorizeOnu.useMutation({
+    onSuccess: () => { toast.success("ONU autorizada com sucesso"); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const resetMut = trpc.sgp.resetOnu.useMutation({
+    onSuccess: () => { toast.success("ONU resetada com sucesso"); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const onus = (data?.onus ?? []) as any[];
+  const online = onus.filter(o => o.status === "online" || o.status === 1 || o.ativo === 1 || o.online === true).length;
+  const offline = onus.length - online;
+
+  return (
+    <Card className="border-border/50 bg-card">
+      <CardContent className="p-0">
+        <button
+          className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+          onClick={() => setExpanded(v => !v)}
+        >
+          <div className="flex items-center gap-3">
+            <Wifi className="w-4 h-4 text-cyan-400" />
+            <span className="font-medium text-sm">ONUs no SGP</span>
+            {onus.length > 0 && (
+              <div className="flex gap-2">
+                <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">
+                  <Wifi className="w-3 h-3 mr-1" />{online} online
+                </Badge>
+                {offline > 0 && (
+                  <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-xs">
+                    <WifiOff className="w-3 h-3 mr-1" />{offline} offline
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {expanded && (
+              <button
+                onClick={e => { e.stopPropagation(); refetch(); }}
+                className="p-1 rounded hover:bg-muted transition-colors"
+                title="Atualizar"
+              >
+                <RefreshCw className="w-3 h-3 text-muted-foreground" />
+              </button>
+            )}
+            {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </div>
+        </button>
+
+        {expanded && (
+          <div className="border-t border-border/50 p-4">
+            {data?.error && (
+              <div className="flex items-center gap-2 p-3 rounded-md text-sm bg-red-500/10 text-red-400 border border-red-500/20 mb-3">
+                <WifiOff className="w-4 h-4 flex-shrink-0" />{data.error}
+              </div>
+            )}
+            {isLoading ? (
+              <div className="flex items-center justify-center py-6 gap-2 text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />Carregando ONUs do SGP...
+              </div>
+            ) : onus.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Nenhuma ONU encontrada nesta CTO</p>
+            ) : (
+              <div className="space-y-2">
+                {onus.map((onu: any, i: number) => {
+                  const isOnline = onu.status === "online" || onu.status === 1 || onu.ativo === 1 || onu.online === true;
+                  return (
+                    <div key={i} className={cn(
+                      "flex items-center justify-between p-3 rounded-lg border text-sm",
+                      isOnline ? "border-emerald-500/30 bg-emerald-500/5" : "border-red-500/20 bg-red-500/5"
+                    )}>
+                      <div className="flex items-center gap-3">
+                        {isOnline
+                          ? <Wifi className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                          : <WifiOff className="w-4 h-4 text-red-400 flex-shrink-0" />}
+                        <div>
+                          <p className="font-medium">{onu.serial ?? onu.mac ?? onu.ident ?? `ONU ${i + 1}`}</p>
+                          {(onu.cliente ?? onu.login ?? onu.contrato) && (
+                            <p className="text-xs text-muted-foreground">
+                              {onu.cliente ?? onu.login ?? `Contrato ${onu.contrato}`}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {isAdmin && onu.olt_id && (
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm" variant="outline"
+                            className="h-7 text-xs gap-1 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
+                            disabled={authorizeMut.isPending}
+                            onClick={() => authorizeMut.mutate({
+                              oltId: onu.olt_id, onu: onu.onu ?? onu.numero ?? 0,
+                              slot: onu.slot ?? 0, pon: onu.pon ?? 0,
+                            })}
+                          >
+                            <Zap className="w-3 h-3" />Autorizar
+                          </Button>
+                          <Button
+                            size="sm" variant="outline"
+                            className="h-7 text-xs gap-1 text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
+                            disabled={resetMut.isPending}
+                            onClick={() => resetMut.mutate({
+                              oltId: onu.olt_id, onu: onu.onu ?? onu.numero ?? 0,
+                              slot: onu.slot ?? 0, pon: onu.pon ?? 0,
+                            })}
+                          >
+                            <RotateCcw className="w-3 h-3" />Resetar
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1036,6 +1219,11 @@ export default function CtoDetail() {
           </Card>
         ))}
       </div>
+
+      {/* Painel SGP — ONUs */}
+      {cto.sgpId && (
+        <SgpOnuPanel ctoId={cto.id} sgpCtoId={cto.sgpId} ctoName={cto.name} />
+      )}
 
       {/* Abas por tubo */}
       {tubesLoading ? (

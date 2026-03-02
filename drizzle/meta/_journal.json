@@ -253,6 +253,20 @@
       "when": 1772303695187,
       "tag": "0035_spooky_lord_tyger",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1772453759470,
+      "tag": "0036_cynical_masked_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1772454020577,
+      "tag": "0037_sweet_triton",
+      "breakpoints": true
     }
   ]
 }
