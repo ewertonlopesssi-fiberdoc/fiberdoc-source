@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `sgp_link_history` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`ctoId` int NOT NULL,\n\t`ctoName` varchar(128) NOT NULL,\n\t`sgpId` int,\n\t`sgp_link_action` enum('linked','unlinked') NOT NULL,\n\t`performedBy` varchar(128),\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `sgp_link_history_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `sgp_link_history` ADD CONSTRAINT `sgp_link_history_ctoId_ctos_id_fk` FOREIGN KEY (`ctoId`) REFERENCES `ctos`(`id`) ON DELETE cascade ON UPDATE no action;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute CREATE TABLE `sgp_link_history` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`ctoId` int NOT NULL,\n\t`ctoName` varchar(128) NOT NULL,\n\t`sgpId` int,\n\t`sgp_link_action` enum('linked','unlinked') NOT NULL,\n\t`performedBy` varchar(128),\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `sgp_link_history_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `sgp_link_history` ADD CONSTRAINT `sgp_link_history_ctoId_ctos_id_fk` FOREIGN KEY (`ctoId`) REFERENCES `ctos`(`id`) ON DELETE cascade ON UPDATE no action;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 724
+}

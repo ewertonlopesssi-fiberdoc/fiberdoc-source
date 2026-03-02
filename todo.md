@@ -1075,3 +1075,7 @@
 - [x] Debounce de 300ms na pesquisa do dialog Vincular ao SGP
 - [x] Tooltip com nome da CTO local nas CTOs SGP já vinculadas
 - [x] Endpoint REST para actualização de vínculo CTO-SGP via cURL
+- [x] Corrigir erro HTTP 403 na sincronização de CTOs SGP (botão oculto para não-admins no mobile)
+- [x] Histórico de vínculos SGP na BD (tabela sgp_link_history)
+- [x] Botão "Sincronizar todos" com sugestões por semelhança de nome
+- [x] Script de actualização automática (cURL/shell)

@@ -10,7 +10,11 @@ import { toast } from "sonner";
 import {
   Settings2, CheckCircle, XCircle, Loader2, ExternalLink,
   RefreshCw, Download, ArrowLeftRight, Search, Wifi, WifiOff,
+  Sparkles, Link2, History, ChevronDown, ChevronUp,
 } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 
 interface SgpCto {
   id: number;
@@ -78,6 +82,41 @@ export default function SgpConfig() {
   const [showCtos, setShowCtos] = useState(false);
   const [ctoSearch, setCtoSearch] = useState("");
   const [syncingId, setSyncingId] = useState<number | null>(null);
+
+  // ─── Sincronizar todos (sugestões automáticas) ────────────────────────────
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<number>>(new Set());
+  const [bulkLinking, setBulkLinking] = useState(false);
+  const { data: suggestData, isLoading: loadingSuggest, refetch: refetchSuggest } =
+    trpc.sgp.suggestLinks.useQuery(undefined, { enabled: showSuggest && !!config?.active });
+  const bulkLinkMut = trpc.sgp.bulkLink.useMutation({
+    onSuccess: (r) => {
+      setBulkLinking(false);
+      toast.success(`${r.linked} CTO${r.linked !== 1 ? "s" : ""} vinculada${r.linked !== 1 ? "s" : ""} com sucesso`);
+      setShowSuggest(false);
+      setSelectedSuggestions(new Set());
+      utils.ctos.list.invalidate();
+      refetchSuggest();
+    },
+    onError: (e) => { setBulkLinking(false); toast.error(e.message); },
+  });
+  const suggestions = suggestData?.suggestions ?? [];
+  const toggleSuggestion = (idx: number) => {
+    setSelectedSuggestions(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
+  const handleBulkLink = () => {
+    const links = Array.from(selectedSuggestions).map(idx => ({
+      ctoId: suggestions[idx].localCtoId,
+      sgpId: suggestions[idx].sgpId,
+    }));
+    if (links.length === 0) { toast.error("Selecione ao menos uma sugestão"); return; }
+    setBulkLinking(true);
+    bulkLinkMut.mutate({ links });
+  };
 
   const { data: sgpCtosData, isLoading: loadingCtos, refetch: refetchCtos } =
     trpc.sgp.listCtos.useQuery(undefined, { enabled: showCtos && !!config?.active });
@@ -174,6 +213,133 @@ export default function SgpConfig() {
               </Button>
             )}
           </CardContent>
+        </Card>
+      )}
+
+      {/* Sincronizar todos — sugestões automáticas */}
+      {isAdmin && config?.active && (
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  Sincronizar Todos
+                </CardTitle>
+                <CardDescription>
+                  Sugestões automáticas de vínculo por semelhança de nome entre CTOs locais e do SGP
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline" size="sm" className="gap-2"
+                onClick={() => { setShowSuggest(v => !v); if (!showSuggest) refetchSuggest(); }}
+              >
+                {showSuggest ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                {showSuggest ? "Ocultar sugestões" : "Ver sugestões"}
+              </Button>
+            </div>
+          </CardHeader>
+          {showSuggest && (
+            <CardContent className="space-y-3">
+              {loadingSuggest ? (
+                <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin" /> A analisar CTOs...
+                </div>
+              ) : suggestData?.error ? (
+                <div className="flex items-center gap-2 p-3 rounded-md text-sm bg-red-500/10 text-red-400 border border-red-500/20">
+                  <XCircle className="w-4 h-4 flex-shrink-0" /> {suggestData.error}
+                </div>
+              ) : suggestions.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  <CheckCircle className="w-8 h-8 mx-auto mb-2 text-emerald-400" />
+                  Todas as CTOs locais já estão vinculadas ou não há correspondências no SGP
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{suggestions.length} sugestão{suggestions.length !== 1 ? "ões" : ""} encontrada{suggestions.length !== 1 ? "s" : ""}</span>
+                    <button
+                      className="text-cyan-400 hover:text-cyan-300 underline"
+                      onClick={() => setSelectedSuggestions(
+                        selectedSuggestions.size === suggestions.length
+                          ? new Set()
+                          : new Set(suggestions.map((_, i) => i))
+                      )}
+                    >
+                      {selectedSuggestions.size === suggestions.length ? "Desmarcar todos" : "Selecionar todos"}
+                    </button>
+                  </div>
+                  <div className="rounded-md border border-border overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="p-3 w-8"></th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">CTO Local</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">CTO SGP</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Confiança</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {suggestions.map((s, idx) => (
+                          <tr
+                            key={idx}
+                            className={`transition-colors cursor-pointer ${
+                              selectedSuggestions.has(idx) ? "bg-cyan-500/10" : "hover:bg-muted/30"
+                            }`}
+                            onClick={() => toggleSuggestion(idx)}
+                          >
+                            <td className="p-3">
+                              <input
+                                type="checkbox"
+                                checked={selectedSuggestions.has(idx)}
+                                onChange={() => toggleSuggestion(idx)}
+                                onClick={e => e.stopPropagation()}
+                                className="w-4 h-4 rounded border-border accent-cyan-500"
+                              />
+                            </td>
+                            <td className="p-3 font-medium">{s.localCtoName}</td>
+                            <td className="p-3 text-muted-foreground">
+                              <span className="font-mono text-xs text-cyan-400 mr-1">#{s.sgpId}</span>
+                              {s.sgpName}
+                            </td>
+                            <td className="p-3">
+                              <div className="flex items-center gap-2">
+                                <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${
+                                      s.score >= 90 ? "bg-emerald-400" :
+                                      s.score >= 70 ? "bg-amber-400" : "bg-orange-400"
+                                    }`}
+                                    style={{ width: `${s.score}%` }}
+                                  />
+                                </div>
+                                <span className={`text-xs font-mono ${
+                                  s.score >= 90 ? "text-emerald-400" :
+                                  s.score >= 70 ? "text-amber-400" : "text-orange-400"
+                                }`}>{s.score}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex justify-end pt-1">
+                    <Button
+                      onClick={handleBulkLink}
+                      disabled={bulkLinking || selectedSuggestions.size === 0}
+                      className="gap-2"
+                    >
+                      {bulkLinking
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : <Link2 className="w-4 h-4" />}
+                      Vincular {selectedSuggestions.size > 0 ? `(${selectedSuggestions.size})` : "selecionados"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          )}
         </Card>
       )}
 

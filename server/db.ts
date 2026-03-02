@@ -2098,7 +2098,7 @@ export async function deleteRack(id: number): Promise<void> {
 }
 
 // ─── CTOs ─────────────────────────────────────────────────────────────────────
-import { ctos, Cto, InsertCto, mapElements, MapElement, InsertMapElement, mapRoutes, MapRoute, InsertMapRoute, sgpConfig, SgpConfig, InsertSgpConfig, ctoAlerts, CtoAlert, ctoAlertConfig, CtoAlertConfig } from "../drizzle/schema";
+import { ctos, Cto, InsertCto, mapElements, MapElement, InsertMapElement, mapRoutes, MapRoute, InsertMapRoute, sgpConfig, SgpConfig, InsertSgpConfig, ctoAlerts, CtoAlert, ctoAlertConfig, CtoAlertConfig, sgpLinkHistory, SgpLinkHistory } from "../drizzle/schema";
 
 export async function getCtos(): Promise<Cto[]> {
   const db = await getDb();
@@ -2531,4 +2531,37 @@ export async function getTubesByMapElement(elementId: number): Promise<{ id: num
       .map(r => ({ id: r.id, identifier: r.identifier, totalVias: r.totalVias, color: r.color, type: r.type ?? "tube" }));
   }
   return [];
+}
+
+// ─── Histórico de Vínculos CTO ↔ SGP ─────────────────────────────────────────
+export async function addSgpLinkHistory(data: {
+  ctoId: number;
+  ctoName: string;
+  sgpId: number | null;
+  action: "linked" | "unlinked";
+  performedBy?: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(sgpLinkHistory).values({
+    ctoId: data.ctoId,
+    ctoName: data.ctoName,
+    sgpId: data.sgpId ?? null,
+    action: data.action,
+    performedBy: data.performedBy ?? null,
+  });
+}
+
+export async function getSgpLinkHistory(ctoId?: number): Promise<SgpLinkHistory[]> {
+  const db = await getDb();
+  if (!db) return [];
+  if (ctoId != null) {
+    return db.select().from(sgpLinkHistory)
+      .where(eq(sgpLinkHistory.ctoId, ctoId))
+      .orderBy(desc(sgpLinkHistory.createdAt))
+      .limit(50);
+  }
+  return db.select().from(sgpLinkHistory)
+    .orderBy(desc(sgpLinkHistory.createdAt))
+    .limit(100);
 }

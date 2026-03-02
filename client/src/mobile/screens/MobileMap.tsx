@@ -73,7 +73,8 @@ interface MobileMapProps {
 }
 
 export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
-  const { serverUrl, token } = useMobileAuth();
+  const { serverUrl, token, user: mobileUser } = useMobileAuth();
+  const isMobileAdmin = mobileUser?.role === "admin";
   const client = createMobileTrpcClient(serverUrl, token);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -440,8 +441,8 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
               <Layers className="w-3.5 h-3.5" /> Tubos ({tubes.length})
             </button>
           </div>
-          {/* Vincular ao SGP (apenas CTO) */}
-          {panelType === "cto" && isOnline() && (
+          {/* Vincular ao SGP (apenas CTO, apenas admin) */}
+          {panelType === "cto" && isOnline() && isMobileAdmin && (
             <div className="border-t border-zinc-800 pt-2">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-1.5 text-xs text-zinc-400">

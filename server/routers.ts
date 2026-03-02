@@ -122,6 +122,7 @@ import {
   getSgpConfig, saveSgpConfig,
   getCtoAlertConfig, saveCtoAlertConfig,
   getCtoAlerts, countActiveCtoAlerts, acknowledgeCtoAlert, resolveCtoAlert, checkAndCreateCtoAlerts,
+  addSgpLinkHistory, getSgpLinkHistory,
 } from "./db";
 import { getRacks, getRackById, createRack, updateRack, deleteRack } from "./db";
 import {
@@ -2526,20 +2527,128 @@ ${fiberFolder}
         }
       }),
 
-    // ─── Vincular CTO FiberDoc a uma CTO do SGP ───────────────────────────────
+      // ─── Vincular CTO FiberDoc a uma CTO do SGP ──────────────────────────────
     linkCtoToSgp: adminProcedure
       .input(z.object({ ctoId: z.number(), sgpId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const cto = await getCtoById(input.ctoId);
         await updateCto(input.ctoId, { sgpId: input.sgpId });
+        await addSgpLinkHistory({
+          ctoId: input.ctoId,
+          ctoName: cto?.name ?? `CTO #${input.ctoId}`,
+          sgpId: input.sgpId,
+          action: "linked",
+          performedBy: ctx.user?.name ?? ctx.user?.email ?? undefined,
+        }).catch(() => {}); // não bloquear em caso de falha no histórico
         return { ok: true };
       }),
-
-    // ─── Desvincular CTO FiberDoc do SGP ─────────────────────────────────────
+    // ─── Desvincular CTO FiberDoc do SGP ───────────────────────────────────
     unlinkCtoFromSgp: adminProcedure
       .input(z.object({ ctoId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const cto = await getCtoById(input.ctoId);
+        const prevSgpId = cto?.sgpId ?? null;
         await updateCto(input.ctoId, { sgpId: null });
+        await addSgpLinkHistory({
+          ctoId: input.ctoId,
+          ctoName: cto?.name ?? `CTO #${input.ctoId}`,
+          sgpId: prevSgpId,
+          action: "unlinked",
+          performedBy: ctx.user?.name ?? ctx.user?.email ?? undefined,
+        }).catch(() => {});
         return { ok: true };
+      }),
+    // ─── Histórico de vínculos SGP ──────────────────────────────────────────────────────
+    linkHistory: protectedProcedure
+      .input(z.object({ ctoId: z.number().optional() }))
+      .query(async ({ input }) => {
+        const rows = await getSgpLinkHistory(input.ctoId);
+        return { history: rows };
+      }),
+    // ─── Sugestões de vínculo automático por semelhança de nome ─────────────────────────────
+    suggestLinks: adminProcedure
+      .query(async () => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { suggestions: [], error: "SGP não configurado" };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const res = await fetch(`${base}/api/fttx/splitter/all/`, {
+            headers: { token: cfg.token, app: cfg.app },
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!res.ok) return { suggestions: [], error: `HTTP ${res.status}` };
+          const data = await res.json() as any;
+          const sgpCtos: any[] = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+          const localCtos = await getCtos();
+          // Normalizar nome para comparação: remover espaços, maiúsculas, caracteres especiais
+          const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+          const suggestions: Array<{
+            localCtoId: number; localCtoName: string;
+            sgpId: number; sgpName: string; score: number;
+          }> = [];
+          for (const local of localCtos) {
+            if (local.sgpId != null) continue; // já vinculada
+            const localNorm = norm(local.name);
+            let bestScore = 0;
+            let bestSgp: any = null;
+            for (const sgp of sgpCtos) {
+              const sgpName = sgp.ident ?? sgp.nome ?? sgp.name ?? "";
+              const sgpNorm = norm(sgpName);
+              // Score: 100 se igual, proporcional ao prefixo comum
+              let score = 0;
+              if (localNorm === sgpNorm) {
+                score = 100;
+              } else if (localNorm.length > 0 && sgpNorm.length > 0) {
+                let common = 0;
+                const minLen = Math.min(localNorm.length, sgpNorm.length);
+                for (let i = 0; i < minLen; i++) {
+                  if (localNorm[i] === sgpNorm[i]) common++; else break;
+                }
+                score = Math.round((common / Math.max(localNorm.length, sgpNorm.length)) * 100);
+                // Bonus se um contém o outro
+                if (localNorm.includes(sgpNorm) || sgpNorm.includes(localNorm)) {
+                  score = Math.max(score, 70);
+                }
+              }
+              if (score > bestScore) { bestScore = score; bestSgp = sgp; }
+            }
+            if (bestSgp && bestScore >= 50) {
+              suggestions.push({
+                localCtoId: local.id,
+                localCtoName: local.name,
+                sgpId: bestSgp.id,
+                sgpName: bestSgp.ident ?? bestSgp.nome ?? bestSgp.name ?? `SGP #${bestSgp.id}`,
+                score: bestScore,
+              });
+            }
+          }
+          // Ordenar por score desc
+          suggestions.sort((a, b) => b.score - a.score);
+          return { suggestions, error: null };
+        } catch (e: any) {
+          return { suggestions: [], error: e.message ?? "Erro ao gerar sugestões" };
+        }
+      }),
+    // ─── Vincular múltiplas CTOs ao SGP de uma vez (bulk) ──────────────────────────────
+    bulkLink: adminProcedure
+      .input(z.object({
+        links: z.array(z.object({ ctoId: z.number(), sgpId: z.number() })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        let linked = 0;
+        for (const link of input.links) {
+          const cto = await getCtoById(link.ctoId);
+          await updateCto(link.ctoId, { sgpId: link.sgpId });
+          await addSgpLinkHistory({
+            ctoId: link.ctoId,
+            ctoName: cto?.name ?? `CTO #${link.ctoId}`,
+            sgpId: link.sgpId,
+            action: "linked",
+            performedBy: ctx.user?.name ?? ctx.user?.email ?? undefined,
+          }).catch(() => {});
+          linked++;
+        }
+        return { ok: true, linked };
       }),
     // ─── IDs SGP já vinculados a CTOs locais (com nome da CTO local) ───────────────
     linkedSgpIds: protectedProcedure

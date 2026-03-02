@@ -734,3 +734,16 @@ export const appSettings = mysqlTable("app_settings", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 export type AppSetting = typeof appSettings.$inferSelect;
+
+// ─── Histórico de Vínculos CTO ↔ SGP ─────────────────────────────────────────
+export const sgpLinkHistory = mysqlTable("sgp_link_history", {
+  id: int("id").autoincrement().primaryKey(),
+  ctoId: int("ctoId").notNull().references(() => ctos.id, { onDelete: "cascade" }),
+  ctoName: varchar("ctoName", { length: 128 }).notNull(),
+  sgpId: int("sgpId"),                                                   // null quando desvinculado
+  action: mysqlEnum("sgp_link_action", ["linked", "unlinked"]).notNull(),
+  performedBy: varchar("performedBy", { length: 128 }),                  // nome/email do utilizador
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type SgpLinkHistory = typeof sgpLinkHistory.$inferSelect;
+export type InsertSgpLinkHistory = typeof sgpLinkHistory.$inferInsert;
