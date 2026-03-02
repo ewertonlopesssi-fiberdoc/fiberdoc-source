@@ -2394,8 +2394,9 @@ export default function InfrastructureMap() {
 
       {/* ─── Diálogo de Pré-visualização KML ─────────────────────────────────── */}
       <Dialog open={kmlPreviewOpen} onOpenChange={v => { if (!v && !kmlImportingPreview) { setKmlPreviewOpen(false); setKmlPreviewItems([]); } }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="max-w-3xl h-[90vh] flex flex-col overflow-hidden p-0">
+          <div className="flex flex-col h-full overflow-hidden px-6 pt-6 pb-4">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Upload className="w-4 h-4" />
               Pré-visualização da Importação KML
@@ -2404,10 +2405,10 @@ export default function InfrastructureMap() {
               </span>
             </DialogTitle>
           </DialogHeader>
-          <div className="text-xs text-muted-foreground mb-2">
+          <div className="text-xs text-muted-foreground mt-2 mb-3 flex-shrink-0">
             Verifique os elementos detectados. Pode corrigir o tipo de cada elemento antes de confirmar a importação.
           </div>
-          <ScrollArea className="flex-1 max-h-[55vh] rounded-md border border-border">
+          <ScrollArea className="flex-1 min-h-0 rounded-md border border-border">
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
                 <tr className="border-b border-border">
@@ -2476,7 +2477,7 @@ export default function InfrastructureMap() {
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "cto").length} CTOs</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "ceo").length} CEOs</span>
           </div>
-          <DialogFooter className="mt-2">
+          <DialogFooter className="mt-2 flex-shrink-0">
             <Button variant="outline" onClick={() => { setKmlPreviewOpen(false); setKmlPreviewItems([]); }} disabled={kmlImportingPreview}>Cancelar</Button>
             <Button
               className="bg-cyan-600 hover:bg-cyan-700 text-white"
@@ -2486,6 +2487,7 @@ export default function InfrastructureMap() {
               {kmlImportingPreview ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />Importando...</> : <><Check className="w-3.5 h-3.5 mr-1" />Confirmar Importação ({kmlPreviewItems.filter(i => i.include).length})</>}
             </Button>
           </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
             {/* Importação de posições via KML */}
