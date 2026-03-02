@@ -241,7 +241,9 @@ function TubePanel({
   const updateLabelMutation = trpc.ceoVias.updateLabel.useMutation({
     onSuccess: () => {
       toast.success("Etiqueta salva!");
-      utils.ceoVias.byTube.invalidate({ tubeId: tube.id });
+      // Invalidar todos os tubos do CEO para reflectir sincronização bidirecional da etiqueta
+      utils.ceoVias.byTube.invalidate();
+      utils.ceoVias.byCeo.invalidate({ ceoId });
       setLabelDialog(null);
     },
     onError: e => toast.error("Erro: " + e.message),

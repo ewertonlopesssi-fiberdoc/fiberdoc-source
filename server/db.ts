@@ -983,6 +983,13 @@ export async function updateVia(id: number, data: { label?: string | null; notes
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   await db.update(ceoVias).set(data).where(eq(ceoVias.id, id));
+  // Propagar label à via fundida (sincronização bidirecional)
+  if (data.label !== undefined) {
+    const [via] = await db.select({ fusedToViaId: ceoVias.fusedToViaId }).from(ceoVias).where(eq(ceoVias.id, id));
+    if (via?.fusedToViaId) {
+      await db.update(ceoVias).set({ label: data.label }).where(eq(ceoVias.id, via.fusedToViaId));
+    }
+  }
 }
 
 export async function setViaFiber(viaId: number, fiberId: number | null) {
@@ -1079,6 +1086,13 @@ export async function updateCtoVia(id: number, data: { label?: string | null; no
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   await db.update(ctoVias).set(data).where(eq(ctoVias.id, id));
+  // Propagar label à via fundida (sincronização bidirecional)
+  if (data.label !== undefined) {
+    const [via] = await db.select({ fusedToViaId: ctoVias.fusedToViaId }).from(ctoVias).where(eq(ctoVias.id, id));
+    if (via?.fusedToViaId) {
+      await db.update(ctoVias).set({ label: data.label }).where(eq(ctoVias.id, via.fusedToViaId));
+    }
+  }
 }
 export async function setCtoViaFiber(viaId: number, fiberId: number | null) {
   const db = await getDb();

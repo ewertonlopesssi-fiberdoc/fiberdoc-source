@@ -1028,3 +1028,9 @@
 - [x] Botão "Exportar PDF" no PanelDetail do mobile
 - [x] Geração do PDF no servidor com tabela de tubos, vias e fusões
 - [x] Gerar pacote de actualização v5.70
+
+## v5.71 — Sincronização Bidirecional de Etiquetas em Vias Fundidas
+
+- [x] ceoVias.update propaga label à via fundida (fusedToViaId) quando label é alterado
+- [x] ctoVias.update propaga label à via fundida (fusedToViaId) quando label é alterado
+- [x] Gerar pacote de actualização v5.71

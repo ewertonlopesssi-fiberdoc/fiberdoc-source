@@ -863,7 +863,11 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed }: MobileC
                   label: editViaForm.label || undefined,
                   notes: editViaForm.notes || undefined,
                 });
+                // Recarregar o tubo actual e também o tubo fundido (sincronização bidirecional)
                 await loadVias(selectedTube.id);
+                if (selectedVia.fusedToTubeId && selectedVia.fusedToTubeId !== selectedTube.id) {
+                  await loadVias(selectedVia.fusedToTubeId);
+                }
                 setView("vias");
               } catch (e: any) { setError(e?.message ?? "Erro"); }
               finally { setSaving(false); }
