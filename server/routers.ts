@@ -2258,17 +2258,22 @@ ${fiberFolder}
               const json = await res.json() as any;
               const onus = Array.isArray(json) ? json : (json?.data ?? json?.results ?? []);
               const clients = onus.map((o: any) => ({
-                // Nome: onu_login é o login do serviço; pode ser null se não vinculado
-                name: o.onu_login ?? o.login ?? o.description ?? `ONU ${o.onu ?? o.id ?? ""}`,
-                status: o.connection ?? null,          // "Online" / "Offline"
-                phy_addr: o.phy_addr ?? o.mac ?? null, // endereço físico da ONU
-                onu: o.onu ?? o.id ?? null,             // número da ONU
+                // Nome do cliente vinculado à ONU
+                name: o.service_cliente ?? (o.description?.trim() || null),
+                login: o.service_login ?? o.login ?? null,
+                // Status: service_status 1=Ativo, connection pode ser "Online"/"Offline"
+                status: o.connection ?? (o.service_status === 1 ? "Ativo" : o.service_status != null ? "Inativo" : null),
+                phy_addr: o.phy_addr ?? null,          // MAC da ONU
+                onu: o.onuid ?? o.id ?? null,           // número da ONU na PON
                 slot: o.slot ?? null,
                 pon: o.pon ?? null,
                 olt: o.olt_name ?? null,
-                rx: o.signal?.rx ?? o.rx ?? null,       // sinal RX dBm
-                tx: o.signal?.tx ?? o.tx ?? null,       // sinal TX dBm
-                contrato: o.contrato ?? null,
+                rx: o.info_rx ?? null,                  // sinal RX ONU (dBm)
+                tx: o.info_tx ?? null,                  // sinal TX ONU (dBm)
+                olt_rx: o.info_olt_rx ?? null,          // sinal RX na OLT (dBm)
+                signal_date: o.info_date ?? null,       // data da última leitura de sinal
+                contrato: o.service_contrato ?? null,
+                ctoport: o.ctoport ?? null,             // porta da CTO
                 raw: o,
               }));
               return { clients, error: null };

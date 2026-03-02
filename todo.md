@@ -1090,3 +1090,4 @@
 - [x] Exibir clientes SGP no painel mobile (MobileMap)
 - [x] Corrigir queryClientsByCto para usar endpoint /api/fttx/splitter/{id}/onu/list/ (em vez de /cliente/list/ que retorna 404)
 - [x] Actualizar UI desktop e mobile para exibir ONUs com serial, status (online/offline) e sinal óptico (RX/TX dBm)
+- [x] Mostrar sinal RX/TX, status Online/Offline e descrição da ONU no painel lateral da CTO (desktop e mobile)

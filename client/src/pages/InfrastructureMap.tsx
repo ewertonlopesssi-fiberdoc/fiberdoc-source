@@ -1371,24 +1371,34 @@ export default function InfrastructureMap() {
                   const isOnline = String(c.status ?? '').toLowerCase() === 'online';
                   return (
                     <div key={i} className="text-xs rounded bg-muted/40 px-1.5 py-1 space-y-0.5">
+                      {/* Linha 1: nome do cliente + status */}
                       <div className="flex items-center gap-1.5">
                         <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isOnline ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
-                        <span className="truncate font-medium">{c.name ?? `ONU ${i + 1}`}</span>
+                        <span className="truncate font-medium">{c.name ?? c.login ?? `ONU ${i + 1}`}</span>
                         <span className={`ml-auto text-[10px] flex-shrink-0 ${isOnline ? 'text-emerald-400' : 'text-zinc-500'}`}>{c.status ?? ''}</span>
                       </div>
+                      {/* Linha 2: login do serviço (se diferente do nome) */}
+                      {c.login && c.login !== c.name && (
+                        <div className="text-[10px] text-muted-foreground pl-3">Login: {c.login}</div>
+                      )}
+                      {/* Linha 3: MAC */}
                       {c.phy_addr && <div className="text-[10px] text-muted-foreground font-mono pl-3">MAC: {c.phy_addr}</div>}
-                      {(c.olt || c.slot != null || c.pon != null) && (
+                      {/* Linha 4: OLT / Slot / PON / Porta CTO */}
+                      {(c.olt || c.slot != null || c.pon != null || c.ctoport != null) && (
                         <div className="text-[10px] text-muted-foreground pl-3">
                           {c.olt && <span>{c.olt}</span>}
                           {c.slot != null && <span className="ml-1">Slot {c.slot}</span>}
                           {c.pon != null && <span className="ml-1">PON {c.pon}</span>}
+                          {c.ctoport != null && <span className="ml-1">&middot; Porta {c.ctoport}</span>}
                         </div>
                       )}
+                      {/* Linha 5: Sinal RX/TX */}
                       {(c.rx != null || c.tx != null) && (
                         <div className="text-[10px] text-muted-foreground pl-3">
                           {c.rx != null && <span>RX: {c.rx} dBm</span>}
                           {c.rx != null && c.tx != null && <span className="mx-1">&middot;</span>}
                           {c.tx != null && <span>TX: {c.tx} dBm</span>}
+                          {c.olt_rx != null && <span className="ml-1">(OLT: {c.olt_rx} dBm)</span>}
                         </div>
                       )}
                     </div>
