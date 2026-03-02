@@ -523,23 +523,36 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
           {panelType === "cto" && selectedCto?.sgpId && isOnline() && (
             <div className="border-t border-zinc-800 pt-2">
               <div className="flex items-center gap-1.5 text-xs text-zinc-400 mb-1.5">
-                <Users className="w-3.5 h-3.5" /> Clientes SGP
+                <Users className="w-3.5 h-3.5" /> ONUs SGP
               </div>
               {sgpClientsLoading ? (
                 <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                   <Loader2 className="w-3 h-3 animate-spin" /> Consultando SGP...
                 </div>
               ) : sgpClients.length > 0 ? (
-                <div className="space-y-1 max-h-28 overflow-y-auto">
-                  {sgpClients.map((c: any, i: number) => (
-                    <div key={i} className="text-xs flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
-                      <span className="truncate text-zinc-300">{c.name ?? c.login ?? c.nome ?? `Cliente ${i + 1}`}</span>
-                    </div>
-                  ))}
+                <div className="space-y-1 max-h-36 overflow-y-auto">
+                  {sgpClients.map((c: any, i: number) => {
+                    const isOnlineStatus = c.status === 'online' || c.status === 'Online' || c.status === 1 || c.status === '1' || String(c.status).toLowerCase() === 'online';
+                    return (
+                      <div key={i} className="text-xs rounded bg-zinc-800/60 px-1.5 py-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isOnlineStatus ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                          <span className="truncate text-zinc-200 font-medium">{c.name ?? `ONU ${i + 1}`}</span>
+                        </div>
+                        {c.serial && <div className="text-[10px] text-zinc-500 font-mono pl-3">SN: {c.serial}</div>}
+                        {(c.rx != null || c.tx != null) && (
+                          <div className="text-[10px] text-zinc-500 pl-3">
+                            {c.rx != null && <span>RX: {c.rx} dBm</span>}
+                            {c.rx != null && c.tx != null && <span className="mx-1">&middot;</span>}
+                            {c.tx != null && <span>TX: {c.tx} dBm</span>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
-                <div className="text-xs text-zinc-500">Nenhum cliente vinculado</div>
+                <div className="text-xs text-zinc-500">Nenhuma ONU vinculada</div>
               )}
             </div>
           )}

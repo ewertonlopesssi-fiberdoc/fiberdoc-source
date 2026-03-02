@@ -1366,12 +1366,28 @@ export default function InfrastructureMap() {
             {sgpQuery.isLoading ? (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Consultando SGP...</div>
             ) : sgpQuery.data?.clients?.length ? (
-              <div className="space-y-1 max-h-32 overflow-y-auto">
-                {sgpQuery.data.clients.map((c: any, i: number) => (
-                  <div key={i} className="text-xs flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" /><span className="truncate">{c.name ?? c.login ?? `Cliente ${i + 1}`}</span></div>
-                ))}
+              <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                {sgpQuery.data.clients.map((c: any, i: number) => {
+                  const isOnline = c.status === 'online' || c.status === 'Online' || c.status === 1 || c.status === '1' || String(c.status).toLowerCase() === 'online';
+                  return (
+                    <div key={i} className="text-xs rounded bg-muted/40 px-1.5 py-1 space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isOnline ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
+                        <span className="truncate font-medium">{c.name ?? `ONU ${i + 1}`}</span>
+                      </div>
+                      {c.serial && <div className="text-[10px] text-muted-foreground font-mono pl-3">SN: {c.serial}</div>}
+                      {(c.rx != null || c.tx != null) && (
+                        <div className="text-[10px] text-muted-foreground pl-3">
+                          {c.rx != null && <span>RX: {c.rx} dBm</span>}
+                          {c.rx != null && c.tx != null && <span className="mx-1">&middot;</span>}
+                          {c.tx != null && <span>TX: {c.tx} dBm</span>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            ) : <div className="text-xs text-muted-foreground">Nenhum cliente vinculado</div>}
+            ) : <div className="text-xs text-muted-foreground">Nenhuma ONU vinculada</div>}
           </div>
         )}
         {/* Botões de ação */}

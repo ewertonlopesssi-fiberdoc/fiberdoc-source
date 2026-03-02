@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  FiberDoc — Script de Implantação v5.76
+#  FiberDoc — Script de Implantação v5.79
 #  Uso: bash deploy.sh [FIBERDOC_DIR] [FIBERDOC_SERVICE]
 #  Padrões: /opt/fiberdoc  e  fiberdoc
 # =============================================================================
@@ -13,7 +13,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "============================================================"
-echo "  FiberDoc — Implantação v5.76"
+echo "  FiberDoc — Implantação v5.79"
 echo "  Diretório: ${FIBERDOC_DIR}"
 echo "  Serviço:   ${FIBERDOC_SERVICE}"
 echo "  Data/Hora: $(date '+%d/%m/%Y %H:%M:%S')"
@@ -65,7 +65,7 @@ echo "      Artefactos copiados."
 echo "[4/6] Instalando dependências ..."
 cd "${FIBERDOC_DIR}"
 if command -v pnpm &>/dev/null; then
-  pnpm install --frozen-lockfile 2>&1 | tail -5
+  pnpm install --no-frozen-lockfile 2>&1 | tail -5
 elif command -v npm &>/dev/null; then
   npm install 2>&1 | tail -5
 else
@@ -164,6 +164,6 @@ fi
 
 echo ""
 echo "============================================================"
-echo "  FiberDoc v5.76 implantado com sucesso!"
+echo "  FiberDoc v5.79 implantado com sucesso!"
 echo "  Backup anterior: ${BACKUP_DIR}/fiberdoc_backup_${TIMESTAMP}.tar.gz"
 echo "============================================================"
