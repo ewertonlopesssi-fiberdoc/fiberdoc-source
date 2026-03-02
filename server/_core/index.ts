@@ -18,6 +18,7 @@ import { generateEquipmentReportPdf } from "../equipmentReportPdf";
 import { generateFusionReportPdf } from "../fusionReportPdf";
 import multer from "multer";
 import { applyUpdate, getUpdateStatus, getCurrentVersion, getUpdateHistory } from "../systemUpdate";
+import { getCtos, updateCto } from "../db";
 
 // Diretório local para uploads de imagens (logo, etc.) em servidores sem S3
 const LOCAL_UPLOADS_DIR = process.env.BACKUP_LOCAL_DIR
@@ -184,6 +185,49 @@ async function startServer() {
     } catch (err: any) {
       console.error("[backup-download] erro:", err);
       if (!res.headersSent) res.status(500).json({ error: "Erro ao baixar backup" });
+    }
+  });
+
+  // ─── API REST: Vínculo CTO ↔ SGP (para automação/cURL) ──────────────────────
+  // GET  /api/cto/sgp-links          → lista todos os vínculos CTO local ↔ SGP
+  // POST /api/cto/:ctoId/link-sgp    → { sgpId: number } vincula CTO ao SGP
+  // DELETE /api/cto/:ctoId/link-sgp  → remove vínculo SGP da CTO
+  app.get("/api/cto/sgp-links", async (_req, res) => {
+    try {
+      const all = await getCtos();
+      const links = all
+        .filter(c => c.sgpId != null)
+        .map(c => ({ ctoId: c.id, ctoName: c.name, sgpId: c.sgpId }));
+      res.json({ ok: true, links });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message ?? "Erro interno" });
+    }
+  });
+
+  app.post("/api/cto/:ctoId/link-sgp", async (req, res) => {
+    try {
+      const ctoId = parseInt(req.params.ctoId);
+      const sgpId = parseInt(req.body?.sgpId);
+      if (!Number.isFinite(ctoId) || !Number.isFinite(sgpId)) {
+        return res.status(400).json({ ok: false, error: "ctoId e sgpId devem ser números inteiros válidos" });
+      }
+      await updateCto(ctoId, { sgpId });
+      res.json({ ok: true, ctoId, sgpId });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message ?? "Erro interno" });
+    }
+  });
+
+  app.delete("/api/cto/:ctoId/link-sgp", async (req, res) => {
+    try {
+      const ctoId = parseInt(req.params.ctoId);
+      if (!Number.isFinite(ctoId)) {
+        return res.status(400).json({ ok: false, error: "ctoId deve ser um número inteiro válido" });
+      }
+      await updateCto(ctoId, { sgpId: null });
+      res.json({ ok: true, ctoId, sgpId: null });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message ?? "Erro interno" });
     }
   });
 

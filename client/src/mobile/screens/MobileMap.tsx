@@ -123,12 +123,19 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
   // ─── Vincular CTO ao SGP (mobile) ──────────────────────────────────
   const [linkSgpOpen, setLinkSgpOpen] = useState(false);
   const [linkSgpSearch, setLinkSgpSearch] = useState("");
+  const [linkSgpSearchDebounced, setLinkSgpSearchDebounced] = useState("");
   const [linkSgpSelectedId, setLinkSgpSelectedId] = useState<number | null>(null);
   const [linkSgpCtos, setLinkSgpCtos] = useState<any[]>([]);
   const [linkSgpLoading, setLinkSgpLoading] = useState(false);
   const [linkSgpSaving, setLinkSgpSaving] = useState(false);
   const [linkSgpError, setLinkSgpError] = useState<string | null>(null);
   const [linkSgpLinkedIds, setLinkSgpLinkedIds] = useState<Set<number>>(new Set());
+  const [linkSgpNameMap, setLinkSgpNameMap] = useState<Record<number, string>>({});
+  // Debounce de 300ms na pesquisa SGP (mobile)
+  useEffect(() => {
+    const t = setTimeout(() => setLinkSgpSearchDebounced(linkSgpSearch), 300);
+    return () => clearTimeout(t);
+  }, [linkSgpSearch]);
 
   // ─── Carregar dados ─────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -478,10 +485,14 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
                         } else {
                           setLinkSgpCtos(ctosData.ctos ?? []);
                         }
-                        const ids = (linkedRes as any).ids ?? [];
+                        const linkedData = linkedRes as any;
+                        const ids = linkedData.ids ?? [];
+                        const nameMap = linkedData.nameMap ?? {};
                         // Excluir o sgpId da CTO actual
                         const currentSgpId = selectedCto?.sgpId;
-                        setLinkSgpLinkedIds(new Set(ids.filter((id: number) => id !== currentSgpId)));
+                        const filteredIds = ids.filter((id: number) => id !== currentSgpId);
+                        setLinkSgpLinkedIds(new Set(filteredIds));
+                        setLinkSgpNameMap(nameMap);
                       } catch (e: any) {
                         setLinkSgpError(e.message ?? "Erro ao carregar CTOs");
                         setLinkSgpCtos([]);
@@ -1204,9 +1215,12 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
                         } else {
                           setLinkSgpCtos(ctosData.ctos ?? []);
                         }
-                        const ids = (linkedRes as any).ids ?? [];
+                        const linkedData2 = linkedRes as any;
+                        const ids2 = linkedData2.ids ?? [];
+                        const nameMap2 = linkedData2.nameMap ?? {};
                         const currentSgpId = selectedCto?.sgpId;
-                        setLinkSgpLinkedIds(new Set(ids.filter((id: number) => id !== currentSgpId)));
+                        setLinkSgpLinkedIds(new Set(ids2.filter((id: number) => id !== currentSgpId)));
+                        setLinkSgpNameMap(nameMap2);
                       } catch (e: any) {
                         setLinkSgpError(e.message ?? "Erro ao carregar CTOs");
                       } finally { setLinkSgpLoading(false); }
@@ -1216,15 +1230,23 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
                   </button>
                 </div>
               ) : (() => {
-                const filtered = linkSgpCtos.filter((c: any) => {
-                  const q = linkSgpSearch.toLowerCase();
-                  return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
-                });
+                const filtered = linkSgpCtos
+                  .filter((c: any) => {
+                    const q = linkSgpSearchDebounced.toLowerCase();
+                    return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
+                  })
+                  // Ordenar: não vinculadas primeiro, vinculadas no fundo
+                  .sort((a: any, b: any) => {
+                    const aL = linkSgpLinkedIds.has(a.id) ? 1 : 0;
+                    const bL = linkSgpLinkedIds.has(b.id) ? 1 : 0;
+                    return aL - bL;
+                  });
                 return (
                   <div className="flex-1 overflow-y-auto space-y-1">
                     {filtered.map((c: any) => {
                       const alreadyLinked = linkSgpLinkedIds.has(c.id);
                       const isSelected = linkSgpSelectedId === c.id;
+                      const localCtoName: string | undefined = linkSgpNameMap[c.id];
                       return (
                         <button
                           key={c.id}
@@ -1237,6 +1259,11 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
                           }`}
                           onClick={() => !alreadyLinked && setLinkSgpSelectedId(c.id)}
                           disabled={alreadyLinked}
+                          title={alreadyLinked
+                            ? localCtoName
+                              ? `Já vinculada à CTO local: ${localCtoName}`
+                              : "Já vinculada a outra CTO local"
+                            : undefined}
                         >
                           {isSelected
                             ? <Check className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
@@ -1245,7 +1272,12 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
                             : <div className="w-3.5 h-3.5 flex-shrink-0" />}
                           <span className="flex-1 truncate font-medium">{c.ident ?? c.name ?? `CTO #${c.id}`}</span>
                           {alreadyLinked && (
-                            <span className="text-[10px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded flex-shrink-0">vinculada</span>
+                            <span
+                              className="text-[10px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded flex-shrink-0 max-w-[90px] truncate"
+                              title={localCtoName ? `Vinculada a: ${localCtoName}` : "Já vinculada"}
+                            >
+                              {localCtoName ?? "vinculada"}
+                            </span>
                           )}
                           <span className="text-zinc-500 font-mono text-[10px]">#{c.id}</span>
                         </button>
@@ -1254,7 +1286,7 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
                     {filtered.length === 0 && (
                       <div className="flex flex-col items-center gap-2 text-zinc-500 text-xs text-center py-8">
                         <Users className="w-6 h-6 opacity-30" />
-                        {linkSgpSearch ? `Nenhuma CTO encontrada para "${linkSgpSearch}"` : "Nenhuma CTO disponível no SGP"}
+                        {linkSgpSearchDebounced ? `Nenhuma CTO encontrada para "${linkSgpSearchDebounced}"` : "Nenhuma CTO disponível no SGP"}
                       </div>
                     )}
                   </div>

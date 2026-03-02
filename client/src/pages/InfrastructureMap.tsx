@@ -397,9 +397,15 @@ export default function InfrastructureMap() {
   // ─── Vincular CTO ao SGP ──────────────────────────────────────────────────
   const [linkSgpDialogOpen, setLinkSgpDialogOpen] = useState(false);
   const [linkSgpSearch, setLinkSgpSearch] = useState("");
+  const [linkSgpSearchDebounced, setLinkSgpSearchDebounced] = useState("");
   const [linkSgpSelectedId, setLinkSgpSelectedId] = useState<number | null>(null);
   const sgpCtosQuery = trpc.sgp.listCtos.useQuery(undefined, { enabled: linkSgpDialogOpen });
   const linkedSgpIdsQuery = trpc.sgp.linkedSgpIds.useQuery(undefined, { enabled: linkSgpDialogOpen });
+  // Debounce de 300ms na pesquisa SGP
+  useEffect(() => {
+    const t = setTimeout(() => setLinkSgpSearchDebounced(linkSgpSearch), 300);
+    return () => clearTimeout(t);
+  }, [linkSgpSearch]);
   const linkCtoToSgpMut = trpc.sgp.linkCtoToSgp.useMutation({
     onSuccess: () => {
       refetchCtos();
@@ -2685,15 +2691,24 @@ export default function InfrastructureMap() {
               // Excluir o sgpId da CTO actual (para não marcar como já vinculada a si própria)
               const currentSgpId = sidePanel?.kind === "element" ? sidePanel.element.sgpId : null;
               if (currentSgpId) linkedIds.delete(currentSgpId);
-              const filtered = ((sgpCtosQuery.data?.ctos ?? []) as any[]).filter((c: any) => {
-                const q = linkSgpSearch.toLowerCase();
-                return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
-              });
+              const nameMap = (linkedSgpIdsQuery.data as any)?.nameMap ?? {};
+              const filtered = ((sgpCtosQuery.data?.ctos ?? []) as any[])
+                .filter((c: any) => {
+                  const q = linkSgpSearchDebounced.toLowerCase();
+                  return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
+                })
+                // Ordenar: não vinculadas primeiro, vinculadas no fundo
+                .sort((a: any, b: any) => {
+                  const aLinked = linkedIds.has(a.id) ? 1 : 0;
+                  const bLinked = linkedIds.has(b.id) ? 1 : 0;
+                  return aLinked - bLinked;
+                });
               return (
                 <div className="max-h-64 overflow-y-auto space-y-1 border border-border rounded-md p-1">
                   {filtered.map((c: any) => {
                     const alreadyLinked = linkedIds.has(c.id);
                     const isSelected = linkSgpSelectedId === c.id;
+                    const localCtoName: string | undefined = nameMap[c.id];
                     return (
                       <button
                         key={c.id}
@@ -2706,7 +2721,11 @@ export default function InfrastructureMap() {
                         }`}
                         onClick={() => !alreadyLinked && setLinkSgpSelectedId(c.id)}
                         disabled={alreadyLinked}
-                        title={alreadyLinked ? "Já vinculada a outra CTO local" : undefined}
+                        title={alreadyLinked
+                          ? localCtoName
+                            ? `Já vinculada à CTO local: ${localCtoName}`
+                            : "Já vinculada a outra CTO local"
+                          : undefined}
                       >
                         {isSelected
                           ? <Check className="w-3 h-3 text-cyan-400 flex-shrink-0" />
@@ -2715,7 +2734,12 @@ export default function InfrastructureMap() {
                           : <div className="w-3 h-3 flex-shrink-0" />}
                         <span className="flex-1 truncate font-medium">{c.ident ?? c.name ?? `CTO #${c.id}`}</span>
                         {alreadyLinked && (
-                          <span className="text-[10px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded flex-shrink-0">vinculada</span>
+                          <span
+                            className="text-[10px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded flex-shrink-0 max-w-[100px] truncate"
+                            title={localCtoName ? `Vinculada a: ${localCtoName}` : "Já vinculada"}
+                          >
+                            {localCtoName ? localCtoName : "vinculada"}
+                          </span>
                         )}
                         <span className="text-muted-foreground font-mono">#{c.id}</span>
                       </button>
@@ -2724,7 +2748,7 @@ export default function InfrastructureMap() {
                   {filtered.length === 0 && (
                     <div className="text-xs text-muted-foreground text-center py-6 flex flex-col items-center gap-1.5">
                       <Users className="w-5 h-5 opacity-30" />
-                      {linkSgpSearch ? `Nenhuma CTO encontrada para "${linkSgpSearch}"` : "Nenhuma CTO disponível no SGP"}
+                      {linkSgpSearchDebounced ? `Nenhuma CTO encontrada para "${linkSgpSearchDebounced}"` : "Nenhuma CTO disponível no SGP"}
                     </div>
                   )}
                 </div>

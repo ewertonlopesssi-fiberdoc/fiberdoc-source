@@ -2541,12 +2541,18 @@ ${fiberFolder}
         await updateCto(input.ctoId, { sgpId: null });
         return { ok: true };
       }),
-    // ─── IDs SGP já vinculados a CTOs locais ──────────────────────────────────
+    // ─── IDs SGP já vinculados a CTOs locais (com nome da CTO local) ───────────────
     linkedSgpIds: protectedProcedure
       .query(async () => {
         const all = await getCtos();
-        const ids = all.filter(c => c.sgpId != null).map(c => c.sgpId as number);
-        return { ids };
+        const linked = all.filter(c => c.sgpId != null);
+        const ids = linked.map(c => c.sgpId as number);
+        // mapa sgpId → nome da CTO local para tooltip
+        const nameMap: Record<number, string> = {};
+        for (const c of linked) {
+          if (c.sgpId != null) nameMap[c.sgpId] = c.name;
+        }
+        return { ids, nameMap };
       }),
   }),
   // ─── Racks ────────────────────────────────────────────────────────────────────

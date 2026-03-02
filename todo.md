@@ -1071,3 +1071,7 @@
 - [x] Botão "Tentar novamente" no estado de erro do dialog Vincular ao SGP (desktop e mobile)
 - [x] Contagem de CTOs disponíveis no cabeçalho do dialog Vincular ao SGP
 - [x] Destaque visual para CTOs do SGP já vinculadas a outras CTOs locais
+- [x] Ordenação da lista SGP: não vinculadas primeiro, vinculadas no fundo
+- [x] Debounce de 300ms na pesquisa do dialog Vincular ao SGP
+- [x] Tooltip com nome da CTO local nas CTOs SGP já vinculadas
+- [x] Endpoint REST para actualização de vínculo CTO-SGP via cURL
