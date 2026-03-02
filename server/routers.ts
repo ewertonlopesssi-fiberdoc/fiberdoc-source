@@ -2259,7 +2259,7 @@ ${fiberFolder}
               const onus = Array.isArray(json) ? json : (json?.data ?? json?.results ?? []);
               const clients = onus.map((o: any) => ({
                 // Nome do cliente vinculado à ONU
-                name: (o.service_cliente ?? null) || (o.description?.trim() || null),
+                name: (o.service_cliente ?? null) || (o.description?.trim() ?? null),
                 login: o.service_login ?? o.login ?? null,
                 // Status: connection=1 não retorna dados neste SGP
                 // Heurística: se info_rx tem valor numérico, ONU está online

@@ -1077,41 +1077,134 @@ export default function InfrastructureMap() {
     setKmlImportLoading(true);
     setKmlImportResult(null);
     try {
-      const text = await file.text();
+      // Suporte a .kmz (ZIP contendo doc.kml) e .kml
+      let kmlText: string;
+      if (file.name.toLowerCase().endsWith(".kmz")) {
+        // Extrair o doc.kml do ZIP manualmente (sem dependência externa)
+        const buf = await file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        // Procurar assinatura PK (0x50 0x4B 0x03 0x04) e extrair ficheiro .kml
+        let kmlFound = false;
+        let offset = 0;
+        while (offset < bytes.length - 30) {
+          if (bytes[offset] === 0x50 && bytes[offset+1] === 0x4B && bytes[offset+2] === 0x03 && bytes[offset+3] === 0x04) {
+            const compression = bytes[offset+8] | (bytes[offset+9] << 8);
+            const compSize = bytes[offset+18] | (bytes[offset+19] << 8) | (bytes[offset+20] << 16) | (bytes[offset+21] << 24);
+            const nameLen = bytes[offset+26] | (bytes[offset+27] << 8);
+            const extraLen = bytes[offset+28] | (bytes[offset+29] << 8);
+            const entryName = new TextDecoder().decode(bytes.slice(offset+30, offset+30+nameLen));
+            const dataStart = offset + 30 + nameLen + extraLen;
+            if (entryName.endsWith(".kml") && compression === 0) {
+              kmlText = new TextDecoder().decode(bytes.slice(dataStart, dataStart + compSize));
+              kmlFound = true; break;
+            }
+            offset = dataStart + compSize;
+          } else { offset++; }
+        }
+        if (!kmlFound) throw new Error("Nenhum ficheiro .kml encontrado dentro do KMZ");
+      } else {
+        kmlText = await file.text();
+      }
+
       const parser = new DOMParser();
-      const doc = parser.parseFromString(text, "application/xml");
+      const doc = parser.parseFromString(kmlText!, "application/xml");
+
+      // Mapear styleUrl → href do ícone para detecção de tipo
+      const styleIconMap: Record<string, string> = {};
+      doc.querySelectorAll("Style").forEach(style => {
+        const id = style.getAttribute("id");
+        const href = style.querySelector("IconStyle > Icon > href")?.textContent ?? "";
+        if (id) styleIconMap["#" + id] = href.toLowerCase();
+      });
+
+      // Função para detectar tipo de elemento
+      const detectType = (pm: Element, folderName: string): "cto" | "ceo" | "cabo" | null => {
+        const name = pm.querySelector("name")?.textContent?.trim().toLowerCase() ?? "";
+        const desc = pm.querySelector("description")?.textContent?.toLowerCase() ?? "";
+        const styleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
+        const iconHref = styleIconMap[styleUrl] ?? "";
+        const folderLower = folderName.toLowerCase();
+
+        // Cabo/fibra por LineString
+        const hasLine = !!pm.querySelector("LineString");
+        if (hasLine) {
+          const isCabo = name.includes("cabo") || name.includes("fibra") || name.includes("caminho") ||
+            desc.includes("cabo") || desc.includes("fibra") || folderLower.includes("cabo") ||
+            folderLower.includes("fibra") || folderLower.includes("caminho");
+          return isCabo ? "cabo" : null;
+        }
+
+        // Ponto: detectar por nome da pasta
+        if (folderLower.includes("cto") || folderLower.includes("splitter")) return "cto";
+        if (folderLower.includes("ceo") || folderLower.includes("caixa")) return "ceo";
+
+        // Detectar por ícone
+        if (iconHref.includes("square") || iconHref.includes("cto")) return "cto";
+        if (iconHref.includes("donut") || iconHref.includes("ceo")) return "ceo";
+
+        // Detectar por nome/descrição do placemark
+        if (name.includes("cto") || desc.includes("cto") || name.startsWith("sp ")) return "cto";
+        if (name.includes("ceo") || desc.includes("ceo")) return "ceo";
+
+        return "ceo"; // fallback
+      };
+
+      // Percorrer placemarks respeitando a pasta pai
+      const getFolderName = (pm: Element): string => {
+        let parent = pm.parentElement;
+        while (parent) {
+          if (parent.tagName === "Folder") return parent.querySelector(":scope > name")?.textContent?.trim() ?? "";
+          parent = parent.parentElement;
+        }
+        return "";
+      };
+
       const placemarks = Array.from(doc.querySelectorAll("Placemark"));
       let added = 0; let skipped = 0; const errors: string[] = [];
+
       for (const pm of placemarks) {
         const name = pm.querySelector("name")?.textContent?.trim() ?? "";
-        const coordText = pm.querySelector("Point > coordinates")?.textContent?.trim();
-        if (!coordText) { skipped++; continue; }
-        const parts = coordText.split(",");
-        if (parts.length < 2) { skipped++; continue; }
-        const lng = parseFloat(parts[0]); const lat = parseFloat(parts[1]);
-        if (isNaN(lat) || isNaN(lng)) { errors.push(`Coordenadas inválidas: ${name}`); continue; }
-        // Detectar tipo pelo nome ou pela descrição
-        const desc = pm.querySelector("description")?.textContent?.toLowerCase() ?? "";
-        const nameLower = name.toLowerCase();
-        const isCto = nameLower.includes("cto") || desc.includes("cto");
-        const type: "ceo" | "cto" = isCto ? "cto" : "ceo";
+        const folderName = getFolderName(pm);
+        const type = detectType(pm, folderName);
+        if (!type) { skipped++; continue; }
+
         try {
-          if (type === "cto") {
-            const cto = await createCtoMut.mutateAsync({ name: name || `CTO-KML-${added + 1}`, capacity: 8, lat, lng });
-            await upsertElementMut.mutateAsync({ type: "cto", referenceId: (cto as any).id, lat, lng });
+          if (type === "cabo") {
+            // Importar cabo/fibra a partir de LineString
+            const coordsText = pm.querySelector("LineString > coordinates")?.textContent?.trim() ?? "";
+            if (!coordsText) { skipped++; continue; }
+            const pathPoints = coordsText.trim().split(/\s+/).map(c => {
+              const p = c.split(","); return { lat: parseFloat(p[1]), lng: parseFloat(p[0]) };
+            }).filter(p => !isNaN(p.lat) && !isNaN(p.lng));
+            if (pathPoints.length < 2) { skipped++; continue; }
+            const pathStr = JSON.stringify(pathPoints);
+            await createRouteMut.mutateAsync({ name: name || `Cabo-KML-${added + 1}`, path: pathStr, fiberCount: 12, cableType: "FO", color: "#22d3ee" });
+            added++;
           } else {
-            const ceo = await createCeoMut.mutateAsync({ name: name || `CEO-KML-${added + 1}`, location: "" });
-            await upsertElementMut.mutateAsync({ type: "ceo", referenceId: (ceo as any).id, lat, lng });
+            // Importar ponto (CTO ou CEO)
+            const coordText = pm.querySelector("Point > coordinates")?.textContent?.trim();
+            if (!coordText) { skipped++; continue; }
+            const parts = coordText.split(",");
+            if (parts.length < 2) { skipped++; continue; }
+            const lng = parseFloat(parts[0]); const lat = parseFloat(parts[1]);
+            if (isNaN(lat) || isNaN(lng)) { errors.push(`Coordenadas inválidas: ${name}`); continue; }
+            if (type === "cto") {
+              const cto = await createCtoMut.mutateAsync({ name: name || `CTO-KML-${added + 1}`, capacity: 8, lat, lng });
+              await upsertElementMut.mutateAsync({ type: "cto", referenceId: (cto as any).id, lat, lng });
+            } else {
+              const ceo = await createCeoMut.mutateAsync({ name: name || `CEO-KML-${added + 1}`, location: "" });
+              await upsertElementMut.mutateAsync({ type: "ceo", referenceId: (ceo as any).id, lat, lng });
+            }
+            added++;
           }
-          added++;
         } catch (e: any) { errors.push(`${name}: ${e.message}`); }
       }
       setKmlImportResult({ added, skipped, errors });
-      if (added > 0) { refetchElements(); toast.success(`${added} elemento${added !== 1 ? "s" : ""} importado${added !== 1 ? "s" : ""} do KML`); }
+      if (added > 0) { refetchElements(); refetchRoutes?.(); toast.success(`${added} elemento${added !== 1 ? "s" : ""} importado${added !== 1 ? "s" : ""} do KML/KMZ`); }
       else toast.error("Nenhum elemento importado");
-    } catch (e: any) { toast.error("Erro ao processar KML: " + (e.message ?? "")); }
+    } catch (e: any) { toast.error("Erro ao processar KML/KMZ: " + (e.message ?? "")); }
     finally { setKmlImportLoading(false); }
-  }, [createCtoMut, createCeoMut, upsertElementMut, refetchElements]);
+  }, [createCtoMut, createCeoMut, upsertElementMut, createRouteMut, refetchElements]);
 
   // Exportar KML/KMZ
   const openExportDialog = () => {
@@ -2276,7 +2369,7 @@ export default function InfrastructureMap() {
           <DialogHeader><DialogTitle className="flex items-center gap-2"><Upload className="w-4 h-4" />Importar Posições via KML</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="text-sm text-muted-foreground space-y-1">
-              <p>Selecione um arquivo <strong>.kml</strong> exportado do Google Earth, Google Maps ou outro sistema.</p>
+              <p>Selecione um arquivo <strong>.kml</strong> ou <strong>.kmz</strong> exportado do Google Earth, Google Maps ou outro sistema.</p>
               <p className="text-xs">Elementos com "CTO" no nome serão importados como CTOs; os demais como CEOs.</p>
             </div>
             <div className="border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
@@ -2286,10 +2379,10 @@ export default function InfrastructureMap() {
               {kmlImportLoading ? (
                 <div className="flex flex-col items-center gap-2"><Loader2 className="w-8 h-8 animate-spin text-primary" /><span className="text-sm text-muted-foreground">Importando...</span></div>
               ) : (
-                <div className="flex flex-col items-center gap-2"><Upload className="w-8 h-8 text-muted-foreground" /><span className="text-sm text-muted-foreground">Clique ou arraste o arquivo KML aqui</span><span className="text-xs text-muted-foreground">Apenas arquivos .kml</span></div>
+                <div className="flex flex-col items-center gap-2"><Upload className="w-8 h-8 text-muted-foreground" /><span className="text-sm text-muted-foreground">Clique ou arraste o arquivo KML/KMZ aqui</span><span className="text-xs text-muted-foreground">Arquivos .kml ou .kmz</span></div>
               )}
             </div>
-            <input ref={kmlFileRef} type="file" accept=".kml" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleKmlImport(f); e.target.value = ""; }} />
+            <input ref={kmlFileRef} type="file" accept=".kml,.kmz" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleKmlImport(f); e.target.value = ""; }} />
             {kmlImportResult && (
               <div className="rounded-lg border border-border p-3 space-y-1.5">
                 <div className="flex items-center gap-2 text-sm font-medium">
