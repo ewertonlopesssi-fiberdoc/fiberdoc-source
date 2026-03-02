@@ -5,7 +5,7 @@ import { useMobileAuth } from "../MobileAuthContext";
 import { createMobileTrpcClient, isOnline, saveOfflineCache, loadOfflineCache } from "../mobileTrpc";
 import {
   Cable, Radio, MapPin, X, ChevronRight, Edit2, Check, ChevronLeft,
-  Layers, Link2, Link2Off, RefreshCw, Loader2, AlertCircle, LocateFixed, Plus, Trash2,
+  Layers, Link2, Link2Off, RefreshCw, Loader2, AlertCircle, LocateFixed, Plus, Trash2, Users, Unlink,
 } from "lucide-react";
 
 // ─── Cores de tubo ─────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ const VIA_FIBER_COLORS: Record<number, { dot: string }> = {
 // ─── Tipos ─────────────────────────────────────────────────────────────────
 type MapEl = { id: number; type: string; referenceId: number; lat: number; lng: number };
 type Ceo = { id: number; name: string; location?: string | null; type?: string | null; notes?: string | null; status?: string | null };
-type Cto = { id: number; name: string; address?: string | null; lat?: string | null; lng?: string | null; capacity?: number | null; usedPorts?: number | null; status?: string | null; notes?: string | null };
+type Cto = { id: number; name: string; address?: string | null; lat?: string | null; lng?: string | null; capacity?: number | null; usedPorts?: number | null; status?: string | null; notes?: string | null; sgpId?: number | null };
 type Tube = { id: number; identifier: string; type: string; totalVias: number; color: string | null; notes?: string | null };
 type Via = { id: number; tubeId: number; viaNumber: number; label?: string | null; fusedToViaId?: number | null; fusedToTubeId?: number | null; notes?: string | null };
 
@@ -120,6 +120,13 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
   const [filterStatus, setFilterStatus] = useState<"all" | "active" | "inactive">("all");
   const [gpsLocating, setGpsLocating] = useState(false);
   const myLocationMarkerRef = useRef<L.CircleMarker | null>(null);
+  // ─── Vincular CTO ao SGP (mobile) ──────────────────────────────────
+  const [linkSgpOpen, setLinkSgpOpen] = useState(false);
+  const [linkSgpSearch, setLinkSgpSearch] = useState("");
+  const [linkSgpSelectedId, setLinkSgpSelectedId] = useState<number | null>(null);
+  const [linkSgpCtos, setLinkSgpCtos] = useState<any[]>([]);
+  const [linkSgpLoading, setLinkSgpLoading] = useState(false);
+  const [linkSgpSaving, setLinkSgpSaving] = useState(false);
 
   // ─── Carregar dados ─────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -424,6 +431,51 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
               <Layers className="w-3.5 h-3.5" /> Tubos ({tubes.length})
             </button>
           </div>
+          {/* Vincular ao SGP (apenas CTO) */}
+          {panelType === "cto" && isOnline() && (
+            <div className="border-t border-zinc-800 pt-2">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                  <Users className="w-3.5 h-3.5" /> Vínculo SGP
+                </div>
+                {selectedCto?.sgpId ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-emerald-400 font-mono">ID {selectedCto.sgpId}</span>
+                    <button
+                      className="text-[10px] text-red-400"
+                      onClick={async () => {
+                        if (!selectedCto?.id) return;
+                        try {
+                          await client.sgp.unlinkCtoFromSgp.mutate({ ctoId: selectedCto.id });
+                          setSelectedCto(prev => prev ? { ...prev, sgpId: null } : prev);
+                          setCtos(prev => prev.map(c => c.id === selectedCto.id ? { ...c, sgpId: null } : c));
+                        } catch (e: any) { setError(e.message ?? "Erro ao desvincular"); }
+                      }}
+                    >
+                      <Unlink className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="text-[10px] text-cyan-400 underline"
+                    onClick={async () => {
+                      setLinkSgpSearch("");
+                      setLinkSgpSelectedId(null);
+                      setLinkSgpLoading(true);
+                      setLinkSgpOpen(true);
+                      try {
+                        const res = await client.sgp.listCtos.query();
+                        setLinkSgpCtos((res as any).ctos ?? []);
+                      } catch { setLinkSgpCtos([]); }
+                      finally { setLinkSgpLoading(false); }
+                    }}
+                  >
+                    + Vincular ao SGP
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {/* Botão Exportar PDF de Fusões */}
           {isOnline() && (() => {
             const refId = panelType === "ceo" ? selectedCeo?.id : selectedCto?.id;
@@ -1067,6 +1119,84 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
             {panelView === "editTube"  && <PanelEditTube />}
             {panelView === "editVia"   && <PanelEditVia />}
             {panelView === "setFusion" && <PanelSetFusion />}
+          </div>
+        )}
+
+        {/* ─── Modal: Vincular CTO ao SGP ───────────────────────────────── */}
+        {linkSgpOpen && (
+          <div className="absolute inset-0 bg-black/70 flex items-end" style={{ zIndex: 30 }}>
+            <div className="w-full bg-zinc-950 border-t border-zinc-800 rounded-t-2xl p-4 space-y-3 max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-cyan-400" />
+                  <span className="text-sm font-bold text-white">Vincular ao SGP</span>
+                </div>
+                <button onClick={() => setLinkSgpOpen(false)} className="text-zinc-500 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs text-zinc-400">Selecione a CTO correspondente no SGP.</p>
+              <input
+                type="text"
+                placeholder="Buscar CTO no SGP..."
+                value={linkSgpSearch}
+                onChange={e => setLinkSgpSearch(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none"
+              />
+              {linkSgpLoading ? (
+                <div className="flex items-center justify-center gap-2 text-zinc-400 py-6">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Carregando...
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto space-y-1">
+                  {linkSgpCtos
+                    .filter((c: any) => {
+                      const q = linkSgpSearch.toLowerCase();
+                      return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
+                    })
+                    .map((c: any) => (
+                      <button
+                        key={c.id}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2 transition-colors ${
+                          linkSgpSelectedId === c.id
+                            ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                            : "bg-zinc-900 border border-zinc-800 text-white"
+                        }`}
+                        onClick={() => setLinkSgpSelectedId(c.id)}
+                      >
+                        {linkSgpSelectedId === c.id && <Check className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />}
+                        <span className="flex-1 truncate font-medium">{c.ident ?? c.name ?? `CTO #${c.id}`}</span>
+                        <span className="text-zinc-500 font-mono text-[10px]">#{c.id}</span>
+                      </button>
+                    ))}
+                  {linkSgpCtos.filter((c: any) => {
+                    const q = linkSgpSearch.toLowerCase();
+                    return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
+                  }).length === 0 && (
+                    <div className="text-xs text-zinc-500 text-center py-6">Nenhuma CTO encontrada</div>
+                  )}
+                </div>
+              )}
+              <button
+                disabled={!linkSgpSelectedId || linkSgpSaving}
+                className="w-full py-3 rounded-xl text-sm font-semibold bg-cyan-600 text-white disabled:opacity-40 flex items-center justify-center gap-2"
+                onClick={async () => {
+                  if (!linkSgpSelectedId || !selectedCto?.id) return;
+                  setLinkSgpSaving(true);
+                  try {
+                    await client.sgp.linkCtoToSgp.mutate({ ctoId: selectedCto.id, sgpId: linkSgpSelectedId });
+                    setSelectedCto(prev => prev ? { ...prev, sgpId: linkSgpSelectedId } : prev);
+                    setCtos(prev => prev.map(c => c.id === selectedCto.id ? { ...c, sgpId: linkSgpSelectedId } : c));
+                    setLinkSgpOpen(false);
+                    setLinkSgpSelectedId(null);
+                  } catch (e: any) { setError(e.message ?? "Erro ao vincular"); }
+                  finally { setLinkSgpSaving(false); }
+                }}
+              >
+                {linkSgpSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                Vincular
+              </button>
+            </div>
           </div>
         )}
       </div>

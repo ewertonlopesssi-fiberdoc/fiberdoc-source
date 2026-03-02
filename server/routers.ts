@@ -2478,6 +2478,69 @@ ${fiberFolder}
           return { clients: [], error: e.message ?? "Erro ao pesquisar clientes" };
         }
       }),
+    // ─── Sincronizar Labels de ONUs ───────────────────────────────────────────────
+    syncOnuLabels: adminProcedure
+      .input(z.object({ ctoId: z.number(), sgpCtoId: z.number() }))
+      .mutation(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "SGP não configurado" });
+        try {
+          // Buscar ONUs da CTO no SGP
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const res = await fetch(`${base}/api/fttx/splitter/${input.sgpCtoId}/onu/list/`, {
+            headers: { token: cfg.token, app: cfg.app },
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `SGP HTTP ${res.status}` });
+          const data = await res.json() as any;
+          const onus: any[] = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+          if (onus.length === 0) return { updated: 0, message: "Nenhuma ONU encontrada no SGP para esta CTO" };
+
+          // Buscar tubos e vias da CTO no FiberDoc
+          const tubes = await getTubesByCto(input.ctoId);
+          const allVias = await getViasByCto(input.ctoId);
+
+          let updated = 0;
+          for (const onu of onus) {
+            // Tentar identificar a via pela posição/porta da ONU (campo pon, slot, onu)
+            const clientName: string = onu.cliente_nome ?? onu.nome ?? onu.login ?? onu.contrato_login ?? "";
+            const portaOnu: number | null = onu.onu ?? onu.porta ?? null;
+            if (!clientName || portaOnu === null) continue;
+
+            // Procurar via com número correspondente à porta da ONU
+            const via = allVias.find((v: any) => v.number === portaOnu && !v.label);
+            if (!via) continue;
+
+            // Actualizar label da via com nome do cliente
+            await updateCtoVia(via.id, { label: clientName });
+            // Propagar para via fundida se existir
+            if (via.fusedToViaId) {
+              await updateCtoVia(via.fusedToViaId, { label: clientName });
+            }
+            updated++;
+          }
+          return { updated, message: `${updated} via(s) actualizadas com nomes de clientes SGP` };
+        } catch (e: any) {
+          if (e instanceof TRPCError) throw e;
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: e.message ?? "Erro ao sincronizar ONUs" });
+        }
+      }),
+
+    // ─── Vincular CTO FiberDoc a uma CTO do SGP ───────────────────────────────
+    linkCtoToSgp: adminProcedure
+      .input(z.object({ ctoId: z.number(), sgpId: z.number() }))
+      .mutation(async ({ input }) => {
+        await updateCto(input.ctoId, { sgpId: input.sgpId });
+        return { ok: true };
+      }),
+
+    // ─── Desvincular CTO FiberDoc do SGP ─────────────────────────────────────
+    unlinkCtoFromSgp: adminProcedure
+      .input(z.object({ ctoId: z.number() }))
+      .mutation(async ({ input }) => {
+        await updateCto(input.ctoId, { sgpId: null });
+        return { ok: true };
+      }),
   }),
   // ─── Racks ────────────────────────────────────────────────────────────────────
   racks: router({

@@ -1054,3 +1054,16 @@
 - [x] Marcadores do mapa mostram badge de status ONUs (verde=todas online, vermelho=alguma offline)
 - [x] Dialog de fusão tem campo de pesquisa de cliente SGP para vincular ao label da via
 - [x] Gerar pacote de actualização v5.72
+
+## v5.73 — Sincronização ONU + Webhook SGP + Relatório PDF SGP
+
+- [ ] Procedimento tRPC sgp.syncOnuLabels — busca ONUs da CTO no SGP e actualiza labels das vias automaticamente
+- [ ] Botão "Sincronizar ONUs" no CtoDetail (desktop) que preenche labels das vias com nomes de clientes SGP
+- [ ] Endpoint HTTP /api/sgp/webhook para receber notificações do SGP (ONU autorizada/desactivada)
+- [ ] Webhook actualiza label e status da via correspondente na BD
+- [ ] URL do webhook exibida na página de Integrações SGP para configurar no SGP
+- [ ] Endpoint HTTP /api/sgp-occupancy-report/:ctoId para gerar PDF de ocupação integrado
+- [ ] PDF mostra: nome da CTO, lista de vias ocupadas, cliente SGP vinculado, status ONU, sinal óptico
+- [ ] Botão "Relatório SGP PDF" no CtoDetail (desktop) e no PanelDetail do mobile
+- [ ] Gerar pacote de actualização v5.73
+- [x] Botão "Vincular ao SGP" no painel lateral da CTO no mapa (desktop e mobile) com dialog de selecção da CTO SGP correspondente

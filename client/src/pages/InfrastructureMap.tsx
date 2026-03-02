@@ -14,7 +14,7 @@ import {
   Radio, Box, Cable, Navigation, Users, Trash2,
   FileDown, MousePointer2, Search, Layers, Upload,
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
-  Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText
+  Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink
 } from "lucide-react";
 import L from "leaflet";
 
@@ -106,7 +106,7 @@ function TubeSelectors({ fromElId, toElId, fromTubeId, toTubeId, onChange }: {
 type MapElement = {
   id: number; type: "ceo" | "cto"; referenceId: number;
   lat: number; lng: number; name?: string; status?: string;
-  capacity?: number; usedPorts?: number;
+  capacity?: number; usedPorts?: number; sgpId?: number | null;
 };
 type MapRoute = {
   id: number; fromElementId: number; toElementId: number;
@@ -394,6 +394,35 @@ export default function InfrastructureMap() {
   // ─── Fusões pelo Mapa ─────────────────────────────────────────────────────
   const [fusionDialogOpen, setFusionDialogOpen] = useState(false);
   const [fusionPdfLoading, setFusionPdfLoading] = useState(false);
+  // ─── Vincular CTO ao SGP ──────────────────────────────────────────────────
+  const [linkSgpDialogOpen, setLinkSgpDialogOpen] = useState(false);
+  const [linkSgpSearch, setLinkSgpSearch] = useState("");
+  const [linkSgpSelectedId, setLinkSgpSelectedId] = useState<number | null>(null);
+  const sgpCtosQuery = trpc.sgp.listCtos.useQuery(undefined, { enabled: linkSgpDialogOpen });
+  const linkCtoToSgpMut = trpc.sgp.linkCtoToSgp.useMutation({
+    onSuccess: () => {
+      refetchCtos();
+      setLinkSgpDialogOpen(false);
+      setLinkSgpSearch("");
+      setLinkSgpSelectedId(null);
+      // Actualizar sgpId no sidePanel
+      if (sidePanel?.kind === "element") {
+        setSidePanel({ ...sidePanel, element: { ...sidePanel.element, sgpId: linkSgpSelectedId } });
+      }
+      toast.success("CTO vinculada ao SGP com sucesso");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const unlinkCtoFromSgpMut = trpc.sgp.unlinkCtoFromSgp.useMutation({
+    onSuccess: () => {
+      refetchCtos();
+      if (sidePanel?.kind === "element") {
+        setSidePanel({ ...sidePanel, element: { ...sidePanel.element, sgpId: null } });
+      }
+      toast.success("Vínculo SGP removido");
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const [fusionSourceVia, setFusionSourceVia] = useState<{ id: number; viaNumber: number; tubeId: number; isCto: boolean; isFused: boolean; label?: string | null } | null>(null);
   const [fusionTargetTubeId, setFusionTargetTubeId] = useState<string>("");
   const [fusionTargetViaId, setFusionTargetViaId] = useState<string>("");
@@ -603,7 +632,7 @@ export default function InfrastructureMap() {
           toast.info(`Ponto adicionado: ${name}`);
           return;
         }
-        setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts } });
+        setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts, sgpId: ref?.sgpId ?? null } });
       });
       markersRef.current[el.id] = marker;
     });
@@ -1167,7 +1196,7 @@ export default function InfrastructureMap() {
         const ctoRef = el.type === "cto" ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : null;
         const ceoRef = el.type === "ceo" ? ceos.find((c: any) => c.id === el.referenceId) : null;
         const ref = ctoRef ?? ceoRef;
-        setSidePanel({ kind: "element", element: { ...el, name: ref?.name ?? el.type.toUpperCase(), status: ref?.status, capacity: ref?.capacity, usedPorts: ref?.usedPorts } });
+        setSidePanel({ kind: "element", element: { ...el, name: ref?.name ?? el.type.toUpperCase(), status: ref?.status, capacity: ref?.capacity, usedPorts: ref?.usedPorts, sgpId: ref?.sgpId ?? null } });
       }
     }
     if (params.has("lat") || params.has("highlight") || params.has("zoom")) {
@@ -1296,8 +1325,32 @@ export default function InfrastructureMap() {
         )}
         <div className="text-xs text-muted-foreground">{Number(el.lat).toFixed(6)}, {Number(el.lng).toFixed(6)}</div>
         {isCto && (
-          <div className="border-t border-border pt-2">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5"><Users className="w-3.5 h-3.5" /> Clientes SGP</div>
+          <div className="border-t border-border pt-2 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Users className="w-3.5 h-3.5" /> Clientes SGP</div>
+              {isAdmin && (
+                el.sgpId ? (
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-emerald-400 font-mono">ID {el.sgpId}</span>
+                    <button
+                      className="text-[10px] text-red-400 hover:text-red-300 underline ml-1"
+                      onClick={() => unlinkCtoFromSgpMut.mutate({ ctoId: el.referenceId })}
+                      disabled={unlinkCtoFromSgpMut.isPending}
+                      title="Remover vínculo SGP"
+                    >
+                      {unlinkCtoFromSgpMut.isPending ? <Loader2 className="w-3 h-3 animate-spin inline" /> : <Unlink className="w-3 h-3 inline" />}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="text-[10px] text-cyan-400 hover:text-cyan-300 underline"
+                    onClick={() => { setLinkSgpSearch(""); setLinkSgpSelectedId(null); setLinkSgpDialogOpen(true); }}
+                  >
+                    + Vincular ao SGP
+                  </button>
+                )
+              )}
+            </div>
             {sgpQuery.isLoading ? (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Consultando SGP...</div>
             ) : sgpQuery.data?.clients?.length ? (
@@ -2569,6 +2622,80 @@ export default function InfrastructureMap() {
               }}
             >
               {cablesReportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><FileText className="w-3.5 h-3.5" /> Gerar PDF</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Dialog: Vincular CTO ao SGP ───────────────────────────────────────── */}
+      <Dialog open={linkSgpDialogOpen} onOpenChange={setLinkSgpDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-cyan-400" />
+              Vincular CTO ao SGP
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Selecione a CTO correspondente no SGP para vincular e mostrar os clientes/ONUs.
+            </p>
+            <Input
+              placeholder="Buscar CTO no SGP..."
+              value={linkSgpSearch}
+              onChange={e => setLinkSgpSearch(e.target.value)}
+              className="h-8 text-sm"
+            />
+            {sgpCtosQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
+                <Loader2 className="w-4 h-4 animate-spin" /> Carregando CTOs do SGP...
+              </div>
+            ) : sgpCtosQuery.data?.error ? (
+              <div className="text-sm text-red-400 py-2">{sgpCtosQuery.data.error}</div>
+            ) : (
+              <div className="max-h-64 overflow-y-auto space-y-1 border border-border rounded-md p-1">
+                {((sgpCtosQuery.data?.ctos ?? []) as any[])
+                  .filter((c: any) => {
+                    const q = linkSgpSearch.toLowerCase();
+                    return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
+                  })
+                  .map((c: any) => (
+                    <button
+                      key={c.id}
+                      className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center gap-2 transition-colors ${
+                        linkSgpSelectedId === c.id
+                          ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                          : "hover:bg-muted/50"
+                      }`}
+                      onClick={() => setLinkSgpSelectedId(c.id)}
+                    >
+                      {linkSgpSelectedId === c.id && <Check className="w-3 h-3 text-cyan-400 flex-shrink-0" />}
+                      <span className="flex-1 truncate font-medium">{c.ident ?? c.name ?? `CTO #${c.id}`}</span>
+                      <span className="text-muted-foreground font-mono">#{c.id}</span>
+                    </button>
+                  ))}
+                {((sgpCtosQuery.data?.ctos ?? []) as any[]).filter((c: any) => {
+                  const q = linkSgpSearch.toLowerCase();
+                  return !q || (c.ident ?? c.name ?? "").toLowerCase().includes(q) || String(c.id).includes(q);
+                }).length === 0 && (
+                  <div className="text-xs text-muted-foreground text-center py-4">Nenhuma CTO encontrada</div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setLinkSgpDialogOpen(false)}>Cancelar</Button>
+            <Button
+              size="sm"
+              className="bg-cyan-600 hover:bg-cyan-700 text-white"
+              disabled={!linkSgpSelectedId || linkCtoToSgpMut.isPending}
+              onClick={() => {
+                if (!linkSgpSelectedId || !sidePanel || sidePanel.kind !== "element") return;
+                linkCtoToSgpMut.mutate({ ctoId: sidePanel.element.referenceId, sgpId: linkSgpSelectedId });
+              }}
+            >
+              {linkCtoToSgpMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              Vincular
             </Button>
           </DialogFooter>
         </DialogContent>
