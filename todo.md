@@ -1096,3 +1096,4 @@
 - [x] Adicionar bolinha verde/cinza ao lado do nome do cliente na lista de ONUs (indicador de status online/offline)
 - [x] Melhorar importação KML/KMZ: suporte a .kmz directamente, detecção por ícone, detecção por nome de pasta (Folder), importação de cabos/fibras por LineString (nome contém "caminho", "fibra" ou "cabo")
 - [x] Importação KML/KMZ: ler cor do traçado (LineStyle AABBGGRR → HEX RGB) e extrair nome da fibra da descrição ("fibra X para CTO Y" → nome = "fibra X")
+- [ ] Pré-visualização antes de importar KML/KMZ: mostrar lista de elementos detectados (nome, tipo, cor) com possibilidade de corrigir tipo manualmente antes de confirmar

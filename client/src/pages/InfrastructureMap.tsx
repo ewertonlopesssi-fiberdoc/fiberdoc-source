@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import {
   Map, Download, Plus, X, Eye, EyeOff, Loader2,
@@ -275,6 +276,21 @@ export default function InfrastructureMap() {
   const [kmlImportLoading, setKmlImportLoading] = useState(false);
   const [kmlImportResult, setKmlImportResult] = useState<{ added: number; skipped: number; errors: string[] } | null>(null);
   const kmlFileRef = useRef<HTMLInputElement | null>(null);
+  // Pré-visualização KML
+  type KmlPreviewItem = {
+    id: string;
+    name: string;
+    type: "cto" | "ceo" | "cabo";
+    color: string | null;
+    lat: number | null;
+    lng: number | null;
+    path: string | null;
+    fiberName: string | null;
+    include: boolean;
+  };
+  const [kmlPreviewItems, setKmlPreviewItems] = useState<KmlPreviewItem[]>([]);
+  const [kmlPreviewOpen, setKmlPreviewOpen] = useState(false);
+  const [kmlImportingPreview, setKmlImportingPreview] = useState(false);
 
   // ─── Edição de Traçado de Cabo ────────────────────────────────────────────
   const [editingRouteId, setEditingRouteId] = useState<number | null>(null);
@@ -1072,18 +1088,14 @@ export default function InfrastructureMap() {
     tileLayerRef.current.bringToBack();
   }, [satelliteMode]);
 
-  // Importar posições CEO/CTO via KML
-  const handleKmlImport = useCallback(async (file: File) => {
+  // ─── Parsing KML: extrair elementos sem importar ─────────────────────────
+  const parseKmlToPreview = useCallback(async (file: File): Promise<void> => {
     setKmlImportLoading(true);
-    setKmlImportResult(null);
     try {
-      // Suporte a .kmz (ZIP contendo doc.kml) e .kml
       let kmlText: string;
       if (file.name.toLowerCase().endsWith(".kmz")) {
-        // Extrair o doc.kml do ZIP manualmente (sem dependência externa)
         const buf = await file.arrayBuffer();
         const bytes = new Uint8Array(buf);
-        // Procurar assinatura PK (0x50 0x4B 0x03 0x04) e extrair ficheiro .kml
         let kmlFound = false;
         let offset = 0;
         while (offset < bytes.length - 30) {
@@ -1105,56 +1117,39 @@ export default function InfrastructureMap() {
       } else {
         kmlText = await file.text();
       }
-
       const parser = new DOMParser();
       const doc = parser.parseFromString(kmlText!, "application/xml");
-
-      // Mapear styleUrl → href do ícone e cor do LineStyle
       const styleIconMap: Record<string, string> = {};
       const styleColorMap: Record<string, string> = {};
       doc.querySelectorAll("Style").forEach(style => {
         const id = style.getAttribute("id");
         const href = style.querySelector("IconStyle > Icon > href")?.textContent ?? "";
         if (id) styleIconMap["#" + id] = href.toLowerCase();
-        // Cor do LineStyle: formato KML é AABBGGRR, converter para #RRGGBB
         const kmlColor = style.querySelector("LineStyle > color")?.textContent?.trim();
         if (id && kmlColor && kmlColor.length === 8) {
           const rr = kmlColor.slice(6, 8); const gg = kmlColor.slice(4, 6); const bb = kmlColor.slice(2, 4);
           styleColorMap["#" + id] = `#${rr}${gg}${bb}`;
         }
       });
-
-      // Converter cor KML inline (AABBGGRR) para HEX RGB
       const kmlColorToHex = (kmlColor: string): string | null => {
         if (!kmlColor || kmlColor.length !== 8) return null;
         const rr = kmlColor.slice(6, 8); const gg = kmlColor.slice(4, 6); const bb = kmlColor.slice(2, 4);
         return `#${rr}${gg}${bb}`;
       };
-
-      // Extrair nome da fibra da descrição:
-      // Padrões suportados: "fibra X para CTO Y", "fibra X sentido CTO Y", "fibra X sent CEO Y"
       const extractFiberName = (rawName: string, desc: string): string => {
-        // Regex: captura tudo antes de " para ", " sentido " ou " sent "
         const pattern = /^(.+?)\s+(?:para|sentido|sent)\s+/i;
-        // Prioridade 1: nome do placemark
         const namePara = rawName.match(pattern);
         if (namePara) return namePara[1].trim();
-        // Prioridade 2: extrair da descrição
         const descPara = desc.match(pattern);
         if (descPara) return descPara[1].trim();
-        // Fallback: usar o nome completo
         return rawName;
       };
-
-      // Função para detectar tipo de elemento
       const detectType = (pm: Element, folderName: string): "cto" | "ceo" | "cabo" | null => {
         const name = pm.querySelector("name")?.textContent?.trim().toLowerCase() ?? "";
         const desc = pm.querySelector("description")?.textContent?.toLowerCase() ?? "";
         const styleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
         const iconHref = styleIconMap[styleUrl] ?? "";
         const folderLower = folderName.toLowerCase();
-
-        // Cabo/fibra por LineString
         const hasLine = !!pm.querySelector("LineString");
         if (hasLine) {
           const isCabo = name.includes("cabo") || name.includes("fibra") || name.includes("caminho") ||
@@ -1162,23 +1157,14 @@ export default function InfrastructureMap() {
             folderLower.includes("fibra") || folderLower.includes("caminho");
           return isCabo ? "cabo" : null;
         }
-
-        // Ponto: detectar por nome da pasta
         if (folderLower.includes("cto") || folderLower.includes("splitter")) return "cto";
         if (folderLower.includes("ceo") || folderLower.includes("caixa")) return "ceo";
-
-        // Detectar por ícone
         if (iconHref.includes("square") || iconHref.includes("cto")) return "cto";
         if (iconHref.includes("donut") || iconHref.includes("ceo")) return "ceo";
-
-        // Detectar por nome/descrição do placemark
         if (name.includes("cto") || desc.includes("cto") || name.startsWith("sp ")) return "cto";
         if (name.includes("ceo") || desc.includes("ceo")) return "ceo";
-
-        return "ceo"; // fallback
+        return "ceo";
       };
-
-      // Percorrer placemarks respeitando a pasta pai
       const getFolderName = (pm: Element): string => {
         let parent = pm.parentElement;
         while (parent) {
@@ -1187,62 +1173,80 @@ export default function InfrastructureMap() {
         }
         return "";
       };
-
       const placemarks = Array.from(doc.querySelectorAll("Placemark"));
-      let added = 0; let skipped = 0; const errors: string[] = [];
-
+      const items: KmlPreviewItem[] = [];
+      let idx = 0;
       for (const pm of placemarks) {
         const name = pm.querySelector("name")?.textContent?.trim() ?? "";
         const folderName = getFolderName(pm);
         const type = detectType(pm, folderName);
-        if (!type) { skipped++; continue; }
-
-        try {
-          if (type === "cabo") {
-            // Importar cabo/fibra a partir de LineString
-            const coordsText = pm.querySelector("LineString > coordinates")?.textContent?.trim() ?? "";
-            if (!coordsText) { skipped++; continue; }
-            const pathPoints = coordsText.trim().split(/\s+/).map(c => {
-              const p = c.split(","); return { lat: parseFloat(p[1]), lng: parseFloat(p[0]) };
-            }).filter(p => !isNaN(p.lat) && !isNaN(p.lng));
-            if (pathPoints.length < 2) { skipped++; continue; }
-            const pathStr = JSON.stringify(pathPoints);
-            // Extrair nome da fibra da descrição ("fibra X para CTO Y" → "fibra X")
-            const desc = pm.querySelector("description")?.textContent?.trim() ?? "";
-            const fiberName = extractFiberName(name || `Cabo-KML-${added + 1}`, desc);
-            // Determinar cor: 1º inline ExtendedData/color, 2º LineStyle do estilo, 3º default cyan
-            const styleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
-            const inlineColor = pm.querySelector("LineStyle > color")?.textContent?.trim();
-            const cableColor = (inlineColor ? kmlColorToHex(inlineColor) : null)
-              ?? styleColorMap[styleUrl]
-              ?? "#22d3ee";
-            await createRouteMut.mutateAsync({ name: fiberName, path: pathStr, fiberCount: 12, cableType: "FO", color: cableColor });
-            added++;
-          } else {
-            // Importar ponto (CTO ou CEO)
-            const coordText = pm.querySelector("Point > coordinates")?.textContent?.trim();
-            if (!coordText) { skipped++; continue; }
-            const parts = coordText.split(",");
-            if (parts.length < 2) { skipped++; continue; }
-            const lng = parseFloat(parts[0]); const lat = parseFloat(parts[1]);
-            if (isNaN(lat) || isNaN(lng)) { errors.push(`Coordenadas inválidas: ${name}`); continue; }
-            if (type === "cto") {
-              const cto = await createCtoMut.mutateAsync({ name: name || `CTO-KML-${added + 1}`, capacity: 8, lat, lng });
-              await upsertElementMut.mutateAsync({ type: "cto", referenceId: (cto as any).id, lat, lng });
-            } else {
-              const ceo = await createCeoMut.mutateAsync({ name: name || `CEO-KML-${added + 1}`, location: "" });
-              await upsertElementMut.mutateAsync({ type: "ceo", referenceId: (ceo as any).id, lat, lng });
-            }
-            added++;
-          }
-        } catch (e: any) { errors.push(`${name}: ${e.message}`); }
+        if (!type) continue;
+        if (type === "cabo") {
+          const coordsText = pm.querySelector("LineString > coordinates")?.textContent?.trim() ?? "";
+          if (!coordsText) continue;
+          const pathPoints = coordsText.trim().split(/\s+/).map(c => {
+            const p = c.split(","); return { lat: parseFloat(p[1]), lng: parseFloat(p[0]) };
+          }).filter(p => !isNaN(p.lat) && !isNaN(p.lng));
+          if (pathPoints.length < 2) continue;
+          const desc = pm.querySelector("description")?.textContent?.trim() ?? "";
+          const fiberName = extractFiberName(name || `Cabo-KML-${idx + 1}`, desc);
+          const styleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
+          const inlineColor = pm.querySelector("LineStyle > color")?.textContent?.trim();
+          const cableColor = (inlineColor ? kmlColorToHex(inlineColor) : null) ?? styleColorMap[styleUrl] ?? "#22d3ee";
+          items.push({ id: `kml-${idx}`, name: fiberName, type: "cabo", color: cableColor, lat: null, lng: null, path: JSON.stringify(pathPoints), fiberName, include: true });
+        } else {
+          const coordText = pm.querySelector("Point > coordinates")?.textContent?.trim();
+          if (!coordText) continue;
+          const parts = coordText.split(",");
+          if (parts.length < 2) continue;
+          const lng = parseFloat(parts[0]); const lat = parseFloat(parts[1]);
+          if (isNaN(lat) || isNaN(lng)) continue;
+          items.push({ id: `kml-${idx}`, name: name || `${type.toUpperCase()}-KML-${idx + 1}`, type, color: null, lat, lng, path: null, fiberName: null, include: true });
+        }
+        idx++;
       }
-      setKmlImportResult({ added, skipped, errors });
-      if (added > 0) { refetchElements(); refetchRoutes?.(); toast.success(`${added} elemento${added !== 1 ? "s" : ""} importado${added !== 1 ? "s" : ""} do KML/KMZ`); }
-      else toast.error("Nenhum elemento importado");
+      if (items.length === 0) { toast.error("Nenhum elemento reconhecido no ficheiro KML/KMZ"); return; }
+      setKmlPreviewItems(items);
+      setKmlImportOpen(false);
+      setKmlPreviewOpen(true);
     } catch (e: any) { toast.error("Erro ao processar KML/KMZ: " + (e.message ?? "")); }
     finally { setKmlImportLoading(false); }
-  }, [createCtoMut, createCeoMut, upsertElementMut, createRouteMut, refetchElements]);
+  }, []);
+
+  const handleKmlImport = useCallback(async (file: File) => {
+    await parseKmlToPreview(file);
+  }, [parseKmlToPreview]);
+
+  // ─── Confirmar importação após pré-visualização ────────────────────────────
+  const confirmKmlImport = useCallback(async () => {
+    const toImport = kmlPreviewItems.filter(it => it.include);
+    if (toImport.length === 0) { toast.error("Nenhum elemento seleccionado para importar"); return; }
+    setKmlImportingPreview(true);
+    let added = 0; const errors: string[] = [];
+    for (const item of toImport) {
+      try {
+        if (item.type === "cabo") {
+          await createRouteMut.mutateAsync({ name: item.name, path: item.path!, fiberCount: 12, cableType: "FO", color: item.color ?? "#22d3ee" });
+          added++;
+        } else if (item.type === "cto") {
+          const cto = await createCtoMut.mutateAsync({ name: item.name, capacity: 8, lat: item.lat!, lng: item.lng! });
+          await upsertElementMut.mutateAsync({ type: "cto", referenceId: (cto as any).id, lat: item.lat!, lng: item.lng! });
+          added++;
+        } else {
+          const ceo = await createCeoMut.mutateAsync({ name: item.name, location: "" });
+          await upsertElementMut.mutateAsync({ type: "ceo", referenceId: (ceo as any).id, lat: item.lat!, lng: item.lng! });
+          added++;
+        }
+      } catch (e: any) { errors.push(`${item.name}: ${e.message}`); }
+    }
+    setKmlImportingPreview(false);
+    setKmlPreviewOpen(false);
+    setKmlPreviewItems([]);
+    setKmlImportResult({ added, skipped: kmlPreviewItems.length - toImport.length, errors });
+    setKmlImportOpen(true);
+    if (added > 0) { refetchElements(); refetchRoutes?.(); toast.success(`${added} elemento${added !== 1 ? "s" : ""} importado${added !== 1 ? "s" : ""} do KML/KMZ`); }
+    else toast.error("Nenhum elemento importado");
+  }, [kmlPreviewItems, createCtoMut, createCeoMut, upsertElementMut, createRouteMut, refetchElements, refetchRoutes]);
 
   // Exportar KML/KMZ
   const openExportDialog = () => {
@@ -2401,7 +2405,103 @@ export default function InfrastructureMap() {
         </DialogContent>
       </Dialog>
 
-      {/* Importação de posições via KML */}
+      {/* ─── Diálogo de Pré-visualização KML ─────────────────────────────────── */}
+      <Dialog open={kmlPreviewOpen} onOpenChange={v => { if (!v && !kmlImportingPreview) { setKmlPreviewOpen(false); setKmlPreviewItems([]); } }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-4 h-4" />
+              Pré-visualização da Importação KML
+              <span className="ml-auto text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                {kmlPreviewItems.filter(i => i.include).length} de {kmlPreviewItems.length} seleccionados
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="text-xs text-muted-foreground mb-2">
+            Verifique os elementos detectados. Pode corrigir o tipo de cada elemento antes de confirmar a importação.
+          </div>
+          <ScrollArea className="flex-1 max-h-[55vh] rounded-md border border-border">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
+                <tr className="border-b border-border">
+                  <th className="px-3 py-2 text-left font-medium w-8">
+                    <input
+                      type="checkbox"
+                      checked={kmlPreviewItems.length > 0 && kmlPreviewItems.every(i => i.include)}
+                      onChange={e => setKmlPreviewItems(prev => prev.map(it => ({ ...it, include: e.target.checked })))}
+                      className="rounded border-border"
+                    />
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium">Nome</th>
+                  <th className="px-3 py-2 text-left font-medium w-32">Tipo</th>
+                  <th className="px-3 py-2 text-left font-medium w-20">Cor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {kmlPreviewItems.map((item, i) => (
+                  <tr key={item.id} className={`border-b border-border/50 transition-colors ${item.include ? "hover:bg-muted/30" : "opacity-40 hover:bg-muted/20"}`}>
+                    <td className="px-3 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={item.include}
+                        onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, include: e.target.checked } : it))}
+                        className="rounded border-border"
+                      />
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <input
+                        type="text"
+                        value={item.name}
+                        onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, name: e.target.value } : it))}
+                        className="w-full bg-transparent border-0 border-b border-transparent hover:border-border focus:border-primary focus:outline-none text-xs py-0.5 text-foreground"
+                        disabled={!item.include}
+                      />
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <select
+                        value={item.type}
+                        onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, type: e.target.value as "cto" | "ceo" | "cabo" } : it))}
+                        disabled={!item.include}
+                        className="w-full bg-muted/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:border-primary disabled:opacity-50"
+                      >
+                        <option value="cto">CTO</option>
+                        <option value="ceo">CEO</option>
+                        <option value="cabo">Cabo</option>
+                      </select>
+                    </td>
+                    <td className="px-3 py-1.5">
+                      {item.color ? (
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-4 h-4 rounded-sm border border-border/50 flex-shrink-0" style={{ backgroundColor: item.color }} />
+                          <span className="font-mono text-[10px] text-muted-foreground">{item.color}</span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground/50">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </ScrollArea>
+          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border text-xs text-muted-foreground">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "cabo").length} cabos</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "cto").length} CTOs</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "ceo").length} CEOs</span>
+          </div>
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => { setKmlPreviewOpen(false); setKmlPreviewItems([]); }} disabled={kmlImportingPreview}>Cancelar</Button>
+            <Button
+              className="bg-cyan-600 hover:bg-cyan-700 text-white"
+              disabled={kmlImportingPreview || kmlPreviewItems.filter(i => i.include).length === 0}
+              onClick={confirmKmlImport}
+            >
+              {kmlImportingPreview ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />Importando...</> : <><Check className="w-3.5 h-3.5 mr-1" />Confirmar Importação ({kmlPreviewItems.filter(i => i.include).length})</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+            {/* Importação de posições via KML */}
       <Dialog open={kmlImportOpen} onOpenChange={v => { setKmlImportOpen(v); if (!v) setKmlImportResult(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><Upload className="w-4 h-4" />Importar Posições via KML</DialogTitle></DialogHeader>
