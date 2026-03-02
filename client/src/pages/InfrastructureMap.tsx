@@ -1373,10 +1373,17 @@ export default function InfrastructureMap() {
                     <div key={i} className="text-xs rounded bg-muted/40 px-1.5 py-1 space-y-0.5">
                       <div className="flex items-center gap-1.5">
                         <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isOnline ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
-                        <span className="truncate font-medium">{c.name ?? `Cliente ${i + 1}`}</span>
+                        <span className="truncate font-medium">{c.name ?? `ONU ${i + 1}`}</span>
                         <span className={`ml-auto text-[10px] flex-shrink-0 ${isOnline ? 'text-emerald-400' : 'text-zinc-500'}`}>{c.status ?? ''}</span>
                       </div>
-                      {c.plano && <div className="text-[10px] text-muted-foreground pl-3 truncate">{c.plano}</div>}
+                      {c.phy_addr && <div className="text-[10px] text-muted-foreground font-mono pl-3">MAC: {c.phy_addr}</div>}
+                      {(c.olt || c.slot != null || c.pon != null) && (
+                        <div className="text-[10px] text-muted-foreground pl-3">
+                          {c.olt && <span>{c.olt}</span>}
+                          {c.slot != null && <span className="ml-1">Slot {c.slot}</span>}
+                          {c.pon != null && <span className="ml-1">PON {c.pon}</span>}
+                        </div>
+                      )}
                       {(c.rx != null || c.tx != null) && (
                         <div className="text-[10px] text-muted-foreground pl-3">
                           {c.rx != null && <span>RX: {c.rx} dBm</span>}
@@ -1388,7 +1395,7 @@ export default function InfrastructureMap() {
                   );
                 })}
               </div>
-            ) : <div className="text-xs text-muted-foreground">Nenhum cliente vinculado</div>}
+            ) : <div className="text-xs text-muted-foreground">Nenhuma ONU vinculada</div>}
           </div>
         )}
         {/* Botões de ação */}
