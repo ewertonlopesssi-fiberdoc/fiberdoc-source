@@ -1039,7 +1039,7 @@ export default function InfrastructureMap() {
     snapToIdRef.current = route.toElementId ?? null;
     renderEditRouteMarkers(pts, route.color ?? "#22d3ee");
     setSidePanel(null);
-    toast.info("Arraste os pontos para editar o traçado. Clique duplo na linha para adicionar ponto. Clique direito num ponto para remover.", { duration: 5000 });
+    toast.info("Arraste os pontos para editar o traçado. Os pontos laranja (extremidades) encaixam automaticamente em CTOs/CEOs próximos ao soltar. Clique duplo na linha para adicionar ponto. Clique direito num ponto para remover.", { duration: 7000 });
   }, [elements, renderEditRouteMarkers]);
 
   // Cancelar edição de traçado
@@ -1938,7 +1938,7 @@ export default function InfrastructureMap() {
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
           <Cable className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="flex-1">
-            <span className="font-semibold">Editando traçado</span> — Arraste os pontos para mover. Clique no ponto semitransparente entre dois vértices para inserir. Duplo clique em um vértice intermediário para remover.
+            <span className="font-semibold">Editando traçado</span> — Arraste os pontos para mover. <span className="text-amber-300 font-medium">Pontos laranja (extremidades) encaixam em CTOs/CEOs próximos.</span> Clique no ponto semitransparente para inserir. Duplo clique num vértice intermediário para remover.
             <span className="ml-2 text-amber-300">{editingRoutePath.length} pontos</span>
           </span>
           <button

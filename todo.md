@@ -1113,3 +1113,6 @@
 - [x] Filtro por tipo na pré-visualização KML (Todos / Cabos / CTOs / CEOs)
 - [x] Associar extremos de cabos importados a equipamentos (botão "Associar Equipamentos")
 - [x] Dividir cabo no meio ligando a uma CEO/CTO (botão "✂ Dividir Cabo" no toolbar de edição)
+- [x] Exportação KML/KMZ com pastas separadas por tipo (CTOs / CEOs / Cabos de Fibra) — pastas vazias são omitidas automaticamente
+- [x] Arrastar extremidades do traçado (pontos laranja) para encaixar em CTOs/CEOs próximos — vínculo guardado ao salvar traçado
+- [x] Feedback visual melhorado no modo de edição de traçado: instrução menciona snap de extremidades

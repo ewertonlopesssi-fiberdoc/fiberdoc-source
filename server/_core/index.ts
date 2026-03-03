@@ -269,13 +269,7 @@ async function startServer() {
       const ctoMap = new Map(allCtos.map((c: any) => [c.id, c]));
       const ceoMap = new Map((allCeos as any[]).map((c: any) => [c.id, c]));
 
-      const placemarks = elements.map((el: any) => {
-        const isCtO = el.type === "cto";
-        const ref = isCtO ? ctoMap.get(el.referenceId) : ceoMap.get(el.referenceId);
-        const name = (ref?.name ?? (isCtO ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-        const iconColor = (ref?.status ?? "active") === "active" ? "ff00ff00" : (ref?.status ?? "active") === "maintenance" ? "ff00ffff" : "ff0000ff";
-        return `  <Placemark>\n    <name>${name}</name>\n    <Style><IconStyle><color>${iconColor}</color><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/${isCtO ? "square" : "donut"}.png</href></Icon></IconStyle></Style>\n    <Point><coordinates>${el.lng},${el.lat},0</coordinates></Point>\n  </Placemark>`;
-      }).join("\n");
+      // placemarks por tipo gerados abaixo (ctoPlacemarks / ceoPlacemarks)
 
       const linemarks = routes.map((r: any) => {
         const fromEl = (elements as any[]).find((e: any) => e.id === r.fromElementId);
@@ -291,7 +285,25 @@ async function startServer() {
         return `  <Placemark>\n    <name>${name}</name>\n    <Style><LineStyle><color>${color}</color><width>3</width></LineStyle></Style>\n    <LineString><tessellate>1</tessellate><coordinates>${coords}</coordinates></LineString>\n  </Placemark>`;
       }).filter(Boolean).join("\n");
 
-      const kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n  <name>FiberDoc — Infraestrutura de Rede</name>\n  <Folder><name>Equipamentos</name>\n${placemarks}\n  </Folder>\n  <Folder><name>Cabos</name>\n${linemarks}\n  </Folder>\n</Document>\n</kml>`;
+      // Separar CTOs e CEOs em pastas distintas
+      const ctoPlacemarks = elements.filter((el: any) => el.type === "cto").map((el: any) => {
+        const ref = ctoMap.get(el.referenceId);
+        const name = (ref?.name ?? `CTO-${el.referenceId}`).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        const iconColor = (ref?.status ?? "active") === "active" ? "ff00ff00" : (ref?.status ?? "active") === "maintenance" ? "ff00ffff" : "ff0000ff";
+        return `    <Placemark>\n      <name>${name}</name>\n      <Style><IconStyle><color>${iconColor}</color><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/square.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${el.lng},${el.lat},0</coordinates></Point>\n    </Placemark>`;
+      }).join("\n");
+      const ceoPlacemarks = elements.filter((el: any) => el.type === "ceo").map((el: any) => {
+        const ref = ceoMap.get(el.referenceId);
+        const name = (ref?.name ?? `CEO-${el.referenceId}`).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        const iconColor = (ref?.status ?? "active") === "active" ? "ff00ffff" : (ref?.status ?? "active") === "maintenance" ? "ff00ff00" : "ff0000ff";
+        return `    <Placemark>\n      <name>${name}</name>\n      <Style><IconStyle><color>${iconColor}</color><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/donut.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${el.lng},${el.lat},0</coordinates></Point>\n    </Placemark>`;
+      }).join("\n");
+      // Gerar pastas KML apenas para os tipos com conteúdo (omitir pastas vazias)
+      const ctoFolder = (typeCto && ctoPlacemarks) ? `  <Folder>\n    <name>CTOs</name>\n${ctoPlacemarks}\n  </Folder>` : "";
+      const ceoFolder = (typeCeo && ceoPlacemarks) ? `  <Folder>\n    <name>CEOs</name>\n${ceoPlacemarks}\n  </Folder>` : "";
+      const cableFolder = (typeCabo && linemarks) ? `  <Folder>\n    <name>Cabos de Fibra</name>\n${linemarks}\n  </Folder>` : "";
+      const folders = [ctoFolder, ceoFolder, cableFolder].filter(Boolean).join("\n");
+      const kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n  <name>FiberDoc — Infraestrutura de Rede</name>\n${folders}\n</Document>\n</kml>`;
 
       const filename = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0,10)}`;
       if (format === "kmz") {
