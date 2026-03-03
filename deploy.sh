@@ -54,8 +54,8 @@ fi
 echo "[3/6] Copiando artefactos para ${FIBERDOC_DIR} ..."
 # dist/
 rsync -a --delete "${SCRIPT_DIR}/dist/" "${FIBERDOC_DIR}/dist/"
-# package.json e pnpm-lock.yaml (para referência)
-cp "${SCRIPT_DIR}/package.json" "${FIBERDOC_DIR}/package.json"
+# package.json e pnpm-lock.yaml (para referência — opcionais no pacote de actualização)
+[[ -f "${SCRIPT_DIR}/package.json" ]] && cp "${SCRIPT_DIR}/package.json" "${FIBERDOC_DIR}/package.json" || true
 [[ -f "${SCRIPT_DIR}/pnpm-lock.yaml" ]] && cp "${SCRIPT_DIR}/pnpm-lock.yaml" "${FIBERDOC_DIR}/pnpm-lock.yaml" || true
 echo "      Artefactos copiados."
 

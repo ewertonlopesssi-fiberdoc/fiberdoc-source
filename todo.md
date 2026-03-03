@@ -1124,3 +1124,22 @@
 - [x] Bug: ao vincular equipamento numa porta, o slot seleccionado agora é pré-preenchido automaticamente ao reabrir o dialog (desktop e mobile)
 - [x] Bug: tela "Entrar com Manus" aparece em vez de redirecionar para /login no modo local (servidor de produção)
 - [x] Bug: login com usuário/senha inválido no servidor de produção
+
+## CEO — Bandejas, Splitters e Associações de Vias (Março 2026)
+
+- [x] Schema: tabela ceo_bandejas (id, ceoId, number, label, notes)
+- [x] Schema: coluna bandejaId adicionada à tabela ceo_tubes (FK opcional para ceo_bandejas)
+- [x] Schema: tabela ceo_splitters (id, ceoId, bandejaId, identifier, type: balanced|unbalanced, ratio, notes)
+- [x] Schema: tabela ceo_splitter_vias (id, splitterId, ceoId, viaNumber, label, lossDb, notes)
+- [x] Schema: tabela ceo_via_associations (id, ceoId, sourceType, sourceViaId, targetType, targetViaId, notes)
+- [x] tRPC: routers ceoBandejas (list, create, update, delete)
+- [x] tRPC: routers ceoSplitters (byCeo, create, update, delete)
+- [x] tRPC: routers ceoSplitterVias (bySplitter)
+- [x] tRPC: routers ceoViaAssociations (byCeo, create, delete)
+- [x] Interface CEO: nova aba "Bandejas" com gestão de bandejas, tubos e splitters dentro de cada bandeja
+- [x] Interface CEO: formulário de criação de bandeja (número, etiqueta, observações)
+- [x] Interface CEO: formulário de criação de tubo dentro de bandeja (com bandejaId)
+- [x] Interface CEO: formulário de criação de splitter (tipo balanceado/desbalanceado, razão, perdas estimadas)
+- [x] Interface CEO: aba "Tubos / Splitters" filtrada para mostrar apenas tubos sem bandeja
+- [x] Interface CEO: estatísticas no topo (bandejas, tubos, splitters, total de vias, fusionadas)
+- [x] Interface CEO: splitter mostra vias com perdas estimadas (balanceado: -10.5 dB, desbalanceado: variável)

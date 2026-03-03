@@ -817,7 +817,7 @@ export async function bulkImportFibers(
 }
 
 // ─── CEO Helpers ──────────────────────────────────────────────────────────────
-import { ceos, ceoTubes, ceoVias, InsertCeo, InsertCeoTube, InsertCeoVia, ctoTubes, ctoVias, InsertCtoTube, InsertCtoVia } from "../drizzle/schema";
+import { ceos, ceoTubes, ceoVias, InsertCeo, InsertCeoTube, InsertCeoVia, ceoBandejas, InsertCeoBandeja, ceoSplitters, InsertCeoSplitter, ceoSplitterVias, InsertCeoSplitterVia, ceoViaAssociations, InsertCeoViaAssociation, ctoTubes, ctoVias, InsertCtoTube, InsertCtoVia } from "../drizzle/schema";
 
 export async function getCeos(filters?: { roomId?: number; status?: string }) {
   const db = await getDb();
@@ -879,6 +879,7 @@ export async function createCeoTube(data: Omit<InsertCeoTube, "id" | "createdAt"
   const notesVal = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : undefined;
   const insertData: any = {
     ceoId: data.ceoId,
+    bandejaId: (data as any).bandejaId ?? null,
     type: data.type ?? "tube",
     identifier: data.identifier,
     totalVias: data.totalVias ?? 12,
@@ -2564,4 +2565,196 @@ export async function getSgpLinkHistory(ctoId?: number): Promise<SgpLinkHistory[
   return db.select().from(sgpLinkHistory)
     .orderBy(desc(sgpLinkHistory.createdAt))
     .limit(100);
+}
+
+// ─── CEO Bandejas ─────────────────────────────────────────────────────────────
+export async function getBandejasByCeo(ceoId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ceoBandejas).where(eq(ceoBandejas.ceoId, ceoId));
+  return rows.sort((a, b) => a.number - b.number);
+}
+
+export async function createCeoBandeja(data: Omit<InsertCeoBandeja, "id" | "createdAt" | "updatedAt">) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(ceoBandejas).values(data);
+  return (result as any)[0]?.insertId ?? 0;
+}
+
+export async function updateCeoBandeja(id: number, data: Partial<Omit<InsertCeoBandeja, "id" | "createdAt" | "updatedAt">>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ceoBandejas).set(data).where(eq(ceoBandejas.id, id));
+}
+
+export async function deleteCeoBandeja(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  // Remover splitters da bandeja
+  const splitters = await db.select().from(ceoSplitters).where(eq(ceoSplitters.bandejaId, id));
+  for (const s of splitters) {
+    await db.delete(ceoSplitterVias).where(eq(ceoSplitterVias.splitterId, s.id));
+  }
+  await db.delete(ceoSplitters).where(eq(ceoSplitters.bandejaId, id));
+  // Desvincular tubos desta bandeja (não apagar, apenas desassociar)
+  await db.update(ceoTubes).set({ bandejaId: null }).where(eq(ceoTubes.bandejaId, id));
+  await db.delete(ceoBandejas).where(eq(ceoBandejas.id, id));
+}
+
+// ─── CEO Splitters ────────────────────────────────────────────────────────────
+
+// Tabela de perda dB por tipo de splitter balanceado (valores típicos)
+const BALANCED_LOSS_DB: Record<string, number> = {
+  "1:2": 3.5,
+  "1:4": 7.2,
+  "1:8": 10.5,
+  "1:16": 13.5,
+  "1:32": 17.0,
+};
+
+// Perda dB para splitters desbalanceados (entrada=0, saídas indexadas por percentagem)
+// Formato ratio: "1:2_90/10", "1:2_80/20", etc.
+function getUnbalancedLoss(ratio: string): { inputLoss: number; outputs: number[] } {
+  const match = ratio.match(/(\d+)\/(\d+)/);
+  if (!match) return { inputLoss: 0, outputs: [3.5, 3.5] };
+  const p1 = parseInt(match[1]);
+  const p2 = parseInt(match[2]);
+  // Perda = -10 * log10(percentagem/100)
+  const loss1 = parseFloat((-10 * Math.log10(p1 / 100)).toFixed(1));
+  const loss2 = parseFloat((-10 * Math.log10(p2 / 100)).toFixed(1));
+  return { inputLoss: 0, outputs: [loss1, loss2] };
+}
+
+export async function getSplittersByCeo(ceoId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ceoSplitters).where(eq(ceoSplitters.ceoId, ceoId));
+}
+
+export async function getSplittersByBandeja(bandejaId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ceoSplitters).where(eq(ceoSplitters.bandejaId, bandejaId));
+}
+
+export async function createCeoSplitter(data: Omit<InsertCeoSplitter, "id" | "createdAt" | "updatedAt">) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(ceoSplitters).values(data);
+  const insertId = (result as any)[0]?.insertId ?? 0;
+
+  // Criar vias automaticamente
+  const vias: Omit<InsertCeoSplitterVia, "id" | "createdAt" | "updatedAt">[] = [];
+  if (data.splitterType === "balanced") {
+    const outputCount = parseInt(data.ratio.split(":")[1] ?? "2");
+    const lossDb = BALANCED_LOSS_DB[data.ratio] ?? 3.5;
+    // Via 0 = entrada (sem perda)
+    vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: 0, label: "Entrada", lossDb: 0 });
+    // Vias 1..N = saídas
+    for (let i = 1; i <= outputCount; i++) {
+      vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: i, label: `Saída ${i}`, lossDb });
+    }
+  } else {
+    // Desbalanceado
+    const { inputLoss, outputs } = getUnbalancedLoss(data.ratio);
+    vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: 0, label: "Entrada", lossDb: inputLoss });
+    outputs.forEach((loss, idx) => {
+      vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: idx + 1, label: `Saída ${idx + 1}`, lossDb: loss });
+    });
+  }
+  if (vias.length > 0) {
+    await db.insert(ceoSplitterVias).values(vias);
+  }
+  return insertId;
+}
+
+export async function updateCeoSplitter(id: number, data: Partial<Omit<InsertCeoSplitter, "id" | "createdAt" | "updatedAt">>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ceoSplitters).set(data).where(eq(ceoSplitters.id, id));
+}
+
+export async function deleteCeoSplitter(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  // Remover associações de vias que referenciam este splitter
+  await db.delete(ceoViaAssociations).where(
+    and(
+      eq(ceoViaAssociations.ceoId, (await db.select({ ceoId: ceoSplitters.ceoId }).from(ceoSplitters).where(eq(ceoSplitters.id, id)).limit(1))[0]?.ceoId ?? 0),
+      // Não filtramos por via aqui — apagamos as vias primeiro e depois as associações ficam órfãs
+    )
+  );
+  await db.delete(ceoSplitterVias).where(eq(ceoSplitterVias.splitterId, id));
+  await db.delete(ceoSplitters).where(eq(ceoSplitters.id, id));
+}
+
+// ─── CEO Splitter Vias ────────────────────────────────────────────────────────
+export async function getSplitterViasBySplitter(splitterId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ceoSplitterVias).where(eq(ceoSplitterVias.splitterId, splitterId));
+  return rows.sort((a, b) => a.viaNumber - b.viaNumber);
+}
+
+export async function getSplitterViasByCeo(ceoId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ceoSplitterVias).where(eq(ceoSplitterVias.ceoId, ceoId));
+  return rows.sort((a, b) => a.viaNumber - b.viaNumber);
+}
+
+export async function updateCeoSplitterVia(id: number, data: { label?: string | null; notes?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(ceoSplitterVias).set(data).where(eq(ceoSplitterVias.id, id));
+}
+
+// ─── CEO Via Associations ─────────────────────────────────────────────────────
+export async function getViaAssociationsByCeo(ceoId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ceoViaAssociations).where(eq(ceoViaAssociations.ceoId, ceoId));
+}
+
+export async function createViaAssociation(data: Omit<InsertCeoViaAssociation, "id" | "createdAt">) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  // Verificar se já existe associação entre estas vias (evitar duplicados)
+  const existing = await db.select().from(ceoViaAssociations).where(
+    and(
+      eq(ceoViaAssociations.ceoId, data.ceoId),
+      eq(ceoViaAssociations.sourceViaId, data.sourceViaId),
+      eq(ceoViaAssociations.targetViaId, data.targetViaId),
+    )
+  ).limit(1);
+  if (existing.length > 0) return existing[0].id;
+  const result = await db.insert(ceoViaAssociations).values(data);
+  return (result as any)[0]?.insertId ?? 0;
+}
+
+export async function deleteViaAssociation(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.delete(ceoViaAssociations).where(eq(ceoViaAssociations.id, id));
+}
+
+export async function deleteViaAssociationByVias(ceoId: number, viaId1: number, viaId2: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  // Apagar em ambas as direcções
+  await db.delete(ceoViaAssociations).where(
+    and(
+      eq(ceoViaAssociations.ceoId, ceoId),
+      eq(ceoViaAssociations.sourceViaId, viaId1),
+      eq(ceoViaAssociations.targetViaId, viaId2),
+    )
+  );
+  await db.delete(ceoViaAssociations).where(
+    and(
+      eq(ceoViaAssociations.ceoId, ceoId),
+      eq(ceoViaAssociations.sourceViaId, viaId2),
+      eq(ceoViaAssociations.targetViaId, viaId1),
+    )
+  );
 }

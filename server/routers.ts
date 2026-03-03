@@ -28,6 +28,10 @@ import {
   getCeos, getCeoById, createCeo, updateCeo, deleteCeo,
   getTubesByCeo, createCeoTube, updateCeoTube, deleteCeoTube,
   getViasByTube, getViasByCeo, setViaFusion, clearViaFusion, updateVia, setViaFiber,
+  getBandejasByCeo, createCeoBandeja, updateCeoBandeja, deleteCeoBandeja,
+  getSplittersByCeo, getSplittersByBandeja, createCeoSplitter, updateCeoSplitter, deleteCeoSplitter,
+  getSplitterViasBySplitter, getSplitterViasByCeo, updateCeoSplitterVia,
+  getViaAssociationsByCeo, createViaAssociation, deleteViaAssociation, deleteViaAssociationByVias,
   getTubesByCto, createCtoTube, updateCtoTube, deleteCtoTube,
   getViasByCtotube, getViasByCto, setCtoViaFusion, clearCtoViaFusion, updateCtoVia, setCtoViaFiber,
 } from "./db";
@@ -823,6 +827,7 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({
         ceoId: z.number(),
+        bandejaId: z.number().optional(),
         type: z.enum(["tube", "splitter"]).default("tube"),
         identifier: z.string().min(1),
         totalVias: z.number().min(1).max(256).default(12),
@@ -832,6 +837,7 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         return createCeoTube({
           ceoId: input.ceoId,
+          bandejaId: input.bandejaId ?? null,
           type: input.type,
           identifier: input.identifier,
           totalVias: input.totalVias,
@@ -906,6 +912,139 @@ export const appRouter = router({
     clearFiber: protectedProcedure
       .input(z.object({ viaId: z.number() }))
       .mutation(async ({ input }) => setViaFiber(input.viaId, null)),
+  }),
+  // ─── Bandejas do CEO ──────────────────────────────────────────────────────
+  ceoBandejas: router({
+    byCeo: protectedProcedure
+      .input(z.object({ ceoId: z.number() }))
+      .query(async ({ input }) => getBandejasByCeo(input.ceoId)),
+    create: protectedProcedure
+      .input(z.object({
+        ceoId: z.number(),
+        number: z.number().min(1),
+        label: z.string().optional().transform(v => v === "" ? undefined : v),
+        notes: z.string().optional().transform(v => v === "" ? undefined : v),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createCeoBandeja({
+          ceoId: input.ceoId,
+          number: input.number,
+          label: input.label ?? null,
+          notes: input.notes ?? null,
+        });
+        return { id };
+      }),
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        number: z.number().min(1).optional(),
+        label: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateCeoBandeja(id, data as any);
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => deleteCeoBandeja(input.id)),
+  }),
+  // ─── Splitters do CEO ─────────────────────────────────────────────────────
+  ceoSplitters: router({
+    byCeo: protectedProcedure
+      .input(z.object({ ceoId: z.number() }))
+      .query(async ({ input }) => getSplittersByCeo(input.ceoId)),
+    byBandeja: protectedProcedure
+      .input(z.object({ bandejaId: z.number() }))
+      .query(async ({ input }) => getSplittersByBandeja(input.bandejaId)),
+    create: protectedProcedure
+      .input(z.object({
+        ceoId: z.number(),
+        bandejaId: z.number(),
+        identifier: z.string().min(1),
+        splitterType: z.enum(["balanced", "unbalanced"]).default("balanced"),
+        ratio: z.string().min(1),
+        notes: z.string().optional().transform(v => v === "" ? undefined : v),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createCeoSplitter({
+          ceoId: input.ceoId,
+          bandejaId: input.bandejaId,
+          identifier: input.identifier,
+          splitterType: input.splitterType,
+          ratio: input.ratio,
+          notes: input.notes ?? null,
+        });
+        return { id };
+      }),
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        identifier: z.string().optional(),
+        notes: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateCeoSplitter(id, data as any);
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => deleteCeoSplitter(input.id)),
+  }),
+  // ─── Vias de Splitter do CEO ───────────────────────────────────────────────
+  ceoSplitterVias: router({
+    bySplitter: protectedProcedure
+      .input(z.object({ splitterId: z.number() }))
+      .query(async ({ input }) => getSplitterViasBySplitter(input.splitterId)),
+    byCeo: protectedProcedure
+      .input(z.object({ ceoId: z.number() }))
+      .query(async ({ input }) => getSplitterViasByCeo(input.ceoId)),
+    updateLabel: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        label: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateCeoSplitterVia(id, data);
+      }),
+  }),
+  // ─── Associações de Vias do CEO ────────────────────────────────────────────
+  ceoViaAssociations: router({
+    byCeo: protectedProcedure
+      .input(z.object({ ceoId: z.number() }))
+      .query(async ({ input }) => getViaAssociationsByCeo(input.ceoId)),
+    create: protectedProcedure
+      .input(z.object({
+        ceoId: z.number(),
+        sourceType: z.enum(["tube", "splitter"]),
+        sourceViaId: z.number(),
+        targetType: z.enum(["tube", "splitter"]),
+        targetViaId: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createViaAssociation({
+          ceoId: input.ceoId,
+          sourceType: input.sourceType,
+          sourceViaId: input.sourceViaId,
+          targetType: input.targetType,
+          targetViaId: input.targetViaId,
+          notes: input.notes ?? null,
+        });
+        return { id };
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => deleteViaAssociation(input.id)),
+    deleteByVias: protectedProcedure
+      .input(z.object({
+        ceoId: z.number(),
+        viaId1: z.number(),
+        viaId2: z.number(),
+      }))
+      .mutation(async ({ input }) => deleteViaAssociationByVias(input.ceoId, input.viaId1, input.viaId2)),
   }),
   // ─── CTO Tubos ────────────────────────────────────────────────────────────
   ctoTubes: router({

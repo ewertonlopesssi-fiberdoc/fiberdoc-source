@@ -212,6 +212,7 @@ export type InsertCeo = typeof ceos.$inferInsert;
 export const ceoTubes = mysqlTable("ceo_tubes", {
   id: int("id").autoincrement().primaryKey(),
   ceoId: int("ceoId").notNull(),
+  bandejaId: int("bandejaId"),                    // FK ceo_bandejas.id (null = tubo sem bandeja, compatibilidade)
   type: mysqlEnum("ceo_tube_type", ["tube", "splitter"]).default("tube").notNull(),
   identifier: varchar("identifier", { length: 32 }).notNull(), // ex: "TUBO 1", "SPLITTER 1*8"
   totalVias: int("totalVias").default(12).notNull(),
@@ -747,3 +748,69 @@ export const sgpLinkHistory = mysqlTable("sgp_link_history", {
 });
 export type SgpLinkHistory = typeof sgpLinkHistory.$inferSelect;
 export type InsertSgpLinkHistory = typeof sgpLinkHistory.$inferInsert;
+
+// ─── Bandejas do CEO ──────────────────────────────────────────────────────────
+// Cada CEO pode ter múltiplas bandejas. Tubos e splitters ficam dentro de bandejas.
+export const ceoBandejas = mysqlTable("ceo_bandejas", {
+  id: int("id").autoincrement().primaryKey(),
+  ceoId: int("ceoId").notNull(),
+  number: int("number").notNull(),                 // número da bandeja (1, 2, 3...)
+  label: varchar("label", { length: 64 }),         // etiqueta opcional (ex: "Bandeja 1 - Entrada")
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CeoBandeja = typeof ceoBandejas.$inferSelect;
+export type InsertCeoBandeja = typeof ceoBandejas.$inferInsert;
+
+// ─── Splitters do CEO (dentro de bandejas) ────────────────────────────────────
+// Splitters ficam dentro de bandejas (bandejaId obrigatório).
+// type: "balanced" | "unbalanced"
+// ratio: "1:2" | "1:4" | "1:8" | "1:16" | "1:32" (balanced)
+//        "1:2_90/10" | "1:2_80/20" | "1:2_70/30" | "1:2_60/40" | "1:2_50/50" (unbalanced)
+export const ceoSplitters = mysqlTable("ceo_splitters", {
+  id: int("id").autoincrement().primaryKey(),
+  ceoId: int("ceoId").notNull(),
+  bandejaId: int("bandejaId").notNull(),           // FK ceo_bandejas.id
+  identifier: varchar("identifier", { length: 64 }).notNull(), // ex: "SPLITTER 1:8 #1"
+  splitterType: mysqlEnum("ceo_splitter_type", ["balanced", "unbalanced"]).default("balanced").notNull(),
+  ratio: varchar("ratio", { length: 32 }).notNull(), // ex: "1:8" ou "1:2_90/10"
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CeoSplitter = typeof ceoSplitters.$inferSelect;
+export type InsertCeoSplitter = typeof ceoSplitters.$inferInsert;
+
+// ─── Vias do Splitter do CEO ──────────────────────────────────────────────────
+// Via 00 = entrada do splitter; Via 01, 02, ... = saídas
+export const ceoSplitterVias = mysqlTable("ceo_splitter_vias", {
+  id: int("id").autoincrement().primaryKey(),
+  splitterId: int("splitterId").notNull(),         // FK ceo_splitters.id
+  ceoId: int("ceoId").notNull(),
+  viaNumber: int("viaNumber").notNull(),           // 0=entrada, 1,2,...=saídas
+  label: varchar("label", { length: 64 }),
+  lossDb: float("lossDb"),                         // perda estimada em dB
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type CeoSplitterVia = typeof ceoSplitterVias.$inferSelect;
+export type InsertCeoSplitterVia = typeof ceoSplitterVias.$inferInsert;
+
+// ─── Associações de Vias do CEO (fusões entre quaisquer vias) ─────────────────
+// Permite associar qualquer via de tubo ou splitter a qualquer outra via.
+// sourceType: "tube" | "splitter"  (indica de qual tabela vem a via de origem)
+// targetType: "tube" | "splitter"  (indica de qual tabela vem a via de destino)
+export const ceoViaAssociations = mysqlTable("ceo_via_associations", {
+  id: int("id").autoincrement().primaryKey(),
+  ceoId: int("ceoId").notNull(),
+  sourceType: mysqlEnum("ceo_assoc_source_type", ["tube", "splitter"]).notNull(),
+  sourceViaId: int("sourceViaId").notNull(),       // FK ceo_vias.id ou ceo_splitter_vias.id
+  targetType: mysqlEnum("ceo_assoc_target_type", ["tube", "splitter"]).notNull(),
+  targetViaId: int("targetViaId").notNull(),       // FK ceo_vias.id ou ceo_splitter_vias.id
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type CeoViaAssociation = typeof ceoViaAssociations.$inferSelect;
+export type InsertCeoViaAssociation = typeof ceoViaAssociations.$inferInsert;

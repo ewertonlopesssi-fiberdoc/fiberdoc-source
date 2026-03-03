@@ -17,7 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Plus, Box, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle, MapPin, LocateFixed, Loader2,
+  ArrowLeft, Plus, Box, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle,
+  MapPin, LocateFixed, Loader2, ChevronDown, ChevronRight, GitBranch, LayoutGrid,
 } from "lucide-react";
 import { CeoFusionPrint } from "@/components/CeoFusionPrint";
 import { cn } from "@/lib/utils";
@@ -25,7 +26,8 @@ import { useRole } from "@/hooks/useRole";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 type Tube = {
-  id: number; ceoId: number; type: "tube" | "splitter";
+  id: number; ceoId: number; bandejaId: number | null;
+  type: "tube" | "splitter";
   identifier: string; totalVias: number; color: string | null; notes: string | null;
 };
 type Via = {
@@ -39,233 +41,300 @@ type Fiber = {
   color: string | null; type: string | null;
   cableId: string | null; notes: string | null;
 };
-
-// ─── Cores padrão de fibra óptica (grupo 1, vias 1–12) ───────────────────────────
-const FIBER_VIA_COLORS: Record<number, { bg: string; text: string; border: string; label: string }> = {
-  1:  { bg: "bg-green-500/20",   text: "text-green-300",   border: "border-green-500/40",   label: "Verde" },
-  2:  { bg: "bg-yellow-500/20",  text: "text-yellow-300",  border: "border-yellow-500/40",  label: "Amarelo" },
-  3:  { bg: "bg-white/20",       text: "text-white",       border: "border-white/40",       label: "Branco" },
-  4:  { bg: "bg-blue-500/20",    text: "text-blue-300",    border: "border-blue-500/40",    label: "Azul" },
-  5:  { bg: "bg-red-500/20",     text: "text-red-300",     border: "border-red-500/40",     label: "Vermelho" },
-  6:  { bg: "bg-violet-500/20",  text: "text-violet-300",  border: "border-violet-500/40",  label: "Violeta" },
-  7:  { bg: "bg-amber-700/20",   text: "text-amber-400",   border: "border-amber-700/40",   label: "Marrom" },
-  8:  { bg: "bg-pink-500/20",    text: "text-pink-300",    border: "border-pink-500/40",    label: "Rosa" },
-  9:  { bg: "bg-zinc-800/60",    text: "text-zinc-200",    border: "border-zinc-500/40",    label: "Preto" },
-  10: { bg: "bg-slate-500/20",   text: "text-slate-300",   border: "border-slate-500/40",   label: "Cinza" },
-  11: { bg: "bg-orange-500/20",  text: "text-orange-300",  border: "border-orange-500/40",  label: "Laranja" },
-  12: { bg: "bg-cyan-500/20",    text: "text-cyan-300",    border: "border-cyan-500/40",    label: "Aqua" },
+type Bandeja = {
+  id: number; ceoId: number; number: number;
+  label: string | null; notes: string | null;
+};
+type Splitter = {
+  id: number; ceoId: number; bandejaId: number;
+  identifier: string;
+  splitterType: "balanced" | "unbalanced";
+  ratio: string; notes: string | null;
+};
+type SplitterVia = {
+  id: number; splitterId: number; ceoId: number; viaNumber: number;
+  label: string | null; lossDb: number | null; notes: string | null;
+};
+type ViaAssociation = {
+  id: number; ceoId: number;
+  sourceType: "tube" | "splitter"; sourceViaId: number;
+  targetType: "tube" | "splitter"; targetViaId: number;
+  notes: string | null;
 };
 
-// ─── Componente: Card de Via ────────────────────────────────────────────────
+// ─── Cores ABNT NBR 14705 ────────────────────────────────────────────────────
+const FIBER_VIA_COLORS: Record<number, { bg: string; text: string; border: string; label: string; hex: string }> = {
+  1:  { bg: "bg-green-500/20",   text: "text-green-300",   border: "border-green-500/40",   label: "Verde",    hex: "#00B050" },
+  2:  { bg: "bg-yellow-400/20",  text: "text-yellow-300",  border: "border-yellow-400/40",  label: "Amarelo",  hex: "#FFFF00" },
+  3:  { bg: "bg-white/20",       text: "text-white",       border: "border-white/40",       label: "Branco",   hex: "#FFFFFF" },
+  4:  { bg: "bg-blue-500/20",    text: "text-blue-300",    border: "border-blue-500/40",    label: "Azul",     hex: "#0070C0" },
+  5:  { bg: "bg-red-500/20",     text: "text-red-300",     border: "border-red-500/40",     label: "Vermelho", hex: "#FF0000" },
+  6:  { bg: "bg-violet-500/20",  text: "text-violet-300",  border: "border-violet-500/40",  label: "Violeta",  hex: "#7030A0" },
+  7:  { bg: "bg-amber-700/20",   text: "text-amber-400",   border: "border-amber-700/40",   label: "Marrom",   hex: "#7B3F00" },
+  8:  { bg: "bg-pink-500/20",    text: "text-pink-300",    border: "border-pink-500/40",    label: "Rosa",     hex: "#FF99CC" },
+  9:  { bg: "bg-zinc-800/60",    text: "text-zinc-200",    border: "border-zinc-500/40",    label: "Preta",    hex: "#000000" },
+  10: { bg: "bg-slate-500/20",   text: "text-slate-300",   border: "border-slate-500/40",   label: "Cinza",    hex: "#808080" },
+  11: { bg: "bg-orange-500/20",  text: "text-orange-300",  border: "border-orange-500/40",  label: "Laranja",  hex: "#FF6600" },
+  12: { bg: "bg-cyan-500/20",    text: "text-cyan-300",    border: "border-cyan-500/40",    label: "Aqua",     hex: "#00B0F0" },
+};
+
+function getSplitterViaColor(viaNumber: number): { bg: string; text: string; border: string } {
+  if (viaNumber === 0) return { bg: "bg-amber-500/20", text: "text-amber-300", border: "border-amber-500/40" };
+  const c = FIBER_VIA_COLORS[(viaNumber % 12) || 12];
+  return { bg: c.bg, text: c.text, border: c.border };
+}
+
+// ─── Splitter ratios ──────────────────────────────────────────────────────────
+const BALANCED_RATIOS = ["1:2", "1:4", "1:8", "1:16", "1:32"];
+const UNBALANCED_RATIOS = ["1:2_90/10", "1:2_80/20", "1:2_70/30", "1:2_60/40", "1:2_50/50"];
+function formatRatio(ratio: string): string {
+  if (ratio.includes("_")) {
+    const [base, pct] = ratio.split("_");
+    return `${base} (${pct})`;
+  }
+  return ratio;
+}
+
+// ─── ViaCard ──────────────────────────────────────────────────────────────────
 function ViaCard({
-  via, tubes, allVias, fibers,
-  onSetFusion, onClearFusion, onEditLabel, onSetFiber, onClearFiber,
+  via, tubes, allVias, fibers, associations, allSplitterVias,
+  onSetFusion, onClearFusion, onEditLabel, onSetFiber, onClearFiber, onAssociate, onClearAssociation,
 }: {
-  via: Via;
-  tubes: Tube[];
-  allVias: Via[];
-  fibers: Fiber[];
-  onSetFusion: (via: Via) => void;
-  onClearFusion: (viaId: number) => void;
-  onEditLabel: (via: Via) => void;
-  onSetFiber: (via: Via) => void;
-  onClearFiber: (viaId: number) => void;
+  via: Via; tubes: Tube[]; allVias: Via[]; fibers: Fiber[];
+  associations: ViaAssociation[]; allSplitterVias: SplitterVia[];
+  onSetFusion: (via: Via) => void; onClearFusion: (viaId: number) => void;
+  onEditLabel: (via: Via) => void; onSetFiber: (via: Via) => void;
+  onClearFiber: (viaId: number) => void; onAssociate: (via: Via) => void;
+  onClearAssociation: (assocId: number) => void;
 }) {
   const fused = via.fusedToViaId !== null;
   const fusedTube = fused ? tubes.find(t => t.id === via.fusedToTubeId) : null;
   const fusedVia = fused ? allVias.find(v => v.id === via.fusedToViaId) : null;
-  const fiber = via.fiberId ? (fibers as Fiber[]).find(f => f.id === via.fiberId) : null;
+  const fiber = via.fiberId ? fibers.find(f => f.id === via.fiberId) : null;
   const fiberColor = FIBER_VIA_COLORS[via.viaNumber] ?? null;
+  const myAssocs = associations.filter(a =>
+    (a.sourceType === "tube" && a.sourceViaId === via.id) ||
+    (a.targetType === "tube" && a.targetViaId === via.id)
+  );
 
   return (
-    <div
-      className={cn(
-        "relative rounded-lg border p-3 transition-all group",
-        fused
-          ? "border-cyan-500/40 bg-cyan-500/5"
-          : "border-border/40 bg-card hover:border-border/70"
-      )}
-    >
-      {/* Número da via + ações */}
+    <div className={cn(
+      "relative rounded-lg border p-3 transition-all group",
+      fused ? "border-cyan-500/40 bg-cyan-500/5"
+        : myAssocs.length > 0 ? "border-emerald-500/40 bg-emerald-500/5"
+        : "border-border/40 bg-card hover:border-border/70"
+    )}>
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "text-xs font-bold w-7 h-7 rounded-md flex items-center justify-center border shrink-0",
-              fused
-                ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
-                : fiberColor
-                  ? cn(fiberColor.bg, fiberColor.text, fiberColor.border)
-                  : "bg-muted text-muted-foreground border-border/40"
-            )}
-            title={fiberColor ? fiberColor.label : undefined}
-          >
-            {via.viaNumber}
+          <span className={cn(
+            "text-xs font-bold w-7 h-7 rounded-md flex items-center justify-center border shrink-0",
+            fused ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
+              : fiberColor ? cn(fiberColor.bg, fiberColor.text, fiberColor.border)
+              : "bg-muted text-muted-foreground border-border/40"
+          )}>
+            {String(via.viaNumber).padStart(2, "0")}
           </span>
-          {via.label && (
-            <span className="text-xs text-muted-foreground truncate max-w-[80px]">{via.label}</span>
-          )}
+          {via.label && <span className="text-[10px] text-foreground/70 truncate max-w-[80px]">{via.label}</span>}
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={() => onEditLabel(via)}
-            className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            title="Editar etiqueta"
-          >
-            <Tag className="h-3 w-3" />
-          </button>
-          {/* Associar fibra */}
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={() => onEditLabel(via)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Editar etiqueta"><Tag className="h-3 w-3" /></button>
           {fiber ? (
-            <button
-              onClick={() => onClearFiber(via.id)}
-              className="h-5 w-5 rounded flex items-center justify-center text-emerald-400 hover:text-destructive hover:bg-destructive/10 transition-colors"
-              title="Remover fibra associada"
-            >
-              <XCircle className="h-3 w-3" />
-            </button>
+            <button onClick={() => onClearFiber(via.id)} className="h-5 w-5 rounded flex items-center justify-center text-emerald-400 hover:text-destructive hover:bg-destructive/10 transition-colors" title="Remover fibra"><XCircle className="h-3 w-3" /></button>
           ) : (
-            <button
-              onClick={() => onSetFiber(via)}
-              className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-              title="Associar fibra óptica"
-            >
-              <Cable className="h-3 w-3" />
-            </button>
+            <button onClick={() => onSetFiber(via)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" title="Associar fibra"><Cable className="h-3 w-3" /></button>
           )}
-          {/* Fusão */}
           {fused ? (
-            <button
-              onClick={() => onClearFusion(via.id)}
-              className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-              title="Remover fusão"
-            >
-              <Link2Off className="h-3 w-3" />
-            </button>
+            <button onClick={() => onClearFusion(via.id)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Remover fusão"><Link2Off className="h-3 w-3" /></button>
           ) : (
-            <button
-              onClick={() => onSetFusion(via)}
-              className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors"
-              title="Identificar fusão"
-            >
-              <Link2 className="h-3 w-3" />
-            </button>
+            <button onClick={() => onSetFusion(via)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors" title="Identificar fusão"><Link2 className="h-3 w-3" /></button>
           )}
+          <button onClick={() => onAssociate(via)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" title="Criar associação"><GitBranch className="h-3 w-3" /></button>
         </div>
       </div>
-
-      {/* Fibra associada */}
       {fiber && (
         <div className="text-[10px] text-emerald-300 bg-emerald-500/10 rounded px-2 py-1 border border-emerald-500/20 mb-1">
-          <span className="font-medium">FIBRA</span>
-          <span className="text-emerald-200/70 mx-1">→</span>
-          <span className="truncate">{fiber.name}</span>
+          <span className="font-medium">FIBRA</span><span className="text-emerald-200/70 mx-1">→</span><span className="truncate">{fiber.name}</span>
         </div>
       )}
-
-      {/* Fusão */}
       {fused && fusedTube && fusedVia ? (
         <div className="text-[10px] text-cyan-300 bg-cyan-500/10 rounded px-2 py-1 border border-cyan-500/20">
-          <span className="font-medium">IDENT. FUSÃO</span>
-          <span className="text-cyan-200/70 mx-1">→</span>
-          <span>VIA {fusedVia.viaNumber} do {fusedTube.identifier}</span>
+          <span className="font-medium">FUSÃO</span><span className="text-cyan-200/70 mx-1">→</span>
+          <span>VIA {String(fusedVia.viaNumber).padStart(2,"0")} · {fusedTube.identifier}</span>
         </div>
       ) : (
-        <div className="text-[10px] text-muted-foreground/40 italic">
-          IDENT. FUSÃO
-        </div>
+        <div className="text-[10px] text-muted-foreground/40 italic">livre</div>
       )}
-
-      {via.notes && (
-        <p className="text-[10px] text-muted-foreground/50 mt-1 truncate">{via.notes}</p>
-      )}
+      {myAssocs.map(assoc => {
+        const isSrc = assoc.sourceType === "tube" && assoc.sourceViaId === via.id;
+        const otherViaId = isSrc ? assoc.targetViaId : assoc.sourceViaId;
+        const otherType = isSrc ? assoc.targetType : assoc.sourceType;
+        let otherLabel = `Via #${otherViaId}`;
+        if (otherType === "tube") {
+          const ov = allVias.find(v => v.id === otherViaId);
+          const ot = ov ? tubes.find(t => t.id === ov.tubeId) : null;
+          if (ov && ot) otherLabel = `VIA ${String(ov.viaNumber).padStart(2,"0")} · ${ot.identifier}`;
+        } else {
+          const sv = allSplitterVias.find(v => v.id === otherViaId);
+          if (sv) otherLabel = `VIA ${String(sv.viaNumber).padStart(2,"0")} · Splitter`;
+        }
+        return (
+          <div key={assoc.id} className="text-[10px] text-emerald-300 bg-emerald-500/10 rounded px-2 py-1 border border-emerald-500/20 mt-1 flex items-center justify-between gap-1">
+            <span><span className="font-medium">ASSOC</span><span className="text-emerald-200/70 mx-1">→</span>{otherLabel}</span>
+            <button onClick={() => onClearAssociation(assoc.id)} className="text-muted-foreground hover:text-destructive transition-colors" title="Remover"><XCircle className="h-3 w-3" /></button>
+          </div>
+        );
+      })}
+      {via.notes && <p className="text-[10px] text-muted-foreground/50 mt-1 truncate">{via.notes}</p>}
     </div>
   );
 }
 
-// ─── Componente: Painel de Tubo ───────────────────────────────────────────────
+// ─── SplitterViaCard ──────────────────────────────────────────────────────────
+function SplitterViaCard({
+  via, splitter, associations, allVias, allSplitterVias, tubes,
+  onAssociate, onClearAssociation,
+}: {
+  via: SplitterVia; splitter: Splitter; associations: ViaAssociation[];
+  allVias: Via[]; allSplitterVias: SplitterVia[]; tubes: Tube[];
+  onAssociate: (via: SplitterVia, splitter: Splitter) => void;
+  onClearAssociation: (assocId: number) => void;
+}) {
+  const vc = getSplitterViaColor(via.viaNumber);
+  const myAssocs = associations.filter(a =>
+    (a.sourceType === "splitter" && a.sourceViaId === via.id) ||
+    (a.targetType === "splitter" && a.targetViaId === via.id)
+  );
+
+  return (
+    <div className={cn(
+      "relative rounded-lg border p-3 transition-all group",
+      myAssocs.length > 0 ? "border-emerald-500/40 bg-emerald-500/5" : "border-border/40 bg-card hover:border-border/70"
+    )}>
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2">
+          <span className={cn("text-xs font-bold w-7 h-7 rounded-md flex items-center justify-center border shrink-0", vc.bg, vc.text, vc.border)}>
+            {String(via.viaNumber).padStart(2, "0")}
+          </span>
+          <div>
+            <div className="text-[10px] font-medium text-foreground/80">{via.viaNumber === 0 ? "Entrada" : `Saída ${via.viaNumber}`}</div>
+            {via.lossDb !== null && via.lossDb !== undefined && (
+              <div className="text-[9px] text-amber-300/70">{via.viaNumber === 0 ? "—" : `~${via.lossDb} dB`}</div>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={() => onAssociate(via, splitter)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" title="Criar associação"><GitBranch className="h-3 w-3" /></button>
+        </div>
+      </div>
+      {via.label && via.label !== "Entrada" && !via.label.startsWith("Saída") && (
+        <div className="text-[10px] text-muted-foreground/70 truncate">{via.label}</div>
+      )}
+      {myAssocs.map(assoc => {
+        const isSrc = assoc.sourceType === "splitter" && assoc.sourceViaId === via.id;
+        const otherViaId = isSrc ? assoc.targetViaId : assoc.sourceViaId;
+        const otherType = isSrc ? assoc.targetType : assoc.sourceType;
+        let otherLabel = `Via #${otherViaId}`;
+        if (otherType === "tube") {
+          const ov = allVias.find(v => v.id === otherViaId);
+          const ot = ov ? tubes.find(t => t.id === ov.tubeId) : null;
+          if (ov && ot) otherLabel = `VIA ${String(ov.viaNumber).padStart(2,"0")} · ${ot.identifier}`;
+        } else {
+          const sv = allSplitterVias.find(v => v.id === otherViaId);
+          if (sv) otherLabel = `VIA ${String(sv.viaNumber).padStart(2,"0")} · Splitter`;
+        }
+        return (
+          <div key={assoc.id} className="text-[10px] text-emerald-300 bg-emerald-500/10 rounded px-2 py-1 border border-emerald-500/20 mt-1 flex items-center justify-between gap-1">
+            <span><span className="font-medium">ASSOC</span><span className="text-emerald-200/70 mx-1">→</span>{otherLabel}</span>
+            <button onClick={() => onClearAssociation(assoc.id)} className="text-muted-foreground hover:text-destructive transition-colors" title="Remover"><XCircle className="h-3 w-3" /></button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── TubePanel ────────────────────────────────────────────────────────────────
 function TubePanel({
-  tube, tubes, ceoId, fibers,
+  tube, tubes, ceoId, fibers, associations, allSplitterVias,
   onEditTube, onDeleteTube, isAdmin,
 }: {
-  tube: Tube;
-  tubes: Tube[];
-  ceoId: number;
-  fibers: Fiber[];
-  onEditTube: (tube: Tube) => void;
-  onDeleteTube: (tubeId: number) => void;
-  isAdmin: boolean;
+  tube: Tube; tubes: Tube[]; ceoId: number; fibers: Fiber[];
+  associations: ViaAssociation[]; allSplitterVias: SplitterVia[];
+  onEditTube: (tube: Tube) => void; onDeleteTube: (tubeId: number) => void; isAdmin: boolean;
 }) {
   const utils = trpc.useUtils();
   const [fusionDialog, setFusionDialog] = useState<Via | null>(null);
   const [labelDialog, setLabelDialog] = useState<Via | null>(null);
   const [fiberDialog, setFiberDialog] = useState<Via | null>(null);
-  const [fusionTubeId, setFusionTubeId] = useState<string>("");
-  const [fusionViaNumber, setFusionViaNumber] = useState<string>("");
+  const [assocDialog, setAssocDialog] = useState<Via | null>(null);
+  const [fusionTubeId, setFusionTubeId] = useState("");
+  const [fusionViaNumber, setFusionViaNumber] = useState("");
   const [labelValue, setLabelValue] = useState("");
   const [labelNotes, setLabelNotes] = useState("");
   const [fiberSearch, setFiberSearch] = useState("");
-  const [selectedFiberId, setSelectedFiberId] = useState<string>("");
-  const [viaColorFilter, setViaColorFilter] = useState<number | null>(null); // número da via (1-12) ou null = todas
+  const [selectedFiberId, setSelectedFiberId] = useState("");
   const [viaStatusFilter, setViaStatusFilter] = useState<"all" | "fused" | "free">("all");
+  const [assocTargetType, setAssocTargetType] = useState<"tube" | "splitter">("tube");
+  const [assocTargetTubeId, setAssocTargetTubeId] = useState("");
+  const [assocTargetViaId, setAssocTargetViaId] = useState("");
 
   const { data: vias = [], isLoading } = trpc.ceoVias.byTube.useQuery({ tubeId: tube.id });
   const { data: allVias = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId });
+  const { data: allSplVias = [] } = trpc.ceoSplitterVias.byCeo.useQuery({ ceoId });
 
   const targetTubeVias = (allVias as Via[]).filter(v => v.tubeId === parseInt(fusionTubeId));
+  const otherTubes = tubes.filter(t => t.id !== tube.id);
 
   const setFusionMutation = trpc.ceoVias.setFusion.useMutation({
     onSuccess: () => {
       toast.success("Fusão identificada!");
-      utils.ceoVias.byTube.invalidate({ tubeId: tube.id });
-      utils.ceoVias.byCeo.invalidate({ ceoId });
-      // Sincronização bidirecional: invalidar todas as queries de ceoVias (inclui o mapa)
-      utils.ceoVias.byTube.invalidate();
-      setFusionDialog(null);
-      setFusionTubeId("");
-      setFusionViaNumber("");
+      utils.ceoVias.byTube.invalidate(); utils.ceoVias.byCeo.invalidate({ ceoId });
+      setFusionDialog(null); setFusionTubeId(""); setFusionViaNumber("");
     },
     onError: e => toast.error("Erro: " + e.message),
   });
-
   const clearFusionMutation = trpc.ceoVias.clearFusion.useMutation({
     onSuccess: () => {
       toast.success("Fusão removida!");
-      utils.ceoVias.byTube.invalidate({ tubeId: tube.id });
-      utils.ceoVias.byCeo.invalidate({ ceoId });
-      // Sincronização bidirecional: invalidar todas as queries de ceoVias (inclui o mapa)
-      utils.ceoVias.byTube.invalidate();
+      utils.ceoVias.byTube.invalidate(); utils.ceoVias.byCeo.invalidate({ ceoId });
     },
     onError: e => toast.error("Erro: " + e.message),
   });
-
   const updateLabelMutation = trpc.ceoVias.updateLabel.useMutation({
     onSuccess: () => {
       toast.success("Etiqueta salva!");
-      // Invalidar todos os tubos do CEO para reflectir sincronização bidirecional da etiqueta
-      utils.ceoVias.byTube.invalidate();
-      utils.ceoVias.byCeo.invalidate({ ceoId });
+      utils.ceoVias.byTube.invalidate(); utils.ceoVias.byCeo.invalidate({ ceoId });
       setLabelDialog(null);
     },
     onError: e => toast.error("Erro: " + e.message),
   });
-
   const setFiberMutation = trpc.ceoVias.setFiber.useMutation({
     onSuccess: () => {
       toast.success("Fibra associada!");
-      utils.ceoVias.byTube.invalidate({ tubeId: tube.id });
-      utils.ceoVias.byCeo.invalidate({ ceoId });
-      setFiberDialog(null);
-      setSelectedFiberId("");
-      setFiberSearch("");
+      utils.ceoVias.byTube.invalidate({ tubeId: tube.id }); utils.ceoVias.byCeo.invalidate({ ceoId });
+      setFiberDialog(null); setSelectedFiberId(""); setFiberSearch("");
     },
     onError: e => toast.error("Erro: " + e.message),
   });
-
   const clearFiberMutation = trpc.ceoVias.clearFiber.useMutation({
     onSuccess: () => {
       toast.success("Fibra desassociada!");
-      utils.ceoVias.byTube.invalidate({ tubeId: tube.id });
-      utils.ceoVias.byCeo.invalidate({ ceoId });
+      utils.ceoVias.byTube.invalidate({ tubeId: tube.id }); utils.ceoVias.byCeo.invalidate({ ceoId });
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+  const createAssocMutation = trpc.ceoViaAssociations.create.useMutation({
+    onSuccess: () => {
+      toast.success("Associação criada!");
+      utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
+      setAssocDialog(null);
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+  const deleteAssocMutation = trpc.ceoViaAssociations.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Associação removida!");
+      utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
     },
     onError: e => toast.error("Erro: " + e.message),
   });
@@ -274,189 +343,76 @@ function TubePanel({
     if (!fusionDialog || !fusionTubeId || !fusionViaNumber) return;
     const targetVia = targetTubeVias.find(v => v.viaNumber === parseInt(fusionViaNumber));
     if (!targetVia) { toast.error("Via não encontrada"); return; }
-    setFusionMutation.mutate({
-      viaId: fusionDialog.id,
-      fusedToTubeId: parseInt(fusionTubeId),
-      fusedToViaId: targetVia.id,
-    });
-  }
-
-  function openLabelDialog(via: Via) {
-    setLabelDialog(via);
-    setLabelValue(via.label ?? "");
-    setLabelNotes(via.notes ?? "");
-  }
-
-  function openFiberDialog(via: Via) {
-    setFiberDialog(via);
-    setSelectedFiberId(via.fiberId ? String(via.fiberId) : "");
-    setFiberSearch("");
+    setFusionMutation.mutate({ viaId: fusionDialog.id, fusedToTubeId: parseInt(fusionTubeId), fusedToViaId: targetVia.id });
   }
 
   const fusedCount = (vias as Via[]).filter(v => v.fusedToViaId !== null).length;
-  const otherTubes = tubes.filter(t => t.id !== tube.id);
-
   const filteredFibers = fibers.filter(f =>
-    fiberSearch === "" ||
-    f.name.toLowerCase().includes(fiberSearch.toLowerCase()) ||
-    (f.cableId ?? "").toLowerCase().includes(fiberSearch.toLowerCase()) ||
-    (f.notes ?? "").toLowerCase().includes(fiberSearch.toLowerCase())
+    fiberSearch === "" || f.name.toLowerCase().includes(fiberSearch.toLowerCase()) || (f.cableId ?? "").toLowerCase().includes(fiberSearch.toLowerCase())
   );
+  const assocTargetTubeVias = (allVias as Via[]).filter(v => v.tubeId === parseInt(assocTargetTubeId));
 
   return (
     <div>
-      {/* Cabeçalho do tubo com botões editar/excluir */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className={cn(
-            "h-9 w-9 rounded-lg flex items-center justify-center border",
-            tube.type === "splitter"
-              ? "bg-violet-500/10 border-violet-500/20"
-              : "bg-blue-500/10 border-blue-500/20"
-          )}>
+          <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center border",
+            tube.type === "splitter" ? "bg-violet-500/10 border-violet-500/20" : "bg-blue-500/10 border-blue-500/20")}>
             <Layers className={cn("h-4 w-4", tube.type === "splitter" ? "text-violet-400" : "text-blue-400")} />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-sm text-foreground">{tube.identifier}</h3>
-              {tube.color && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-border/40">
-                  {tube.color}
-                </Badge>
-              )}
+              {tube.color && <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-border/40">{tube.color}</Badge>}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {tube.totalVias} vias · {fusedCount} fusionada{fusedCount !== 1 ? "s" : ""}
-            </p>
+            <p className="text-xs text-muted-foreground">{tube.totalVias} vias · {fusedCount} fusionada{fusedCount !== 1 ? "s" : ""}</p>
           </div>
         </div>
-
-        {/* Botões editar/excluir — aparecem apenas neste tubo */}
         <div className="flex items-center gap-1">
           <div className="h-2 w-20 rounded-full bg-muted overflow-hidden mr-2">
-            <div
-              className="h-full bg-cyan-500 rounded-full transition-all"
-              style={{ width: `${tube.totalVias > 0 ? (fusedCount / tube.totalVias) * 100 : 0}%` }}
-            />
+            <div className="h-full bg-cyan-500 rounded-full transition-all" style={{ width: `${tube.totalVias > 0 ? (fusedCount / tube.totalVias) * 100 : 0}%` }} />
           </div>
-          <span className="text-xs text-muted-foreground mr-3">
-            {tube.totalVias > 0 ? Math.round((fusedCount / tube.totalVias) * 100) : 0}%
-          </span>
+          <span className="text-xs text-muted-foreground mr-3">{tube.totalVias > 0 ? Math.round((fusedCount / tube.totalVias) * 100) : 0}%</span>
           {isAdmin && (
-            <button
-              onClick={() => onEditTube(tube)}
-              className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border/40"
-              title={`Editar ${tube.identifier}`}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {isAdmin && (
-            <button
-              onClick={() => onDeleteTube(tube.id)}
-              className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors border border-border/40"
-              title={`Remover ${tube.identifier}`}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            <>
+              <button onClick={() => onEditTube(tube)} className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border/40" title="Editar"><Pencil className="h-3.5 w-3.5" /></button>
+              <button onClick={() => onDeleteTube(tube.id)} className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors border border-border/40" title="Remover"><Trash2 className="h-3.5 w-3.5" /></button>
+            </>
           )}
         </div>
       </div>
-
-      {/* Barra de filtros de vias */}
-      {!isLoading && tube.type === "tube" && (
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          {/* Filtro por status */}
-          <div className="flex items-center gap-1 border border-border/40 rounded-lg p-1">
-            {(["all", "fused", "free"] as const).map(s => (
-              <button
-                key={s}
-                onClick={() => setViaStatusFilter(s)}
-                className={cn(
-                  "text-[10px] font-semibold px-2 py-0.5 rounded transition-colors",
-                  viaStatusFilter === s
-                    ? "bg-cyan-500/20 text-cyan-300"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {s === "all" ? "Todas" : s === "fused" ? "Fusionadas" : "Livres"}
-              </button>
-            ))}
-          </div>
-          {/* Filtro por cor */}
-          <div className="flex items-center gap-1 flex-wrap">
-            <button
-              onClick={() => setViaColorFilter(null)}
-              className={cn(
-                "text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors",
-                viaColorFilter === null
-                  ? "border-foreground/40 bg-muted text-foreground"
-                  : "border-border/30 text-muted-foreground hover:border-border/60"
-              )}
-            >
-              Cor: Todas
-            </button>
-            {Object.entries(FIBER_VIA_COLORS).map(([num, c]) => (
-              <button
-                key={num}
-                onClick={() => setViaColorFilter(viaColorFilter === Number(num) ? null : Number(num))}
-                title={c.label}
-                className={cn(
-                  "w-6 h-6 rounded border-2 transition-all font-bold text-[9px] flex items-center justify-center",
-                  c.bg, c.text,
-                  viaColorFilter === Number(num)
-                    ? "border-white/70 scale-110 shadow-md"
-                    : "border-transparent opacity-70 hover:opacity-100 hover:scale-105"
-                )}
-              >
-                {num}
-              </button>
-            ))}
-          </div>
-          {(viaColorFilter !== null || viaStatusFilter !== "all") && (
-            <button
-              onClick={() => { setViaColorFilter(null); setViaStatusFilter("all"); }}
-              className="text-[10px] text-muted-foreground hover:text-destructive ml-1"
-            >
-              × Limpar filtros
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Grid de vias */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {(["all", "fused", "free"] as const).map(s => (
+          <button key={s} onClick={() => setViaStatusFilter(s)} className={cn("text-[10px] px-2 py-1 rounded border transition-colors",
+            viaStatusFilter === s ? "border-foreground/40 bg-muted text-foreground" : "border-border/30 text-muted-foreground hover:border-border/60")}>
+            {s === "all" ? "Todas" : s === "fused" ? "Fusionadas" : "Livres"}
+          </button>
+        ))}
+      </div>
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
-          {Array.from({ length: tube.totalVias }).map((_, i) => (
-            <Skeleton key={i} className="h-20 rounded-lg" />
-          ))}
+          {Array.from({ length: tube.totalVias }).map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
         </div>
       ) : (() => {
         const filteredVias = (vias as Via[]).filter(v => {
-          const colorOk = viaColorFilter === null || v.viaNumber === viaColorFilter;
-          const statusOk = viaStatusFilter === "all"
-            || (viaStatusFilter === "fused" && v.fusedToViaId !== null)
-            || (viaStatusFilter === "free" && v.fusedToViaId === null);
-          return colorOk && statusOk;
+          if (viaStatusFilter === "fused") return v.fusedToViaId !== null;
+          if (viaStatusFilter === "free") return v.fusedToViaId === null;
+          return true;
         });
         return (
           <>
-            {filteredVias.length === 0 && (
-              <p className="text-xs text-muted-foreground/50 italic py-2">Nenhuma via encontrada com os filtros selecionados.</p>
-            )}
+            {filteredVias.length === 0 && <p className="text-xs text-muted-foreground/50 italic py-2">Nenhuma via encontrada.</p>}
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
               {filteredVias.map(via => (
-                <ViaCard
-                  key={via.id}
-                  via={via}
-                  tubes={tubes}
-                  allVias={allVias as Via[]}
-                  fibers={fibers}
+                <ViaCard key={via.id} via={via} tubes={tubes} allVias={allVias as Via[]} fibers={fibers}
+                  associations={associations} allSplitterVias={allSplitterVias}
                   onSetFusion={v => { setFusionDialog(v); setFusionTubeId(""); setFusionViaNumber(""); }}
                   onClearFusion={id => clearFusionMutation.mutate({ viaId: id })}
-                  onEditLabel={openLabelDialog}
-                  onSetFiber={openFiberDialog}
+                  onEditLabel={v => { setLabelDialog(v); setLabelValue(v.label ?? ""); setLabelNotes(v.notes ?? ""); }}
+                  onSetFiber={v => { setFiberDialog(v); setSelectedFiberId(v.fiberId ? String(v.fiberId) : ""); setFiberSearch(""); }}
                   onClearFiber={id => clearFiberMutation.mutate({ viaId: id })}
+                  onAssociate={v => { setAssocDialog(v); setAssocTargetType("tube"); setAssocTargetTubeId(""); setAssocTargetViaId(""); }}
+                  onClearAssociation={id => deleteAssocMutation.mutate({ id })}
                 />
               ))}
             </div>
@@ -464,45 +420,31 @@ function TubePanel({
         );
       })()}
 
-      {/* Dialog: Identificar Fusão */}
+      {/* Dialog: Fusão */}
       <Dialog open={fusionDialog !== null} onOpenChange={() => setFusionDialog(null)}>
         <DialogContent className="bg-card border-border">
-          <DialogHeader>
-            <DialogTitle>Identificar Fusão — VIA {fusionDialog?.viaNumber}</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Identificar Fusão — VIA {fusionDialog?.viaNumber}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              Selecione o tubo/splitter de destino e o número da via para registrar a fusão.
-            </p>
             <div className="space-y-1.5">
-              <Label>Tubo / Splitter de destino</Label>
+              <Label>Tubo de destino</Label>
               <Select value={fusionTubeId || "__none__"} onValueChange={v => { setFusionTubeId(v === "__none__" ? "" : v); setFusionViaNumber(""); }}>
-                <SelectTrigger className="bg-background border-border/50">
-                  <SelectValue placeholder="Selecione o tubo..." />
-                </SelectTrigger>
+                <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione o tubo..." /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Selecione...</SelectItem>
-                  {otherTubes.map(t => (
-                    <SelectItem key={t.id} value={String(t.id)}>
-                      {t.identifier} ({t.type === "splitter" ? "Splitter" : "Tubo"} · {t.totalVias} vias)
-                    </SelectItem>
-                  ))}
+                  {otherTubes.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.identifier} ({t.totalVias} vias)</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             {fusionTubeId && (
               <div className="space-y-1.5">
-                <Label>Número da Via</Label>
+                <Label>Via de destino</Label>
                 <Select value={fusionViaNumber || "__none__"} onValueChange={v => setFusionViaNumber(v === "__none__" ? "" : v)}>
-                  <SelectTrigger className="bg-background border-border/50">
-                    <SelectValue placeholder="Selecione a via..." />
-                  </SelectTrigger>
+                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione a via..." /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">Selecione...</SelectItem>
                     {targetTubeVias.map(v => (
                       <SelectItem key={v.id} value={String(v.viaNumber)}>
-                        VIA {v.viaNumber}{v.label ? ` — ${v.label}` : ""}
-                        {v.fusedToViaId ? " (já fusionada)" : ""}
+                        VIA {String(v.viaNumber).padStart(2,"0")}{v.label ? ` — ${v.label}` : ""}{v.fusedToViaId !== null ? " (ocupada)" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -512,124 +454,385 @@ function TubePanel({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFusionDialog(null)} className="border-border/50">Cancelar</Button>
-            <Button
-              onClick={handleSetFusion}
-              disabled={!fusionTubeId || !fusionViaNumber || setFusionMutation.isPending}
-            >
-              {setFusionMutation.isPending ? "Salvando..." : "Identificar Fusão"}
+            <Button onClick={handleSetFusion} disabled={!fusionTubeId || !fusionViaNumber || setFusionMutation.isPending}>
+              {setFusionMutation.isPending ? "Salvando..." : "Confirmar Fusão"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: Editar Etiqueta */}
+      {/* Dialog: Etiqueta */}
       <Dialog open={labelDialog !== null} onOpenChange={() => setLabelDialog(null)}>
         <DialogContent className="bg-card border-border">
-          <DialogHeader>
-            <DialogTitle>Editar Etiqueta — VIA {labelDialog?.viaNumber}</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Editar Etiqueta — VIA {labelDialog?.viaNumber}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label>Etiqueta</Label>
-              <Input
-                value={labelValue}
-                onChange={e => setLabelValue(e.target.value)}
-                placeholder="Ex: Cliente João, Backbone Norte..."
-                className="bg-background border-border/50"
-              />
+              <Input value={labelValue} onChange={e => setLabelValue(e.target.value)} placeholder="Ex: Cliente João..." className="bg-background border-border/50" />
             </div>
             <div className="space-y-1.5">
               <Label>Observações</Label>
-              <Textarea
-                value={labelNotes}
-                onChange={e => setLabelNotes(e.target.value)}
-                placeholder="Notas adicionais..."
-                className="bg-background border-border/50 resize-none"
-                rows={2}
-              />
+              <Textarea value={labelNotes} onChange={e => setLabelNotes(e.target.value)} placeholder="Notas adicionais..." className="bg-background border-border/50 resize-none" rows={2} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLabelDialog(null)} className="border-border/50">Cancelar</Button>
-            <Button
-              onClick={() => labelDialog && updateLabelMutation.mutate({ id: labelDialog.id, label: labelValue || null, notes: labelNotes || null })}
-              disabled={updateLabelMutation.isPending}
-            >
+            <Button onClick={() => labelDialog && updateLabelMutation.mutate({ id: labelDialog.id, label: labelValue || null, notes: labelNotes || null })} disabled={updateLabelMutation.isPending}>
               {updateLabelMutation.isPending ? "Salvando..." : "Salvar"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: Associar Fibra Óptica */}
+      {/* Dialog: Fibra */}
       <Dialog open={fiberDialog !== null} onOpenChange={() => setFiberDialog(null)}>
         <DialogContent className="bg-card border-border max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Associar Fibra — VIA {fiberDialog?.viaNumber}</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Associar Fibra — VIA {fiberDialog?.viaNumber}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              Selecione a fibra óptica que passa por esta via para criar rastreabilidade completa.
-            </p>
             <div className="space-y-1.5">
               <Label>Buscar fibra</Label>
-              <Input
-                value={fiberSearch}
-                onChange={e => setFiberSearch(e.target.value)}
-                placeholder="Nome, origem ou destino..."
-                className="bg-background border-border/50"
-              />
+              <Input value={fiberSearch} onChange={e => setFiberSearch(e.target.value)} placeholder="Nome, cabo..." className="bg-background border-border/50" />
             </div>
-            <div className="space-y-1.5">
-              <Label>Fibra óptica</Label>
-              <div className="max-h-48 overflow-y-auto rounded-md border border-border/50 bg-background">
-                {filteredFibers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-6">Nenhuma fibra encontrada</p>
-                ) : (
-                  filteredFibers.map(f => (
-                    <button
-                      key={f.id}
-                      onClick={() => setSelectedFiberId(String(f.id))}
-                      className={cn(
-                        "w-full text-left px-3 py-2.5 text-sm transition-colors border-b border-border/30 last:border-0",
-                        selectedFiberId === String(f.id)
-                          ? "bg-emerald-500/10 text-emerald-300"
-                          : "hover:bg-muted text-foreground"
-                      )}
-                    >
-                      <div className="font-medium">{f.name}</div>
-          {(f.originEquipmentId || f.destinationEquipmentId) && (
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {f.cableId ? `Cabo: ${f.cableId}` : `ID ${f.id}`}
-            </div>
-          )}
-                      {(f.color || f.type) && (
-                        <div className="text-[10px] text-muted-foreground/60 mt-0.5">
-                          {[f.color, f.type].filter(Boolean).join(" · ")}
-                        </div>
-                      )}
-                    </button>
-                  ))
-                )}
-              </div>
+            <div className="max-h-48 overflow-y-auto rounded-md border border-border/50 bg-background">
+              {filteredFibers.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">Nenhuma fibra encontrada</p>
+              ) : filteredFibers.map(f => (
+                <button key={f.id} onClick={() => setSelectedFiberId(String(f.id))} className={cn("w-full text-left px-3 py-2.5 text-sm transition-colors border-b border-border/30 last:border-0",
+                  selectedFiberId === String(f.id) ? "bg-emerald-500/10 text-emerald-300" : "hover:bg-muted text-foreground")}>
+                  <div className="font-medium">{f.name}</div>
+                  {f.cableId && <div className="text-xs text-muted-foreground mt-0.5">Cabo: {f.cableId}</div>}
+                </button>
+              ))}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFiberDialog(null)} className="border-border/50">Cancelar</Button>
-            <Button
-              onClick={() => fiberDialog && selectedFiberId && setFiberMutation.mutate({
-                viaId: fiberDialog.id,
-                fiberId: parseInt(selectedFiberId),
-              })}
-              disabled={!selectedFiberId || setFiberMutation.isPending}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
+            <Button onClick={() => fiberDialog && selectedFiberId && setFiberMutation.mutate({ viaId: fiberDialog.id, fiberId: parseInt(selectedFiberId) })}
+              disabled={!selectedFiberId || setFiberMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
               {setFiberMutation.isPending ? "Associando..." : "Associar Fibra"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog: Associação de Via */}
+      <Dialog open={assocDialog !== null} onOpenChange={() => setAssocDialog(null)}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader><DialogTitle>Criar Associação — VIA {assocDialog?.viaNumber} de {tube.identifier}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-xs text-muted-foreground">Associe esta via a qualquer outra via de tubo ou splitter deste CEO.</p>
+            <div className="space-y-1.5">
+              <Label>Tipo de destino</Label>
+              <Select value={assocTargetType} onValueChange={v => { setAssocTargetType(v as any); setAssocTargetTubeId(""); setAssocTargetViaId(""); }}>
+                <SelectTrigger className="bg-background border-border/50"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="tube">Tubo</SelectItem>
+                  <SelectItem value="splitter">Splitter</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {assocTargetType === "tube" && (
+              <div className="space-y-1.5">
+                <Label>Tubo de destino</Label>
+                <Select value={assocTargetTubeId || "__none__"} onValueChange={v => { setAssocTargetTubeId(v === "__none__" ? "" : v); setAssocTargetViaId(""); }}>
+                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Selecione...</SelectItem>
+                    {tubes.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.identifier}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {assocTargetType === "tube" && assocTargetTubeId && (
+              <div className="space-y-1.5">
+                <Label>Via de destino</Label>
+                <Select value={assocTargetViaId || "__none__"} onValueChange={v => setAssocTargetViaId(v === "__none__" ? "" : v)}>
+                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Selecione...</SelectItem>
+                    {assocTargetTubeVias.map(v => <SelectItem key={v.id} value={String(v.id)}>VIA {String(v.viaNumber).padStart(2,"0")}{v.label ? ` — ${v.label}` : ""}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {assocTargetType === "splitter" && (
+              <div className="space-y-1.5">
+                <Label>Via de Splitter de destino</Label>
+                <Select value={assocTargetViaId || "__none__"} onValueChange={v => setAssocTargetViaId(v === "__none__" ? "" : v)}>
+                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Selecione...</SelectItem>
+                    {(allSplVias as SplitterVia[]).map(v => <SelectItem key={v.id} value={String(v.id)}>VIA {String(v.viaNumber).padStart(2,"0")} · Splitter #{v.splitterId}{v.lossDb !== null ? ` (~${v.lossDb} dB)` : ""}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAssocDialog(null)} className="border-border/50">Cancelar</Button>
+            <Button onClick={() => {
+              if (!assocDialog || !assocTargetViaId) return;
+              createAssocMutation.mutate({ ceoId, sourceType: "tube", sourceViaId: assocDialog.id, targetType: assocTargetType, targetViaId: parseInt(assocTargetViaId) });
+            }} disabled={!assocTargetViaId || createAssocMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              {createAssocMutation.isPending ? "Criando..." : "Criar Associação"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+// ─── SplitterPanel ────────────────────────────────────────────────────────────
+function SplitterPanel({
+  splitter, ceoId, tubes, allVias, associations,
+  onEditSplitter, onDeleteSplitter, isAdmin,
+}: {
+  splitter: Splitter; ceoId: number; tubes: Tube[]; allVias: Via[];
+  associations: ViaAssociation[];
+  onEditSplitter: (s: Splitter) => void; onDeleteSplitter: (id: number) => void; isAdmin: boolean;
+}) {
+  const utils = trpc.useUtils();
+  const [assocDialog, setAssocDialog] = useState<SplitterVia | null>(null);
+  const [assocSplitter, setAssocSplitter] = useState<Splitter | null>(null);
+  const [assocTargetType, setAssocTargetType] = useState<"tube" | "splitter">("tube");
+  const [assocTargetTubeId, setAssocTargetTubeId] = useState("");
+  const [assocTargetViaId, setAssocTargetViaId] = useState("");
+
+  const { data: splitterVias = [] } = trpc.ceoSplitterVias.bySplitter.useQuery({ splitterId: splitter.id });
+  const { data: allSplVias = [] } = trpc.ceoSplitterVias.byCeo.useQuery({ ceoId });
+  const { data: allViasCeo = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId });
+
+  const createAssocMutation = trpc.ceoViaAssociations.create.useMutation({
+    onSuccess: () => {
+      toast.success("Associação criada!");
+      utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
+      setAssocDialog(null);
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+  const deleteAssocMutation = trpc.ceoViaAssociations.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Associação removida!");
+      utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+
+  const assocTargetTubeVias = (allViasCeo as Via[]).filter(v => v.tubeId === parseInt(assocTargetTubeId));
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-lg flex items-center justify-center border bg-violet-500/10 border-violet-500/20">
+            <GitBranch className="h-4 w-4 text-violet-400" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-sm text-foreground">{splitter.identifier}</h3>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-violet-500/40 text-violet-300">{formatRatio(splitter.ratio)}</Badge>
+              <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", splitter.splitterType === "balanced" ? "border-blue-500/40 text-blue-300" : "border-amber-500/40 text-amber-300")}>
+                {splitter.splitterType === "balanced" ? "Balanceado" : "Desbalanceado"}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">{(splitterVias as SplitterVia[]).length} vias (1 entrada + {Math.max(0, (splitterVias as SplitterVia[]).length - 1)} saídas)</p>
+          </div>
+        </div>
+        {isAdmin && (
+          <div className="flex items-center gap-1">
+            <button onClick={() => onEditSplitter(splitter)} className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border/40" title="Editar"><Pencil className="h-3.5 w-3.5" /></button>
+            <button onClick={() => onDeleteSplitter(splitter.id)} className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors border border-border/40" title="Remover"><Trash2 className="h-3.5 w-3.5" /></button>
+          </div>
+        )}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
+        {(splitterVias as SplitterVia[]).map(via => (
+          <SplitterViaCard key={via.id} via={via} splitter={splitter}
+            associations={associations} allVias={allVias} allSplitterVias={allSplVias as SplitterVia[]} tubes={tubes}
+            onAssociate={(v, s) => { setAssocDialog(v); setAssocSplitter(s); setAssocTargetType("tube"); setAssocTargetTubeId(""); setAssocTargetViaId(""); }}
+            onClearAssociation={id => deleteAssocMutation.mutate({ id })}
+          />
+        ))}
+      </div>
+
+      {/* Dialog: Associação de Via de Splitter */}
+      <Dialog open={assocDialog !== null} onOpenChange={() => setAssocDialog(null)}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader><DialogTitle>Criar Associação — VIA {assocDialog?.viaNumber === 0 ? "00 (Entrada)" : assocDialog?.viaNumber} de {assocSplitter?.identifier}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-xs text-muted-foreground">Associe esta via a qualquer outra via de tubo ou splitter deste CEO.</p>
+            <div className="space-y-1.5">
+              <Label>Tipo de destino</Label>
+              <Select value={assocTargetType} onValueChange={v => { setAssocTargetType(v as any); setAssocTargetTubeId(""); setAssocTargetViaId(""); }}>
+                <SelectTrigger className="bg-background border-border/50"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="tube">Tubo</SelectItem>
+                  <SelectItem value="splitter">Splitter</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {assocTargetType === "tube" && (
+              <div className="space-y-1.5">
+                <Label>Tubo de destino</Label>
+                <Select value={assocTargetTubeId || "__none__"} onValueChange={v => { setAssocTargetTubeId(v === "__none__" ? "" : v); setAssocTargetViaId(""); }}>
+                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Selecione...</SelectItem>
+                    {tubes.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.identifier}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {assocTargetType === "tube" && assocTargetTubeId && (
+              <div className="space-y-1.5">
+                <Label>Via de destino</Label>
+                <Select value={assocTargetViaId || "__none__"} onValueChange={v => setAssocTargetViaId(v === "__none__" ? "" : v)}>
+                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Selecione...</SelectItem>
+                    {assocTargetTubeVias.map(v => <SelectItem key={v.id} value={String(v.id)}>VIA {String(v.viaNumber).padStart(2,"0")}{v.label ? ` — ${v.label}` : ""}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {assocTargetType === "splitter" && (
+              <div className="space-y-1.5">
+                <Label>Via de Splitter de destino</Label>
+                <Select value={assocTargetViaId || "__none__"} onValueChange={v => setAssocTargetViaId(v === "__none__" ? "" : v)}>
+                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Selecione...</SelectItem>
+                    {(allSplVias as SplitterVia[]).filter(v => v.splitterId !== splitter.id).map(v => <SelectItem key={v.id} value={String(v.id)}>VIA {String(v.viaNumber).padStart(2,"0")} · Splitter #{v.splitterId}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAssocDialog(null)} className="border-border/50">Cancelar</Button>
+            <Button onClick={() => {
+              if (!assocDialog || !assocTargetViaId) return;
+              createAssocMutation.mutate({ ceoId, sourceType: "splitter", sourceViaId: assocDialog.id, targetType: assocTargetType, targetViaId: parseInt(assocTargetViaId) });
+            }} disabled={!assocTargetViaId || createAssocMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              {createAssocMutation.isPending ? "Criando..." : "Criar Associação"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── BandejaPanel ─────────────────────────────────────────────────────────────
+function BandejaPanel({
+  bandeja, ceoId, tubes, allVias, splitters, associations,
+  onEditBandeja, onDeleteBandeja, onAddTube, onEditTube, onDeleteTube,
+  onAddSplitter, onEditSplitter, onDeleteSplitter, isAdmin,
+}: {
+  bandeja: Bandeja; ceoId: number; tubes: Tube[]; allVias: Via[];
+  splitters: Splitter[]; associations: ViaAssociation[];
+  onEditBandeja: (b: Bandeja) => void; onDeleteBandeja: (id: number) => void;
+  onAddTube: (bandejaId: number) => void; onEditTube: (tube: Tube) => void; onDeleteTube: (id: number) => void;
+  onAddSplitter: (bandejaId: number) => void; onEditSplitter: (s: Splitter) => void; onDeleteSplitter: (id: number) => void;
+  isAdmin: boolean;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const { data: allSplitterVias = [] } = trpc.ceoSplitterVias.byCeo.useQuery({ ceoId });
+
+  const bandejaTubes = tubes.filter(t => t.bandejaId === bandeja.id);
+  const bandejaSplitters = splitters.filter(s => s.bandejaId === bandeja.id);
+  const totalItems = bandejaTubes.length + bandejaSplitters.length;
+  const bandejaVias = allVias.filter(v => bandejaTubes.some(t => t.id === v.tubeId));
+  const fusedCount = bandejaVias.filter(v => v.fusedToViaId !== null).length;
+  const totalVias = bandejaTubes.reduce((s, t) => s + t.totalVias, 0);
+
+  const tabItems = [
+    ...bandejaTubes.map(t => ({ id: `tube-${t.id}`, label: t.identifier, type: "tube" as const, item: t })),
+    ...bandejaSplitters.map(s => ({ id: `splitter-${s.id}`, label: s.identifier, type: "splitter" as const, item: s })),
+  ];
+
+  return (
+    <Card className="border-border/50 bg-card">
+      <CardContent className="p-0">
+        <div className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/20 transition-colors rounded-t-lg" onClick={() => setExpanded(!expanded)}>
+          <div className="flex items-center gap-3">
+            <button className="text-muted-foreground" onClick={e => { e.stopPropagation(); setExpanded(!expanded); }}>
+              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+            <div className="h-8 w-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+              <LayoutGrid className="h-4 w-4 text-amber-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm text-foreground">Bandeja {bandeja.number}</span>
+                {bandeja.label && <span className="text-xs text-muted-foreground">— {bandeja.label}</span>}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {bandejaTubes.length} tubo{bandejaTubes.length !== 1 ? "s" : ""}
+                {bandejaSplitters.length > 0 && ` · ${bandejaSplitters.length} splitter${bandejaSplitters.length !== 1 ? "s" : ""}`}
+                {totalVias > 0 && ` · ${fusedCount}/${totalVias} vias fusionadas`}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+            {isAdmin && (
+              <>
+                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/10" onClick={() => onAddTube(bandeja.id)}>
+                  <Plus className="h-3 w-3" /> Tubo
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-violet-400 hover:text-violet-300 hover:bg-violet-500/10" onClick={() => onAddSplitter(bandeja.id)}>
+                  <Plus className="h-3 w-3" /> Splitter
+                </Button>
+                <button onClick={() => onEditBandeja(bandeja)} className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors border border-border/40" title="Editar bandeja"><Pencil className="h-3.5 w-3.5" /></button>
+                <button onClick={() => onDeleteBandeja(bandeja.id)} className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors border border-border/40" title="Remover bandeja"><Trash2 className="h-3.5 w-3.5" /></button>
+              </>
+            )}
+          </div>
+        </div>
+        {expanded && (
+          <div className="px-4 pb-4">
+            {totalItems === 0 ? (
+              <div className="py-8 text-center">
+                <Layers className="h-8 w-8 mx-auto mb-2 text-muted-foreground/30" />
+                <p className="text-sm text-muted-foreground">Bandeja vazia</p>
+                {isAdmin && <p className="text-xs text-muted-foreground/60 mt-1">Adicione tubos ou splitters usando os botões acima</p>}
+              </div>
+            ) : (
+              <Tabs defaultValue={tabItems[0]?.id ?? ""}>
+                <div className="border-b border-border/50 pb-0 mb-4">
+                  <TabsList className="bg-transparent h-auto gap-1 flex-wrap">
+                    {tabItems.map(item => (
+                      <TabsTrigger key={item.id} value={item.id} className={cn(
+                        "text-xs px-3 py-1.5 rounded-t-md rounded-b-none border-b-2 border-transparent data-[state=active]:bg-transparent",
+                        item.type === "splitter"
+                          ? "data-[state=active]:border-violet-400 data-[state=active]:text-violet-400"
+                          : "data-[state=active]:border-blue-400 data-[state=active]:text-blue-400"
+                      )}>
+                        {item.type === "splitter" ? "⊕" : "○"} {item.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
+                {tabItems.map(item => (
+                  <TabsContent key={item.id} value={item.id} className="mt-0">
+                    {item.type === "tube" ? (
+                      <TubePanel tube={item.item as Tube} tubes={tubes} ceoId={ceoId} fibers={[]}
+                        associations={associations} allSplitterVias={allSplitterVias as SplitterVia[]}
+                        onEditTube={onEditTube} onDeleteTube={onDeleteTube} isAdmin={isAdmin} />
+                    ) : (
+                      <SplitterPanel splitter={item.item as Splitter} ceoId={ceoId} tubes={tubes}
+                        allVias={allVias} associations={associations}
+                        onEditSplitter={onEditSplitter} onDeleteSplitter={onDeleteSplitter} isAdmin={isAdmin} />
+                    )}
+                  </TabsContent>
+                ))}
+              </Tabs>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -639,352 +842,267 @@ export default function CeoDetail() {
   const [, setLocation] = useLocation();
   const ceoId = parseInt(params?.id ?? "0");
 
+  const [mainTab, setMainTab] = useState<"bandejas" | "tubos">("bandejas");
+  const [geoLoading, setGeoLoading] = useState(false);
+  const [printFilterOpen, setPrintFilterOpen] = useState(false);
+  const [selectedTubeIds, setSelectedTubeIds] = useState<Set<number>>(new Set());
+
+  // Estados de bandeja
+  const [bandejaDialog, setBandejaDialog] = useState(false);
+  const [editBandeja, setEditBandeja] = useState<Bandeja | null>(null);
+  const [deleteBandejaId, setDeleteBandejaId] = useState<number | null>(null);
+  const [bandejaForm, setBandejaForm] = useState({ number: "", label: "", notes: "" });
+
+  // Estados de tubo
   const [tubeDialog, setTubeDialog] = useState(false);
   const [editTube, setEditTube] = useState<Tube | null>(null);
   const [deleteTubeId, setDeleteTubeId] = useState<number | null>(null);
-  const [tubeForm, setTubeForm] = useState({
-    identifier: "", type: "tube" as "tube" | "splitter",
-    totalVias: "12", color: "", notes: "",
-  });
-  const [printFilterOpen, setPrintFilterOpen] = useState(false);
-  const [selectedTubeIds, setSelectedTubeIds] = useState<Set<number>>(new Set());
-  const [geoLoading, setGeoLoading] = useState(false);
+  const [tubeBandejaId, setTubeBandejaId] = useState<number | null>(null);
+  const [tubeForm, setTubeForm] = useState({ identifier: "", type: "tube" as "tube" | "splitter", totalVias: "12", color: "", notes: "" });
+
+  // Estados de splitter
+  const [splitterDialog, setSplitterDialog] = useState(false);
+  const [editSplitter, setEditSplitter] = useState<Splitter | null>(null);
+  const [deleteSplitterId, setDeleteSplitterId] = useState<number | null>(null);
+  const [splitterBandejaId, setSplitterBandejaId] = useState<number | null>(null);
+  const [splitterForm, setSplitterForm] = useState({ identifier: "", splitterType: "balanced" as "balanced" | "unbalanced", ratio: "1:8", notes: "" });
 
   const { isAdmin } = useRole();
   const utils = trpc.useUtils();
+
   const { data: ceo, isLoading: ceoLoading } = trpc.ceos.byId.useQuery({ id: ceoId }, { enabled: ceoId > 0 });
   const { data: tubes = [], isLoading: tubesLoading } = trpc.ceoTubes.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
   const { data: allVias = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
   const { data: fibers = [] } = trpc.fibers.list.useQuery({});
   const { data: ceoMapEl } = trpc.ceos.mapElement.useQuery({ ceoId }, { enabled: ceoId > 0 });
+  const { data: bandejas = [], isLoading: bandejasLoading } = trpc.ceoBandejas.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
+  const { data: splitters = [] } = trpc.ceoSplitters.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
+  const { data: associations = [] } = trpc.ceoViaAssociations.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
 
   const updateCeoMutation = trpc.ceos.update.useMutation({
-    onSuccess: () => {
-      toast.success("Localização da CEO atualizada!");
-      utils.ceos.byId.invalidate({ id: ceoId });
-      utils.ceos.list.invalidate();
-    },
-    onError: e => toast.error("Erro ao atualizar: " + e.message),
+    onSuccess: () => { toast.success("CEO atualizado!"); utils.ceos.byId.invalidate({ id: ceoId }); },
+    onError: e => toast.error("Erro: " + e.message),
   });
 
-  async function handleGetLocation() {
-    if (!navigator.geolocation) {
-      toast.error("Geolocalização não suportada neste dispositivo");
-      return;
-    }
-    setGeoLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        try {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=pt-BR`
-          );
-          const data = await res.json();
-          const newLocation = data?.display_name ?? `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-          updateCeoMutation.mutate({ id: ceoId, location: newLocation });
-        } catch {
-          updateCeoMutation.mutate({ id: ceoId, location: `${lat.toFixed(6)}, ${lng.toFixed(6)}` });
-        } finally {
-          setGeoLoading(false);
-        }
-      },
-      (err) => {
-        setGeoLoading(false);
-        if (err.code === 1) toast.error("Permissão de localização negada. Habilite o GPS no navegador.");
-        else if (err.code === 2) toast.error("Posição indisponível. Verifique o GPS do dispositivo.");
-        else toast.error("Tempo esgotado ao obter localização.");
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-  }
-
-  function handleOpenPrintFilter() {
-    // Pré-selecionar todos os tubos
-    setSelectedTubeIds(new Set((tubes as Tube[]).map(t => t.id)));
-    setPrintFilterOpen(true);
-  }
-
-  function handlePrint(tubesToPrint?: Tube[]) {
-    const printList = tubesToPrint ?? (tubes as Tube[]);
-    const viaById: Record<number, any> = {};
-    for (const v of allVias as any[]) viaById[v.id] = v;
-    const tubeById: Record<number, any> = {};
-    for (const t of printList) tubeById[t.id] = t;
-    const viasByTube: Record<number, any[]> = {};
-    for (const v of allVias as any[]) {
-      if (!viasByTube[v.tubeId]) viasByTube[v.tubeId] = [];
-      viasByTube[v.tubeId].push(v);
-    }
-    for (const k of Object.keys(viasByTube)) {
-      viasByTube[Number(k)].sort((a: any, b: any) => a.viaNumber - b.viaNumber);
-    }
-
-    const totalVias = printList.reduce((s: number, t: Tube) => s + t.totalVias, 0);
-    const fusedVias = (allVias as any[]).filter((v: any) =>
-      v.fusedToViaId !== null && printList.some((t: Tube) => t.id === v.tubeId)
-    ).length;
-    const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
-
-    // Mapeamento de cor de texto para cor CSS de badge
-    function getColorBadge(colorName: string | null): string {
-      if (!colorName) return "";
-      const map: Record<string, { bg: string; text: string; border: string }> = {
-        azul: { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
-        blue: { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
-        verde: { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
-        green: { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
-        amarelo: { bg: "#fef9c3", text: "#854d0e", border: "#fde047" },
-        yellow: { bg: "#fef9c3", text: "#854d0e", border: "#fde047" },
-        vermelho: { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" },
-        red: { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" },
-        laranja: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" },
-        orange: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" },
-        roxo: { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
-        purple: { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
-        violeta: { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
-        rosa: { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" },
-        pink: { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" },
-        branco: { bg: "#f9fafb", text: "#374151", border: "#d1d5db" },
-        white: { bg: "#f9fafb", text: "#374151", border: "#d1d5db" },
-        preto: { bg: "#1f2937", text: "#f9fafb", border: "#374151" },
-        black: { bg: "#1f2937", text: "#f9fafb", border: "#374151" },
-        cinza: { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" },
-        gray: { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" },
-        marrom: { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" },
-        brown: { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" },
-        ciano: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
-        cyan: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
-      };
-      const key = colorName.toLowerCase().trim();
-      const style = map[key] ?? { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" };
-      return "<span style='background:" + style.bg + ";color:" + style.text + ";border:1px solid " + style.border + ";padding:1px 6px;border-radius:3px;font-size:7pt;font-weight:700;margin-left:6mm'>" + colorName.toUpperCase() + "</span>";
-    }
-
-    // Cada tubo é exibido individualmente
-
-    function escHtml(s: string | null | undefined) {
-      return (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-
-    // Mapa de cores CSS para impressão (via número 1-12)
-    const PRINT_VIA_COLORS: Record<number, { bg: string; text: string; border: string }> = {
-      1:  { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
-      2:  { bg: "#fef9c3", text: "#854d0e", border: "#fde047" },
-      3:  { bg: "#f9fafb", text: "#374151", border: "#d1d5db" },
-      4:  { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
-      5:  { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" },
-      6:  { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
-      7:  { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" },
-      8:  { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" },
-      9:  { bg: "#1f2937", text: "#f9fafb", border: "#374151" },
-      10: { bg: "#f3f4f6", text: "#374151", border: "#9ca3af" },
-      11: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" },
-      12: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
-    };
-
-    function renderSoloHtml(tube: any): string {
-      const vias = viasByTube[tube.id] ?? [];
-      const fused = vias.filter((v: any) => v.fusedToViaId !== null).length;
-      const colorBadge = getColorBadge(tube.color);
-      return `
-        <div class="tube-section">
-          <div class="tube-title${tube.type === "splitter" ? " splitter-title" : ""}">
-            ${tube.type === "splitter" ? "SPLITTER" : "TUBO"} &mdash; ${escHtml(tube.identifier)}
-            ${colorBadge}
-            <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${tube.totalVias} vias &middot; ${fused} fusionada${fused !== 1 ? "s" : ""}</span>
-          </div>
-          <table><thead><tr>
-            <th style="width:8%">VIA</th><th style="width:20%">ETIQUETA</th>
-            <th style="width:12%">STATUS</th><th style="width:35%">IDENT. FUS&Atilde;O</th><th>OBSERVA&Ccedil;&Otilde;ES</th>
-          </tr></thead><tbody>
-          ${vias.map((via: any, idx: number) => {
-            const fusedTube = via.fusedToTubeId ? tubeById[via.fusedToTubeId] : null;
-            const fusedVia = via.fusedToViaId ? viaById[via.fusedToViaId] : null;
-            const isFused = !!(fusedTube && fusedVia);
-            const bg = idx % 2 === 0 ? "#fff" : "#f8f9fa";
-            const labelCell = via.label ? "<b>" + escHtml(via.label) + "</b>" : "<span style='color:#9ca3af;font-style:italic'>&mdash;</span>";
-            const statusCell = isFused
-              ? "<span style='background:#cffafe;color:#0891b2;padding:1px 5px;border-radius:3px;font-size:7pt;font-weight:700'>FUSIONADA</span>"
-              : "<span style='background:#f3f4f6;color:#9ca3af;padding:1px 5px;border-radius:3px;font-size:7pt'>LIVRE</span>";
-            const fusionColor = isFused ? "#0891b2" : "#9ca3af";
-            const fusionText = isFused
-              ? "VIA " + fusedVia!.viaNumber + " do " + escHtml(fusedTube!.identifier) + (fusedVia!.label ? " (" + escHtml(fusedVia!.label) + ")" : "")
-              : "&mdash;";
-            const vc = PRINT_VIA_COLORS[via.viaNumber];
-            const viaCell = vc
-              ? "<span style='background:" + vc.bg + ";color:" + vc.text + ";border:1px solid " + vc.border + ";padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700'>" + via.viaNumber + "</span>"
-              : "<b>" + via.viaNumber + "</b>";
-            return "<tr style='background:" + bg + "'>" +
-              "<td style='text-align:center'>" + viaCell + "</td>" +
-              "<td>" + labelCell + "</td>" +
-              "<td style='text-align:center'>" + statusCell + "</td>" +
-              "<td style='color:" + fusionColor + "'>" + fusionText + "</td>" +
-              "<td style='font-size:8pt;color:#6b7280'>" + escHtml(via.notes) + "</td>" +
-              "</tr>";
-          }).join("")}
-          </tbody></table>
-        </div>`;
-    }
-
-    const allContent = tubeList.map((t: any) => renderSoloHtml(t)).join("");
-
-    // Variáveis pré-calculadas para evitar template literals aninhados
-    const ceoName = escHtml(ceo?.name);
-    const ceoLocation = ceo?.location ? "<div style='font-size:9pt;color:#6b7280;margin-top:1mm'>" + escHtml(ceo.location) + "</div>" : "";
-    const statusColor = ceo?.status === "active" ? "#059669" : "#d97706";
-    const statusLabel = ceo?.status === "active" ? "Ativo" : ceo?.status === "maintenance" ? "Manuten&ccedil;&atilde;o" : "Inativo";
-    const statsHtml = [
-      { l: "Tubos", v: tubeList.filter(t => t.type === "tube").length },
-      { l: "Splitters", v: tubeList.filter(t => t.type === "splitter").length },
-      { l: "Total de Vias", v: totalVias },
-      { l: "Vias Fusionadas", v: fusedVias },
-      { l: "Vias Livres", v: totalVias - fusedVias },
-      { l: "Ocupação", v: totalVias > 0 ? Math.round((fusedVias / totalVias) * 100) + "%" : "0%" },
-    ].map(s => "<div class='stat'><div class='stat-val'>" + s.v + "</div><div class='stat-lbl'>" + s.l + "</div></div>").join("");
-
-    const html = `<!DOCTYPE html><html lang="pt-BR"><head>
-      <meta charset="UTF-8">
-      <title>Mapa de Fus&otilde;es &mdash; ${ceoName}</title>
-      <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Arial, sans-serif; font-size: 10pt; color: #111; background: white; padding: 14mm 16mm; }
-        h1 { font-size: 16pt; font-weight: 800; color: #1a1a2e; margin-bottom: 2mm; }
-        h2 { font-size: 14pt; font-weight: 700; color: #0891b2; margin-bottom: 1mm; }
-        .header { border-bottom: 2px solid #1a1a2e; padding-bottom: 6mm; margin-bottom: 6mm; display: flex; justify-content: space-between; align-items: flex-start; }
-        .header-right { text-align: right; font-size: 8pt; color: #6b7280; }
-        .stats { display: flex; gap: 6mm; margin-bottom: 6mm; flex-wrap: wrap; }
-        .stat { border: 1px solid #ddd; padding: 3mm 5mm; text-align: center; min-width: 22mm; }
-        .stat-val { font-size: 14pt; font-weight: 700; color: #1a1a2e; }
-        .stat-lbl { font-size: 7pt; color: #6b7280; text-transform: uppercase; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 6mm; font-size: 9pt; }
-        th { background: #1a1a2e; color: white; padding: 4px 8px; text-align: left; font-size: 8pt; text-transform: uppercase; border: 1px solid #333; }
-        td { padding: 4px 8px; border: 1px solid #ddd; vertical-align: middle; }
-        .tube-section { margin-bottom: 8mm; page-break-inside: avoid; }
-        .tube-title { font-size: 10pt; font-weight: 700; margin-bottom: 2mm; padding: 3px 8px; background: #e8f4f8; border-left: 4px solid #0891b2; }
-        .splitter-title { background: #f3e8ff; border-left-color: #7c3aed; }
-        .footer { border-top: 1px solid #ddd; padding-top: 4mm; margin-top: 6mm; font-size: 7pt; color: #6b7280; display: flex; justify-content: space-between; }
-        @media print { body { padding: 0; } @page { size: A4 portrait; margin: 14mm 16mm; } }
-      </style>
-    </head><body>
-      <div class="header">
-        <div>
-          <h1>MAPA DE FUS&Otilde;ES &mdash; CEO</h1>
-          <h2>${ceoName}</h2>
-          ${ceoLocation}
-        </div>
-        <div class="header-right">
-          <div style="font-weight:700;font-size:9pt;color:#1a1a2e;margin-bottom:1mm">FiberDoc</div>
-          <div>Gerado em: ${now}</div>
-          <div style="margin-top:1mm">Status: <b style="color:${statusColor}">${statusLabel}</b></div>
-        </div>
-      </div>
-      <div class="stats">${statsHtml}</div>
-      ${allContent}
-      <div class="footer">
-        <span>FiberDoc &mdash; Sistema de Gest&atilde;o de Infraestrutura de Rede &Oacute;ptica</span>
-        <span>${ceoName} &middot; ${now}</span>
-      </div>
-    </body></html>`;
-
-    const win = window.open("", "_blank", "width=900,height=700");
-    if (!win) { toast.error("Popup bloqueado pelo navegador. Permita popups para este site."); return; }
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    setTimeout(() => { win.print(); }, 500);
-  }
+  const createBandejaMutation = trpc.ceoBandejas.create.useMutation({
+    onSuccess: () => { toast.success("Bandeja adicionada!"); utils.ceoBandejas.byCeo.invalidate({ ceoId }); setBandejaDialog(false); setBandejaForm({ number: "", label: "", notes: "" }); },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+  const updateBandejaMutation = trpc.ceoBandejas.update.useMutation({
+    onSuccess: () => { toast.success("Bandeja atualizada!"); utils.ceoBandejas.byCeo.invalidate({ ceoId }); setBandejaDialog(false); setEditBandeja(null); setBandejaForm({ number: "", label: "", notes: "" }); },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+  const deleteBandejaMutation = trpc.ceoBandejas.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Bandeja removida!");
+      utils.ceoBandejas.byCeo.invalidate({ ceoId }); utils.ceoTubes.byCeo.invalidate({ ceoId }); utils.ceoSplitters.byCeo.invalidate({ ceoId });
+      setDeleteBandejaId(null);
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
 
   const createTubeMutation = trpc.ceoTubes.create.useMutation({
     onSuccess: () => {
-      toast.success("Tubo/Splitter adicionado!");
-      utils.ceoTubes.byCeo.invalidate({ ceoId });
-      utils.ceoVias.byCeo.invalidate({ ceoId });
-      setTubeDialog(false);
-      resetTubeForm();
+      toast.success("Tubo adicionado!"); utils.ceoTubes.byCeo.invalidate({ ceoId }); utils.ceoVias.byCeo.invalidate({ ceoId });
+      setTubeDialog(false); setTubeForm({ identifier: "", type: "tube", totalVias: "12", color: "", notes: "" });
     },
     onError: e => toast.error("Erro: " + e.message),
   });
-
   const updateTubeMutation = trpc.ceoTubes.update.useMutation({
     onSuccess: () => {
-      toast.success("Tubo atualizado!");
-      utils.ceoTubes.byCeo.invalidate({ ceoId });
-      setTubeDialog(false);
-      setEditTube(null);
-      resetTubeForm();
+      toast.success("Tubo atualizado!"); utils.ceoTubes.byCeo.invalidate({ ceoId });
+      setTubeDialog(false); setEditTube(null); setTubeForm({ identifier: "", type: "tube", totalVias: "12", color: "", notes: "" });
     },
     onError: e => toast.error("Erro: " + e.message),
   });
-
   const deleteTubeMutation = trpc.ceoTubes.delete.useMutation({
     onSuccess: () => {
-      toast.success("Tubo removido!");
-      utils.ceoTubes.byCeo.invalidate({ ceoId });
-      utils.ceoVias.byCeo.invalidate({ ceoId });
+      toast.success("Tubo removido!"); utils.ceoTubes.byCeo.invalidate({ ceoId }); utils.ceoVias.byCeo.invalidate({ ceoId });
       setDeleteTubeId(null);
     },
     onError: e => toast.error("Erro: " + e.message),
   });
 
-  function resetTubeForm() {
-    setTubeForm({ identifier: "", type: "tube", totalVias: "12", color: "", notes: "" });
-  }
+  const createSplitterMutation = trpc.ceoSplitters.create.useMutation({
+    onSuccess: () => {
+      toast.success("Splitter adicionado!"); utils.ceoSplitters.byCeo.invalidate({ ceoId }); utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
+      setSplitterDialog(false); setSplitterForm({ identifier: "", splitterType: "balanced", ratio: "1:8", notes: "" });
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+  const updateSplitterMutation = trpc.ceoSplitters.update.useMutation({
+    onSuccess: () => {
+      toast.success("Splitter atualizado!"); utils.ceoSplitters.byCeo.invalidate({ ceoId });
+      setSplitterDialog(false); setEditSplitter(null); setSplitterForm({ identifier: "", splitterType: "balanced", ratio: "1:8", notes: "" });
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+  const deleteSplitterMutation = trpc.ceoSplitters.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Splitter removido!"); utils.ceoSplitters.byCeo.invalidate({ ceoId }); utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
+      setDeleteSplitterId(null);
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
 
-  function openEditTube(tube: Tube) {
-    setEditTube(tube);
-    setTubeForm({
-      identifier: tube.identifier,
-      type: tube.type,
-      totalVias: String(tube.totalVias),
-      color: tube.color ?? "",
-      notes: tube.notes ?? "",
-    });
-    setTubeDialog(true);
+  function handleBandejaSubmit() {
+    const num = parseInt(bandejaForm.number);
+    if (!num || num < 1) { toast.error("Número da bandeja inválido"); return; }
+    if (editBandeja) {
+      updateBandejaMutation.mutate({ id: editBandeja.id, number: num, label: bandejaForm.label || null, notes: bandejaForm.notes || null });
+    } else {
+      createBandejaMutation.mutate({ ceoId, number: num, label: bandejaForm.label || undefined, notes: bandejaForm.notes || undefined });
+    }
   }
-
   function handleTubeSubmit() {
     if (editTube) {
-      updateTubeMutation.mutate({
-        id: editTube.id,
-        identifier: tubeForm.identifier,
-        type: tubeForm.type,
-        color: tubeForm.color || undefined,
-        notes: tubeForm.notes || undefined,
-      });
+      updateTubeMutation.mutate({ id: editTube.id, identifier: tubeForm.identifier, type: tubeForm.type, color: tubeForm.color || undefined, notes: tubeForm.notes || undefined });
     } else {
-      createTubeMutation.mutate({
-        ceoId,
-        identifier: tubeForm.identifier,
-        type: tubeForm.type,
-        totalVias: parseInt(tubeForm.totalVias) || 12,
-        color: tubeForm.color || undefined,
-        notes: tubeForm.notes || undefined,
+      createTubeMutation.mutate({ ceoId, bandejaId: tubeBandejaId ?? undefined, identifier: tubeForm.identifier, type: tubeForm.type, totalVias: parseInt(tubeForm.totalVias) || 12, color: tubeForm.color || undefined, notes: tubeForm.notes || undefined });
+    }
+  }
+  function handleSplitterSubmit() {
+    if (!splitterBandejaId) { toast.error("Selecione uma bandeja"); return; }
+    if (editSplitter) {
+      updateSplitterMutation.mutate({ id: editSplitter.id, identifier: splitterForm.identifier, notes: splitterForm.notes || null });
+    } else {
+      createSplitterMutation.mutate({
+        ceoId, bandejaId: splitterBandejaId,
+        identifier: splitterForm.identifier || `SPLITTER ${formatRatio(splitterForm.ratio)}`,
+        splitterType: splitterForm.splitterType, ratio: splitterForm.ratio, notes: splitterForm.notes || undefined,
       });
     }
   }
 
-  if (ceoLoading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-32 rounded-xl" />
-      </div>
+  function openEditBandeja(b: Bandeja) {
+    setEditBandeja(b); setBandejaForm({ number: String(b.number), label: b.label ?? "", notes: b.notes ?? "" }); setBandejaDialog(true);
+  }
+  function openAddTubeInBandeja(bandejaId: number) {
+    setEditTube(null); setTubeForm({ identifier: "", type: "tube", totalVias: "12", color: "", notes: "" }); setTubeBandejaId(bandejaId); setTubeDialog(true);
+  }
+  function openEditTube(tube: Tube) {
+    setEditTube(tube); setTubeForm({ identifier: tube.identifier, type: tube.type, totalVias: String(tube.totalVias), color: tube.color ?? "", notes: tube.notes ?? "" }); setTubeBandejaId(tube.bandejaId ?? null); setTubeDialog(true);
+  }
+  function openAddSplitterInBandeja(bandejaId: number) {
+    setEditSplitter(null); setSplitterForm({ identifier: "", splitterType: "balanced", ratio: "1:8", notes: "" }); setSplitterBandejaId(bandejaId); setSplitterDialog(true);
+  }
+  function openEditSplitter(s: Splitter) {
+    setEditSplitter(s); setSplitterForm({ identifier: s.identifier, splitterType: s.splitterType, ratio: s.ratio, notes: s.notes ?? "" }); setSplitterBandejaId(s.bandejaId); setSplitterDialog(true);
+  }
+
+  async function handleGetLocation() {
+    if (!navigator.geolocation) { toast.error("Geolocalização não suportada"); return; }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude; const lng = pos.coords.longitude;
+        let address = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=pt-BR`);
+          const data = await res.json();
+          if (data?.display_name) address = data.display_name;
+        } catch { /* ignora */ }
+        updateCeoMutation.mutate({ id: ceoId, location: address });
+        setGeoLoading(false); toast.success("Localização atualizada!");
+      },
+      () => { setGeoLoading(false); toast.error("Não foi possível obter a localização"); }
     );
   }
 
-  if (!ceo) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-muted-foreground">CEO não encontrada.</p>
-        <Button variant="link" onClick={() => setLocation("/ceo")} className="mt-2">Voltar</Button>
+  function handleOpenPrintFilter() {
+    setSelectedTubeIds(new Set((tubes as Tube[]).map(t => t.id)));
+    setPrintFilterOpen(true);
+  }
+  function handlePrint(printList: Tube[]) {
+    const allViasArr = allVias as Via[];
+    const viasByTube: Record<number, Via[]> = {};
+    for (const v of allViasArr) { if (!viasByTube[v.tubeId]) viasByTube[v.tubeId] = []; viasByTube[v.tubeId].push(v); }
+    for (const k of Object.keys(viasByTube)) viasByTube[Number(k)].sort((a, b) => a.viaNumber - b.viaNumber);
+    const totalVias = printList.reduce((s, t) => s + t.totalVias, 0);
+    const fusedVias = allViasArr.filter(v => v.fusedToViaId !== null && printList.some(t => t.id === v.tubeId)).length;
+    const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const PRINT_VIA_COLORS: Record<number, { bg: string; text: string; border: string }> = {
+      1: { bg: "#dcfce7", text: "#15803d", border: "#86efac" }, 2: { bg: "#fef9c3", text: "#854d0e", border: "#fde047" },
+      3: { bg: "#f9fafb", text: "#374151", border: "#d1d5db" }, 4: { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
+      5: { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" }, 6: { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
+      7: { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" }, 8: { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" },
+      9: { bg: "#1f2937", text: "#f9fafb", border: "#374151" }, 10: { bg: "#f3f4f6", text: "#374151", border: "#9ca3af" },
+      11: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" }, 12: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
+    };
+    function escHtml(s: string | null | undefined) { return (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+    function renderTubeHtml(tube: Tube): string {
+      const vias = viasByTube[tube.id] ?? [];
+      const fused = vias.filter(v => v.fusedToViaId !== null).length;
+      return `<div class="tube-section"><div class="tube-title${tube.type === "splitter" ? " splitter-title" : ""}">
+        ${tube.type === "splitter" ? "SPLITTER" : "TUBO"} &mdash; ${escHtml(tube.identifier)}
+        ${tube.color ? `<span style="font-size:8pt;margin-left:4mm;color:#6b7280">${escHtml(tube.color)}</span>` : ""}
+        <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${tube.totalVias} vias &middot; ${fused} fusionada${fused !== 1 ? "s" : ""}</span>
       </div>
-    );
+      <table><thead><tr><th style="width:8%">VIA</th><th style="width:20%">ETIQUETA</th><th style="width:12%">STATUS</th><th style="width:35%">FUSÃO</th><th>OBSERVAÇÕES</th></tr></thead><tbody>
+      ${vias.map(via => {
+        const vc = PRINT_VIA_COLORS[via.viaNumber];
+        const bg = vc ? vc.bg : "#fff";
+        const fusedVia = via.fusedToViaId ? allViasArr.find(v => v.id === via.fusedToViaId) : null;
+        const fusedTube = fusedVia ? printList.find(t => t.id === fusedVia.tubeId) : null;
+        const statusCell = via.fusedToViaId !== null ? "<b style='color:#0891b2'>FUSIONADA</b>" : "<span style='color:#6b7280'>Livre</span>";
+        const fusionText = fusedVia && fusedTube ? `VIA ${String(fusedVia.viaNumber).padStart(2,"0")} &rarr; ${escHtml(fusedTube.identifier)}` : "&mdash;";
+        const viaCell = vc ? `<span style="background:${vc.bg};color:${vc.text};border:1px solid ${vc.border};padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700">${String(via.viaNumber).padStart(2,"0")}</span>` : `<b>${String(via.viaNumber).padStart(2,"0")}</b>`;
+        return `<tr style="background:${bg}"><td style="text-align:center">${viaCell}</td><td>${escHtml(via.label)}</td><td style="text-align:center">${statusCell}</td><td style="color:#0891b2">${fusionText}</td><td style="font-size:8pt;color:#6b7280">${escHtml(via.notes)}</td></tr>`;
+      }).join("")}
+      </tbody></table></div>`;
+    }
+    const allContent = printList.map(t => renderTubeHtml(t)).join("");
+    const ceoName = escHtml(ceo?.name);
+    const ceoLocation = ceo?.location ? `<div style="font-size:9pt;color:#6b7280;margin-top:1mm">${escHtml(ceo.location)}</div>` : "";
+    const statusColor = ceo?.status === "active" ? "#059669" : "#d97706";
+    const statusLabel = ceo?.status === "active" ? "Ativo" : ceo?.status === "maintenance" ? "Manutenção" : "Inativo";
+    const statsHtml = [
+      { l: "Tubos", v: printList.filter(t => t.type === "tube").length },
+      { l: "Splitters", v: printList.filter(t => t.type === "splitter").length },
+      { l: "Total de Vias", v: totalVias }, { l: "Vias Fusionadas", v: fusedVias },
+      { l: "Vias Livres", v: totalVias - fusedVias },
+      { l: "Ocupação", v: totalVias > 0 ? Math.round((fusedVias / totalVias) * 100) + "%" : "0%" },
+    ].map(s => `<div class="stat"><div class="stat-val">${s.v}</div><div class="stat-lbl">${s.l}</div></div>`).join("");
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Mapa de Fusões — ${ceoName}</title>
+    <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { font-family: Arial, sans-serif; font-size: 10pt; color: #111; background: white; padding: 14mm 16mm; }
+    h1 { font-size: 16pt; font-weight: 800; color: #1a1a2e; margin-bottom: 2mm; } h2 { font-size: 14pt; font-weight: 700; color: #0891b2; margin-bottom: 1mm; }
+    .header { border-bottom: 2px solid #1a1a2e; padding-bottom: 6mm; margin-bottom: 6mm; display: flex; justify-content: space-between; align-items: flex-start; }
+    .header-right { text-align: right; font-size: 8pt; color: #6b7280; }
+    .stats { display: flex; gap: 6mm; margin-bottom: 6mm; flex-wrap: wrap; }
+    .stat { border: 1px solid #ddd; padding: 3mm 5mm; text-align: center; min-width: 22mm; }
+    .stat-val { font-size: 14pt; font-weight: 700; color: #1a1a2e; } .stat-lbl { font-size: 7pt; color: #6b7280; text-transform: uppercase; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 6mm; font-size: 9pt; }
+    th { background: #1a1a2e; color: white; padding: 4px 8px; text-align: left; font-size: 8pt; text-transform: uppercase; border: 1px solid #333; }
+    td { padding: 4px 8px; border: 1px solid #ddd; vertical-align: middle; }
+    .tube-section { margin-bottom: 8mm; page-break-inside: avoid; }
+    .tube-title { font-size: 10pt; font-weight: 700; margin-bottom: 2mm; padding: 3px 8px; background: #e8f4f8; border-left: 4px solid #0891b2; }
+    .splitter-title { background: #f3e8ff; border-left-color: #7c3aed; }
+    .footer { border-top: 1px solid #ddd; padding-top: 4mm; margin-top: 6mm; font-size: 7pt; color: #6b7280; display: flex; justify-content: space-between; }
+    @media print { body { padding: 0; } @page { size: A4 portrait; margin: 14mm 16mm; } }</style>
+    </head><body>
+    <div class="header"><div><h1>MAPA DE FUSÕES — CEO</h1><h2>${ceoName}</h2>${ceoLocation}</div>
+    <div class="header-right"><div style="font-weight:700;font-size:9pt;color:#1a1a2e;margin-bottom:1mm">FiberDoc</div><div>Gerado em: ${now}</div><div style="margin-top:1mm">Status: <b style="color:${statusColor}">${statusLabel}</b></div></div></div>
+    <div class="stats">${statsHtml}</div>${allContent}
+    <div class="footer"><span>FiberDoc — Sistema de Gestão de Infraestrutura de Rede Óptica</span><span>${ceoName} · ${now}</span></div>
+    </body></html>`;
+    const win = window.open("", "_blank", "width=900,height=700");
+    if (!win) { toast.error("Popup bloqueado pelo navegador."); return; }
+    win.document.write(html); win.document.close(); win.focus(); setTimeout(() => win.print(), 500);
+  }
+
+  if (ceoLoading) {
+    return <div className="space-y-4"><Skeleton className="h-8 w-48" /><Skeleton className="h-32 rounded-xl" /></div>;
+  }
+  if (!ceo) {
+    return <div className="text-center py-16"><p className="text-muted-foreground">CEO não encontrada.</p><Button variant="link" onClick={() => setLocation("/ceo")} className="mt-2">Voltar</Button></div>;
   }
 
   const tubeList = tubes as Tube[];
-  const fiberList = (fibers as unknown) as Fiber[];
+  const bandejaList = bandejas as Bandeja[];
+  const splitterList = splitters as Splitter[];
+  const assocList = associations as ViaAssociation[];
+  const fiberList = fibers as unknown as Fiber[];
+  const tubesWithoutBandeja = tubeList.filter(t => !t.bandejaId);
 
   return (
     <div className="space-y-6 max-w-7xl">
@@ -999,64 +1117,38 @@ export default function CeoDetail() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-foreground tracking-tight">{ceo.name}</h1>
-            {ceo.location && (
-              <p className="text-xs text-muted-foreground">{ceo.location}</p>
-            )}
+            {ceo.location && <p className="text-xs text-muted-foreground">{ceo.location}</p>}
           </div>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
           {isAdmin && (
-            <Button
-              variant="outline"
-              onClick={handleGetLocation}
-              disabled={geoLoading || updateCeoMutation.isPending}
-              className="gap-2 border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
-              title="Atualizar localização com GPS do dispositivo"
-            >
-              {geoLoading || updateCeoMutation.isPending ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Obtendo...</>
-              ) : (
-                <><LocateFixed className="h-4 w-4" /> Minha Localização</>
-              )}
+            <Button variant="outline" onClick={handleGetLocation} disabled={geoLoading || updateCeoMutation.isPending}
+              className="gap-2 border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300">
+              {geoLoading || updateCeoMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Obtendo...</> : <><LocateFixed className="h-4 w-4" /> Minha Localização</>}
             </Button>
           )}
           {ceoMapEl && (
-            <Button
-              variant="outline"
-              onClick={() => setLocation(`/mapa?lat=${ceoMapEl.lat}&lng=${ceoMapEl.lng}&highlight=${ceoMapEl.id}`)}
-              className="gap-2 border-border/50"
-              title="Ver localização no mapa"
-            >
-              <MapPin className="h-4 w-4" />
-              Ver no Mapa
+            <Button variant="outline" onClick={() => setLocation(`/mapa?lat=${ceoMapEl.lat}&lng=${ceoMapEl.lng}&highlight=${ceoMapEl.id}`)} className="gap-2 border-border/50">
+              <MapPin className="h-4 w-4" /> Ver no Mapa
             </Button>
           )}
-          <Button
-            variant="outline"
-            onClick={handleOpenPrintFilter}
-            className="gap-2 border-border/50"
-            title="Imprimir mapa de fusões"
-          >
-            <Printer className="h-4 w-4" />
-            Imprimir Mapa
+          <Button variant="outline" onClick={handleOpenPrintFilter} className="gap-2 border-border/50">
+            <Printer className="h-4 w-4" /> Imprimir Mapa
           </Button>
           {isAdmin && (
-            <Button
-              onClick={() => { setEditTube(null); resetTubeForm(); setTubeDialog(true); }}
-              className="gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              Adicionar Tubo / Splitter
+            <Button onClick={() => { setEditBandeja(null); setBandejaForm({ number: "", label: "", notes: "" }); setBandejaDialog(true); }} className="gap-2">
+              <Plus className="h-4 w-4" /> Adicionar Bandeja
             </Button>
           )}
         </div>
       </div>
 
       {/* Resumo */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {[
+          { label: "Bandejas", value: bandejaList.length, color: "text-amber-400" },
           { label: "Tubos", value: tubeList.filter(t => t.type === "tube").length, color: "text-blue-400" },
-          { label: "Splitters", value: tubeList.filter(t => t.type === "splitter").length, color: "text-violet-400" },
+          { label: "Splitters", value: splitterList.length, color: "text-violet-400" },
           { label: "Total de Vias", value: tubeList.reduce((s, t) => s + t.totalVias, 0), color: "text-foreground" },
           { label: "Fusionadas", value: (allVias as Via[]).filter(v => v.fusedToViaId !== null).length, color: "text-cyan-400" },
         ].map(stat => (
@@ -1069,65 +1161,139 @@ export default function CeoDetail() {
         ))}
       </div>
 
-      {/* Abas por tubo */}
-      {tubesLoading ? (
-        <Skeleton className="h-64 rounded-xl" />
-      ) : tubeList.length === 0 ? (
-        <Card className="border-border/50 bg-card">
-          <CardContent className="py-16 text-center">
-            <Layers className="h-12 w-12 mx-auto mb-4 text-muted-foreground/30" />
-            <p className="text-muted-foreground font-medium">Nenhum tubo ou splitter cadastrado</p>
-            <p className="text-sm text-muted-foreground/60 mt-1">
-              Clique em "Adicionar Tubo / Splitter" para começar
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="border-border/50 bg-card">
-          <CardContent className="p-0">
-            <Tabs defaultValue={String(tubeList[0]?.id)}>
-              {/* Apenas as abas de navegação — sem botões aqui */}
-              <div className="border-b border-border/50 px-4 pt-3 pb-0">
-                <TabsList className="bg-transparent h-auto gap-1 flex-wrap">
-                  {tubeList.map(tube => (
-                    <TabsTrigger
-                      key={tube.id}
-                      value={String(tube.id)}
-                      className={cn(
-                        "text-xs px-3 py-1.5 rounded-t-md rounded-b-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary",
-                        tube.type === "splitter" ? "data-[state=active]:border-violet-400 data-[state=active]:text-violet-400" : ""
-                      )}
-                    >
-                      {tube.type === "splitter" ? "⊕" : "○"} {tube.identifier}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </div>
-              {/* Cada aba tem seu próprio TubePanel com os botões editar/excluir */}
-              {tubeList.map(tube => (
-                <TabsContent key={tube.id} value={String(tube.id)} className="p-4 mt-0">
-                  <TubePanel
-                    tube={tube}
-                    tubes={tubeList}
-                    ceoId={ceoId}
-                    fibers={fiberList}
-                    onEditTube={openEditTube}
-                    onDeleteTube={id => setDeleteTubeId(id)}
-                    isAdmin={isAdmin}
-                  />
-                </TabsContent>
-              ))}
-            </Tabs>
-          </CardContent>
-        </Card>
+      {/* Abas principais */}
+      <div className="flex gap-2 border-b border-border/50">
+        <button onClick={() => setMainTab("bandejas")} className={cn("px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+          mainTab === "bandejas" ? "border-amber-400 text-amber-400" : "border-transparent text-muted-foreground hover:text-foreground")}>
+          <LayoutGrid className="h-4 w-4 inline mr-1.5" />Bandejas ({bandejaList.length})
+        </button>
+        <button onClick={() => setMainTab("tubos")} className={cn("px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+          mainTab === "tubos" ? "border-blue-400 text-blue-400" : "border-transparent text-muted-foreground hover:text-foreground")}>
+          <Layers className="h-4 w-4 inline mr-1.5" />Tubos / Splitters ({tubeList.length})
+          {tubesWithoutBandeja.length > 0 && (
+            <Badge variant="outline" className="ml-1.5 text-[9px] px-1 py-0 border-amber-500/40 text-amber-300">{tubesWithoutBandeja.length} sem bandeja</Badge>
+          )}
+        </button>
+      </div>
+
+      {/* Conteúdo: Bandejas */}
+      {mainTab === "bandejas" && (
+        <div className="space-y-4">
+          {bandejasLoading ? <Skeleton className="h-32 rounded-xl" /> : bandejaList.length === 0 ? (
+            <Card className="border-border/50 bg-card">
+              <CardContent className="py-16 text-center">
+                <LayoutGrid className="h-12 w-12 mx-auto mb-4 text-muted-foreground/30" />
+                <p className="text-muted-foreground font-medium">Nenhuma bandeja cadastrada</p>
+                <p className="text-sm text-muted-foreground/60 mt-1">Clique em "Adicionar Bandeja" para organizar os tubos e splitters</p>
+              </CardContent>
+            </Card>
+          ) : bandejaList.map(bandeja => (
+            <BandejaPanel key={bandeja.id} bandeja={bandeja} ceoId={ceoId}
+              tubes={tubeList} allVias={allVias as Via[]} splitters={splitterList} associations={assocList}
+              onEditBandeja={openEditBandeja} onDeleteBandeja={id => setDeleteBandejaId(id)}
+              onAddTube={openAddTubeInBandeja} onEditTube={openEditTube} onDeleteTube={id => setDeleteTubeId(id)}
+              onAddSplitter={openAddSplitterInBandeja} onEditSplitter={openEditSplitter} onDeleteSplitter={id => setDeleteSplitterId(id)}
+              isAdmin={isAdmin}
+            />
+          ))}
+        </div>
       )}
+
+      {/* Conteúdo: Tubos (aba legada) */}
+      {mainTab === "tubos" && (
+        <div className="space-y-4">
+          {isAdmin && (
+            <div className="flex gap-2">
+              <Button onClick={() => { setEditTube(null); setTubeForm({ identifier: "", type: "tube", totalVias: "12", color: "", notes: "" }); setTubeBandejaId(null); setTubeDialog(true); }} variant="outline" className="gap-2">
+                <Plus className="h-4 w-4" /> Adicionar Tubo (sem bandeja)
+              </Button>
+            </div>
+          )}
+          {tubesLoading ? <Skeleton className="h-64 rounded-xl" /> : tubesWithoutBandeja.length === 0 ? (
+            <Card className="border-border/50 bg-card">
+              <CardContent className="py-16 text-center">
+                <Layers className="h-12 w-12 mx-auto mb-4 text-muted-foreground/30" />
+                <p className="text-muted-foreground font-medium">Nenhum tubo sem bandeja cadastrado</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">Use a aba Bandejas para organizar tubos e splitters</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-border/50 bg-card">
+              <CardContent className="p-0">
+                <Tabs defaultValue={String(tubesWithoutBandeja[0]?.id)}>
+                  <div className="border-b border-border/50 px-4 pt-3 pb-0">
+                    <TabsList className="bg-transparent h-auto gap-1 flex-wrap">
+                      {tubesWithoutBandeja.map(tube => (
+                        <TabsTrigger key={tube.id} value={String(tube.id)} className={cn(
+                          "text-xs px-3 py-1.5 rounded-t-md rounded-b-none border-b-2 border-transparent data-[state=active]:bg-transparent data-[state=active]:border-primary data-[state=active]:text-primary",
+                          tube.type === "splitter" ? "data-[state=active]:border-violet-400 data-[state=active]:text-violet-400" : ""
+                        )}>
+                          {tube.type === "splitter" ? "⊕" : "○"} {tube.identifier}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </div>
+                  {tubesWithoutBandeja.map(tube => (
+                    <TabsContent key={tube.id} value={String(tube.id)} className="p-4 mt-0">
+                      <TubePanel tube={tube} tubes={tubeList} ceoId={ceoId} fibers={fiberList}
+                        associations={assocList} allSplitterVias={[]}
+                        onEditTube={openEditTube} onDeleteTube={id => setDeleteTubeId(id)} isAdmin={isAdmin} />
+                    </TabsContent>
+                  ))}
+                </Tabs>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Dialog: Criar/Editar Bandeja */}
+      <Dialog open={bandejaDialog} onOpenChange={setBandejaDialog}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader><DialogTitle>{editBandeja ? "Editar Bandeja" : "Adicionar Bandeja"}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Número da Bandeja *</Label>
+                <Input type="number" min={1} value={bandejaForm.number} onChange={e => setBandejaForm({ ...bandejaForm, number: e.target.value })} placeholder="Ex: 1" className="bg-background border-border/50" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Etiqueta</Label>
+                <Input value={bandejaForm.label} onChange={e => setBandejaForm({ ...bandejaForm, label: e.target.value })} placeholder="Ex: Entrada Principal" className="bg-background border-border/50" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Observações</Label>
+              <Textarea value={bandejaForm.notes} onChange={e => setBandejaForm({ ...bandejaForm, notes: e.target.value })} placeholder="Notas sobre esta bandeja..." className="bg-background border-border/50 resize-none" rows={2} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBandejaDialog(false)} className="border-border/50">Cancelar</Button>
+            <Button onClick={handleBandejaSubmit} disabled={!bandejaForm.number || createBandejaMutation.isPending || updateBandejaMutation.isPending}>
+              {createBandejaMutation.isPending || updateBandejaMutation.isPending ? "Salvando..." : editBandeja ? "Salvar" : "Adicionar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Confirmar exclusão de bandeja */}
+      <Dialog open={deleteBandejaId !== null} onOpenChange={() => setDeleteBandejaId(null)}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader><DialogTitle>Remover Bandeja</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Os splitters desta bandeja serão removidos. Os tubos serão desvinculados mas não apagados. Deseja continuar?</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteBandejaId(null)} className="border-border/50">Cancelar</Button>
+            <Button variant="destructive" onClick={() => deleteBandejaId && deleteBandejaMutation.mutate({ id: deleteBandejaId })} disabled={deleteBandejaMutation.isPending}>
+              {deleteBandejaMutation.isPending ? "Removendo..." : "Remover"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog: Criar/Editar Tubo */}
       <Dialog open={tubeDialog} onOpenChange={setTubeDialog}>
         <DialogContent className="bg-card border-border">
-          <DialogHeader>
-            <DialogTitle>{editTube ? "Editar Tubo/Splitter" : "Adicionar Tubo / Splitter"}</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>{editTube ? "Editar Tubo/Splitter" : "Adicionar Tubo"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -1136,69 +1302,35 @@ export default function CeoDetail() {
                   <SelectTrigger className="bg-background border-border/50"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="tube">Tubo</SelectItem>
-                    <SelectItem value="splitter">Splitter</SelectItem>
+                    <SelectItem value="splitter">Splitter (legado)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>Identificação *</Label>
-                <Input
-                  value={tubeForm.identifier}
-                  onChange={e => setTubeForm({ ...tubeForm, identifier: e.target.value })}
-                  placeholder={tubeForm.type === "splitter" ? "Ex: SPLITTER 1*8" : "Ex: TUBO 1"}
-                  className="bg-background border-border/50"
-                />
+                <Input value={tubeForm.identifier} onChange={e => setTubeForm({ ...tubeForm, identifier: e.target.value })} placeholder="Ex: TUBO 1" className="bg-background border-border/50" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Quantidade de Vias *</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={256}
-                  value={tubeForm.totalVias}
-                  onChange={e => setTubeForm({ ...tubeForm, totalVias: e.target.value })}
-                  placeholder="Ex: 12"
-                  className="bg-background border-border/50"
-                  disabled={!!editTube}
-                />
-                {editTube && (
-                  <p className="text-[10px] text-muted-foreground">
-                    A quantidade de vias não pode ser alterada após a criação.
-                  </p>
-                )}
+                <Input type="number" min={1} max={256} value={tubeForm.totalVias} onChange={e => setTubeForm({ ...tubeForm, totalVias: e.target.value })} placeholder="Ex: 12" className="bg-background border-border/50" disabled={!!editTube} />
+                {editTube && <p className="text-[10px] text-muted-foreground">Não pode ser alterado após criação.</p>}
               </div>
               <div className="space-y-1.5">
                 <Label>Cor do Tubo</Label>
-                <Input
-                  value={tubeForm.color}
-                  onChange={e => setTubeForm({ ...tubeForm, color: e.target.value })}
-                  placeholder="Ex: Azul, Verde..."
-                  className="bg-background border-border/50"
-                />
+                <Input value={tubeForm.color} onChange={e => setTubeForm({ ...tubeForm, color: e.target.value })} placeholder="Ex: Azul, Verde..." className="bg-background border-border/50" />
               </div>
             </div>
             <div className="space-y-1.5">
               <Label>Observações</Label>
-              <Textarea
-                value={tubeForm.notes}
-                onChange={e => setTubeForm({ ...tubeForm, notes: e.target.value })}
-                placeholder="Notas sobre este tubo..."
-                className="bg-background border-border/50 resize-none"
-                rows={2}
-              />
+              <Textarea value={tubeForm.notes} onChange={e => setTubeForm({ ...tubeForm, notes: e.target.value })} placeholder="Notas sobre este tubo..." className="bg-background border-border/50 resize-none" rows={2} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setTubeDialog(false)} className="border-border/50">Cancelar</Button>
-            <Button
-              onClick={handleTubeSubmit}
-              disabled={!tubeForm.identifier || createTubeMutation.isPending || updateTubeMutation.isPending}
-            >
-              {createTubeMutation.isPending || updateTubeMutation.isPending
-                ? "Salvando..."
-                : editTube ? "Salvar" : "Adicionar"}
+            <Button onClick={handleTubeSubmit} disabled={!tubeForm.identifier || createTubeMutation.isPending || updateTubeMutation.isPending}>
+              {createTubeMutation.isPending || updateTubeMutation.isPending ? "Salvando..." : editTube ? "Salvar" : "Adicionar"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1208,73 +1340,133 @@ export default function CeoDetail() {
       <Dialog open={deleteTubeId !== null} onOpenChange={() => setDeleteTubeId(null)}>
         <DialogContent className="bg-card border-border">
           <DialogHeader><DialogTitle>Remover Tubo/Splitter</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Todas as vias e fusões deste tubo serão removidas. Deseja continuar?
-          </p>
+          <p className="text-sm text-muted-foreground">Todas as vias e fusões deste tubo serão removidas. Deseja continuar?</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTubeId(null)} className="border-border/50">Cancelar</Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteTubeId && deleteTubeMutation.mutate({ id: deleteTubeId })}
-              disabled={deleteTubeMutation.isPending}
-            >
+            <Button variant="destructive" onClick={() => deleteTubeId && deleteTubeMutation.mutate({ id: deleteTubeId })} disabled={deleteTubeMutation.isPending}>
               {deleteTubeMutation.isPending ? "Removendo..." : "Remover"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Diálogo de filtro de tubos para impressão */}
+      {/* Dialog: Criar/Editar Splitter */}
+      <Dialog open={splitterDialog} onOpenChange={setSplitterDialog}>
+        <DialogContent className="bg-card border-border max-w-lg">
+          <DialogHeader><DialogTitle>{editSplitter ? "Editar Splitter" : "Adicionar Splitter"}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            {!editSplitter && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label>Tipo de Splitter</Label>
+                    <Select value={splitterForm.splitterType} onValueChange={v => setSplitterForm({ ...splitterForm, splitterType: v as any, ratio: v === "balanced" ? "1:8" : "1:2_90/10" })}>
+                      <SelectTrigger className="bg-background border-border/50"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="balanced">Balanceado</SelectItem>
+                        <SelectItem value="unbalanced">Desbalanceado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Razão de Divisão</Label>
+                    <Select value={splitterForm.ratio} onValueChange={v => setSplitterForm({ ...splitterForm, ratio: v })}>
+                      <SelectTrigger className="bg-background border-border/50"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {(splitterForm.splitterType === "balanced" ? BALANCED_RATIOS : UNBALANCED_RATIOS).map(r => (
+                          <SelectItem key={r} value={r}>{formatRatio(r)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                {/* Preview de perda dB */}
+                <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Perda estimada por via:</p>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="text-[10px] px-2 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300">VIA 00 (Entrada) — 0 dB</span>
+                    {splitterForm.splitterType === "balanced" ? (() => {
+                      const outputCount = parseInt(splitterForm.ratio.split(":")[1] ?? "2");
+                      const lossMap: Record<string, number> = { "1:2": 3.5, "1:4": 7.2, "1:8": 10.5, "1:16": 13.5, "1:32": 17.0 };
+                      const loss = lossMap[splitterForm.ratio] ?? 3.5;
+                      return Array.from({ length: outputCount }, (_, i) => (
+                        <span key={i} className="text-[10px] px-2 py-1 rounded border border-cyan-500/40 bg-cyan-500/10 text-cyan-300">VIA {String(i + 1).padStart(2, "0")} — ~{loss} dB</span>
+                      ));
+                    })() : (() => {
+                      const match = splitterForm.ratio.match(/(\d+)\/(\d+)/);
+                      if (!match) return null;
+                      const p1 = parseInt(match[1]); const p2 = parseInt(match[2]);
+                      const loss1 = (-10 * Math.log10(p1 / 100)).toFixed(1);
+                      const loss2 = (-10 * Math.log10(p2 / 100)).toFixed(1);
+                      return [
+                        <span key="1" className="text-[10px] px-2 py-1 rounded border border-cyan-500/40 bg-cyan-500/10 text-cyan-300">VIA 01 ({p1}%) — ~{loss1} dB</span>,
+                        <span key="2" className="text-[10px] px-2 py-1 rounded border border-violet-500/40 bg-violet-500/10 text-violet-300">VIA 02 ({p2}%) — ~{loss2} dB</span>,
+                      ];
+                    })()}
+                  </div>
+                </div>
+              </>
+            )}
+            <div className="space-y-1.5">
+              <Label>Identificação</Label>
+              <Input value={splitterForm.identifier} onChange={e => setSplitterForm({ ...splitterForm, identifier: e.target.value })} placeholder={`Ex: SPLITTER ${formatRatio(splitterForm.ratio)} #1`} className="bg-background border-border/50" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Observações</Label>
+              <Textarea value={splitterForm.notes} onChange={e => setSplitterForm({ ...splitterForm, notes: e.target.value })} placeholder="Notas sobre este splitter..." className="bg-background border-border/50 resize-none" rows={2} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSplitterDialog(false)} className="border-border/50">Cancelar</Button>
+            <Button onClick={handleSplitterSubmit} disabled={createSplitterMutation.isPending || updateSplitterMutation.isPending}>
+              {createSplitterMutation.isPending || updateSplitterMutation.isPending ? "Salvando..." : editSplitter ? "Salvar" : "Adicionar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Confirmar exclusão de splitter */}
+      <Dialog open={deleteSplitterId !== null} onOpenChange={() => setDeleteSplitterId(null)}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader><DialogTitle>Remover Splitter</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Todas as vias e associações deste splitter serão removidas. Deseja continuar?</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteSplitterId(null)} className="border-border/50">Cancelar</Button>
+            <Button variant="destructive" onClick={() => deleteSplitterId && deleteSplitterMutation.mutate({ id: deleteSplitterId })} disabled={deleteSplitterMutation.isPending}>
+              {deleteSplitterMutation.isPending ? "Removendo..." : "Remover"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Filtro de impressão */}
       <Dialog open={printFilterOpen} onOpenChange={setPrintFilterOpen}>
         <DialogContent className="bg-card border-border max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Printer className="h-4 w-4" />
-              Selecionar Tubos para Imprimir
-            </DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><Printer className="h-4 w-4" /> Selecionar Tubos para Imprimir</DialogTitle>
           </DialogHeader>
           <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs text-muted-foreground">{selectedTubeIds.size} de {tubeList.length} selecionados</span>
               <div className="flex gap-2">
-                <button
-                  onClick={() => setSelectedTubeIds(new Set(tubeList.map(t => t.id)))}
-                  className="text-xs text-cyan-400 hover:underline"
-                >Todos</button>
+                <button onClick={() => setSelectedTubeIds(new Set(tubeList.map(t => t.id)))} className="text-xs text-cyan-400 hover:underline">Todos</button>
                 <span className="text-muted-foreground/40">|</span>
-                <button
-                  onClick={() => setSelectedTubeIds(new Set())}
-                  className="text-xs text-muted-foreground hover:underline"
-                >Nenhum</button>
+                <button onClick={() => setSelectedTubeIds(new Set())} className="text-xs text-muted-foreground hover:underline">Nenhum</button>
               </div>
             </div>
             {tubeList.map(tube => {
               const checked = selectedTubeIds.has(tube.id);
               return (
-                <label
-                  key={tube.id}
-                  className={cn(
-                    "flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors",
-                    checked ? "border-cyan-500/40 bg-cyan-500/5" : "border-border/40 hover:bg-muted/30"
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => {
-                      const next = new Set(selectedTubeIds);
-                      if (checked) next.delete(tube.id); else next.add(tube.id);
-                      setSelectedTubeIds(next);
-                    }}
-                    className="accent-cyan-500"
-                  />
+                <label key={tube.id} className={cn("flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors",
+                  checked ? "border-cyan-500/40 bg-cyan-500/5" : "border-border/40 hover:bg-muted/30")}>
+                  <input type="checkbox" checked={checked} onChange={() => {
+                    const next = new Set(selectedTubeIds);
+                    if (checked) next.delete(tube.id); else next.add(tube.id);
+                    setSelectedTubeIds(next);
+                  }} className="accent-cyan-500" />
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-sm font-medium truncate">{tube.identifier}</span>
-                    {tube.color && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-border/40 shrink-0">
-                        {tube.color}
-                      </Badge>
-                    )}
+                    {tube.color && <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-border/40 shrink-0">{tube.color}</Badge>}
                     <span className="text-xs text-muted-foreground shrink-0">{tube.totalVias} vias</span>
                   </div>
                 </label>
@@ -1283,28 +1475,15 @@ export default function CeoDetail() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPrintFilterOpen(false)} className="border-border/50">Cancelar</Button>
-            <Button
-              disabled={selectedTubeIds.size === 0}
-              onClick={() => {
-                setPrintFilterOpen(false);
-                const filtered = tubeList.filter(t => selectedTubeIds.has(t.id));
-                handlePrint(filtered);
-              }}
-              className="gap-2"
-            >
-              <Printer className="h-4 w-4" />
-              Imprimir ({selectedTubeIds.size})
+            <Button disabled={selectedTubeIds.size === 0} onClick={() => { setPrintFilterOpen(false); handlePrint(tubeList.filter(t => selectedTubeIds.has(t.id))); }} className="gap-2">
+              <Printer className="h-4 w-4" /> Imprimir ({selectedTubeIds.size})
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Componente de impressão — invisível na tela, visível apenas ao imprimir */}
-      <CeoFusionPrint
-        ceo={ceo as any}
-        tubes={tubeList as any}
-        allVias={allVias as any}
-      />
+      {/* Componente de impressão */}
+      <CeoFusionPrint ceo={ceo as any} tubes={tubeList as any} allVias={allVias as any} />
     </div>
   );
 }
