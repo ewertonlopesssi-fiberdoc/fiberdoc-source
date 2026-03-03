@@ -1280,18 +1280,26 @@ export default function InfrastructureMap() {
     try {
       const elementIds = exportSelectAll ? undefined : Array.from(exportSelectedElements);
       const routeIds = exportSelectAll ? undefined : Array.from(exportSelectedRoutes);
-      const result = await (trpc as any).infraMap.exportKml.mutateAsync({ format: exportFormat, elementIds, routeIds, includeFibers: exportIncludeFibers });
-      if (exportFormat === "kmz" && result.kmzBase64) {
-        const binary = atob(result.kmzBase64); const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const blob = new Blob([bytes], { type: "application/vnd.google-earth.kmz" });
-        const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0, 10)}.kmz`; a.click(); URL.revokeObjectURL(url);
-        toast.success("KMZ exportado com sucesso");
-      } else {
-        const blob = new Blob([result.kml], { type: "application/vnd.google-earth.kml+xml" });
-        const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0, 10)}.kml`; a.click(); URL.revokeObjectURL(url);
-        toast.success("KML exportado com sucesso");
+      // Usar endpoint HTTP directo para evitar limitações do tRPC batch link com payloads grandes
+      const resp = await fetch("/api/export-kml", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ format: exportFormat, elementIds, routeIds, includeFibers: exportIncludeFibers }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: "Erro ao exportar" }));
+        throw new Error(err.error ?? "Erro ao exportar");
       }
+      const blob = await resp.blob();
+      const ext = exportFormat === "kmz" ? "kmz" : "kml";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0, 10)}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`${exportFormat.toUpperCase()} exportado com sucesso`);
       setExportDialogOpen(false);
     } catch (e: any) { toast.error(e.message ?? "Erro ao exportar"); }
     finally { setExportLoading(false); }

@@ -19,6 +19,8 @@ import { generateFusionReportPdf } from "../fusionReportPdf";
 import multer from "multer";
 import { applyUpdate, getUpdateStatus, getCurrentVersion, getUpdateHistory } from "../systemUpdate";
 import { getCtos, updateCto } from "../db";
+import { sdk } from "./sdk";
+import { getMapElements, getMapRoutes, getCeos } from "../db";
 
 // Diretório local para uploads de imagens (logo, etc.) em servidores sem S3
 const LOCAL_UPLOADS_DIR = process.env.BACKUP_LOCAL_DIR
@@ -232,6 +234,80 @@ async function startServer() {
   });
 
   // tRPC API
+  // Endpoint dedicado de exportação KML/KMZ (evita limite de URL do httpBatchLink)
+  app.post("/api/export-kml", async (req, res) => {
+    try {
+      // Verificar autenticação via cookie
+      let user: any = null;
+      try { user = await sdk.authenticateRequest(req as any); } catch {}
+      if (!user) { res.status(401).json({ error: "Não autenticado" }); return; }
+
+      const { format = "kml", elementIds, routeIds, includeFibers = false, fiberIds } = req.body ?? {};
+      const { zipSync, strToU8 } = await import("fflate");
+      const dbMod = await import("../db");
+      const [allElements, allRoutes, allCtos, allCeos, allFibers] = await Promise.all([
+        getMapElements(),
+        getMapRoutes(),
+        getCtos(),
+        dbMod.getCeos(),
+        includeFibers ? dbMod.getFibers?.() ?? [] : [],
+      ]);
+
+      const elements = elementIds?.length
+        ? (allElements as any[]).filter((e: any) => elementIds.includes(e.id))
+        : allElements as any[];
+      const routes = routeIds?.length
+        ? (allRoutes as any[]).filter((r: any) => routeIds.includes(r.id))
+        : allRoutes as any[];
+      const fibers = fiberIds?.length
+        ? (allFibers as any[]).filter((f: any) => fiberIds.includes(f.id))
+        : allFibers as any[];
+
+      const ctoMap = new Map(allCtos.map((c: any) => [c.id, c]));
+      const ceoMap = new Map((allCeos as any[]).map((c: any) => [c.id, c]));
+
+      const placemarks = elements.map((el: any) => {
+        const isCtO = el.type === "cto";
+        const ref = isCtO ? ctoMap.get(el.referenceId) : ceoMap.get(el.referenceId);
+        const name = (ref?.name ?? (isCtO ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        const iconColor = (ref?.status ?? "active") === "active" ? "ff00ff00" : (ref?.status ?? "active") === "maintenance" ? "ff00ffff" : "ff0000ff";
+        return `  <Placemark>\n    <name>${name}</name>\n    <Style><IconStyle><color>${iconColor}</color><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/${isCtO ? "square" : "donut"}.png</href></Icon></IconStyle></Style>\n    <Point><coordinates>${el.lng},${el.lat},0</coordinates></Point>\n  </Placemark>`;
+      }).join("\n");
+
+      const linemarks = routes.map((r: any) => {
+        const fromEl = (elements as any[]).find((e: any) => e.id === r.fromElementId);
+        const toEl = (elements as any[]).find((e: any) => e.id === r.toElementId);
+        let coords = "";
+        if (fromEl) coords += `${fromEl.lng},${fromEl.lat},0`;
+        if (r.path) { try { const pts = JSON.parse(r.path); if (pts.length > 0) { if (coords) coords += " "; coords += pts.map((p: any) => `${p.lng},${p.lat},0`).join(" "); } } catch {} }
+        if (toEl) coords += (coords ? " " : "") + `${toEl.lng},${toEl.lat},0`;
+        if (!coords) return "";
+        const rawColor = (r.color ?? "#22d3ee");
+        const color = rawColor.startsWith("#") ? "ff" + rawColor.slice(1) : rawColor;
+        const name = (r.name ?? `Cabo ${r.id}`).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        return `  <Placemark>\n    <name>${name}</name>\n    <Style><LineStyle><color>${color}</color><width>3</width></LineStyle></Style>\n    <LineString><tessellate>1</tessellate><coordinates>${coords}</coordinates></LineString>\n  </Placemark>`;
+      }).filter(Boolean).join("\n");
+
+      const kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n  <name>FiberDoc — Infraestrutura de Rede</name>\n  <Folder><name>Equipamentos</name>\n${placemarks}\n  </Folder>\n  <Folder><name>Cabos</name>\n${linemarks}\n  </Folder>\n</Document>\n</kml>`;
+
+      const filename = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0,10)}`;
+      if (format === "kmz") {
+        const kmlU8 = strToU8(kml);
+        const zipped = zipSync({ "doc.kml": [kmlU8, { level: 0 }] });
+        res.setHeader("Content-Type", "application/vnd.google-earth.kmz");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}.kmz"`);
+        res.send(Buffer.from(zipped));
+      } else {
+        res.setHeader("Content-Type", "application/vnd.google-earth.kml+xml; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}.kml"`);
+        res.send(kml);
+      }
+    } catch (err: any) {
+      console.error("[export-kml] erro:", err);
+      if (!res.headersSent) res.status(500).json({ error: err.message ?? "Erro ao exportar" });
+    }
+  });
+
   app.use(
     "/api/trpc",
     createExpressMiddleware({
