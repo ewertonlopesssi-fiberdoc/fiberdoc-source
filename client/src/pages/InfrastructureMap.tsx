@@ -918,68 +918,107 @@ export default function InfrastructureMap() {
       }).addTo(mapRef.current!);
 
       // Arrastar vértice (com snap ao CEO/CTO mais próximo para endpoints)
+      // Suporta mouse E touch events
       const SNAP_THRESHOLD_DEG = 0.008; // ~800m em graus
       let dragging = false;
+
+      // Helper: converter clientX/Y para LatLng do mapa
+      const clientToLatLng = (clientX: number, clientY: number): { lat: number; lng: number } | null => {
+        if (!mapRef.current) return null;
+        const rect = mapRef.current.getContainer().getBoundingClientRect();
+        const pt = L.point(clientX - rect.left, clientY - rect.top);
+        const ll = mapRef.current.containerPointToLatLng(pt);
+        return { lat: ll.lat, lng: ll.lng };
+      };
+
+      // Lógica comum de movimento (mouse ou touch)
+      const handleDragMove = (rawLat: number, rawLng: number) => {
+        let moveLat = rawLat;
+        let moveLng = rawLng;
+        let snappedEl: any = null;
+        if (isEndpoint) {
+          let bestDist = SNAP_THRESHOLD_DEG;
+          (elements as any[]).forEach((el: any) => {
+            const d = Math.hypot(moveLat - Number(el.lat), moveLng - Number(el.lng));
+            if (d < bestDist) { bestDist = d; snappedEl = el; }
+          });
+          if (snappedEl) { moveLat = Number(snappedEl.lat); moveLng = Number(snappedEl.lng); }
+        }
+        cm.setLatLng([moveLat, moveLng]);
+        const newPath = [...editingRoutePathRef.current];
+        newPath[idx] = { lat: moveLat, lng: moveLng };
+        editingRoutePathRef.current = newPath;
+        if (editRoutePolylineRef.current) {
+          editRoutePolylineRef.current.setLatLngs(newPath.map(p => [p.lat, p.lng] as L.LatLngExpression));
+        }
+        if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
+        if (snappedEl && mapRef.current) {
+          snapIndicatorRef.current = L.circleMarker([moveLat, moveLng], {
+            radius: 14, color: "#22c55e", fillColor: "#22c55e", fillOpacity: 0.25, weight: 3,
+          }).addTo(mapRef.current);
+        }
+        editRouteMidMarkersRef.current.forEach(m => m.remove());
+        editRouteMidMarkersRef.current = [];
+        renderMidpoints(newPath, routeColor);
+      };
+
+      // Lógica comum de fim de drag
+      const handleDragEnd = () => {
+        if (!dragging) return;
+        dragging = false;
+        mapRef.current!.dragging.enable();
+        if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
+        if (isEndpoint) {
+          const finalPt = editingRoutePathRef.current[idx];
+          let snappedId: number | null = null;
+          (elements as any[]).forEach((el: any) => {
+            if (Math.abs(finalPt.lat - Number(el.lat)) < 0.0001 && Math.abs(finalPt.lng - Number(el.lng)) < 0.0001) {
+              snappedId = el.id;
+            }
+          });
+          if (idx === 0) snapFromIdRef.current = snappedId;
+          else snapToIdRef.current = snappedId;
+        }
+        setEditingRoutePath([...editingRoutePathRef.current]);
+      };
+
+      // ── Mouse events ──────────────────────────────────────────────────────
       cm.on("mousedown", (e: L.LeafletMouseEvent) => {
         L.DomEvent.stopPropagation(e);
         dragging = true;
         mapRef.current!.dragging.disable();
-        const onMove = (ev: L.LeafletMouseEvent) => {
-          if (!dragging) return;
-          let moveLat = ev.latlng.lat;
-          let moveLng = ev.latlng.lng;
-          // Snap apenas para endpoints
-          let snappedEl: any = null;
-          if (isEndpoint) {
-            let bestDist = SNAP_THRESHOLD_DEG;
-            (elements as any[]).forEach((el: any) => {
-              const d = Math.hypot(moveLat - Number(el.lat), moveLng - Number(el.lng));
-              if (d < bestDist) { bestDist = d; snappedEl = el; }
-            });
-            if (snappedEl) { moveLat = Number(snappedEl.lat); moveLng = Number(snappedEl.lng); }
-          }
-          cm.setLatLng([moveLat, moveLng]);
-          const newPath = [...editingRoutePathRef.current];
-          newPath[idx] = { lat: moveLat, lng: moveLng };
-          editingRoutePathRef.current = newPath;
-          if (editRoutePolylineRef.current) {
-            editRoutePolylineRef.current.setLatLngs(newPath.map(p => [p.lat, p.lng] as L.LatLngExpression));
-          }
-          // Indicador visual de snap
-          if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
-          if (snappedEl && mapRef.current) {
-            snapIndicatorRef.current = L.circleMarker([moveLat, moveLng], {
-              radius: 14, color: "#22c55e", fillColor: "#22c55e", fillOpacity: 0.25, weight: 3,
-            }).addTo(mapRef.current);
-          }
-          // Atualizar marcadores de ponto médio
-          editRouteMidMarkersRef.current.forEach(m => m.remove());
-          editRouteMidMarkersRef.current = [];
-          renderMidpoints(newPath, routeColor);
-        };
+        const onMove = (ev: L.LeafletMouseEvent) => { if (dragging) handleDragMove(ev.latlng.lat, ev.latlng.lng); };
         const onUp = () => {
-          dragging = false;
-          mapRef.current!.dragging.enable();
           mapRef.current!.off("mousemove", onMove);
           mapRef.current!.off("mouseup", onUp);
-          if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
-          // Atualizar snap ID se endpoint grudou em um elemento
-          if (isEndpoint) {
-            const finalPt = editingRoutePathRef.current[idx];
-            let snappedId: number | null = null;
-            (elements as any[]).forEach((el: any) => {
-              if (Math.abs(finalPt.lat - Number(el.lat)) < 0.0001 && Math.abs(finalPt.lng - Number(el.lng)) < 0.0001) {
-                snappedId = el.id;
-              }
-            });
-            if (idx === 0) snapFromIdRef.current = snappedId;
-            else snapToIdRef.current = snappedId;
-          }
-          setEditingRoutePath([...editingRoutePathRef.current]);
+          handleDragEnd();
         };
         mapRef.current!.on("mousemove", onMove);
         mapRef.current!.on("mouseup", onUp);
       });
+
+      // ── Touch events ──────────────────────────────────────────────────────
+      const cmEl = (cm as any).getElement?.();
+      if (cmEl) {
+        cmEl.addEventListener("touchstart", (e: TouchEvent) => {
+          e.stopPropagation();
+          e.preventDefault();
+          dragging = true;
+          mapRef.current!.dragging.disable();
+        }, { passive: false });
+        cmEl.addEventListener("touchmove", (e: TouchEvent) => {
+          if (!dragging) return;
+          e.stopPropagation();
+          e.preventDefault();
+          const touch = e.touches[0];
+          const ll = clientToLatLng(touch.clientX, touch.clientY);
+          if (ll) handleDragMove(ll.lat, ll.lng);
+        }, { passive: false });
+        cmEl.addEventListener("touchend", (e: TouchEvent) => {
+          e.stopPropagation();
+          handleDragEnd();
+        }, { passive: false });
+      }
 
       // Duplo clique para remover vértice (exceto endpoints)
       if (!isEndpoint) {

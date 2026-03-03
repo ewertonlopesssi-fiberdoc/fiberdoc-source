@@ -1120,3 +1120,4 @@
 - [x] Botão "Vincular automaticamente" em lote para CTOs do mapa sem sgpId que têm correspondência exacta no SGP
 - [x] BUG: campo "Slot" no dialog "Editar Porta" não é guardado ao clicar em Salvar
 - [x] Sincronização automática de sensores Tuya: descoberta e importação de dispositivos da conta Tuya Cloud
+- [x] Bug: traçados importados via KML — suporte a touch events no drag das extremidades + snap a CEO/CTO
