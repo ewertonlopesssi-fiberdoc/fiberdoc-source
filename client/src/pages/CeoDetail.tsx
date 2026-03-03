@@ -878,6 +878,7 @@ export default function CeoDetail() {
   const { data: bandejas = [], isLoading: bandejasLoading } = trpc.ceoBandejas.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
   const { data: splitters = [] } = trpc.ceoSplitters.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
   const { data: associations = [] } = trpc.ceoViaAssociations.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
+  const { data: allSplitterViasMain = [] } = trpc.ceoSplitterVias.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
 
   const updateCeoMutation = trpc.ceos.update.useMutation({
     onSuccess: () => { toast.success("CEO atualizado!"); utils.ceos.byId.invalidate({ id: ceoId }); },
@@ -1236,7 +1237,7 @@ export default function CeoDetail() {
                   {tubesWithoutBandeja.map(tube => (
                     <TabsContent key={tube.id} value={String(tube.id)} className="p-4 mt-0">
                       <TubePanel tube={tube} tubes={tubeList} ceoId={ceoId} fibers={fiberList}
-                        associations={assocList} allSplitterVias={[]}
+                        associations={assocList} allSplitterVias={allSplitterViasMain as SplitterVia[]}
                         onEditTube={openEditTube} onDeleteTube={id => setDeleteTubeId(id)} isAdmin={isAdmin} />
                     </TabsContent>
                   ))}
@@ -1483,7 +1484,15 @@ export default function CeoDetail() {
       </Dialog>
 
       {/* Componente de impressão */}
-      <CeoFusionPrint ceo={ceo as any} tubes={tubeList as any} allVias={allVias as any} />
+      <CeoFusionPrint
+        ceo={ceo as any}
+        tubes={tubeList as any}
+        allVias={allVias as any}
+        bandejas={bandejaList as any}
+        splitters={splitterList as any}
+        allSplitterVias={allSplitterViasMain as any}
+        associations={assocList as any}
+      />
     </div>
   );
 }

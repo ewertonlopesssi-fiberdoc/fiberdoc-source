@@ -1143,3 +1143,17 @@
 - [x] Interface CEO: aba "Tubos / Splitters" filtrada para mostrar apenas tubos sem bandeja
 - [x] Interface CEO: estatísticas no topo (bandejas, tubos, splitters, total de vias, fusionadas)
 - [x] Interface CEO: splitter mostra vias com perdas estimadas (balanceado: -10.5 dB, desbalanceado: variável)
+
+## Sessão v6.0 — Bandejas, Splitters, Associações e Impressão
+
+- [x] Corrigir allSplitterVias=[] na aba legada Tubos/Splitters do CEO
+- [x] Adicionar query allSplitterViasMain no componente principal CeoDetail
+- [x] Adaptar CeoFusionPrint para mostrar estrutura de bandejas com tubos e splitters
+- [x] Adicionar secção de splitters com perdas estimadas no relatório de impressão
+- [x] Mostrar associações de vias no relatório de impressão (coluna FUSÃO/ASSOCIAÇÃO)
+- [x] Índice de bandejas no cabeçalho do relatório de impressão
+- [x] Estatísticas actualizadas no relatório (bandejas, splitters, associações)
+- [x] Gerar build de produção v6.0
+- [x] Criar migrate-v6.sql com verificações idempotentes
+- [x] Criar README-INSTALACAO.md com guia SSH completo
+- [x] Gerar pacote fiberdoc-v6.zip e publicar URL de download
