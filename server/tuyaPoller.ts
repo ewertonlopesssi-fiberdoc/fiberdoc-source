@@ -410,6 +410,177 @@ export async function pollSingleTuyaDevice(deviceId: number): Promise<void> {
   }
 }
 
+// ─── Sincronização automática de dispositivos da conta Tuya Cloud ────────────
+
+/**
+ * Mapeia os DPs (data points) de um dispositivo para inferir o tipo.
+ */
+function inferDeviceType(category: string, dps: string[]): string {
+  const cat = (category ?? "").toLowerCase();
+  if (["wsdcg", "mcs", "ldcg", "wsd"].includes(cat)) return "temperature_humidity";
+  if (["co2bj", "co2"].includes(cat)) return "co2";
+  if (["ywbj", "smoke"].includes(cat)) return "smoke";
+  if (["pir", "motion"].includes(cat)) return "motion";
+  if (["mc", "door", "mcs2"].includes(cat)) return "door";
+  if (["cz", "kg", "pc", "dlq", "dlq2", "tdq", "socket", "plug"].includes(cat)) return "power_meter";
+  // Fallback por DPs
+  if (dps.some(d => ["co2_value", "co2"].includes(d))) return "co2";
+  if (dps.some(d => ["cur_power", "phase_a", "power"].includes(d))) return "power_meter";
+  if (dps.some(d => ["temp_current", "va_temperature"].includes(d)) &&
+      dps.some(d => ["humidity_value", "va_humidity"].includes(d))) return "temperature_humidity";
+  if (dps.some(d => ["temp_current", "va_temperature"].includes(d))) return "temperature";
+  if (dps.some(d => ["humidity_value", "va_humidity"].includes(d))) return "humidity";
+  return "other";
+}
+
+export interface SyncResult {
+  total: number;
+  imported: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+  details: Array<{
+    deviceId: string;
+    name: string;
+    action: "imported" | "updated" | "skipped" | "error";
+    reason?: string;
+  }>;
+}
+
+/**
+ * Busca todos os dispositivos da conta Tuya Cloud e sincroniza com a BD local.
+ * Dispositivos novos são criados; dispositivos existentes têm o nome actualizado se mudou.
+ */
+export async function syncDevicesFromTuya(
+  accountId: number
+): Promise<SyncResult> {
+  const account = await getTuyaAccountById(accountId);
+  if (!account) throw new Error(`Conta Tuya #${accountId} não encontrada`);
+
+  const config: TuyaConfig = {
+    accessId: account.accessId,
+    accessSecret: account.accessSecret,
+    region: account.region as TuyaConfig["region"],
+  };
+
+  const token = await getAccessToken(config);
+  const baseUrl = REGION_ENDPOINTS[config.region] ?? REGION_ENDPOINTS.us;
+
+  // Buscar lista de dispositivos paginada
+  const allDevices: Array<{ id: string; name: string; category: string; online: boolean; dps?: string[] }> = [];
+  let lastRowKey = "";
+  let hasMore = true;
+
+  while (hasMore) {
+    const path = `/v1.0/iot-01/associated-users/devices?last_row_key=${encodeURIComponent(lastRowKey)}&page_size=100`;
+    const t = Date.now();
+    const nonce = crypto.randomBytes(8).toString("hex");
+    const sign = generateSign(config.accessId, config.accessSecret, t, nonce, token, "GET", path.split("?")[0]);
+
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "GET",
+      headers: {
+        "client_id": config.accessId,
+        "access_token": token,
+        "sign": sign,
+        "t": String(t),
+        "sign_method": "HMAC-SHA256",
+        "nonce": nonce,
+      },
+    });
+
+    const data: any = await res.json();
+
+    if (!data.success) {
+      // Tentar endpoint alternativo /v1.0/devices/mine
+      const path2 = `/v1.0/devices/mine?page_no=1&page_size=100`;
+      const t2 = Date.now();
+      const nonce2 = crypto.randomBytes(8).toString("hex");
+      const sign2 = generateSign(config.accessId, config.accessSecret, t2, nonce2, token, "GET", path2.split("?")[0]);
+      const res2 = await fetch(`${baseUrl}${path2}`, {
+        method: "GET",
+        headers: {
+          "client_id": config.accessId,
+          "access_token": token,
+          "sign": sign2,
+          "t": String(t2),
+          "sign_method": "HMAC-SHA256",
+          "nonce": nonce2,
+        },
+      });
+      const data2: any = await res2.json();
+      if (data2.success && data2.result?.list) {
+        allDevices.push(...(data2.result.list ?? []));
+      } else if (data2.success && Array.isArray(data2.result)) {
+        allDevices.push(...data2.result);
+      }
+      break; // endpoint alternativo não tem paginação
+    }
+
+    const list = data.result?.devices ?? data.result?.list ?? data.result ?? [];
+    allDevices.push(...list);
+
+    const nextKey = data.result?.last_row_key ?? "";
+    if (!nextKey || list.length < 100) {
+      hasMore = false;
+    } else {
+      lastRowKey = nextKey;
+    }
+  }
+
+  // Buscar dispositivos já cadastrados localmente
+  const existingDevices = await getTuyaDevices();
+  const existingByDeviceId = new Map(existingDevices.map(d => [d.deviceId, d]));
+
+  const result: SyncResult = { total: allDevices.length, imported: 0, updated: 0, skipped: 0, errors: 0, details: [] };
+
+  for (const remote of allDevices) {
+    try {
+      const existing = existingByDeviceId.get(remote.id);
+      const dps = remote.dps ?? [];
+      const type = inferDeviceType(remote.category ?? "", dps) as any;
+
+      if (!existing) {
+        // Importar novo dispositivo
+        const { createTuyaDevice } = await import("./db");
+        const newId = await createTuyaDevice({
+          name: remote.name ?? `Dispositivo ${remote.id}`,
+          deviceId: remote.id,
+          type,
+          tuyaAccountId: accountId,
+          pollInterval: 300,
+          alertsEnabled: false,
+          status: remote.online ? "online" : "offline",
+        } as any);
+        scheduleTuyaDevice(newId, 300);
+        result.imported++;
+        result.details.push({ deviceId: remote.id, name: remote.name ?? remote.id, action: "imported" });
+      } else {
+        // Actualizar nome se mudou
+        const { updateTuyaDevice } = await import("./db");
+        const nameChanged = remote.name && remote.name !== existing.name;
+        const statusChanged = (remote.online ? "online" : "offline") !== existing.status;
+        if (nameChanged || statusChanged) {
+          await updateTuyaDevice(existing.id, {
+            ...(nameChanged ? { name: remote.name } : {}),
+            ...(statusChanged ? { status: remote.online ? "online" : "offline" } : {}),
+          } as any);
+          result.updated++;
+          result.details.push({ deviceId: remote.id, name: remote.name ?? remote.id, action: "updated" });
+        } else {
+          result.skipped++;
+          result.details.push({ deviceId: remote.id, name: remote.name ?? remote.id, action: "skipped", reason: "Sem alterações" });
+        }
+      }
+    } catch (err: any) {
+      result.errors++;
+      result.details.push({ deviceId: remote.id, name: remote.name ?? remote.id, action: "error", reason: err.message });
+    }
+  }
+
+  return result;
+}
+
 // ─── Scheduler de polling ─────────────────────────────────────────────────────
 
 const pollTimers: Map<number, NodeJS.Timeout> = new Map();

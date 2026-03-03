@@ -17,7 +17,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Cpu, Plus, Pencil, Trash2, RefreshCw, Thermometer, Droplets,
-  Wind, Zap, Wifi, WifiOff, HelpCircle, Bell, ExternalLink, ChevronRight
+  Wind, Zap, Wifi, WifiOff, HelpCircle, Bell, ExternalLink, ChevronRight,
+  RefreshCcw, CheckCircle2, AlertTriangle, Download, X
 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 
@@ -151,6 +152,25 @@ export default function TuyaDevices() {
     onError: (e) => { setPollingId(null); toast.error(e.message); },
   });
 
+  // ─── Sincronização automática ─────────────────────────────────────────────
+  const [syncAccountId, setSyncAccountId] = useState<number | null>(null);
+  const [syncResult, setSyncResult] = useState<{
+    total: number; imported: number; updated: number; skipped: number; errors: number;
+    details: Array<{ deviceId: string; name: string; action: string; reason?: string }>;
+  } | null>(null);
+  const [syncOpen, setSyncOpen] = useState(false);
+
+  const syncMut = trpc.tuyaDevices.syncDevices.useMutation({
+    onSuccess: (r) => {
+      setSyncResult(r);
+      utils.tuyaDevices.list.invalidate();
+      if (r.imported > 0) toast.success(`${r.imported} dispositivo(s) importado(s) com sucesso`);
+      else if (r.updated > 0) toast.success(`${r.updated} dispositivo(s) actualizado(s)`);
+      else toast.info("Nenhum dispositivo novo encontrado");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   function openCreate() {
     setEditId(null);
     setForm(EMPTY_FORM);
@@ -227,10 +247,21 @@ export default function TuyaDevices() {
               Monitoramento de sensores via Tuya Cloud API
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               <RefreshCw className="w-4 h-4 mr-1" /> Atualizar
             </Button>
+            {isAdmin && accounts.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1 border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10"
+                onClick={() => { setSyncOpen(v => !v); setSyncResult(null); }}
+              >
+                <RefreshCcw className="w-4 h-4" />
+                Sincronizar da Cloud
+              </Button>
+            )}
             {isAdmin && (
               <Button onClick={openCreate} size="sm">
                 <Plus className="w-4 h-4 mr-1" /> Novo Sensor
@@ -238,6 +269,97 @@ export default function TuyaDevices() {
             )}
           </div>
         </div>
+
+        {/* Painel de Sincronização Automática */}
+        {syncOpen && (
+          <Card className="border-cyan-500/40 bg-cyan-500/5">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <RefreshCcw className="w-4 h-4 text-cyan-400" />
+                  Sincronizar Dispositivos da Conta Tuya
+                </CardTitle>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setSyncOpen(false)}>
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Descobre automaticamente todos os dispositivos da conta Tuya Cloud e importa os que ainda não estão cadastrados.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex-1 min-w-[200px]">
+                  <Label className="text-xs mb-1 block">Conta Tuya</Label>
+                  <select
+                    className="w-full rounded-md border border-border bg-background text-sm px-3 py-2"
+                    value={syncAccountId ?? ""}
+                    onChange={e => setSyncAccountId(e.target.value ? Number(e.target.value) : null)}
+                  >
+                    <option value="">Seleccionar conta...</option>
+                    {accounts.map(a => (
+                      <option key={a.id} value={a.id}>{a.name} ({a.region.toUpperCase()})</option>
+                    ))}
+                  </select>
+                </div>
+                <Button
+                  className="gap-2 bg-cyan-600 hover:bg-cyan-700 text-white"
+                  disabled={!syncAccountId || syncMut.isPending}
+                  onClick={() => { setSyncResult(null); syncMut.mutate({ accountId: syncAccountId! }); }}
+                >
+                  {syncMut.isPending
+                    ? <RefreshCw className="w-4 h-4 animate-spin" />
+                    : <Download className="w-4 h-4" />}
+                  {syncMut.isPending ? "A sincronizar..." : "Sincronizar agora"}
+                </Button>
+              </div>
+
+              {syncResult && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { label: "Total encontrados", value: syncResult.total, color: "text-foreground" },
+                      { label: "Importados", value: syncResult.imported, color: "text-emerald-400" },
+                      { label: "Actualizados", value: syncResult.updated, color: "text-cyan-400" },
+                      { label: "Erros", value: syncResult.errors, color: "text-red-400" },
+                    ].map(s => (
+                      <div key={s.label} className="rounded-md border border-border/50 bg-muted/30 p-3 text-center">
+                        <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{s.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {syncResult.details.filter(d => d.action !== "skipped").length > 0 && (
+                    <div className="rounded-md border border-border overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted/50">
+                          <tr>
+                            <th className="text-left p-2 font-medium text-muted-foreground">Dispositivo</th>
+                            <th className="text-left p-2 font-medium text-muted-foreground">Device ID</th>
+                            <th className="text-left p-2 font-medium text-muted-foreground">Acção</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {syncResult.details.filter(d => d.action !== "skipped").map((d, i) => (
+                            <tr key={i} className="border-t border-border/50">
+                              <td className="p-2 font-medium">{d.name}</td>
+                              <td className="p-2 font-mono text-muted-foreground">{d.deviceId}</td>
+                              <td className="p-2">
+                                {d.action === "imported" && <span className="text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Importado</span>}
+                                {d.action === "updated" && <span className="text-cyan-400 flex items-center gap-1"><RefreshCw className="w-3 h-3" /> Actualizado</span>}
+                                {d.action === "error" && <span className="text-red-400 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> {d.reason ?? "Erro"}</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Aviso se não há contas configuradas */}
         {accounts.length === 0 && (

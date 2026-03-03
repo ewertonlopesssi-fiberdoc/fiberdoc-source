@@ -114,7 +114,7 @@ import {
   getTuyaAccounts, getTuyaAccountById, createTuyaAccount, updateTuyaAccount, deleteTuyaAccount,
   getTuyaReadingsByDevice, getLatestTuyaReadings,
 } from "./db";
-import { pollSingleTuyaDevice, testTuyaConnection, scheduleTuyaDevice, unscheduleTuyaDevice } from "./tuyaPoller";
+import { pollSingleTuyaDevice, testTuyaConnection, scheduleTuyaDevice, unscheduleTuyaDevice, syncDevicesFromTuya } from "./tuyaPoller";
 import { sgpCacheGet, sgpCacheInvalidateAll, sgpFetch } from "./sgpCache";
 import {
   getCtos, getCtoById, createCto, updateCto, deleteCto,
@@ -1809,6 +1809,9 @@ export const appRouter = router({
       .query(({ input }) => getTuyaReadingsByDevice(input.id, input.hours)),
     latestAll: protectedProcedure
       .query(() => getLatestTuyaReadings()),
+    syncDevices: adminProcedure
+      .input(z.object({ accountId: z.number() }))
+      .mutation(({ input }) => syncDevicesFromTuya(input.accountId)),
     testConnection: adminProcedure
       .input(z.object({ accessId: z.string(), accessSecret: z.string(), region: z.enum(["us", "eu", "cn", "in"]) }))
       .mutation(({ input }) => testTuyaConnection(input)),
