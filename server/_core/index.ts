@@ -242,7 +242,10 @@ async function startServer() {
       try { user = await sdk.authenticateRequest(req as any); } catch {}
       if (!user) { res.status(401).json({ error: "Não autenticado" }); return; }
 
-      const { format = "kml", elementIds, routeIds, includeFibers = false, fiberIds } = req.body ?? {};
+      const { format = "kml", elementIds, routeIds, includeFibers = false, fiberIds, exportTypes } = req.body ?? {};
+      const typeCto = exportTypes?.cto !== false;
+      const typeCeo = exportTypes?.ceo !== false;
+      const typeCabo = exportTypes?.cabo !== false;
       const { zipSync, strToU8 } = await import("fflate");
       const dbMod = await import("../db");
       const [allElements, allRoutes, allCtos, allCeos, allFibers] = await Promise.all([
@@ -253,12 +256,12 @@ async function startServer() {
         includeFibers ? dbMod.getFibers?.() ?? [] : [],
       ]);
 
-      const elements = elementIds?.length
+      const elements = (elementIds?.length
         ? (allElements as any[]).filter((e: any) => elementIds.includes(e.id))
-        : allElements as any[];
-      const routes = routeIds?.length
+        : allElements as any[]).filter((e: any) => e.type === "cto" ? typeCto : typeCeo);
+      const routes = typeCabo ? (routeIds?.length
         ? (allRoutes as any[]).filter((r: any) => routeIds.includes(r.id))
-        : allRoutes as any[];
+        : allRoutes as any[]) : [];
       const fibers = fiberIds?.length
         ? (allFibers as any[]).filter((f: any) => fiberIds.includes(f.id))
         : allFibers as any[];

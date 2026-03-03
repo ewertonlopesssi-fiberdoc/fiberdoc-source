@@ -243,6 +243,9 @@ export default function InfrastructureMap() {
   const [exportSelectedRoutes, setExportSelectedRoutes] = useState<Set<number>>(new Set());
   const [exportSelectAll, setExportSelectAll] = useState(true);
   const [exportIncludeFibers, setExportIncludeFibers] = useState(false);
+  const [exportTypeCto, setExportTypeCto] = useState(true);
+  const [exportTypeCeo, setExportTypeCeo] = useState(true);
+  const [exportTypeCabo, setExportTypeCabo] = useState(true);
   const [groupSelectMode, setGroupSelectMode] = useState(false);
   const [groupSelectedElements, setGroupSelectedElements] = useState<Set<number>>(new Set());
   const [groupSelectedRoutes, setGroupSelectedRoutes] = useState<Set<number>>(new Set());
@@ -1285,7 +1288,7 @@ export default function InfrastructureMap() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ format: exportFormat, elementIds, routeIds, includeFibers: exportIncludeFibers }),
+        body: JSON.stringify({ format: exportFormat, elementIds, routeIds, includeFibers: exportIncludeFibers, exportTypes: { cto: exportTypeCto, ceo: exportTypeCeo, cabo: exportTypeCabo } }),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: "Erro ao exportar" }));
@@ -2149,28 +2152,81 @@ export default function InfrastructureMap() {
 
       {/* Exportação KML/KMZ */}
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Exportar KML / KMZ</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <Button size="sm" variant={exportFormat === "kmz" ? "default" : "outline"} onClick={() => setExportFormat("kmz")} className="flex-1">KMZ (Google Earth)</Button>
-              <Button size="sm" variant={exportFormat === "kml" ? "default" : "outline"} onClick={() => setExportFormat("kml")} className="flex-1">KML (XML)</Button>
-            </div>
-            <div className="flex items-center gap-2"><input type="checkbox" id="incFibers" checked={exportIncludeFibers} onChange={e => setExportIncludeFibers(e.target.checked)} /><Label htmlFor="incFibers" className="text-sm cursor-pointer">Incluir dados de fibras ópticas</Label></div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between"><Label className="text-sm">Seleção</Label><button onClick={toggleExportSelectAll} className="text-xs text-primary underline">{exportSelectAll ? "Desmarcar tudo" : "Selecionar tudo"}</button></div>
-              <div className="border border-border rounded-lg divide-y divide-border max-h-48 overflow-y-auto">
-                {(elements as any[]).map((el: any) => {
-                  const ref = el.type === "cto" ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : ceos.find((c: any) => c.id === el.referenceId);
-                  return (<label key={`el-${el.id}`} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/30"><input type="checkbox" checked={exportSelectedElements.has(el.id)} onChange={() => toggleElement(el.id)} /><span className="text-xs">{el.type.toUpperCase()} — {ref?.name ?? el.referenceId}</span></label>);
-                })}
-                {(routes as any[]).map((r: any) => (<label key={`rt-${r.id}`} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/30"><input type="checkbox" checked={exportSelectedRoutes.has(r.id)} onChange={() => toggleRoute(r.id)} /><span className="text-xs">Cabo — {r.name ?? `Rota ${r.id}`}</span></label>))}
+        <DialogContent className="max-w-lg flex flex-col" style={{maxHeight:"85vh"}}>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Download className="w-4 h-4" />Exportar KML / KMZ</DialogTitle></DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+            {/* Formato */}
+            <div>
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-2 block">Formato</Label>
+              <div className="flex gap-2">
+                <Button size="sm" variant={exportFormat === "kmz" ? "default" : "outline"} onClick={() => setExportFormat("kmz")} className="flex-1">KMZ (Google Earth)</Button>
+                <Button size="sm" variant={exportFormat === "kml" ? "default" : "outline"} onClick={() => setExportFormat("kml")} className="flex-1">KML (XML)</Button>
               </div>
             </div>
+            {/* Filtro por tipo */}
+            <div>
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-2 block">Exportar por Tipo</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => setExportTypeCto(v => !v)}
+                  className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all ${exportTypeCto ? "border-blue-500 bg-blue-500/10 text-blue-400" : "border-border text-muted-foreground"}`}
+                >
+                  <span className="text-lg font-bold">CTO</span>
+                  <span className="text-xs">{(elements as any[]).filter((e: any) => e.type === "cto").length} itens</span>
+                  {exportTypeCto ? <span className="text-xs font-medium">✓ Incluído</span> : <span className="text-xs">Excluído</span>}
+                </button>
+                <button
+                  onClick={() => setExportTypeCeo(v => !v)}
+                  className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all ${exportTypeCeo ? "border-amber-500 bg-amber-500/10 text-amber-400" : "border-border text-muted-foreground"}`}
+                >
+                  <span className="text-lg font-bold">CEO</span>
+                  <span className="text-xs">{(elements as any[]).filter((e: any) => e.type === "ceo").length} itens</span>
+                  {exportTypeCeo ? <span className="text-xs font-medium">✓ Incluído</span> : <span className="text-xs">Excluído</span>}
+                </button>
+                <button
+                  onClick={() => setExportTypeCabo(v => !v)}
+                  className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all ${exportTypeCabo ? "border-cyan-500 bg-cyan-500/10 text-cyan-400" : "border-border text-muted-foreground"}`}
+                >
+                  <span className="text-lg font-bold">Cabo</span>
+                  <span className="text-xs">{(routes as any[]).length} itens</span>
+                  {exportTypeCabo ? <span className="text-xs font-medium">✓ Incluído</span> : <span className="text-xs">Excluído</span>}
+                </button>
+              </div>
+            </div>
+            {/* Opções adicionais */}
+            <div>
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-2 block">Opções</Label>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2"><input type="checkbox" id="incFibers" checked={exportIncludeFibers} onChange={e => setExportIncludeFibers(e.target.checked)} /><Label htmlFor="incFibers" className="text-sm cursor-pointer">Incluir dados de fibras ópticas</Label></div>
+              </div>
+            </div>
+            {/* Seleção individual (avançado) */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Seleção Individual (Avançado)</Label>
+                <button onClick={toggleExportSelectAll} className="text-xs text-primary underline">{exportSelectAll ? "Desmarcar tudo" : "Selecionar tudo"}</button>
+              </div>
+              <div className="border border-border rounded-lg divide-y divide-border max-h-40 overflow-y-auto">
+                {(elements as any[])
+                  .filter((el: any) => (el.type === "cto" ? exportTypeCto : exportTypeCeo))
+                  .map((el: any) => {
+                    const ref = el.type === "cto" ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : ceos.find((c: any) => c.id === el.referenceId);
+                    return (<label key={`el-${el.id}`} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/30"><input type="checkbox" checked={exportSelectAll || exportSelectedElements.has(el.id)} onChange={() => toggleElement(el.id)} /><span className={`text-xs font-medium mr-1 ${el.type === "cto" ? "text-blue-400" : "text-amber-400"}`}>{el.type.toUpperCase()}</span><span className="text-xs">{ref?.name ?? el.referenceId}</span></label>);
+                  })}
+                {exportTypeCabo && (routes as any[]).map((r: any) => (<label key={`rt-${r.id}`} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/30"><input type="checkbox" checked={exportSelectAll || exportSelectedRoutes.has(r.id)} onChange={() => toggleRoute(r.id)} /><span className="text-xs font-medium text-cyan-400 mr-1">CABO</span><span className="text-xs">{r.name ?? `Rota ${r.id}`}</span></label>))}
+                {(elements as any[]).filter((el: any) => (el.type === "cto" ? exportTypeCto : exportTypeCeo)).length === 0 && !exportTypeCabo && (
+                  <div className="px-3 py-4 text-center text-xs text-muted-foreground">Nenhum tipo seleccionado</div>
+                )}
+              </div>
+            </div>
+            {/* Resumo */}
+            <div className="bg-muted/20 rounded-lg px-3 py-2 text-xs text-muted-foreground">
+              Serão exportados: {exportTypeCto ? `${(elements as any[]).filter((e: any) => e.type === "cto").length} CTOs` : "0 CTOs"} · {exportTypeCeo ? `${(elements as any[]).filter((e: any) => e.type === "ceo").length} CEOs` : "0 CEOs"} · {exportTypeCabo ? `${(routes as any[]).length} Cabos` : "0 Cabos"}
+            </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 pt-2">
             <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={handleExportKml} disabled={exportLoading}>{exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Download className="w-4 h-4 mr-1" />Exportar</>}</Button>
+            <Button onClick={handleExportKml} disabled={exportLoading || (!exportTypeCto && !exportTypeCeo && !exportTypeCabo)}>{exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Download className="w-4 h-4 mr-1" />Exportar {exportFormat.toUpperCase()}</>}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
