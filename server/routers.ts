@@ -1237,8 +1237,10 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { compare } = await import("bcryptjs");
-        const user = await getUserByEmail(input.email);
+        const normalizedEmail = input.email.trim().toLowerCase();
+        const user = await getUserByEmail(normalizedEmail);
         if (!user || !user.passwordHash) {
+          console.warn(`[mobileAuth.login] Usuário não encontrado: ${normalizedEmail}`);
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário ou senha inválidos" });
         }
         const valid = await compare(input.password, user.passwordHash);
@@ -1266,8 +1268,10 @@ export const appRouter = router({
         try {
           const { jwtVerify } = await import("jose");
           const secret = new TextEncoder().encode(process.env.JWT_SECRET ?? "fallback-secret");
-          const { payload } = await jwtVerify(input.token, secret);
-          const user = await getUserById(payload.userId as number);
+          const { payload } = await jwtVerify(input.token, secret, { issuer: "fiberdoc-mobile" });
+          const userId = payload.sub ? parseInt(payload.sub) : null;
+          if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+          const user = await getUserById(userId);
           if (!user) throw new TRPCError({ code: "UNAUTHORIZED" });
           return { id: user.id, name: user.name, email: user.email, role: user.role };
         } catch {

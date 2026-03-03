@@ -129,9 +129,17 @@ export function registerLocalAuthRoutes(app: Express) {
 /**
  * seedDefaultAdmin — cria o usuário admin padrão se não existir nenhum usuário local.
  * Chamado na inicialização do servidor quando OAUTH_SERVER_URL não está configurado.
+ *
+ * IMPORTANTE: Não sobrescreve a senha se o admin já existir.
+ * Isso evita que a senha personalizada seja apagada a cada restart do servidor.
  */
 export async function seedDefaultAdmin(): Promise<void> {
   if (process.env.OAUTH_SERVER_URL) return; // Modo OAuth: não criar admin local
+
+  const DEFAULT_EMAIL = "admin@fiberdoc.local";
+  const DEFAULT_PASSWORD = "fiberdoc2025";
+  const DEFAULT_NAME = "Administrador";
+  const openId = `local:${DEFAULT_EMAIL}`;
 
   try {
     const db = await getDb();
@@ -147,14 +155,12 @@ export async function seedDefaultAdmin(): Promise<void> {
       .limit(1);
 
     if (existing.length > 0) {
-      return; // Admin já existe, não recriar
+      // Admin já existe — preservar a senha personalizada, não sobrescrever
+      console.log("[localAuth] Admin local já existe, senha preservada.");
+      return;
     }
 
-    const DEFAULT_EMAIL = "admin@fiberdoc.local";
-    const DEFAULT_PASSWORD = "fiberdoc2025";
-    const DEFAULT_NAME = "Administrador";
-    const openId = `local:${DEFAULT_EMAIL}`;
-
+    // Primeiro acesso: criar admin com senha padrão
     const passwordHash = await hash(DEFAULT_PASSWORD, 12);
 
     await db.insert(users).values({
@@ -166,8 +172,6 @@ export async function seedDefaultAdmin(): Promise<void> {
       passwordHash,
       mustChangePassword: true,
       lastSignedIn: new Date(),
-    }).onDuplicateKeyUpdate({
-      set: { passwordHash, mustChangePassword: true },
     });
 
     console.log("[localAuth] ✅ Usuário admin padrão criado:");

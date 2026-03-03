@@ -107,22 +107,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
+  // Detectar modo local via API — mais fiável que VITE_OAUTH_PORTAL_URL
+  // que pode estar definido mesmo quando o servidor não usa OAuth
+  const [localAuthEnabled, setLocalAuthEnabled] = useState<boolean | null>(null);
   const { loading, user } = useAuth();
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
   }, [sidebarWidth]);
 
-  if (loading) return <DashboardLayoutSkeleton />;
+  useEffect(() => {
+    fetch("/api/local-auth-enabled")
+      .then((r) => r.json())
+      .then((data: { enabled: boolean }) => setLocalAuthEnabled(!!data.enabled))
+      .catch(() => setLocalAuthEnabled(false));
+  }, []);
+
+  if (loading || localAuthEnabled === null) return <DashboardLayoutSkeleton />;
 
   if (!user) {
-    const loginUrl = getLoginUrl();
-    // Modo local (sem OAuth): redirecionar diretamente para a página de login
-    if (loginUrl === "/login") {
+    // Modo local (OAUTH_SERVER_URL não configurado no servidor): redirecionar para /login
+    if (localAuthEnabled) {
       window.location.replace("/login");
       return <DashboardLayoutSkeleton />;
     }
-    // Modo OAuth: exibir tela de login com botão Manus
+    // Modo OAuth Manus: exibir tela de login com botão Manus
+    const loginUrl = getLoginUrl();
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">

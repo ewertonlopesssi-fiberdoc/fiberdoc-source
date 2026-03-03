@@ -1122,3 +1122,5 @@
 - [x] Sincronização automática de sensores Tuya: descoberta e importação de dispositivos da conta Tuya Cloud
 - [x] Bug: traçados importados via KML — suporte a touch events no drag das extremidades + snap a CEO/CTO
 - [x] Bug: ao vincular equipamento numa porta, o slot seleccionado agora é pré-preenchido automaticamente ao reabrir o dialog (desktop e mobile)
+- [x] Bug: tela "Entrar com Manus" aparece em vez de redirecionar para /login no modo local (servidor de produção)
+- [x] Bug: login com usuário/senha inválido no servidor de produção
