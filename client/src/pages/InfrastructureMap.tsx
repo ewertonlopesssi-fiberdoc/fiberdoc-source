@@ -1280,7 +1280,7 @@ export default function InfrastructureMap() {
     try {
       const elementIds = exportSelectAll ? undefined : Array.from(exportSelectedElements);
       const routeIds = exportSelectAll ? undefined : Array.from(exportSelectedRoutes);
-      const result = await (trpc as any).infraMap.exportKml.query({ format: exportFormat, elementIds, routeIds, includeFibers: exportIncludeFibers });
+      const result = await (trpc as any).infraMap.exportKml.mutateAsync({ format: exportFormat, elementIds, routeIds, includeFibers: exportIncludeFibers });
       if (exportFormat === "kmz" && result.kmzBase64) {
         const binary = atob(result.kmzBase64); const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);

@@ -2040,7 +2040,7 @@ export const appRouter = router({
         includeFibers: z.boolean().default(false),    // incluir fibras ópticas como linhas
         fiberIds: z.array(z.number()).optional(),     // IDs de fibras específicas
       }))
-      .query(async ({ input }) => {
+      .mutation(async ({ input }) => {
         const dbMod = await import("./db");
         const [allElements, allRoutes, allCtos, allCeos, allFibers] = await Promise.all([
           getMapElements(),
