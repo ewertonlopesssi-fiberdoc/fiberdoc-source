@@ -30,7 +30,7 @@ mkdir -p "${FIBERDOC_DIR}" "${BACKUP_DIR}"
 
 # ── 3. Fazer backup da instalação atual ──────────────────────────────────────
 if [[ -f "${FIBERDOC_DIR}/dist/index.js" ]]; then
-  echo "[1/6] Criando backup em ${BACKUP_DIR}/fiberdoc_backup_${TIMESTAMP}.tar.gz ..."
+  echo "[1/7] Criando backup em ${BACKUP_DIR}/fiberdoc_backup_${TIMESTAMP}.tar.gz ..."
   tar -czf "${BACKUP_DIR}/fiberdoc_backup_${TIMESTAMP}.tar.gz" \
     -C "${FIBERDOC_DIR}" \
     --exclude="backups" \
@@ -38,11 +38,11 @@ if [[ -f "${FIBERDOC_DIR}/dist/index.js" ]]; then
     . 2>/dev/null || true
   echo "      Backup criado com sucesso."
 else
-  echo "[1/6] Nenhuma instalação anterior encontrada — pulando backup."
+  echo "[1/7] Nenhuma instalação anterior encontrada — pulando backup."
 fi
 
 # ── 4. Parar o serviço ────────────────────────────────────────────────────────
-echo "[2/6] Parando o serviço ${FIBERDOC_SERVICE} ..."
+echo "[2/7] Parando o serviço ${FIBERDOC_SERVICE} ..."
 if systemctl is-active --quiet "${FIBERDOC_SERVICE}" 2>/dev/null; then
   systemctl stop "${FIBERDOC_SERVICE}"
   echo "      Serviço parado."
@@ -51,18 +51,15 @@ else
 fi
 
 # ── 5. Copiar artefactos compilados ──────────────────────────────────────────
-echo "[3/6] Copiando artefactos para ${FIBERDOC_DIR} ..."
-# dist/
+echo "[3/7] Copiando artefactos para ${FIBERDOC_DIR} ..."
 rsync -a --delete "${SCRIPT_DIR}/dist/" "${FIBERDOC_DIR}/dist/"
-# package.json e pnpm-lock.yaml (para referência — opcionais no pacote de actualização)
-[[ -f "${SCRIPT_DIR}/package.json" ]] && cp "${SCRIPT_DIR}/package.json" "${FIBERDOC_DIR}/package.json" || true
-[[ -f "${SCRIPT_DIR}/pnpm-lock.yaml" ]] && cp "${SCRIPT_DIR}/pnpm-lock.yaml" "${FIBERDOC_DIR}/pnpm-lock.yaml" || true
+[[ -f "${SCRIPT_DIR}/package.json" ]]    && cp "${SCRIPT_DIR}/package.json"    "${FIBERDOC_DIR}/package.json"    || true
+[[ -f "${SCRIPT_DIR}/pnpm-lock.yaml" ]]  && cp "${SCRIPT_DIR}/pnpm-lock.yaml"  "${FIBERDOC_DIR}/pnpm-lock.yaml"  || true
+[[ -f "${SCRIPT_DIR}/migrate-v6.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v6.sql"  "${FIBERDOC_DIR}/migrate-v6.sql"  || true
 echo "      Artefactos copiados."
 
 # ── 6. Instalar dependências ─────────────────────────────────────────────────
-# NOTA: o dist/index.js importa 'vite' no topo mesmo em produção (bundle esbuild),
-# por isso é necessário instalar TODAS as dependências (incluindo devDependencies).
-echo "[4/6] Instalando dependências ..."
+echo "[4/7] Instalando dependências ..."
 cd "${FIBERDOC_DIR}"
 if command -v pnpm &>/dev/null; then
   pnpm install --no-frozen-lockfile 2>&1 | tail -5
@@ -74,10 +71,9 @@ fi
 echo "      Dependências instaladas."
 
 # ── 7. Criar/atualizar arquivo de serviço systemd ────────────────────────────
-echo "[5/6] Configurando serviço systemd ..."
+echo "[5/7] Configurando serviço systemd ..."
 SERVICE_FILE="/etc/systemd/system/${FIBERDOC_SERVICE}.service"
 
-# Preservar variáveis de ambiente existentes se o arquivo já existir
 if [[ -f "${SERVICE_FILE}" ]]; then
   echo "      Serviço já configurado — preservando variáveis de ambiente existentes."
 else
@@ -122,7 +118,6 @@ EOF
   echo "  │  Descomente e preencha as linhas #Environment=...               │"
   echo "  └─────────────────────────────────────────────────────────────────┘"
   echo ""
-  # Criar usuário de sistema se não existir
   if ! id fiberdoc &>/dev/null; then
     useradd --system --no-create-home --shell /bin/false fiberdoc
     echo "      Usuário de sistema 'fiberdoc' criado."
@@ -133,13 +128,71 @@ fi
 systemctl daemon-reload
 systemctl enable "${FIBERDOC_SERVICE}" 2>/dev/null || true
 
-# ── 8. Iniciar o serviço ──────────────────────────────────────────────────────
-echo "[6/6] Iniciando o serviço ${FIBERDOC_SERVICE} ..."
+# ── 8. Aplicar migração SQL (v6.0) ────────────────────────────────────────────
+echo "[6/7] Aplicando migração de base de dados v6.0 ..."
 
-# Verificar se as variáveis obrigatórias estão configuradas
+# Extrair DATABASE_URL do arquivo de serviço systemd (linha activa, sem #)
+DB_URL=$(grep -E '^Environment=DATABASE_URL=' "${SERVICE_FILE}" 2>/dev/null \
+         | head -1 | sed 's/^Environment=DATABASE_URL=//' || true)
+
+# Se não encontrou no serviço, tentar variável de ambiente do processo actual
+if [[ -z "${DB_URL}" ]]; then
+  DB_URL="${DATABASE_URL:-}"
+fi
+
+if [[ -z "${DB_URL}" ]]; then
+  echo "  [AVISO] DATABASE_URL não configurada — migração SQL ignorada."
+  echo "          Após configurar, execute manualmente:"
+  echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v6.sql"
+else
+  # Parsear a URL: mysql://user:pass@host:port/dbname?...
+  # Remover prefixo mysql:// e parâmetros após ?
+  DB_CLEAN=$(echo "${DB_URL}" | sed 's|mysql://||' | sed 's|?.*||')
+  DB_USER=$(echo "${DB_CLEAN}" | sed 's|:.*||')
+  DB_REST=$(echo "${DB_CLEAN}" | sed "s|${DB_USER}:||")
+  DB_PASS=$(echo "${DB_REST}" | sed 's|@.*||')
+  DB_HOSTPORT=$(echo "${DB_REST}" | sed "s|${DB_PASS}@||" | sed 's|/.*||')
+  DB_NAME=$(echo "${DB_REST}" | sed "s|${DB_PASS}@${DB_HOSTPORT}/||")
+  DB_HOST=$(echo "${DB_HOSTPORT}" | cut -d: -f1)
+  DB_PORT=$(echo "${DB_HOSTPORT}" | cut -d: -f2)
+  DB_PORT="${DB_PORT:-3306}"
+
+  # Detectar se é TiDB Cloud / conexão SSL (porta 4000 ou host contém tidb/cloud)
+  SSL_OPT=""
+  if [[ "${DB_PORT}" == "4000" ]] || echo "${DB_HOST}" | grep -qiE "tidb|cloud|aws|azure|gcp"; then
+    SSL_OPT="--ssl-mode=REQUIRED"
+  fi
+
+  MIGRATE_SQL="${FIBERDOC_DIR}/migrate-v6.sql"
+  if [[ ! -f "${MIGRATE_SQL}" ]]; then
+    MIGRATE_SQL="${SCRIPT_DIR}/migrate-v6.sql"
+  fi
+
+  if [[ -f "${MIGRATE_SQL}" ]]; then
+    if command -v mysql &>/dev/null; then
+      echo "      Conectando a ${DB_HOST}:${DB_PORT} / ${DB_NAME} ..."
+      if mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" "-p${DB_PASS}" \
+               ${SSL_OPT} "${DB_NAME}" < "${MIGRATE_SQL}" 2>&1; then
+        echo "      Migração v6.0 aplicada com sucesso."
+      else
+        echo "  [AVISO] Falha ao aplicar migração. Verifique as credenciais e tente manualmente:"
+        echo "          mysql -h ${DB_HOST} -P ${DB_PORT} -u ${DB_USER} -pSENHA ${DB_NAME} < ${MIGRATE_SQL}"
+      fi
+    else
+      echo "  [AVISO] Cliente mysql não encontrado. Instale com: apt-get install -y mysql-client"
+      echo "          Depois execute: mysql -h ${DB_HOST} -P ${DB_PORT} -u ${DB_USER} -pSENHA ${DB_NAME} < ${MIGRATE_SQL}"
+    fi
+  else
+    echo "  [AVISO] Arquivo migrate-v6.sql não encontrado — migração ignorada."
+  fi
+fi
+
+# ── 9. Iniciar o serviço ──────────────────────────────────────────────────────
+echo "[7/7] Iniciando o serviço ${FIBERDOC_SERVICE} ..."
+
 if grep -q '^#Environment=DATABASE_URL' "${SERVICE_FILE}" 2>/dev/null; then
   echo ""
-  echo "  [AVISO] DATABASE_URL ainda não configurado no arquivo de serviço."
+  echo "  [AVISO] DATABASE_URL ainda não configurada no arquivo de serviço."
   echo "  O serviço NÃO será iniciado automaticamente."
   echo ""
   echo "  Para concluir a instalação:"
