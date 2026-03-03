@@ -2696,6 +2696,110 @@ ${fiberFolder}
         }
         return { ids, nameMap };
       }),
+    // ─── Sugestão automática para uma CTO local específica ────────────────────────
+    // Retorna a melhor correspondência SGP para o nome fornecido (usado no dialog de vínculo)
+    autoMatchForName: protectedProcedure
+      .input(z.object({ ctoName: z.string() }))
+      .query(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { match: null };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const sgpCtos: any[] = await sgpCacheGet("sgp:ctos", async () => {
+            const res = await sgpFetch(`${base}/api/fttx/splitter/all/`, cfg, { timeoutMs: 15000 });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json() as any;
+            return Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+          });
+          const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+          const localNorm = norm(input.ctoName);
+          let bestScore = 0;
+          let bestSgp: any = null;
+          for (const sgp of sgpCtos) {
+            const sgpName = sgp.ident ?? sgp.nome ?? sgp.name ?? "";
+            const sgpNorm = norm(sgpName);
+            let score = 0;
+            if (localNorm === sgpNorm) {
+              score = 100;
+            } else if (localNorm.length > 0 && sgpNorm.length > 0) {
+              let common = 0;
+              const minLen = Math.min(localNorm.length, sgpNorm.length);
+              for (let i = 0; i < minLen; i++) {
+                if (localNorm[i] === sgpNorm[i]) common++; else break;
+              }
+              score = Math.round((common / Math.max(localNorm.length, sgpNorm.length)) * 100);
+              if (localNorm.includes(sgpNorm) || sgpNorm.includes(localNorm)) {
+                score = Math.max(score, 70);
+              }
+            }
+            if (score > bestScore) { bestScore = score; bestSgp = sgp; }
+          }
+          if (bestSgp && bestScore >= 80) {
+            return {
+              match: {
+                sgpId: bestSgp.id as number,
+                sgpName: (bestSgp.ident ?? bestSgp.nome ?? bestSgp.name ?? `SGP #${bestSgp.id}`) as string,
+                score: bestScore,
+              }
+            };
+          }
+          return { match: null };
+        } catch {
+          return { match: null };
+        }
+      }),
+    // ─── Vínculo automático em lote para todas as CTOs sem sgpId com score ≥ 90 ──
+    autoLinkExact: adminProcedure
+      .mutation(async ({ ctx }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) throw new TRPCError({ code: "BAD_REQUEST", message: "SGP não configurado" });
+        const base = cfg.baseUrl.replace(/\/$/, "");
+        const sgpCtos: any[] = await sgpCacheGet("sgp:ctos", async () => {
+          const res = await sgpFetch(`${base}/api/fttx/splitter/all/`, cfg, { timeoutMs: 15000 });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json() as any;
+          return Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+        });
+        const localCtos = await getCtos();
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+        let linked = 0;
+        const details: Array<{ ctoName: string; sgpName: string; score: number }> = [];
+        for (const local of localCtos) {
+          if (local.sgpId != null) continue; // já vinculada
+          const localNorm = norm(local.name);
+          let bestScore = 0;
+          let bestSgp: any = null;
+          for (const sgp of sgpCtos) {
+            const sgpName = sgp.ident ?? sgp.nome ?? sgp.name ?? "";
+            const sgpNorm = norm(sgpName);
+            let score = 0;
+            if (localNorm === sgpNorm) { score = 100; }
+            else if (localNorm.length > 0 && sgpNorm.length > 0) {
+              let common = 0;
+              const minLen = Math.min(localNorm.length, sgpNorm.length);
+              for (let i = 0; i < minLen; i++) {
+                if (localNorm[i] === sgpNorm[i]) common++; else break;
+              }
+              score = Math.round((common / Math.max(localNorm.length, sgpNorm.length)) * 100);
+              if (localNorm.includes(sgpNorm) || sgpNorm.includes(localNorm)) score = Math.max(score, 70);
+            }
+            if (score > bestScore) { bestScore = score; bestSgp = sgp; }
+          }
+          if (bestSgp && bestScore >= 90) {
+            await updateCto(local.id, { sgpId: bestSgp.id });
+            await addSgpLinkHistory({
+              ctoId: local.id,
+              ctoName: local.name,
+              sgpId: bestSgp.id,
+              action: "linked",
+              performedBy: ctx.user?.name ?? ctx.user?.email ?? "auto-link",
+            }).catch(() => {});
+            details.push({ ctoName: local.name, sgpName: bestSgp.ident ?? bestSgp.nome ?? bestSgp.name ?? `SGP #${bestSgp.id}`, score: bestScore });
+            linked++;
+          }
+        }
+        return { ok: true, linked, details };
+      }),
   }),
   // ─── Racks ────────────────────────────────────────────────────────────────────
   racks: router({

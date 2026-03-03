@@ -1116,3 +1116,5 @@
 - [x] Exportação KML/KMZ com pastas separadas por tipo (CTOs / CEOs / Cabos de Fibra) — pastas vazias são omitidas automaticamente
 - [x] Arrastar extremidades do traçado (pontos laranja) para encaixar em CTOs/CEOs próximos — vínculo guardado ao salvar traçado
 - [x] Feedback visual melhorado no modo de edição de traçado: instrução menciona snap de extremidades
+- [x] Ao abrir o dialog "Vincular ao SGP", pré-seleccionar automaticamente a CTO SGP com nome idêntico (ou muito semelhante) ao nome da CTO local
+- [x] Botão "Vincular automaticamente" em lote para CTOs do mapa sem sgpId que têm correspondência exacta no SGP

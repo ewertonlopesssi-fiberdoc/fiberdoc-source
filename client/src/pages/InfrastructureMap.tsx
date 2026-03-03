@@ -466,6 +466,18 @@ export default function InfrastructureMap() {
   // On-demand: só consulta o SGP quando o utilizador abre o dialog pela primeira vez
   const sgpCtosQuery = trpc.sgp.listCtos.useQuery(undefined, { enabled: linkSgpFetched });
   const linkedSgpIdsQuery = trpc.sgp.linkedSgpIds.useQuery(undefined, { enabled: linkSgpFetched });
+  // Auto-match: busca a melhor correspondência SGP para o nome da CTO local aberta no painel
+  const linkSgpCtoName = sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? (sidePanel.element.name ?? "") : "";
+  const autoMatchQuery = trpc.sgp.autoMatchForName.useQuery(
+    { ctoName: linkSgpCtoName },
+    { enabled: linkSgpFetched && linkSgpCtoName.length > 0 }
+  );
+  // Quando o auto-match retorna, pré-seleccionar automaticamente se ainda não há selecção
+  useEffect(() => {
+    if (autoMatchQuery.data?.match && !linkSgpSelectedId) {
+      setLinkSgpSelectedId(autoMatchQuery.data.match.sgpId);
+    }
+  }, [autoMatchQuery.data, linkSgpSelectedId]);
   // Debounce de 300ms na pesquisa SGP
   useEffect(() => {
     const t = setTimeout(() => setLinkSgpSearchDebounced(linkSgpSearch), 300);
@@ -3290,6 +3302,19 @@ export default function InfrastructureMap() {
             <p className="text-xs text-muted-foreground">
               Selecione a CTO correspondente no SGP para vincular e mostrar os clientes/ONUs.
             </p>
+            {/* Banner de sugestão automática */}
+            {autoMatchQuery.data?.match && (
+              <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-md px-3 py-2">
+                <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-emerald-300">Correspondência automática detectada</div>
+                  <div className="text-[11px] text-emerald-400/80 truncate">
+                    <span className="font-mono">{autoMatchQuery.data.match.sgpName}</span>
+                    <span className="ml-1.5 bg-emerald-500/20 text-emerald-300 px-1 rounded text-[10px]">{autoMatchQuery.data.match.score}%</span>
+                  </div>
+                </div>
+              </div>
+            )}
             <Input
               placeholder="Buscar CTO no SGP..."
               value={linkSgpSearch}

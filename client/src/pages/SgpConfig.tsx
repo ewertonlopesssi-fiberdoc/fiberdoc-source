@@ -90,6 +90,21 @@ export default function SgpConfig() {
   const [bulkLinking, setBulkLinking] = useState(false);
   const { data: suggestData, isLoading: loadingSuggest, refetch: refetchSuggest } =
     trpc.sgp.suggestLinks.useQuery(undefined, { enabled: suggestFetched && !!config?.active });
+  // ─── Vínculo automático exacto (score ≥ 90) ──────────────────────────────
+  const [autoLinkResult, setAutoLinkResult] = useState<{ linked: number; details: Array<{ ctoName: string; sgpName: string; score: number }> } | null>(null);
+  const autoLinkExactMut = trpc.sgp.autoLinkExact.useMutation({
+    onSuccess: (r) => {
+      setAutoLinkResult(r);
+      if (r.linked > 0) {
+        toast.success(`${r.linked} CTO${r.linked !== 1 ? "s" : ""} vinculada${r.linked !== 1 ? "s" : ""} automaticamente`);
+        utils.ctos.list.invalidate();
+        refetchSuggest();
+      } else {
+        toast.info("Nenhuma CTO com correspondência exacta encontrada");
+      }
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const bulkLinkMut = trpc.sgp.bulkLink.useMutation({
     onSuccess: (r) => {
       setBulkLinking(false);
@@ -353,6 +368,76 @@ export default function SgpConfig() {
         </Card>
       )}
 
+      {/* Vínculo Automático Exacto */}
+      {isAdmin && config?.active && (
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Link2 className="w-4 h-4 text-cyan-400" />
+                  Vínculo Automático por Nome Idêntico
+                </CardTitle>
+                <CardDescription>
+                  Vincula automaticamente todas as CTOs locais sem vínculo SGP que tenham nome idêntico ou muito semelhante (score ≥ 90%)
+                </CardDescription>
+              </div>
+              <Button
+                size="sm"
+                className="gap-2 bg-cyan-600 hover:bg-cyan-700 text-white"
+                disabled={autoLinkExactMut.isPending}
+                onClick={() => { setAutoLinkResult(null); autoLinkExactMut.mutate(); }}
+              >
+                {autoLinkExactMut.isPending
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Link2 className="w-4 h-4" />}
+                Vincular automaticamente
+              </Button>
+            </div>
+          </CardHeader>
+          {autoLinkResult && (
+            <CardContent className="space-y-2">
+              {autoLinkResult.linked === 0 ? (
+                <div className="flex items-center gap-2 p-3 rounded-md text-sm bg-muted/40 text-muted-foreground">
+                  <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                  Todas as CTOs com nome idêntico já estavam vinculadas, ou nenhuma correspondência com score ≥ 90% foi encontrada.
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 p-3 rounded-md text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                    {autoLinkResult.linked} CTO{autoLinkResult.linked !== 1 ? "s" : ""} vinculada{autoLinkResult.linked !== 1 ? "s" : ""} com sucesso
+                  </div>
+                  <div className="rounded-md border border-border overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left p-2 font-medium text-muted-foreground">CTO Local</th>
+                          <th className="text-left p-2 font-medium text-muted-foreground">CTO SGP</th>
+                          <th className="text-right p-2 font-medium text-muted-foreground">Score</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {autoLinkResult.details.map((d, i) => (
+                          <tr key={i} className="border-t border-border/50">
+                            <td className="p-2 font-mono">{d.ctoName}</td>
+                            <td className="p-2 font-mono text-cyan-400">{d.sgpName}</td>
+                            <td className="p-2 text-right">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                d.score === 100 ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"
+                              }`}>{d.score}%</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          )}
+        </Card>
+      )}
       {/* Lista de CTOs do SGP */}
       {showCtos && (
         <Card className="bg-card border-border">
