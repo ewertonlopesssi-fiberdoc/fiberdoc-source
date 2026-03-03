@@ -665,10 +665,20 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
                             setPortConnectedPortId(port.connectedToPortId ?? null);
                             setConnEqPorts([]);
                             setError(null);
-                            // Pré-carregar portas do equipamento vinculado
+                            // Pré-carregar portas do equipamento vinculado e preencher slot
                             if (port.connectedToEquipmentId) {
                               client.ports.byEquipment.query({ equipmentId: port.connectedToEquipmentId })
-                                .then(data => setConnEqPorts(data as unknown as Port[]))
+                                .then(data => {
+                                  const portsData = data as unknown as Port[];
+                                  setConnEqPorts(portsData);
+                                  // Auto-preencher slot da porta destino
+                                  if (port.connectedToPortId) {
+                                    const destPort = portsData.find((p: any) => p.id === port.connectedToPortId);
+                                    if (destPort && (destPort as any).slotId) {
+                                      setPortConnectedSlotId((destPort as any).slotId);
+                                    }
+                                  }
+                                })
                                 .catch(() => {});
                             }
                             setView("editPort");

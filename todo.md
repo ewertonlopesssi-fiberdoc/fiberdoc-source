@@ -1121,3 +1121,4 @@
 - [x] BUG: campo "Slot" no dialog "Editar Porta" não é guardado ao clicar em Salvar
 - [x] Sincronização automática de sensores Tuya: descoberta e importação de dispositivos da conta Tuya Cloud
 - [x] Bug: traçados importados via KML — suporte a touch events no drag das extremidades + snap a CEO/CTO
+- [x] Bug: ao vincular equipamento numa porta, o slot seleccionado agora é pré-preenchido automaticamente ao reabrir o dialog (desktop e mobile)

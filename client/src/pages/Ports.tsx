@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
@@ -283,6 +283,23 @@ export default function Ports() {
     { equipmentId: connectedEquipmentId ?? 0 },
     { enabled: !!connectedEquipmentId && connectedEquipmentId !== equipmentId }
   );
+  // Auto-preencher connectedToSlotId quando connectedEquipmentPorts carrega e a porta destino já está definida
+  useEffect(() => {
+    if (
+      portForm.connectedToPortId &&
+      portForm.connectedToSlotId === "" &&
+      (connectedEquipmentPorts as any[]).length > 0
+    ) {
+      const destPort = (connectedEquipmentPorts as any[]).find(
+        (p: any) => String(p.id) === portForm.connectedToPortId
+      );
+      if (destPort?.slotId) {
+        setPortForm(prev => ({ ...prev, connectedToSlotId: String(destPort.slotId) }));
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectedEquipmentPorts, portForm.connectedToPortId]);
+
   // Portas filtradas pelo slot seleccionado (ou todas se nenhum slot)
   const filteredConnectedPorts = portForm.connectedToSlotId
     ? connectedEquipmentPorts.filter((p: any) => String(p.slotId) === portForm.connectedToSlotId)
