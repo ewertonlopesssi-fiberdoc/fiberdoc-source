@@ -1118,3 +1118,4 @@
 - [x] Feedback visual melhorado no modo de edição de traçado: instrução menciona snap de extremidades
 - [x] Ao abrir o dialog "Vincular ao SGP", pré-seleccionar automaticamente a CTO SGP com nome idêntico (ou muito semelhante) ao nome da CTO local
 - [x] Botão "Vincular automaticamente" em lote para CTOs do mapa sem sgpId que têm correspondência exacta no SGP
+- [x] BUG: campo "Slot" no dialog "Editar Porta" não é guardado ao clicar em Salvar

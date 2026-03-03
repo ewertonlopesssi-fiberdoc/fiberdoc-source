@@ -396,6 +396,7 @@ export default function Ports() {
         speed: speedVal as any,
         status: portForm.status as any,
         notes: portForm.notes || undefined,
+        slotId: slotIdVal ?? null,
         sortOrder: portForm.sortOrder !== "" ? parseInt(portForm.sortOrder) : 0,
         connectedToEquipmentId: connEqId,
         connectedToPortId: connPortId,

@@ -412,6 +412,7 @@ export const appRouter = router({
         status: portStatusEnum.optional(),
         notes: z.string().optional(),
         sortOrder: z.number().optional(),
+        slotId: z.number().optional().nullable(),
         connectedToEquipmentId: z.number().optional().nullable(),
         connectedToPortId: z.number().optional().nullable(),
       }))
