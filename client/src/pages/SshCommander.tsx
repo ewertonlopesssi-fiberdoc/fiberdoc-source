@@ -407,7 +407,7 @@ export default function SshCommander() {
               size="sm"
               variant="outline"
               className="h-8 text-xs gap-1.5 border-zinc-600"
-              onClick={() => navigate("/equipments")}
+              onClick={() => navigate("/equipamentos")}
             >
               <Settings className="w-3.5 h-3.5" />
               Gerir Equipamentos SSH
@@ -440,7 +440,7 @@ export default function SshCommander() {
                       <p>Nenhum equipamento com SSH configurado.</p>
                       {isAdmin && (
                         <p className="text-xs mt-2">
-                          Vá a <button className="text-cyan-400 underline" onClick={() => navigate("/equipments")}>Equipamentos</button> e preencha os campos SSH no cadastro.
+                          Vá a <button className="text-cyan-400 underline" onClick={() => navigate("/equipamentos")}>Equipamentos</button> e preencha os campos SSH no cadastro.
                         </p>
                       )}
                     </>
