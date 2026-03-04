@@ -1271,3 +1271,8 @@
 - [x] Script fiberdoc-wget-update.sh v1.4: aceita tanto URL remota como caminho local (/tmp/ficheiro.zip)
 - [x] Deteccao automatica: se o argumento for um ficheiro existente, copia-o; se comecar por http://, faz download
 - [x] Mensagem de erro clara se o argumento nao for nem URL nem ficheiro local valido
+
+## Bug: SSH Commander — Credenciais SSH não encontradas
+- [x] Bug: SSH Commander mostra "Credenciais SSH não configuradas" mesmo com credenciais preenchidas no cadastro do equipamento
+- [x] Investigar: getSshCredential procura na tabela ssh_credentials mas as credenciais podem estar na tabela equipments (campos sshUser/sshPassword)
+- [x] Corrigir: getSshCredential deve verificar ambas as fontes (ssh_credentials e equipments)
