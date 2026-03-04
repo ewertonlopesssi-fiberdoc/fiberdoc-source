@@ -182,6 +182,18 @@ if [ -d "${ENV_BACKUP}/local-uploads" ]; then
 fi
 log_ok "Ficheiros aplicados em ${FIBERDOC_DIR}."
 
+# -- Verificar variaveis obrigatorias no ficheiro de configuracao --
+if [ -f "${ENV_DEST}" ]; then
+  JWT_VAL=$(grep '^JWT_SECRET=' "${ENV_DEST}" 2>/dev/null | head -1 | sed 's/^JWT_SECRET=//' | tr -d '"' || true)
+  if [ -z "${JWT_VAL}" ]; then
+    JWT_GENERATED=$(tr -dc 'A-Za-z0-9' < /dev/urandom 2>/dev/null | head -c 48 || date +%s | sha256sum | head -c 48)
+    printf 'JWT_SECRET=%s\n' "${JWT_GENERATED}" >> "${ENV_DEST}"
+    log_ok "JWT_SECRET gerado automaticamente e adicionado ao ficheiro de configuracao."
+  else
+    log_info "JWT_SECRET ja presente no ficheiro de configuracao."
+  fi
+fi
+
 # -- 6. Instalar dependencias ---------------------------------------------------
 log_step "[6/7] A instalar dependencias..."
 cd "${FIBERDOC_DIR}"
@@ -280,6 +292,7 @@ fi
 rm -rf "${TMP_DIR}" 2>/dev/null || true
 
 echo ""
+  echo -e "${GREEN}${BOLD}  FiberDoc actualizado com sucesso!${NC}"
 echo -e "${BOLD}============================================================${NC}"
 if systemctl is-active --quiet "${FIBERDOC_SERVICE}" 2>/dev/null; then
   echo -e "${GREEN}${BOLD}  FiberDoc actualizado com sucesso!${NC}"

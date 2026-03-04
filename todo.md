@@ -1229,3 +1229,40 @@
 - [x] Bug fix: Botão de remover credenciais SSH adicionado na lista do SSH Commander (desktop e mobile)
 - [x] Bug fix: Procedure clearSshCredentials adicionada ao router sshCommander
 - [x] Bug fix: onError adicionado ao CommandForm para mostrar erros ao criar/actualizar comandos
+
+## v6.5.5 — Scripts de Distribuição
+- [x] Script gerar-pacote-update.sh: compila, consolida SQL, empacota ZIP com manifesto SHA256
+- [x] Script fiberdoc-wget-update.sh: download, validação, backup, deploy via wget/curl
+
+## v6.5.6 — SSH Commander + Script de Update v1.1
+- [x] SSH Commander: output sempre mostrado no terminal (removido filtro text.trim())
+- [x] SSH Commander: aba muda automaticamente para "Terminal" ao clicar em Executar
+- [x] Script de update v1.1: guarda DATABASE_URL de TODAS as fontes antes de qualquer operação
+- [x] Novo script fiberdoc-fix-502.sh para recuperação rápida do erro 502
+
+## v6.5.7 — Script de Update v1.2
+- [x] Script usa npm como método principal de instalação (mais estável em produção)
+- [x] pnpm como fallback
+- [x] rsync ignora pastas residuais fiberdoc-v530 e .manus-logs sem erros
+
+## v6.5.8 — SSH Commander: timeout e ANSI strip
+- [x] Timeout de espera aumentado de 800ms para 3000ms para MikroTik
+- [x] Strip de sequências ANSI adicionado no servidor
+
+## v6.5.9 — SSH Commander reescrito (detecção de prompt)
+- [x] Abordagem baseada em detecção de prompt (como Netmiko/Paramiko)
+- [x] Suporte nativo para MikroTik RouterOS, Huawei NE8000 (VRP) e Huawei MA5800 (OLT)
+- [x] Gestão automática de paginação (---- More ----)
+- [x] Auto-detecção do tipo de equipamento pelo banner
+- [x] PTY com 220 colunas para evitar quebra de linha
+
+## v6.5.10 a v6.5.12 — Script de Update: correcções de sintaxe
+- [x] Removido array REQUIRED_FILES com grep -qE que causava syntax error
+- [x] Removidos todos os if-then vazios que causavam syntax error no bash 4.x/5.x
+- [x] Causa raiz encontrada: comentários com caracteres Unicode U+2500 (─) causavam falha em locale ASCII
+- [x] Substituídos por hifens ASCII simples
+
+## v6.5.13 — Script de Update v1.3 com JWT_SECRET
+- [x] Script fiberdoc-wget-update.sh v1.3: auto-gera JWT_SECRET se ausente no .env após update
+- [x] ZIP verificado: 311 linhas, 5 ocorrências JWT_SECRET, sintaxe bash OK, 0 caracteres não-ASCII
+- [x] Causa raiz do ZIP errado identificada e corrigida (script de geração copiava versão antiga)
