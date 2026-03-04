@@ -1022,20 +1022,63 @@ export default function CeoDetail() {
   }
   function handlePrint(printTubes: Tube[], printSplitterIds: Set<number>) {
     const allViasArr = allVias as Via[];
-    const allTubesArr = tubes as Tube[]; // todos os tubos para lookup de fusões
+    const allTubesArr = tubes as Tube[];
+    const allAssocs = associations as ViaAssociation[];
+    const allSplVias = allSplitterViasMain as SplitterVia[];
+    const allSplittersArr = splitters as Splitter[];
+    const allBandejasArr = bandejas as Bandeja[];
+    // Lookup maps
     const tubeById: Record<number, Tube> = {};
     for (const t of allTubesArr) tubeById[t.id] = t;
     const viaById: Record<number, Via> = {};
     for (const v of allViasArr) viaById[v.id] = v;
+    const splitterById: Record<number, Splitter> = {};
+    for (const s of allSplittersArr) splitterById[s.id] = s;
+    const splViaById: Record<number, SplitterVia> = {};
+    for (const sv of allSplVias) splViaById[sv.id] = sv;
     const viasByTube: Record<number, Via[]> = {};
     for (const v of allViasArr) { if (!viasByTube[v.tubeId]) viasByTube[v.tubeId] = []; viasByTube[v.tubeId].push(v); }
     for (const k of Object.keys(viasByTube)) viasByTube[Number(k)].sort((a, b) => a.viaNumber - b.viaNumber);
+    // Associações por via (sourceViaId e targetViaId)
+    const assocsByTubeVia: Record<string, ViaAssociation[]> = {}; // key: "tube_viaId"
+    const assocsBySplVia: Record<string, ViaAssociation[]> = {}; // key: "splitter_viaId"
+    for (const a of allAssocs) {
+      const srcKey = `${a.sourceType}_${a.sourceViaId}`;
+      const tgtKey = `${a.targetType}_${a.targetViaId}`;
+      if (!assocsByTubeVia[srcKey]) assocsByTubeVia[srcKey] = [];
+      assocsByTubeVia[srcKey].push(a);
+      if (!assocsBySplVia[tgtKey]) assocsBySplVia[tgtKey] = [];
+      assocsBySplVia[tgtKey].push(a);
+    }
+    function getAssocText(viaId: number, viaType: "tube" | "splitter"): string {
+      const key = `${viaType}_${viaId}`;
+      const found = [...(assocsByTubeVia[key] ?? []), ...(assocsBySplVia[key] ?? [])];
+      if (found.length === 0) return "";
+      return found.map(a => {
+        // Determinar o outro lado da associação
+        const isSource = a.sourceType === viaType && a.sourceViaId === viaId;
+        const otherType = isSource ? a.targetType : a.sourceType;
+        const otherViaId = isSource ? a.targetViaId : a.sourceViaId;
+        if (otherType === "tube") {
+          const ov = viaById[otherViaId];
+          if (!ov) return "ASSOC (desconhecida)";
+          const ot = tubeById[ov.tubeId];
+          return `ASSOC &rarr; VIA ${String(ov.viaNumber).padStart(2,"0")} &middot; ${escHtml(ot?.identifier ?? "?")}` ;
+        } else {
+          const osv = splViaById[otherViaId];
+          if (!osv) return "ASSOC (desconhecida)";
+          const osp = splitterById[osv.splitterId];
+          const svLabel = osv.viaNumber === 0 ? "ENTRADA" : `VIA ${String(osv.viaNumber).padStart(2,"00")}`;
+          return `ASSOC &rarr; ${svLabel} &middot; ${escHtml(osp?.identifier ?? "Splitter")}`;
+        }
+      }).join("; ");
+    }
     const totalVias = printTubes.reduce((s, t) => s + t.totalVias, 0);
     const fusedVias = allViasArr.filter(v => v.fusedToViaId !== null && printTubes.some(t => t.id === v.tubeId)).length;
     // Splitters seleccionados
-    const printSplitterList = (splitters as Splitter[]).filter(s => printSplitterIds.has(s.id));
+    const printSplitterList = allSplittersArr.filter(s => printSplitterIds.has(s.id));
     const splitterViasMap: Record<number, SplitterVia[]> = {};
-    for (const sv of (allSplitterViasMain as SplitterVia[])) {
+    for (const sv of allSplVias) {
       if (!splitterViasMap[sv.splitterId]) splitterViasMap[sv.splitterId] = [];
       splitterViasMap[sv.splitterId].push(sv);
     }
@@ -1052,25 +1095,37 @@ export default function CeoDetail() {
     function renderTubeHtml(tube: Tube): string {
       const vias = viasByTube[tube.id] ?? [];
       const fused = vias.filter(v => v.fusedToViaId !== null).length;
+      const assocCount = vias.filter(v => getAssocText(v.id, "tube") !== "").length;
       return `<div class="tube-section"><div class="tube-title">
         TUBO &mdash; ${escHtml(tube.identifier)}
         ${tube.color ? `<span style="font-size:8pt;margin-left:4mm;color:#6b7280;text-transform:uppercase">${escHtml(tube.color)}</span>` : ""}
-        <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${tube.totalVias} vias &middot; ${fused} fusionada${fused !== 1 ? "s" : ""}</span>
+        <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${tube.totalVias} vias &middot; ${fused} fundida${fused !== 1 ? "s" : ""} &middot; ${assocCount} assoc.</span>
       </div>
-      <table><thead><tr><th style="width:8%">VIA</th><th style="width:20%">ETIQUETA</th><th style="width:12%">STATUS</th><th style="width:35%">FUNDIÇÃO</th><th>OBSERVAÇÕES</th></tr></thead><tbody>
+      <table><thead><tr><th style="width:8%">VIA</th><th style="width:18%">ETIQUETA</th><th style="width:12%">STATUS</th><th style="width:40%">FUNDIÇÃO / ASSOCIAÇÃO</th><th>OBSERVAÇÕES</th></tr></thead><tbody>
       ${Array.from({ length: tube.totalVias }, (_, i) => i + 1).map(i => {
         const via = vias.find(v => v.viaNumber === i);
         const vc = PRINT_VIA_COLORS[i];
-        const bg = via?.fusedToViaId ? "#e0f2fe" : "#fff";
+        // Fusão
         const fusedVia = via?.fusedToViaId ? viaById[via.fusedToViaId] : null;
-        // Usar tubeById (todos os tubos) em vez de printTubes para encontrar o tubo de destino
         const fusedTubeObj = fusedVia ? tubeById[fusedVia.tubeId] : null;
-        const statusCell = via?.fusedToViaId != null ? "<b style='color:#0891b2'>FUSIONADA</b>" : "<span style='color:#9ca3af'>Livre</span>";
-        const fusionText = fusedVia && fusedTubeObj
-          ? `VIA ${String(fusedVia.viaNumber).padStart(2,"0")} &rarr; ${escHtml(fusedTubeObj.identifier)}`
-          : "&mdash;";
-        const viaCell = vc ? `<span style="background:${vc.bg};color:${vc.text};border:1px solid ${vc.border};padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700">${String(i).padStart(2,"0")}</span>` : `<b>${String(i).padStart(2,"0")}</b>`;
-        return `<tr style="background:${bg}"><td style="text-align:center">${viaCell}</td><td>${escHtml(via?.label)}</td><td style="text-align:center">${statusCell}</td><td style="color:#0891b2;font-weight:${fusedVia ? '600' : '400'}">${fusionText}</td><td style="font-size:8pt;color:#6b7280">${escHtml(via?.notes)}</td></tr>`;
+        // Associação
+        const assocText = via ? getAssocText(via.id, "tube") : "";
+        const hasFusion = via?.fusedToViaId != null;
+        const hasAssoc = assocText !== "";
+        const bg = hasFusion ? "#e0f2fe" : hasAssoc ? "#f0fdf4" : "#fff";
+        const statusCell = hasFusion
+          ? "<b style='color:#0891b2'>FUNDIDA</b>"
+          : hasAssoc
+            ? "<b style='color:#16a34a'>ASSOC.</b>"
+            : "<span style='color:#9ca3af'>Livre</span>";
+        let actionText = "&mdash;";
+        if (hasFusion && fusedVia && fusedTubeObj) {
+          actionText = `<span style='color:#0891b2;font-weight:600'>FUNDIÇÃO &rarr; VIA ${String(fusedVia.viaNumber).padStart(2,"00")} &middot; ${escHtml(fusedTubeObj.identifier)}</span>`;
+        } else if (hasAssoc) {
+          actionText = `<span style='color:#16a34a;font-weight:600'>${assocText}</span>`;
+        }
+        const viaCell = vc ? `<span style="background:${vc.bg};color:${vc.text};border:1px solid ${vc.border};padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700">${String(i).padStart(2,"00")}</span>` : `<b>${String(i).padStart(2,"00")}</b>`;
+        return `<tr style="background:${bg}"><td style="text-align:center">${viaCell}</td><td>${escHtml(via?.label)}</td><td style="text-align:center">${statusCell}</td><td>${actionText}</td><td style="font-size:8pt;color:#6b7280">${escHtml(via?.notes)}</td></tr>`;
       }).join("")}
       </tbody></table></div>`;
     }
@@ -1085,22 +1140,46 @@ export default function CeoDetail() {
         <span style="font-weight:400;font-size:7.5pt;margin-left:4mm;color:#92400e">${typeLabel} &middot; ${ratioLabel}</span>
         <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${svias.length} vias (1 entrada + ${saidas.length} saídas)</span>
       </div>
-      <table><thead><tr><th style="width:8%">VIA</th><th style="width:12%">TIPO</th><th style="width:18%">ETIQUETA</th><th style="width:14%">PERDA (dB)</th><th style="width:28%">ASSOCIAÇÃO</th><th>OBSERVAÇÕES</th></tr></thead><tbody>
+      <table><thead><tr><th style="width:8%">VIA</th><th style="width:12%">TIPO</th><th style="width:16%">ETIQUETA</th><th style="width:12%">PERDA (dB)</th><th style="width:32%">ASSOCIAÇÃO</th><th>OBSERVAÇÕES</th></tr></thead><tbody>
       ${[...(entrada ? [entrada] : []), ...saidas].map(sv => {
         const isEntrada = sv.viaNumber === 0;
         const vc = isEntrada ? null : PRINT_VIA_COLORS[(sv.viaNumber % 12) || 12];
-        const rowBg = isEntrada ? "#fefce8" : "#fff";
+        const assocText = getAssocText(sv.id, "splitter");
+        const hasAssoc = assocText !== "";
+        const rowBg = isEntrada ? "#fefce8" : hasAssoc ? "#f0fdf4" : "#fff";
         const viaLabel = isEntrada ? "ENTRADA" : `SAÍDA ${sv.viaNumber}`;
-        const viaNum = isEntrada ? "E" : String(sv.viaNumber).padStart(2,"0");
+        const viaNum = isEntrada ? "E" : String(sv.viaNumber).padStart(2,"00");
         const viaCell = vc ? `<span style="background:${vc.bg};color:${vc.text};border:1px solid ${vc.border};padding:2px 6px;border-radius:3px;font-size:8pt;font-weight:700">${viaNum}</span>` : `<span style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;padding:2px 6px;border-radius:3px;font-size:8pt;font-weight:700">${viaNum}</span>`;
         const lossText = sv.lossDb != null ? `${sv.lossDb.toFixed(1)} dB` : "&mdash;";
-        return `<tr style="background:${rowBg}"><td style="text-align:center">${viaCell}</td><td style="font-size:8pt;color:${isEntrada ? '#92400e' : '#374151'}">${viaLabel}</td><td>${escHtml(sv.label)}</td><td style="text-align:center;font-weight:600;color:#7c3aed">${lossText}</td><td>&mdash;</td><td style="font-size:8pt;color:#6b7280">${escHtml(sv.notes)}</td></tr>`;
+        const assocCell = hasAssoc ? `<span style='color:#16a34a;font-weight:600'>${assocText}</span>` : "&mdash;";
+        return `<tr style="background:${rowBg}"><td style="text-align:center">${viaCell}</td><td style="font-size:8pt;color:${isEntrada ? '#92400e' : '#374151'}">${viaLabel}</td><td>${escHtml(sv.label)}</td><td style="text-align:center;font-weight:600;color:#7c3aed">${lossText}</td><td>${assocCell}</td><td style="font-size:8pt;color:#6b7280">${escHtml(sv.notes)}</td></tr>`;
       }).join("")}
       </tbody></table></div>`;
     }
-    const tubeContent = printTubes.map(t => renderTubeHtml(t)).join("");
-    const splitterContent = printSplitterList.map(s => renderSplitterHtml(s)).join("");
-    const allContent = tubeContent + (splitterContent ? `<div style="margin-top:6mm;border-top:2px solid #7c3aed;padding-top:4mm"><div style="font-size:11pt;font-weight:700;color:#7c3aed;margin-bottom:4mm">SPLITTERS</div>${splitterContent}</div>` : "");
+    // Organizar por bandeja
+    function renderBandejaSection(bandeja: Bandeja | null): string {
+      const bandTubes = bandeja
+        ? printTubes.filter(t => t.bandejaId === bandeja.id)
+        : printTubes.filter(t => !t.bandejaId);
+      const bandSplitters = bandeja
+        ? printSplitterList.filter(s => s.bandejaId === bandeja.id)
+        : printSplitterList.filter(s => !s.bandejaId);
+      if (bandTubes.length === 0 && bandSplitters.length === 0) return "";
+      const header = bandeja
+        ? `<div style="margin-top:8mm;margin-bottom:4mm;padding:4px 10px;background:#1a1a2e;color:white;font-size:10pt;font-weight:700;border-radius:3px">&#9632; BANDEJA ${bandeja.number}${bandeja.label ? ` &mdash; ${escHtml(bandeja.label)}` : ""}</div>`
+        : (allBandejasArr.length > 0 ? `<div style="margin-top:8mm;margin-bottom:4mm;padding:4px 10px;background:#374151;color:white;font-size:10pt;font-weight:700;border-radius:3px">&#9632; SEM BANDEJA</div>` : "");
+      const tubeHtml = bandTubes.map(t => renderTubeHtml(t)).join("");
+      const splHtml = bandSplitters.length > 0
+        ? `<div style="margin-top:4mm;border-top:1px dashed #7c3aed;padding-top:3mm"><div style="font-size:9pt;font-weight:700;color:#7c3aed;margin-bottom:3mm">SPLITTERS</div>${bandSplitters.map(s => renderSplitterHtml(s)).join("")}</div>`
+        : "";
+      return header + tubeHtml + splHtml;
+    }
+    // Gerar conteúdo organizado por bandeja
+    const bandejasSorted = [...allBandejasArr].sort((a, b) => a.number - b.number);
+    const allContent = [
+      ...bandejasSorted.map(b => renderBandejaSection(b)),
+      renderBandejaSection(null), // sem bandeja
+    ].join("");
     const ceoName = escHtml(ceo?.name);
     const ceoLocation = ceo?.location ? `<div style="font-size:9pt;color:#6b7280;margin-top:1mm">${escHtml(ceo.location)}</div>` : "";
     const statusColor = ceo?.status === "active" ? "#059669" : "#d97706";
