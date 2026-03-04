@@ -9,7 +9,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerLocalAuthRoutes, seedDefaultAdmin } from "../localAuth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
+import { serveStatic } from "./serve-static";
 import { startBackupScheduler, LOCAL_BACKUP_DIR } from "../backupScheduler";
 
 import { startSnmpPoller } from "../snmpPoller";
@@ -332,6 +332,8 @@ async function startServer() {
   );
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
+    // Dynamic import so vite (devDependency) is never loaded in production
+    const { setupVite } = await import("./vite.js");
     await setupVite(app, server);
   } else {
     serveStatic(app);
