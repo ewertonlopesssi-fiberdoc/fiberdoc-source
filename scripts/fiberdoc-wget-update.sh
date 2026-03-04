@@ -54,7 +54,7 @@ log_ok "unzip encontrado."
 mkdir -p "${FIBERDOC_DIR}" "${BACKUP_DIR}" "${TMP_DIR}"
 log_ok "Verificacoes concluidas."
 
-# ── 1. Download ────────────────────────────────────────────────────────────────
+# -- 1. Download ----------------------------------------------------------------
 log_step "[1/7] A fazer download do pacote..."
 log_info "URL: ${UPDATE_URL}"
 ZIP_FILE="${TMP_DIR}/fiberdoc-update.zip"
@@ -75,7 +75,7 @@ fi
 ZIP_SIZE=$(du -sh "${ZIP_FILE}" | cut -f1)
 log_ok "Download concluido. Tamanho: ${ZIP_SIZE}"
 
-# ── 2. Validar ZIP ─────────────────────────────────────────────────────────────
+# -- 2. Validar ZIP -------------------------------------------------------------
 log_step "[2/7] A validar o pacote..."
 if ! unzip -t "${ZIP_FILE}" >/dev/null 2>&1; then
   log_error "Ficheiro nao e um ZIP valido."; exit 1
@@ -90,7 +90,7 @@ if ! unzip -l "${ZIP_FILE}" 2>/dev/null | grep -q "dist/index.js"; then
 fi
 log_ok "Pacote ZIP valido."
 
-# ── 3. Backup ──────────────────────────────────────────────────────────────────
+# -- 3. Backup ------------------------------------------------------------------
 log_step "[3/7] A criar backup..."
 BACKUP_FILE=""
 if [ -f "${FIBERDOC_DIR}/dist/index.js" ]; then
@@ -124,7 +124,7 @@ if [ -z "${DB_URL_SAVED}" ]; then
   fi
 fi
 
-# ── 4. Parar servico ───────────────────────────────────────────────────────────
+# -- 4. Parar servico -----------------------------------------------------------
 log_step "[4/7] A parar o servico ${FIBERDOC_SERVICE}..."
 SERVICE_WAS_RUNNING=false
 if systemctl is-active --quiet "${FIBERDOC_SERVICE}" 2>/dev/null; then
@@ -133,7 +133,7 @@ else
   log_info "Servico nao estava em execucao."
 fi
 
-# ── 5. Extrair e aplicar ───────────────────────────────────────────────────────
+# -- 5. Extrair e aplicar -------------------------------------------------------
 log_step "[5/7] A extrair e aplicar o pacote..."
 EXTRACT_DIR="${TMP_DIR}/extracted"
 mkdir -p "${EXTRACT_DIR}"
@@ -182,7 +182,7 @@ if [ -d "${ENV_BACKUP}/local-uploads" ]; then
 fi
 log_ok "Ficheiros aplicados em ${FIBERDOC_DIR}."
 
-# ── 6. Instalar dependencias ───────────────────────────────────────────────────
+# -- 6. Instalar dependencias ---------------------------------------------------
 log_step "[6/7] A instalar dependencias..."
 cd "${FIBERDOC_DIR}"
 INSTALL_OK=false
@@ -210,7 +210,7 @@ if [ "${INSTALL_OK}" = "false" ]; then
   log_warn "Execute: cd ${FIBERDOC_DIR} && npm install --omit=dev"
 fi
 
-# ── 6b. Migracao SQL ───────────────────────────────────────────────────────────
+# -- 6b. Migracao SQL -----------------------------------------------------------
 MIGRATE_SQL=""
 for candidate in \
   "${FIBERDOC_DIR}/migrate.sql" "${FIBERDOC_DIR}/migrate-latest.sql" \
@@ -255,7 +255,7 @@ else
   log_info "Nenhum ficheiro de migracao SQL encontrado."
 fi
 
-# ── 7. Reiniciar servico ───────────────────────────────────────────────────────
+# -- 7. Reiniciar servico -------------------------------------------------------
 log_step "[7/7] A reiniciar o servico ${FIBERDOC_SERVICE}..."
 systemctl daemon-reload
 
