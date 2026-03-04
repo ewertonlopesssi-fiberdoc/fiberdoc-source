@@ -1,7 +1,6 @@
 #!/bin/bash
 # fiberdoc-wget-update.sh v1.4
-# Compativel com bash 3.x, 4.x e 5.x (Debian, Ubuntu, CentOS)
-# Aceita URL remota OU caminho local para o ficheiro ZIP
+# Compativel com bash 3.x, 4.x e 5.x
 
 set -euo pipefail
 
@@ -9,11 +8,11 @@ FIBERDOC_DIR="${FIBERDOC_DIR:-/opt/fiberdoc}"
 FIBERDOC_SERVICE="${FIBERDOC_SERVICE:-fiberdoc}"
 BACKUP_DIR="${FIBERDOC_DIR}/backups"
 TMP_DIR="/tmp/fiberdoc-update-$$"
-TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+TIMESTAMP=$(date "+%Y%m%d_%H%M%S")
 UPDATE_URL="${1:-${FIBERDOC_UPDATE_URL:-}}"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+RED="\033[0;31m"; GREEN="\033[0;32m"; YELLOW="\033[1;33m"
+CYAN="\033[0;36m"; BOLD="\033[1m"; NC="\033[0m"
 
 log_step()  { echo -e "\n${CYAN}${BOLD}> $1${NC}"; }
 log_ok()    { echo -e "  ${GREEN}OK${NC} $1"; }
@@ -46,7 +45,7 @@ if command -v wget >/dev/null 2>&1; then
 elif command -v curl >/dev/null 2>&1; then
   DOWNLOADER="curl"; log_ok "curl encontrado."
 else
-  log_warn "Nem wget nem curl encontrados (apenas necessario para URL remota)."
+  log_error "Nem wget nem curl estao instalados."; exit 1
 fi
 
 if ! command -v unzip >/dev/null 2>&1; then
@@ -54,23 +53,18 @@ if ! command -v unzip >/dev/null 2>&1; then
 fi
 log_ok "unzip encontrado."
 
-mkdir -p "${FIBERDOC_DIR}" "${BACKUP_DIR}" "${TMP_DIR}"
-log_ok "Verificacoes concluidas."
-
-# -- 1. Obter o pacote (URL remota ou ficheiro local) ---------------------------
+mkdir -p "${FIBERDOC_DIR}# -- 1. Download ou copia local ------------------------------------------------
 log_step "[1/7] A obter o pacote..."
 log_info "Origem: ${UPDATE_URL}"
 ZIP_FILE="${TMP_DIR}/fiberdoc-update.zip"
 
+# Detectar se e caminho local ou URL
 if [ -f "${UPDATE_URL}" ]; then
   log_info "Ficheiro local detectado -- a copiar..."
   cp "${UPDATE_URL}" "${ZIP_FILE}" \
     || { log_error "Falha ao copiar ficheiro local."; exit 1; }
 elif echo "${UPDATE_URL}" | grep -qE '^https?://'; then
   log_info "URL remota detectada -- a fazer download..."
-  if [ -z "${DOWNLOADER}" ]; then
-    log_error "Nem wget nem curl estao instalados. Instale um deles."; exit 1
-  fi
   if [ "${DOWNLOADER}" = "wget" ]; then
     wget --progress=bar:force --timeout=120 --tries=3 \
       --output-document="${ZIP_FILE}" "${UPDATE_URL}" 2>&1 \
@@ -90,10 +84,7 @@ if [ ! -f "${ZIP_FILE}" ] || [ ! -s "${ZIP_FILE}" ]; then
   log_error "Ficheiro ZIP vazio ou inexistente."; exit 1
 fi
 ZIP_SIZE=$(du -sh "${ZIP_FILE}" | cut -f1)
-log_ok "Pacote obtido. Tamanho: ${ZIP_SIZE}"
-
-# -- 2. Validar ZIP -------------------------------------------------------------
-log_step "[2/7] A validar o pacote..."
+log_ok "Pacote obtido. Tamanho: ${ZIP_SIZE}"] A validar o pacote..."
 if ! unzip -t "${ZIP_FILE}" >/dev/null 2>&1; then
   log_error "Ficheiro nao e um ZIP valido."; exit 1
 fi
@@ -107,7 +98,6 @@ if ! unzip -l "${ZIP_FILE}" 2>/dev/null | grep -q "dist/index.js"; then
 fi
 log_ok "Pacote ZIP valido."
 
-# -- 3. Backup ------------------------------------------------------------------
 log_step "[3/7] A criar backup..."
 BACKUP_FILE=""
 if [ -f "${FIBERDOC_DIR}/dist/index.js" ]; then
@@ -121,27 +111,25 @@ else
   log_info "Nenhuma instalacao anterior -- backup ignorado."
 fi
 
-# Guardar DATABASE_URL antes de qualquer operacao
 DB_URL_SAVED=""
 if [ -n "${DATABASE_URL:-}" ]; then
   DB_URL_SAVED="${DATABASE_URL}"; log_info "DATABASE_URL guardada do ambiente."
 fi
 ENV_FILE="${FIBERDOC_DIR}/.env"
 if [ -z "${DB_URL_SAVED}" ] && [ -f "${ENV_FILE}" ]; then
-  DB_URL_SAVED=$(grep '^DATABASE_URL=' "${ENV_FILE}" 2>/dev/null \
-                 | head -1 | sed 's/^DATABASE_URL=//' | tr -d '"' || true)
+  DB_URL_SAVED=$(grep "^DATABASE_URL=" "${ENV_FILE}" 2>/dev/null \
+                 | head -1 | sed "s/^DATABASE_URL=//" | tr -d '"' || true)
   [ -n "${DB_URL_SAVED}" ] && log_info "DATABASE_URL guardada do ficheiro de configuracao."
 fi
 if [ -z "${DB_URL_SAVED}" ]; then
   SVC_FILE="/etc/systemd/system/${FIBERDOC_SERVICE}.service"
   if [ -f "${SVC_FILE}" ]; then
-    DB_URL_SAVED=$(grep '^Environment=DATABASE_URL=' "${SVC_FILE}" 2>/dev/null \
-                   | head -1 | sed 's/^Environment=DATABASE_URL=//' || true)
+    DB_URL_SAVED=$(grep "^Environment=DATABASE_URL=" "${SVC_FILE}" 2>/dev/null \
+                   | head -1 | sed "s/^Environment=DATABASE_URL=//" || true)
     [ -n "${DB_URL_SAVED}" ] && log_info "DATABASE_URL guardada do systemd."
   fi
 fi
 
-# -- 4. Parar servico -----------------------------------------------------------
 log_step "[4/7] A parar o servico ${FIBERDOC_SERVICE}..."
 SERVICE_WAS_RUNNING=false
 if systemctl is-active --quiet "${FIBERDOC_SERVICE}" 2>/dev/null; then
@@ -150,7 +138,6 @@ else
   log_info "Servico nao estava em execucao."
 fi
 
-# -- 5. Extrair e aplicar -------------------------------------------------------
 log_step "[5/7] A extrair e aplicar o pacote..."
 EXTRACT_DIR="${TMP_DIR}/extracted"
 mkdir -p "${EXTRACT_DIR}"
@@ -185,13 +172,13 @@ rsync -a --delete \
   --exclude="*.log" --exclude="local-uploads/" --exclude="local-backups/" \
   --exclude=".manus-logs/" --exclude="fiberdoc-v*/" \
   --filter="protect fiberdoc-v*/" --filter="protect .manus-logs/" \
-  "${SOURCE_DIR}/" "${FIBERDOC_DIR}/" 2>&1 | grep -v 'cannot delete' || true
+  "${SOURCE_DIR}/" "${FIBERDOC_DIR}/" 2>&1 | grep -v "cannot delete" || true
 
 if [ -f "${ENV_BACKUP}/dotenv" ]; then
   [ -L "${ENV_DEST}" ] && rm -f "${ENV_DEST}"
   cp "${ENV_BACKUP}/dotenv" "${ENV_DEST}"; log_ok "Ficheiro de configuracao restaurado."
 elif [ -n "${DB_URL_SAVED}" ]; then
-  printf 'DATABASE_URL=%s\n' "${DB_URL_SAVED}" > "${ENV_DEST}"
+  printf "DATABASE_URL=%s\n" "${DB_URL_SAVED}" > "${ENV_DEST}"
   log_ok "Ficheiro de configuracao recriado com DATABASE_URL."
 fi
 if [ -d "${ENV_BACKUP}/local-uploads" ]; then
@@ -211,7 +198,6 @@ if [ -f "${ENV_DEST}" ]; then
   fi
 fi
 
-# -- 6. Instalar dependencias ---------------------------------------------------
 log_step "[6/7] A instalar dependencias..."
 cd "${FIBERDOC_DIR}"
 INSTALL_OK=false
@@ -239,7 +225,6 @@ if [ "${INSTALL_OK}" = "false" ]; then
   log_warn "Execute: cd ${FIBERDOC_DIR} && npm install --omit=dev"
 fi
 
-# -- 6b. Migracao SQL -----------------------------------------------------------
 MIGRATE_SQL=""
 for candidate in \
   "${FIBERDOC_DIR}/migrate.sql" "${FIBERDOC_DIR}/migrate-latest.sql" \
@@ -251,17 +236,17 @@ if [ -n "${MIGRATE_SQL}" ]; then
   log_info "Migracao SQL: ${MIGRATE_SQL}"
   DB_URL="${DB_URL_SAVED:-}"
   if [ -z "${DB_URL}" ] && [ -f "${ENV_DEST}" ]; then
-    DB_URL=$(grep '^DATABASE_URL=' "${ENV_DEST}" 2>/dev/null \
-             | head -1 | sed 's/^DATABASE_URL=//' | tr -d '"' || true)
+    DB_URL=$(grep "^DATABASE_URL=" "${ENV_DEST}" 2>/dev/null \
+             | head -1 | sed "s/^DATABASE_URL=//" | tr -d '"' || true)
   fi
   if [ -z "${DB_URL}" ]; then
     log_warn "DATABASE_URL nao configurada -- migracao ignorada."
   elif command -v mysql >/dev/null 2>&1; then
-    DB_CLEAN=$(echo "${DB_URL}" | sed 's|mysql://||' | sed 's|?.*||')
-    DB_USER=$(echo "${DB_CLEAN}" | sed 's|:.*||')
+    DB_CLEAN=$(echo "${DB_URL}" | sed "s|mysql://||" | sed "s|?.*||")
+    DB_USER=$(echo "${DB_CLEAN}" | sed "s|:.*||")
     DB_REST=$(echo "${DB_CLEAN}" | sed "s|${DB_USER}:||")
-    DB_PASS=$(echo "${DB_REST}" | sed 's|@.*||')
-    DB_HOSTPORT=$(echo "${DB_REST}" | sed "s|${DB_PASS}@||" | sed 's|/.*||')
+    DB_PASS=$(echo "${DB_REST}" | sed "s|@.*||")
+    DB_HOSTPORT=$(echo "${DB_REST}" | sed "s|${DB_PASS}@||" | sed "s|/.*||")
     DB_NAME=$(echo "${DB_REST}" | sed "s|${DB_PASS}@${DB_HOSTPORT}/||")
     DB_HOST=$(echo "${DB_HOSTPORT}" | cut -d: -f1)
     DB_PORT=$(echo "${DB_HOSTPORT}" | cut -d: -f2)
@@ -284,7 +269,6 @@ else
   log_info "Nenhum ficheiro de migracao SQL encontrado."
 fi
 
-# -- 7. Reiniciar servico -------------------------------------------------------
 log_step "[7/7] A reiniciar o servico ${FIBERDOC_SERVICE}..."
 systemctl daemon-reload
 
@@ -306,6 +290,13 @@ else
   fi
 fi
 
+
+# -- 8. Health check pos-update ------------------------------------------
+if [ -f "${FIBERDOC_DIR}/scripts/fiberdoc-health-check.sh" ]; then
+  log_step "[8/8] A verificar saude do sistema..."
+  sleep 3
+  bash "${FIBERDOC_DIR}/scripts/fiberdoc-health-check.sh" || log_warn "Health check detectou problemas. Verifique os logs."
+fi
 rm -rf "${TMP_DIR}" 2>/dev/null || true
 
 echo ""
@@ -319,7 +310,7 @@ fi
 echo ""
 [ -n "${BACKUP_FILE}" ] && echo -e "  Backup: ${BACKUP_FILE}"
 echo -e "  Dir:    ${FIBERDOC_DIR}"
-echo -e "  Data:   $(date '+%d/%m/%Y %H:%M:%S')"
+echo -e "  Data:   $(date "+%d/%m/%Y %H:%M:%S")"
 echo ""
 echo -e "  Estado: systemctl status ${FIBERDOC_SERVICE}"
 echo -e "  Logs:   journalctl -u ${FIBERDOC_SERVICE} -f"

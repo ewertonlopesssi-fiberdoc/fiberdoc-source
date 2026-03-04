@@ -344,6 +344,32 @@ export const appRouter = router({
           }
         }
         await updateEquipment(id, data);
+        // Sincronizar credenciais SSH com a tabela ssh_credentials
+        try {
+          const db2 = await (await import("./db")).getDb();
+          if (db2) {
+            const { sshCredentials: sshCredTable } = await import("../drizzle/schema");
+            const { eq: eqOp2 } = await import("drizzle-orm");
+            const newSshUser = (data as any).sshUser as string | null | undefined;
+            const newSshPasswordEnc = (data as any).sshPasswordEnc as string | null | undefined;
+            const newSshPort = (data as any).sshPort as number | null | undefined;
+            if (newSshUser && newSshPasswordEnc) {
+              const existingCred = await db2.select().from(sshCredTable).where(eqOp2(sshCredTable.equipmentId, id));
+              if (existingCred.length > 0) {
+                await db2.update(sshCredTable)
+                  .set({ sshUser: newSshUser, sshPasswordEnc: newSshPasswordEnc, sshPort: newSshPort ?? 22 })
+                  .where(eqOp2(sshCredTable.equipmentId, id));
+              } else {
+                await db2.insert(sshCredTable).values({
+                  equipmentId: id, sshUser: newSshUser,
+                  sshPasswordEnc: newSshPasswordEnc, sshPort: newSshPort ?? 22,
+                });
+              }
+            } else if (newSshUser === null) {
+              await db2.delete(sshCredTable).where(eqOp2(sshCredTable.equipmentId, id)).catch(() => {});
+            }
+          }
+        } catch { /* sincronização SSH não crítica */ }
         await createMaintenanceRecord({
           entityType: "equipment", entityId: id, action: "updated",
           description: `Equipamento #${id} atualizado`, performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
@@ -3204,28 +3230,15 @@ ${fiberFolder}
       return { success: true };
     }),
 
-  // Listar todos os equipamentos com indicação de credenciais SSH configuradas
+  // Listar equipamentos com SSH configurado (usa campos SSH directamente da tabela equipments)
   listEquipmentsWithSsh: protectedProcedure
     .query(async () => {
       const db = await (await import("./db")).getDb();
       if (!db) return [];
-      // Listar todos os equipamentos
-      const equips = await db.select().from(equipmentsTable);
-      // Listar credenciais SSH existentes
-      const creds = await db.select({ equipmentId: sshCredentialsTable.equipmentId, sshUser: sshCredentialsTable.sshUser, sshPort: sshCredentialsTable.sshPort }).from(sshCredentialsTable);
-      const credMap = new Map(creds.map(c => [c.equipmentId, c]));
-      // Combinar: credenciais da tabela ssh_credentials primeiro, depois fallback para equipments
-      return equips.map((e: typeof equips[0]) => {
-        const cred = credMap.get(e.id);
-        const hasSshCred = !!cred;
-        const hasEquipCred = !!(e as any).sshUser && !!((e as any).sshPasswordEnc);
-        return {
-          ...e,
-          hasCredentials: hasSshCred || hasEquipCred,
-          sshUser: cred?.sshUser ?? (e as any).sshUser ?? null,
-          sshPort: cred?.sshPort ?? (e as any).sshPort ?? 22,
-        };
-      });
+      // Retorna equipamentos que têm sshUser preenchido (credenciais no cadastro)
+      const equips = await db.select().from(equipmentsTable)
+        .where(isNotNull(equipmentsTable.sshUser));
+      return equips.filter((e: typeof equips[0]) => e.sshUser && e.sshUser.trim() !== "");
     }),
 
   // Listar comandos de um equipamento

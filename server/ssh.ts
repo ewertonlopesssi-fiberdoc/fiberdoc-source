@@ -1,50 +1,31 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import { Client as SshClient } from "ssh2";
 import { getDb } from "./db";
-import { sshCredentials, sshCommands, sshExecutionLog } from "../drizzle/schema";
+import { sshCredentials, sshCommands, sshExecutionLog, equipments as equipmentsTable } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import type { Response } from "express";
 
-// ─── Codificação de passwords SSH ────────────────────────────────────────────────────────────
-// Usa Base64 simples (prefixo "b64:") para evitar dependência de chaves externas.
-// Passwords antigas em formato AES (3 segmentos hex separados por ":") são
-// detectadas e re-encriptadas na próxima vez que o utilizador guardar.
+const SSH_ENC_KEY = (() => {
+  const k = process.env.JWT_SECRET ?? "fiberdoc-ssh-default-key-32bytes!";
+  const buf = Buffer.alloc(32, 0);
+  Buffer.from(k).copy(buf);
+  return buf;
+})();
+
+// ─── Encriptação AES-256-GCM ─────────────────────────────────────────────────
 export function encryptPassword(plain: string): string {
-  return "b64:" + Buffer.from(plain, "utf8").toString("base64");
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", SSH_ENC_KEY, iv);
+  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return [iv.toString("hex"), tag.toString("hex"), enc.toString("hex")].join(":");
 }
 
 export function decryptPassword(enc: string): string {
-  // Formato novo: "b64:<base64>"
-  if (enc.startsWith("b64:")) {
-    return Buffer.from(enc.slice(4), "base64").toString("utf8");
-  }
-
-  // Formato antigo AES-256-GCM: "<ivHex>:<tagHex>:<dataHex>"
-  // Tentar desencriptar com todas as chaves conhecidas
-  const parts = enc.split(":");
-  if (parts.length === 3) {
-    const [ivHex, tagHex, dataHex] = parts;
-    const iv = Buffer.from(ivHex, "hex");
-    const tag = Buffer.from(tagHex, "hex");
-    const data = Buffer.from(dataHex, "hex");
-
-    // Lista de chaves a tentar (JWT_SECRET actual + chave padrão original)
-    const candidateKeys: Buffer[] = [];
-    const jwtKey = process.env.JWT_SECRET ?? "fiberdoc-ssh-default-key-32bytes!";
-    const k1 = Buffer.alloc(32, 0); Buffer.from(jwtKey).copy(k1); candidateKeys.push(k1);
-    const k2 = Buffer.alloc(32, 0); Buffer.from("fiberdoc-ssh-default-key-32bytes!").copy(k2); candidateKeys.push(k2);
-
-    for (const key of candidateKeys) {
-      try {
-        // createDecipheriv já está importado no topo do ficheiro
-        const decipher = createDecipheriv("aes-256-gcm", key, iv);
-        decipher.setAuthTag(tag);
-        return decipher.update(data).toString("utf8") + decipher.final("utf8");
-      } catch { /* tentar próxima */ }
-    }
-  }
-
-  throw new Error("Não foi possível desencriptar as credenciais. Por favor re-introduza a password SSH no cadastro do equipamento.");
+  const [ivHex, tagHex, dataHex] = enc.split(":");
+  const decipher = createDecipheriv("aes-256-gcm", SSH_ENC_KEY, Buffer.from(ivHex, "hex"));
+  decipher.setAuthTag(Buffer.from(tagHex, "hex"));
+  return decipher.update(Buffer.from(dataHex, "hex")).toString("utf8") + decipher.final("utf8");
 }
 
 // ─── Detectar parâmetros variáveis {param} ───────────────────────────────────
@@ -64,10 +45,9 @@ export function applyParams(lines: string[], params: Record<string, string>): st
   );
 }
 
-// ─── Strip de sequências ANSI (cores, cursor, etc.) ─────────────────────────
-// O MikroTik envia sequências ANSI que poluem o output no terminal web
+// ─── Strip de sequências ANSI (cursor/cor) ───────────────────────────────────
+// Remove sequências de controlo mas preserva o texto visível
 function stripAnsi(text: string): string {
-  // Remove: ESC[...m (cores), ESC[...J/K/H/A/B/C/D (cursor), ESC(B, ESC> etc.
   return text
     .replace(/\x1b\[[0-9;]*[mGKJHABCDEFPSTfhilnpqrsu]/g, "")
     .replace(/\x1b[()][A-Z0-9]/g, "")
@@ -76,6 +56,37 @@ function stripAnsi(text: string): string {
     .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
     .replace(/\x1b./g, "");
 }
+
+// ─── Tipo de equipamento ──────────────────────────────────────────────────────
+type DeviceType = "mikrotik" | "huawei_vrp" | "huawei_olt" | "generic";
+
+function detectDeviceType(banner: string): DeviceType {
+  const clean = stripAnsi(banner);
+  if (/MikroTik|RouterOS/i.test(clean)) return "mikrotik";
+  if (/MA5800|MA5600|SmartAX|MA56\d\d/i.test(clean)) return "huawei_olt";
+  if (/Huawei|VRP|<\w+>|\[\w+\]/i.test(clean)) return "huawei_vrp";
+  return "generic";
+}
+
+// ─── Regex de prompt por tipo de equipamento ─────────────────────────────────
+function getPromptRegex(deviceType: DeviceType): RegExp {
+  switch (deviceType) {
+    case "mikrotik":
+      // [user@hostname] > ou [user@hostname] /ip>
+      return /\[[^\]]+\]\s*[^>]*>\s*$/;
+    case "huawei_vrp":
+      // <hostname> ou [hostname]
+      return /^[<\[]\S+[>\]]\s*$/m;
+    case "huawei_olt":
+      // MA5800-X17(config)# ou MA5800-X17>
+      return /[\w.-]+(?:\([^)]+\))?[>#]\s*$/m;
+    default:
+      return /[$#>]\s*$/m;
+  }
+}
+
+// ─── Padrão de paginação ──────────────────────────────────────────────────────
+const MORE_PATTERN = /----\s*[Mm]ore\s*(?:\([^)]*\))?\s*----|Press\s+'Q'\s+to\s+break/;
 
 // ─── Padrões de confirmação interactiva ──────────────────────────────────────
 const CONFIRM_PATTERNS = [
@@ -97,7 +108,7 @@ function detectsConfirmPrompt(text: string): boolean {
 export interface SshExecResult {
   output: string;
   success: boolean;
-  waitingConfirm?: boolean;  // true quando modo=manual e detectou [Y/N]
+  waitingConfirm?: boolean;
 }
 
 // ─── Sessões SSH activas (para modo manual) ───────────────────────────────────
@@ -130,6 +141,53 @@ function sendSseEvent(res: Response, data: object) {
   } catch { /* ignore */ }
 }
 
+// ─── Aguardar prompt com timeout ──────────────────────────────────────────────
+// Acumula chunks até o prompt aparecer ou timeout expirar
+function waitForPrompt(
+  stream: any,
+  promptRegex: RegExp,
+  timeoutMs: number,
+  onChunk?: (chunk: string) => void
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let accumulated = "";
+    let timer: ReturnType<typeof setTimeout>;
+
+    const cleanup = () => {
+      stream.removeListener("data", onData);
+      clearTimeout(timer);
+    };
+
+    const onData = (data: Buffer) => {
+      const chunk = data.toString();
+      accumulated += chunk;
+      if (onChunk) onChunk(chunk);
+
+      // Verificar paginação — enviar espaço para continuar
+      if (MORE_PATTERN.test(stripAnsi(accumulated))) {
+        stream.write(" ");
+        accumulated = accumulated.replace(MORE_PATTERN, "");
+        return;
+      }
+
+      // Verificar se o prompt apareceu no output limpo
+      const clean = stripAnsi(accumulated);
+      if (promptRegex.test(clean)) {
+        cleanup();
+        resolve(accumulated);
+      }
+    };
+
+    timer = setTimeout(() => {
+      cleanup();
+      // Resolver com o que temos (timeout não é erro fatal)
+      resolve(accumulated);
+    }, timeoutMs);
+
+    stream.on("data", onData);
+  });
+}
+
 // ─── Execução SSH com suporte a confirmMode ───────────────────────────────────
 export async function executeSshCommand(
   host: string,
@@ -144,21 +202,33 @@ export async function executeSshCommand(
 ): Promise<SshExecResult> {
   return new Promise((resolve) => {
     const conn = new SshClient();
-    let output = "";
+    let fullOutput = "";
     let timedOut = false;
     let waitingForConfirm = false;
+    let deviceType: DeviceType = "generic";
 
-    const timeout = setTimeout(() => {
+    const globalTimeout = setTimeout(() => {
       timedOut = true;
       if (sessionId) activeSessions.delete(sessionId);
       conn.end();
-      resolve({ output: output + "\n[TIMEOUT: conexão encerrada após 30s]", success: false });
-    }, 30000);
+      resolve({ output: fullOutput + "\n[TIMEOUT: conexão encerrada após 60s]", success: false });
+    }, 60000);
+
+    // Helper para enviar output via SSE
+    const sendOutput = (raw: string) => {
+      const clean = stripAnsi(raw);
+      // Normalizar CRLF → LF
+      const normalized = clean.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      if (normalized.trim().length > 0 && sseRes) {
+        sendSseEvent(sseRes, { type: "output", data: normalized });
+      }
+    };
 
     conn.on("ready", () => {
-      conn.shell((err, stream) => {
+      // PTY com largura grande para evitar quebra de linha e repintura excessiva
+      conn.shell({ term: "vt100", cols: 220, rows: 50 }, async (err, stream) => {
         if (err) {
-          clearTimeout(timeout);
+          clearTimeout(globalTimeout);
           conn.end();
           resolve({ output: `[ERRO ao abrir shell: ${err.message}]`, success: false });
           return;
@@ -169,80 +239,127 @@ export async function executeSshCommand(
           activeSessions.set(sessionId, { stream, outputSoFar: "", resolve, conn, sseRes });
         }
 
-        stream.on("data", (data: Buffer) => {
-          const chunk = data.toString();
-          output += chunk;
-
-          // Actualizar sessão activa
-          if (sessionId) {
-            const sess = activeSessions.get(sessionId);
-            if (sess) sess.outputSoFar = output;
-          }
-
-          // Enviar via SSE se disponível (com ANSI removido para leitura limpa)
-          if (sseRes) {
-            const clean = stripAnsi(chunk);
-            if (clean.length > 0) {
-              sendSseEvent(sseRes, { type: "output", data: clean });
-            }
-          }
-
-          // Detectar prompt de confirmação
-          if (detectsConfirmPrompt(chunk)) {
-            if (confirmMode === "auto_y") {
-              setTimeout(() => stream.write("Y\n"), 100);
-            } else if (confirmMode === "auto_n") {
-              setTimeout(() => stream.write("N\n"), 100);
-            } else if (confirmMode === "manual") {
-              waitingForConfirm = true;
-              if (sseRes) {
-                sendSseEvent(sseRes, { type: "confirm_required", data: chunk });
-              }
-              // Para modo manual, NÃO resolve ainda — aguarda respondToConfirm()
-              return;
-            }
-          }
-        });
-
         stream.stderr.on("data", (data: Buffer) => {
           const chunk = data.toString();
-          output += chunk;
-          if (sseRes) {
-            const clean = stripAnsi(chunk);
-            if (clean.length > 0) {
-              sendSseEvent(sseRes, { type: "output", data: clean });
-            }
-          }
+          fullOutput += chunk;
+          sendOutput(chunk);
         });
 
         stream.on("close", () => {
-          clearTimeout(timeout);
+          clearTimeout(globalTimeout);
           if (sessionId) activeSessions.delete(sessionId);
           conn.end();
           if (!timedOut && !waitingForConfirm) {
             if (sseRes) {
-              sendSseEvent(sseRes, { type: "done", success: true, output });
+              sendSseEvent(sseRes, { type: "done", success: true, output: fullOutput });
               sseRes.end();
             }
-            resolve({ output, success: true });
+            resolve({ output: fullOutput, success: true });
           }
         });
 
-          // Enviar linhas com sleep entre elas
-        (async () => {
-          for (const line of lines) {
-            stream.write(line + "\n");
-            await new Promise(r => setTimeout(r, sleepMs));
+        try {
+          // ── FASE 1: Aguardar banner + prompt inicial ──────────────────────
+          // Timeout de 8s para o banner inicial (equipamentos lentos)
+          const bannerRaw = await waitForPrompt(
+            stream,
+            /[$#>]\s*$|\]\s*>\s*$/m, // regex genérico para qualquer prompt
+            8000,
+            (chunk) => {
+              fullOutput += chunk;
+              sendOutput(chunk);
+            }
+          );
+
+          // Detectar tipo de equipamento pelo banner
+          deviceType = detectDeviceType(bannerRaw);
+          const promptRegex = getPromptRegex(deviceType);
+
+          if (sseRes) {
+            sendSseEvent(sseRes, { type: "device_type", data: deviceType });
           }
-          // Aguardar resposta do equipamento — MikroTik pode demorar até 3s
-          await new Promise(r => setTimeout(r, Math.max(sleepMs * 3, 3000)));
-          stream.write("exit\n");
-        })();
+
+          // ── FASE 2: Preparação por tipo de equipamento ────────────────────
+          if (deviceType === "huawei_vrp") {
+            // Desactivar paginação no Huawei VRP
+            stream.write("screen-length 0 temporary\n");
+            const prepRaw = await waitForPrompt(stream, promptRegex, 5000, (chunk) => {
+              fullOutput += chunk;
+              // Não enviar output de preparação para o utilizador
+            });
+            void prepRaw;
+          } else if (deviceType === "huawei_olt") {
+            // MA5800 não suporta screen-length, mas podemos tentar
+            stream.write("scroll\n");
+            await new Promise(r => setTimeout(r, 500));
+          }
+
+          // ── FASE 3: Executar comandos do utilizador ───────────────────────
+          for (const line of lines) {
+            if (!line.trim()) continue;
+
+            // Enviar o comando
+            stream.write(line + "\n");
+            if (sseRes) {
+              sendSseEvent(sseRes, { type: "input", data: line });
+            }
+
+            // Aguardar prompt com gestão de paginação e confirmação
+            const cmdOutput = await waitForPromptWithConfirm(
+              stream,
+              promptRegex,
+              confirmMode,
+              Math.max(sleepMs * 2, 10000), // timeout por comando: mín 10s
+              (chunk) => {
+                fullOutput += chunk;
+                sendOutput(chunk);
+                if (sessionId) {
+                  const sess = activeSessions.get(sessionId);
+                  if (sess) sess.outputSoFar = fullOutput;
+                }
+              },
+              (waitingConfirm) => {
+                if (waitingConfirm && confirmMode === "manual") {
+                  waitingForConfirm = true;
+                  if (sseRes) {
+                    sendSseEvent(sseRes, { type: "confirm_required", data: "" });
+                  }
+                }
+              }
+            );
+            void cmdOutput;
+
+            if (waitingForConfirm) break;
+
+            // Sleep entre comandos se configurado
+            if (sleepMs > 0 && lines.indexOf(line) < lines.length - 1) {
+              await new Promise(r => setTimeout(r, sleepMs));
+            }
+          }
+
+          // ── FASE 4: Sair da sessão ────────────────────────────────────────
+          if (!waitingForConfirm) {
+            const quitCmd = deviceType === "mikrotik" ? "quit" : "quit";
+            stream.write(quitCmd + "\n");
+            // Aguardar o stream fechar (max 3s)
+            await new Promise(r => setTimeout(r, 3000));
+            stream.end();
+          }
+
+        } catch (execErr: any) {
+          clearTimeout(globalTimeout);
+          if (sessionId) activeSessions.delete(sessionId);
+          if (sseRes) {
+            sendSseEvent(sseRes, { type: "error", data: execErr.message });
+            sseRes.end();
+          }
+          resolve({ output: fullOutput + `\n[ERRO: ${execErr.message}]`, success: false });
+        }
       });
     });
 
     conn.on("error", (err) => {
-      clearTimeout(timeout);
+      clearTimeout(globalTimeout);
       if (sessionId) activeSessions.delete(sessionId);
       if (sseRes) {
         sendSseEvent(sseRes, { type: "error", data: err.message });
@@ -251,7 +368,71 @@ export async function executeSshCommand(
       resolve({ output: `[ERRO SSH: ${err.message}]`, success: false });
     });
 
-    conn.connect({ host, port, username, password, readyTimeout: 10000 });
+    conn.connect({ host, port, username, password, readyTimeout: 15000 });
+  });
+}
+
+// ─── Aguardar prompt com gestão de confirmação ───────────────────────────────
+function waitForPromptWithConfirm(
+  stream: any,
+  promptRegex: RegExp,
+  confirmMode: "none" | "auto_y" | "auto_n" | "manual",
+  timeoutMs: number,
+  onChunk: (chunk: string) => void,
+  onConfirm: (waiting: boolean) => void
+): Promise<string> {
+  return new Promise((resolve) => {
+    let accumulated = "";
+    let timer: ReturnType<typeof setTimeout>;
+
+    const cleanup = () => {
+      stream.removeListener("data", onData);
+      clearTimeout(timer);
+    };
+
+    const onData = (data: Buffer) => {
+      const chunk = data.toString();
+      accumulated += chunk;
+      onChunk(chunk);
+
+      const clean = stripAnsi(accumulated);
+
+      // Gerir paginação
+      if (MORE_PATTERN.test(clean)) {
+        stream.write(" ");
+        accumulated = accumulated.replace(MORE_PATTERN, "");
+        return;
+      }
+
+      // Detectar confirmação
+      if (detectsConfirmPrompt(clean)) {
+        if (confirmMode === "auto_y") {
+          setTimeout(() => stream.write("Y\n"), 100);
+          return;
+        } else if (confirmMode === "auto_n") {
+          setTimeout(() => stream.write("N\n"), 100);
+          return;
+        } else if (confirmMode === "manual") {
+          cleanup();
+          onConfirm(true);
+          resolve(accumulated);
+          return;
+        }
+      }
+
+      // Detectar prompt (fim do output do comando)
+      if (promptRegex.test(clean)) {
+        cleanup();
+        resolve(accumulated);
+      }
+    };
+
+    timer = setTimeout(() => {
+      cleanup();
+      resolve(accumulated);
+    }, timeoutMs);
+
+    stream.on("data", onData);
   });
 }
 
@@ -259,8 +440,36 @@ export async function executeSshCommand(
 export async function getSshCredential(equipmentId: number) {
   const db = await getDb();
   if (!db) return null;
+
+  // 1. Verificar tabela ssh_credentials (credenciais dedicadas)
   const rows = await db.select().from(sshCredentials).where(eq(sshCredentials.equipmentId, equipmentId));
-  return rows[0] ?? null;
+  if (rows[0]) return rows[0];
+
+  // 2. Fallback: usar credenciais guardadas directamente no cadastro do equipamento
+  const equipRows = await db
+    .select({
+      id: equipmentsTable.id,
+      sshUser: equipmentsTable.sshUser,
+      sshPasswordEnc: equipmentsTable.sshPasswordEnc,
+      sshPort: equipmentsTable.sshPort,
+    })
+    .from(equipmentsTable)
+    .where(eq(equipmentsTable.id, equipmentId));
+
+  const equip = equipRows[0];
+  if (!equip || !equip.sshUser || !equip.sshPasswordEnc) return null;
+
+  // Retornar no mesmo formato que ssh_credentials
+  return {
+    id: 0,
+    equipmentId,
+    sshUser: equip.sshUser,
+    sshPasswordEnc: equip.sshPasswordEnc,
+    sshPort: equip.sshPort ?? 22,
+    notes: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 }
 
 export async function upsertSshCredential(data: {
