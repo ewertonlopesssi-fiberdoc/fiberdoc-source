@@ -75,7 +75,7 @@ type View =
   | "bandejas" | "bandejaDetail"
   | "tubes" | "editTube" | "newTube"
   | "vias" | "editVia" | "setFusion"
-  | "splitterVias";
+  | "splitterVias" | "newSplitter" | "setAssociation" | "setSplitterAssociation";
 
 interface MobileCeosProps {
   initialCeoId?: number | null;
@@ -115,14 +115,20 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
   const [newBandejaForm, setNewBandejaForm] = useState({ number: "", label: "", notes: "" });
   const [showNewBandeja, setShowNewBandeja] = useState(false);
 
-  // Splitters
+   // Splitters
   const [splitters, setSplitters]           = useState<Splitter[]>([]);
   const [selectedSplitter, setSelectedSplitter] = useState<Splitter | null>(null);
   const [splitterVias, setSplitterVias]     = useState<SplitterVia[]>([]);
-
+  const [newSplitterForm, setNewSplitterForm] = useState({
+    identifier: "", splitterType: "balanced" as "balanced" | "unbalanced",
+    ratio: "1:8", notes: "",
+  });
   // Associações
   const [associations, setAssociations]     = useState<Association[]>([]);
   const [allSplitterVias, setAllSplitterVias] = useState<SplitterVia[]>([]);
+  // Formulário de associação (via tubo ↔ via splitter)
+  const [assocSplitterId, setAssocSplitterId] = useState<string>("");
+  const [assocSplitterViaId, setAssocSplitterViaId] = useState<string>("");
 
   // Editar CEO
   const [editCeoForm, setEditCeoForm] = useState<Partial<Ceo>>({});
@@ -739,9 +745,23 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
 
           {/* Splitters da bandeja */}
           <div>
-            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
-              <Zap className="w-3.5 h-3.5" /> Splitters ({bandejasSplitters.length})
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5" /> Splitters ({bandejasSplitters.length})
+              </p>
+              {isOnline() && (
+                <button
+                  onClick={() => {
+                    setNewSplitterForm({ identifier: `SP-${splitters.length + 1}`, splitterType: "balanced", ratio: "1:8", notes: "" });
+                    setError(null);
+                    setView("newSplitter");
+                  }}
+                  className="flex items-center gap-1 text-xs text-amber-400"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Novo
+                </button>
+              )}
+            </div>
             {bandejasSplitters.length === 0 ? (
               <p className="text-xs text-zinc-600 text-center py-3">Nenhum splitter nesta bandeja</p>
             ) : (
@@ -838,6 +858,38 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
                     <p className="text-[11px] text-zinc-500 mt-0.5">Livre</p>
                   )}
                 </div>
+                {isOnline() && (
+                  isAssoc ? (
+                    <button
+                      onClick={async () => {
+                        if (!assoc) return;
+                        setSaving(true); setError(null);
+                        try {
+                          await (client as any).ceoViaAssociations.delete.mutate({ id: assoc.id });
+                          await loadAssociations(selected!.id);
+                        } catch (e: any) { setError(e?.message ?? "Erro ao remover"); }
+                        finally { setSaving(false); }
+                      }}
+                      disabled={saving}
+                      className="flex-shrink-0 p-1.5 text-red-400 hover:text-red-300"
+                    >
+                      <Link2Off className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        // Navegar para setSplitterAssociation com a via de splitter seleccionada
+                        setSelectedSplitter(selectedSplitter);
+                        setAssocSplitterId(String(selectedSplitter.id));
+                        setAssocSplitterViaId(String(sv.id));
+                        setView("setSplitterAssociation");
+                      }}
+                      className="flex-shrink-0 p-1.5 text-emerald-400 hover:text-emerald-300"
+                    >
+                      <Link2 className="w-4 h-4" />
+                    </button>
+                  )
+                )}
               </div>
             );
           })}
@@ -846,6 +898,207 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
     );
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VIEW: NEW SPLITTER
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (view === "newSplitter" && selectedBandeja && selected) {
+    const RATIOS = ["1:2", "1:4", "1:8", "1:16", "1:32", "1:64", "2:4", "2:8"];
+    return (
+      <div className="flex flex-col h-full">
+        <div className="bg-zinc-900 border-b border-zinc-800 px-4 pt-4 pb-3 flex-shrink-0">
+          <button onClick={() => setView("bandejaDetail")} className="flex items-center gap-1 text-cyan-400 text-sm mb-3">
+            <ChevronLeft className="w-4 h-4" /> Bandeja {selectedBandeja.number}
+          </button>
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-400" />
+            <h1 className="text-base font-bold text-white">Novo Splitter</h1>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <ErrorBox />
+          {/* Identificador */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Identificador *</label>
+            <input
+              value={newSplitterForm.identifier}
+              onChange={e => setNewSplitterForm(f => ({ ...f, identifier: e.target.value }))}
+              placeholder="Ex: SP-01"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
+            />
+          </div>
+          {/* Tipo */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Tipo</label>
+            <div className="flex gap-2">
+              {(["balanced", "unbalanced"] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setNewSplitterForm(f => ({ ...f, splitterType: t }))}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+                    newSplitterForm.splitterType === t
+                      ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                      : "bg-zinc-800 border-zinc-700 text-zinc-400"
+                  }`}
+                >
+                  {t === "balanced" ? "Balanceado" : "Desbalanceado"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Rácio */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Rácio</label>
+            <select
+              value={newSplitterForm.ratio}
+              onChange={e => setNewSplitterForm(f => ({ ...f, ratio: e.target.value }))}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
+            >
+              {RATIOS.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          {/* Observações */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Observações</label>
+            <textarea
+              value={newSplitterForm.notes}
+              onChange={e => setNewSplitterForm(f => ({ ...f, notes: e.target.value }))}
+              rows={2}
+              placeholder="Opcional..."
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 resize-none"
+            />
+          </div>
+          {/* Botão criar */}
+          <button
+            onClick={async () => {
+              if (!newSplitterForm.identifier.trim()) { setError("Informe o identificador"); return; }
+              setSaving(true); setError(null);
+              try {
+                await (client as any).ceoSplitters.create.mutate({
+                  ceoId: selected.id,
+                  bandejaId: selectedBandeja.id,
+                  identifier: newSplitterForm.identifier.trim(),
+                  splitterType: newSplitterForm.splitterType,
+                  ratio: newSplitterForm.ratio,
+                  notes: newSplitterForm.notes || undefined,
+                });
+                // Recarregar splitters
+                const allSp = await (client as any).ceoSplitters.byCeo.query({ ceoId: selected.id });
+                setSplitters(allSp);
+                setView("bandejaDetail");
+              } catch (e: any) { setError(e?.message ?? "Erro ao criar splitter"); }
+              finally { setSaving(false); }
+            }}
+            disabled={saving}
+            className="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {saving ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : <><Plus className="w-4 h-4" /> Criar Splitter</>}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VIEW: SET SPLITTER ASSOCIATION (associar via de splitter a via de tubo)
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (view === "setSplitterAssociation" && selectedSplitter && selected) {
+    // A via de splitter já está seleccionada (assocSplitterViaId)
+    // Precisamos seleccionar a via de tubo a associar
+    const splitterVia = allSplitterVias.find(sv => sv.id === parseInt(assocSplitterViaId));
+    // Tubos disponíveis (excluir splitters)
+    const availableTubes = tubes.filter(t => t.type === "tube");
+    return (
+      <div className="flex flex-col h-full">
+        <div className="bg-zinc-900 border-b border-zinc-800 px-4 pt-4 pb-3 flex-shrink-0">
+          <button onClick={() => setView("splitterVias")} className="flex items-center gap-1 text-cyan-400 text-sm mb-3">
+            <ChevronLeft className="w-4 h-4" /> {selectedSplitter.identifier}
+          </button>
+          <div className="flex items-center gap-2">
+            <ArrowRightLeft className="w-4 h-4 text-emerald-400" />
+            <div>
+              <h1 className="text-base font-bold text-white">Associar Via</h1>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                {selectedSplitter.identifier} · Via {splitterVia?.viaNumber ?? "?"}
+                {splitterVia?.label ? ` — ${splitterVia.label}` : ""}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <ErrorBox />
+          <p className="text-xs text-zinc-400">Seleccione a via de tubo a associar a esta via de splitter:</p>
+          {/* Seleccionar tubo */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Tubo</label>
+            <select
+              value={fusionTubeId}
+              onChange={e => { setFusionTubeId(e.target.value); setFusionViaId(""); }}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+            >
+              <option value="">Seleccionar tubo...</option>
+              {availableTubes.map(t => (
+                <option key={t.id} value={String(t.id)}>{t.identifier}</option>
+              ))}
+            </select>
+          </div>
+          {/* Seleccionar via do tubo */}
+          {fusionTubeId && (
+            <div>
+              <label className="text-xs text-zinc-400 mb-1 block">Via do tubo</label>
+              <select
+                value={fusionViaId}
+                onChange={e => setFusionViaId(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+              >
+                <option value="">Seleccionar via...</option>
+                {allVias
+                  .filter(v => v.tubeId === parseInt(fusionTubeId))
+                  .filter(v => !v.fusedToViaId)
+                  .filter(v => !associations.find(a =>
+                    (a.sourceType === "tube_via" && a.sourceViaId === v.id) ||
+                    (a.targetType === "tube_via" && a.targetViaId === v.id)
+                  ))
+                  .map(v => (
+                    <option key={v.id} value={String(v.id)}>
+                      Via {v.viaNumber}{v.label ? ` — ${v.label}` : ""}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+          {/* Botão confirmar */}
+          {fusionTubeId && fusionViaId && (
+            <button
+              onClick={async () => {
+                setSaving(true); setError(null);
+                try {
+                  await (client as any).ceoViaAssociations.create.mutate({
+                    ceoId: selected.id,
+                    sourceType: "splitter_via",
+                    sourceViaId: parseInt(assocSplitterViaId),
+                    targetType: "tube_via",
+                    targetViaId: parseInt(fusionViaId),
+                  });
+                  await loadAssociations(selected.id);
+                  setAssocSplitterId("");
+                  setAssocSplitterViaId("");
+                  setFusionTubeId("");
+                  setFusionViaId("");
+                  setView("splitterVias");
+                } catch (e: any) { setError(e?.message ?? "Erro ao criar associação"); }
+                finally { setSaving(false); }
+              }}
+              disabled={saving}
+              className="w-full bg-emerald-500 text-zinc-900 font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {saving
+                ? <div className="w-4 h-4 border-2 border-zinc-900/30 border-t-zinc-900 rounded-full animate-spin" />
+                : <><ArrowRightLeft className="w-4 h-4" /> Confirmar Associação</>}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
   // ═══════════════════════════════════════════════════════════════════════════
   // VIEW: VIAS (lista de vias de um tubo)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1244,7 +1497,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
               </button>
             </div>
           ) : assocLbl ? (
-            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3">
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ArrowRightLeft className="w-4 h-4 text-emerald-400" />
                 <div>
@@ -1252,6 +1505,25 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
                   <p className="text-[11px] text-emerald-200/70">{assocLbl}</p>
                 </div>
               </div>
+              {isOnline() && (
+                <button
+                  onClick={async () => {
+                    const assoc = associations.find(a => a.sourceViaId === selectedVia.id || a.targetViaId === selectedVia.id);
+                    if (!assoc) return;
+                    setSaving(true); setError(null);
+                    try {
+                      await (client as any).ceoViaAssociations.delete.mutate({ id: assoc.id });
+                      await loadAssociations(selected!.id);
+                      setSelectedVia({ ...selectedVia });
+                    } catch (e: any) { setError(e?.message ?? "Erro ao remover associação"); }
+                    finally { setSaving(false); }
+                  }}
+                  disabled={saving}
+                  className="flex items-center gap-1 text-xs text-red-400 border border-red-500/30 bg-red-500/10 rounded-lg px-2.5 py-1.5"
+                >
+                  <Link2Off className="w-3.5 h-3.5" /> Remover
+                </button>
+              )}
             </div>
           ) : (
             /* Definir fusão */
@@ -1314,6 +1586,72 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
             )
           )}
 
+          {/* Associar a via de splitter (apenas se não há fusão nem associação) */}
+          {!isFused && !assocLbl && isOnline() && splitters.length > 0 && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-3">
+              <p className="text-xs font-semibold text-zinc-300">Associar a Via de Splitter</p>
+              <div>
+                <label className="text-xs text-zinc-400 mb-1 block">Splitter</label>
+                <select
+                  value={assocSplitterId}
+                  onChange={e => { setAssocSplitterId(e.target.value); setAssocSplitterViaId(""); }}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">Selecionar splitter...</option>
+                  {splitters.map(sp => (
+                    <option key={sp.id} value={String(sp.id)}>{sp.identifier} ({sp.ratio})</option>
+                  ))}
+                </select>
+              </div>
+              {assocSplitterId && (
+                <div>
+                  <label className="text-xs text-zinc-400 mb-1 block">Via do splitter</label>
+                  <select
+                    value={assocSplitterViaId}
+                    onChange={e => setAssocSplitterViaId(e.target.value)}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="">Selecionar via...</option>
+                    {allSplitterVias
+                      .filter(sv => sv.splitterId === parseInt(assocSplitterId))
+                      .filter(sv => !associations.find(a =>
+                        (a.sourceType === "splitter_via" && a.sourceViaId === sv.id) ||
+                        (a.targetType === "splitter_via" && a.targetViaId === sv.id)
+                      ))
+                      .map(sv => (
+                        <option key={sv.id} value={String(sv.id)}>
+                          Via {sv.viaNumber}{sv.label ? ` — ${sv.label}` : ""}{sv.lossDb != null ? ` (${sv.lossDb} dB)` : ""}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+              {assocSplitterId && assocSplitterViaId && (
+                <button
+                  onClick={async () => {
+                    setSaving(true); setError(null);
+                    try {
+                      await (client as any).ceoViaAssociations.create.mutate({
+                        ceoId: selected!.id,
+                        sourceType: "tube_via",
+                        sourceViaId: selectedVia.id,
+                        targetType: "splitter_via",
+                        targetViaId: parseInt(assocSplitterViaId),
+                      });
+                      await loadAssociations(selected!.id);
+                      setAssocSplitterId("");
+                      setAssocSplitterViaId("");
+                    } catch (e: any) { setError(e?.message ?? "Erro ao criar associação"); }
+                    finally { setSaving(false); }
+                  }}
+                  disabled={saving}
+                  className="w-full bg-emerald-500 text-zinc-900 font-semibold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2"
+                >
+                  {saving ? <div className="w-4 h-4 border-2 border-zinc-900/30 border-t-zinc-900 rounded-full animate-spin" /> : <><ArrowRightLeft className="w-4 h-4" /> Associar Via</>}
+                </button>
+              )}
+            </div>
+          )}
           {/* Editar etiqueta */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-3">
             <p className="text-xs font-semibold text-zinc-300">Etiqueta e Observações</p>

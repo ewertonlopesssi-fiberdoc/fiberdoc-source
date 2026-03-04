@@ -814,3 +814,47 @@ export const ceoViaAssociations = mysqlTable("ceo_via_associations", {
 });
 export type CeoViaAssociation = typeof ceoViaAssociations.$inferSelect;
 export type InsertCeoViaAssociation = typeof ceoViaAssociations.$inferInsert;
+
+// ─── SSH Commander ────────────────────────────────────────────────────────────
+// Credenciais SSH por equipamento (password encriptado com AES-256)
+export const sshCredentials = mysqlTable("ssh_credentials", {
+  id: int("id").autoincrement().primaryKey(),
+  equipmentId: int("equipmentId").notNull().unique(), // FK equipments.id
+  sshUser: varchar("sshUser", { length: 128 }).notNull(),
+  sshPasswordEnc: text("sshPasswordEnc").notNull(),   // AES-256-GCM encriptado
+  sshPort: int("sshPort").notNull().default(22),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type SshCredential = typeof sshCredentials.$inferSelect;
+export type InsertSshCredential = typeof sshCredentials.$inferInsert;
+
+// Comandos SSH (cada comando pode ter múltiplas linhas e parâmetros variáveis)
+export const sshCommands = mysqlTable("ssh_commands", {
+  id: int("id").autoincrement().primaryKey(),
+  equipmentId: int("equipmentId").notNull(),          // FK equipments.id
+  name: varchar("name", { length: 128 }).notNull(),
+  description: text("description"),
+  commandLines: text("commandLines").notNull(),        // JSON: string[]
+  sleepMs: int("sleepMs").notNull().default(300),      // sleep entre linhas (ms)
+  confirmMode: mysqlEnum("ssh_confirm_mode", ["none", "auto_y", "auto_n", "manual"]).notNull().default("none"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type SshCommand = typeof sshCommands.$inferSelect;
+export type InsertSshCommand = typeof sshCommands.$inferInsert;
+
+// Histórico de execuções SSH
+export const sshExecutionLog = mysqlTable("ssh_execution_log", {
+  id: int("id").autoincrement().primaryKey(),
+  equipmentId: int("equipmentId").notNull(),
+  commandId: int("commandId"),                         // null se executado ad-hoc
+  commandName: varchar("commandName", { length: 128 }).notNull(),
+  params: text("params"),                              // JSON: {key: value}
+  output: text("output").notNull(),
+  success: boolean("success").notNull().default(true),
+  executedBy: varchar("executedBy", { length: 128 }),
+  executedAt: timestamp("executedAt").defaultNow().notNull(),
+});
+export type SshExecutionLog = typeof sshExecutionLog.$inferSelect;

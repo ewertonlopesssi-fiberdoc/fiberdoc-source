@@ -1,0 +1,1 @@
+ALTER TABLE `ssh_commands` ADD `ssh_confirm_mode` enum('none','auto_y','auto_n','manual') DEFAULT 'none' NOT NULL;

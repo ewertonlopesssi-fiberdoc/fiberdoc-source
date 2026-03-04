@@ -323,6 +323,63 @@ async function startServer() {
     }
   });
 
+  // ─── SSH Commander: execução em streaming (SSE) ────────────────────────────────────
+  app.get("/api/ssh/execute-stream", async (req, res) => {
+    const { equipmentId, commandId, params, sessionId } = req.query as Record<string, string>;
+    if (!equipmentId || !commandId || !sessionId) {
+      return res.status(400).json({ error: "Parâmetros obrigatórios em falta" });
+    }
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+    try {
+      const sshMod = await import("../ssh");
+      const { getDb } = await import("../db");
+      const schema = await import("../../drizzle/schema");
+      const { eq: eqD } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) { res.write(`data: ${JSON.stringify({ type: "error", data: "DB indisponível" })}\n\n`); return res.end(); }
+      const cred = await sshMod.getSshCredential(parseInt(equipmentId));
+      if (!cred) { res.write(`data: ${JSON.stringify({ type: "error", data: "Credenciais SSH não configuradas" })}\n\n`); return res.end(); }
+      const cmdRows = await db.select().from(schema.sshCommands).where(eqD(schema.sshCommands.id, parseInt(commandId)));
+      const cmd = cmdRows[0];
+      if (!cmd) { res.write(`data: ${JSON.stringify({ type: "error", data: "Comando não encontrado" })}\n\n`); return res.end(); }
+      const equipRows = await db.select().from(schema.equipments).where(eqD(schema.equipments.id, parseInt(equipmentId)));
+      const equip = equipRows[0];
+      if (!equip) { res.write(`data: ${JSON.stringify({ type: "error", data: "Equipamento não encontrado" })}\n\n`); return res.end(); }
+      let password: string;
+      try { password = sshMod.decryptPassword(cred.sshPasswordEnc); }
+      catch { res.write(`data: ${JSON.stringify({ type: "error", data: "Erro ao desencriptar credenciais" })}\n\n`); return res.end(); }
+      const rawLines = JSON.parse(cmd.commandLines) as string[];
+      const parsedParams: Record<string, string> = params ? JSON.parse(decodeURIComponent(params)) : {};
+      const lines = sshMod.applyParams(rawLines, parsedParams);
+      const host = (equip as any).ipAddress ?? equip.name;
+      const confirmMode = (cmd as any).confirmMode ?? "none";
+      req.on("close", () => {
+        const sess = sshMod.getActiveSession(sessionId);
+        if (sess) { try { sess.conn.end(); } catch {} }
+      });
+      const result = await sshMod.executeSshCommand(host, cred.sshPort, cred.sshUser, password, lines, cmd.sleepMs, confirmMode as any, sessionId, res);
+      if (confirmMode !== "manual") {
+        await db.insert(schema.sshExecutionLog).values({
+          equipmentId: parseInt(equipmentId), commandId: parseInt(commandId),
+          commandName: cmd.name, params: params ?? null,
+          output: result.output, success: result.success, executedBy: "stream",
+        }).catch(() => {});
+      }
+    } catch (err: any) {
+      if (!res.writableEnded) { res.write(`data: ${JSON.stringify({ type: "error", data: err.message })}\n\n`); res.end(); }
+    }
+  });
+  // Responder confirmação interactiva (Y/N)
+  app.post("/api/ssh/confirm", express.json(), async (req, res) => {
+    const { sessionId, answer } = req.body as { sessionId: string; answer: "y" | "n" };
+    if (!sessionId || !answer) return res.status(400).json({ error: "sessionId e answer são obrigatórios" });
+    const { respondToConfirm } = await import("../ssh");
+    const ok = respondToConfirm(sessionId, answer);
+    res.json({ ok });
+  });
   app.use(
     "/api/trpc",
     createExpressMiddleware({

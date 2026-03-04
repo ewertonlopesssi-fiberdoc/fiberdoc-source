@@ -1172,3 +1172,41 @@
 - [x] Verificar e corrigir layout mobile: dialog de fusão funcional no mobile
 - [x] Verificar e corrigir layout mobile: dialog de associação funcional no mobile
 - [x] Verificar e corrigir layout mobile: relatório de impressão acessível no mobile
+
+## v6.5 — Funcionalidades Mobile + Update Automático
+
+- [ ] Criar splitters directamente no mobile (formulário na view bandejaDetail)
+- [ ] Criar associações de vias no mobile (via tubo ↔ via splitter na view editVia)
+- [ ] Remover associação de via no mobile (botão na view editVia)
+- [ ] Criar associação a partir de via de splitter no mobile (na view splitterVias)
+- [ ] Página de actualização automática via upload de ZIP no frontend desktop (SystemSettings já tem endpoint, adicionar UI)
+
+## SSH Commander (v6.5)
+
+- [ ] Concluir view setSplitterAssociation no mobile (associar via de splitter a via de tubo)
+- [ ] Tabela ssh_credentials (equipmentId, sshUser, sshPassword encriptado, sshPort, sshKeyPath)
+- [ ] Tabela ssh_commands (name, description, commandLines JSON, sleepMs, equipmentId)
+- [ ] Migration SQL para ssh_credentials e ssh_commands
+- [ ] Procedure ssh.saveCredentials (admin) — guardar credenciais SSH de um equipamento
+- [ ] Procedure ssh.getCredentials — listar equipamentos com SSH configurado
+- [ ] Procedure ssh.listCommands — listar comandos de um equipamento
+- [ ] Procedure ssh.createCommand — criar comando com linhas e parâmetros variáveis
+- [ ] Procedure ssh.updateCommand — editar comando
+- [ ] Procedure ssh.deleteCommand — remover comando
+- [ ] Procedure ssh.execute — conectar via SSH, executar linhas com sleep, devolver output
+- [ ] Separador SSH no formulário de edição de equipamento (user, password, porta)
+- [ ] Página SSH Commander no desktop (abaixo de Equipamentos no menu)
+- [ ] Lista de equipamentos com SSH configurado
+- [ ] Vista de comandos por equipamento (1 clique para executar)
+- [ ] Modal de parâmetros variáveis antes de executar (detecta {param} nas linhas)
+- [ ] Janela de output tipo terminal (fundo preto, texto verde/branco)
+- [ ] Formulário de criação/edição de comando (nome, descrição, linhas, sleep)
+- [ ] UI mobile do SSH Commander (seleccionar equipamento → comandos → executar)
+- [ ] Testes unitários para procedures SSH
+- [ ] Posição no menu: abaixo de Equipamentos
+- [ ] Campo confirmMode (none|auto_y|auto_n|manual) na tabela ssh_commands
+- [ ] Migration SQL para confirmMode
+- [ ] Lógica SSH: detectar [Y/N] no output e responder conforme confirmMode
+- [ ] Para modo manual: SSE streaming para enviar output parcial ao frontend
+- [ ] UI desktop: selector confirmMode no formulário de comando
+- [ ] UI desktop: terminal interactivo com botões Y/N quando modo=manual

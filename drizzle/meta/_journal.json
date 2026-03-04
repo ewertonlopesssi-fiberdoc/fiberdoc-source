@@ -281,6 +281,20 @@
       "when": 1772578583635,
       "tag": "0039_nebulous_vengeance",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "5",
+      "when": 1772591565961,
+      "tag": "0040_medical_lockheed",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "5",
+      "when": 1772592453566,
+      "tag": "0041_third_ravenous",
+      "breakpoints": true
     }
   ]
 }

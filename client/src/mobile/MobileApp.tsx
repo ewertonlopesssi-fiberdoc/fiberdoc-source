@@ -8,9 +8,10 @@ import MobileCtos from "./screens/MobileCtos";
 import MobileMap from "./screens/MobileMap";
 import MobileReport from "./screens/MobileReport";
 import MobileProfile from "./screens/MobileProfile";
-import { Server, Cable, BarChart2, User, WifiOff, Radio, Map } from "lucide-react";
+import MobileSshCommander from "./screens/MobileSshCommander";
+import { Server, Cable, BarChart2, User, WifiOff, Radio, Map, Terminal } from "lucide-react";
 
-type Tab = "equipamentos" | "ceos" | "ctos" | "mapa" | "relatorio" | "perfil";
+type Tab = "equipamentos" | "ceos" | "ctos" | "mapa" | "relatorio" | "ssh" | "perfil";
 
 function MobileShell() {
   const { isConfigured, isAuthenticated } = useMobileAuth();
@@ -65,6 +66,7 @@ function MobileShell() {
     { id: "ctos",         label: "CTO",       icon: Radio     },
     { id: "mapa",         label: "Mapa",      icon: Map       },
     { id: "relatorio",    label: "Relatório", icon: BarChart2 },
+    { id: "ssh",          label: "SSH",       icon: Terminal  },
     { id: "perfil",       label: "Perfil",    icon: User      },
   ];
 
@@ -85,6 +87,7 @@ function MobileShell() {
         {activeTab === "ctos"         && <MobileCtos initialCtoId={deepCtoId} onDeepLinkConsumed={() => setDeepCtoId(null)} />}
         {activeTab === "mapa"         && <MobileMap onOpenDetail={handleOpenDetail} />}
         {activeTab === "relatorio"    && <MobileReport />}
+        {activeTab === "ssh"          && <MobileSshCommander />}
         {activeTab === "perfil"       && <MobileProfile />}
       </div>
 

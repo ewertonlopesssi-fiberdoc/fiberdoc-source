@@ -36,6 +36,7 @@ import Ctos from "./pages/Ctos";
 import CtoImport from "./pages/CtoImport";
 import InfrastructureMap from "./pages/InfrastructureMap";
 import SgpConfig from "./pages/SgpConfig";
+import SshCommander from "./pages/SshCommander";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
@@ -98,6 +99,7 @@ function Router() {
         <Route path={"/cto/importar"} component={CtoImport} />
         <Route path={"/mapa"} component={InfrastructureMap} />
         <Route path={"/sgp"} component={SgpConfig} />
+        <Route path={"/ssh-commander"} component={SshCommander} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>
