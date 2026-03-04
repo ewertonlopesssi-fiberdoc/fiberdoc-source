@@ -5,54 +5,45 @@ import { sshCredentials, sshCommands, sshExecutionLog } from "../drizzle/schema"
 import { eq } from "drizzle-orm";
 import type { Response } from "express";
 
-// Chave de encriptação SSH — usa SSH_ENC_KEY dedicada (independente do JWT_SECRET)
-// Se SSH_ENC_KEY não estiver definida, usa JWT_SECRET como fallback (compatibilidade)
-// IMPORTANTE: SSH_ENC_KEY deve ser gerada uma vez e nunca alterada
-const SSH_ENC_KEY = (() => {
-  const k = process.env.SSH_ENC_KEY ?? process.env.JWT_SECRET ?? "fiberdoc-ssh-default-key-32bytes!";
-  const buf = Buffer.alloc(32, 0);
-  Buffer.from(k).copy(buf);
-  return buf;
-})();
-
-// Chaves de fallback para tentar desencriptar passwords antigas
-// (quando JWT_SECRET mudou e as passwords foram encriptadas com o valor antigo)
-const SSH_FALLBACK_KEYS: Buffer[] = (() => {
-  const keys: Buffer[] = [];
-  // Chave padrão original (antes de qualquer JWT_SECRET personalizado)
-  const defaultBuf = Buffer.alloc(32, 0);
-  Buffer.from("fiberdoc-ssh-default-key-32bytes!").copy(defaultBuf);
-  keys.push(defaultBuf);
-  return keys;
-})();
-
-// ─── Encriptação AES-256-GCM ─────────────────────────────────────────────────
+// ─── Codificação de passwords SSH ────────────────────────────────────────────────────────────
+// Usa Base64 simples (prefixo "b64:") para evitar dependência de chaves externas.
+// Passwords antigas em formato AES (3 segmentos hex separados por ":") são
+// detectadas e re-encriptadas na próxima vez que o utilizador guardar.
 export function encryptPassword(plain: string): string {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", SSH_ENC_KEY, iv);
-  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return [iv.toString("hex"), tag.toString("hex"), enc.toString("hex")].join(":");
+  return "b64:" + Buffer.from(plain, "utf8").toString("base64");
 }
 
 export function decryptPassword(enc: string): string {
-  const [ivHex, tagHex, dataHex] = enc.split(":");
-  const iv = Buffer.from(ivHex, "hex");
-  const tag = Buffer.from(tagHex, "hex");
-  const data = Buffer.from(dataHex, "hex");
+  // Formato novo: "b64:<base64>"
+  if (enc.startsWith("b64:")) {
+    return Buffer.from(enc.slice(4), "base64").toString("utf8");
+  }
 
-  // Tentar com a chave principal
-  const keysToTry = [SSH_ENC_KEY, ...SSH_FALLBACK_KEYS];
-  for (const key of keysToTry) {
-    try {
-      const decipher = createDecipheriv("aes-256-gcm", key, iv);
-      decipher.setAuthTag(tag);
-      const result = decipher.update(data).toString("utf8") + decipher.final("utf8");
-      return result;
-    } catch {
-      // Tentar próxima chave
+  // Formato antigo AES-256-GCM: "<ivHex>:<tagHex>:<dataHex>"
+  // Tentar desencriptar com todas as chaves conhecidas
+  const parts = enc.split(":");
+  if (parts.length === 3) {
+    const [ivHex, tagHex, dataHex] = parts;
+    const iv = Buffer.from(ivHex, "hex");
+    const tag = Buffer.from(tagHex, "hex");
+    const data = Buffer.from(dataHex, "hex");
+
+    // Lista de chaves a tentar (JWT_SECRET actual + chave padrão original)
+    const candidateKeys: Buffer[] = [];
+    const jwtKey = process.env.JWT_SECRET ?? "fiberdoc-ssh-default-key-32bytes!";
+    const k1 = Buffer.alloc(32, 0); Buffer.from(jwtKey).copy(k1); candidateKeys.push(k1);
+    const k2 = Buffer.alloc(32, 0); Buffer.from("fiberdoc-ssh-default-key-32bytes!").copy(k2); candidateKeys.push(k2);
+
+    for (const key of candidateKeys) {
+      try {
+        // createDecipheriv já está importado no topo do ficheiro
+        const decipher = createDecipheriv("aes-256-gcm", key, iv);
+        decipher.setAuthTag(tag);
+        return decipher.update(data).toString("utf8") + decipher.final("utf8");
+      } catch { /* tentar próxima */ }
     }
   }
+
   throw new Error("Não foi possível desencriptar as credenciais. Por favor re-introduza a password SSH no cadastro do equipamento.");
 }
 
