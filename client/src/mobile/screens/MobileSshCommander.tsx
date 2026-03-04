@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import {
   Terminal, Server, Play, ChevronRight, ChevronLeft,
   Loader2, CheckCircle2, XCircle, AlertTriangle, Clock,
@@ -75,8 +76,19 @@ export default function MobileSshCommander() {
     { enabled: !!selectedEquip }
   );
 
+  const utils = trpc.useUtils();
   const deleteCmdMut = trpc.sshCommander.deleteCommand.useMutation({
-    onSuccess: () => refetchCmds(),
+    onSuccess: () => { refetchCmds(); toast.success("Comando removido"); },
+    onError: (e) => toast.error("Erro ao remover: " + e.message),
+  });
+  const clearSshMut = trpc.sshCommander.clearSshCredentials.useMutation({
+    onSuccess: () => {
+      utils.sshCommander.listEquipmentsWithSsh.invalidate();
+      setSelectedEquip(null);
+      setView("equipList");
+      toast.success("Credenciais SSH removidas");
+    },
+    onError: (e) => toast.error("Erro: " + e.message),
   });
 
   // ─── Execução SSH via SSE ─────────────────────────────────────────────────
@@ -177,19 +189,30 @@ export default function MobileSshCommander() {
             </div>
           )}
           {(equipList as SshEquipment[]).map(eq => (
-            <button
-              key={eq.id}
-              onClick={() => { setSelectedEquip(eq); setView("cmdList"); }}
-              className="w-full text-left p-4 rounded-xl bg-zinc-900 border border-zinc-700 active:bg-zinc-800 transition-colors"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-white">{eq.name}</p>
-                  <p className="text-xs text-zinc-400 mt-0.5">{eq.type} · {eq.sshUser}</p>
+            <div key={eq.id} className="flex items-center gap-2">
+              <button
+                onClick={() => { setSelectedEquip(eq); setView("cmdList"); }}
+                className="flex-1 text-left p-4 rounded-xl bg-zinc-900 border border-zinc-700 active:bg-zinc-800 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-white">{eq.name}</p>
+                    <p className="text-xs text-zinc-400 mt-0.5">{eq.type} · {eq.sshUser}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-zinc-500" />
                 </div>
-                <ChevronRight className="w-4 h-4 text-zinc-500" />
-              </div>
-            </button>
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm(`Remover credenciais SSH de "${eq.name}"?`)) {
+                    clearSshMut.mutate({ equipmentId: eq.id });
+                  }
+                }}
+                className="p-3 rounded-xl bg-zinc-900 border border-zinc-700 active:bg-zinc-800 text-zinc-500 active:text-red-400"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
           ))}
         </div>
       </div>

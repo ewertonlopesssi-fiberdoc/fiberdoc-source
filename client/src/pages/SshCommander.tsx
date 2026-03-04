@@ -158,8 +158,14 @@ function CommandForm({
   const [sleepMs, setSleepMs] = useState(String(initial?.sleepMs ?? 300));
   const [confirmMode, setConfirmMode] = useState<ConfirmMode>(initial?.confirmMode ?? "none");
 
-  const create = trpc.sshCommander.createCommand.useMutation({ onSuccess: onSave });
-  const update = trpc.sshCommander.updateCommand.useMutation({ onSuccess: onSave });
+  const create = trpc.sshCommander.createCommand.useMutation({
+    onSuccess: onSave,
+    onError: (e) => toast.error("Erro ao criar comando: " + e.message),
+  });
+  const update = trpc.sshCommander.updateCommand.useMutation({
+    onSuccess: onSave,
+    onError: (e) => toast.error("Erro ao actualizar comando: " + e.message),
+  });
 
   const handleSave = () => {
     const commandLines = lines.split("\n").map(l => l.trim()).filter(Boolean);
@@ -309,6 +315,16 @@ export default function SshCommander() {
     onSuccess: () => { refetchCmds(); toast.success("Comando removido"); },
   });
 
+  const utils = trpc.useUtils();
+  const clearSshMut = trpc.sshCommander.clearSshCredentials.useMutation({
+    onSuccess: () => {
+      utils.sshCommander.listEquipmentsWithSsh.invalidate();
+      if (selectedEquip) setSelectedEquip(null);
+      toast.success("Credenciais SSH removidas do equipamento");
+    },
+    onError: (e) => toast.error("Erro ao remover credenciais: " + e.message),
+  });
+
   // ─── Execução SSH via SSE ────────────────────────────────────────────────
   const executeCommand = useCallback((cmd: SshCommand, params: Record<string, string> = {}) => {
     if (!selectedEquip) return;
@@ -450,23 +466,47 @@ export default function SshCommander() {
                 </div>
               )}
               {filteredEquipList.map((eq) => (
-                <button
+                <div
                   key={eq.id}
-                  onClick={() => { setSelectedEquip(eq); setTerminalLines([]); setLastResult(null); }}
-                  className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                  className={`group relative rounded-lg border transition-colors ${
                     selectedEquip?.id === eq.id
                       ? "border-cyan-500 bg-cyan-950/30"
                       : "border-zinc-700 bg-zinc-900 hover:border-zinc-500"
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{eq.name}</p>
-                      <p className="text-xs text-zinc-400">{eq.type} · {eq.sshUser ?? "—"}</p>
+                  <button
+                    onClick={() => { setSelectedEquip(eq); setTerminalLines([]); setLastResult(null); }}
+                    className="w-full text-left p-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 pr-6">
+                        <p className="text-sm font-medium text-white truncate">{eq.name}</p>
+                        <p className="text-xs text-zinc-400">{eq.type} · {eq.sshUser ?? "—"}</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-zinc-500 shrink-0" />
                     </div>
-                    <ChevronRight className="w-4 h-4 text-zinc-500 shrink-0" />
-                  </div>
-                </button>
+                  </button>
+                  {isAdmin && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm(`Remover credenciais SSH de "${eq.name}"? O equipamento sairá da lista do SSH Commander.`)) {
+                                clearSshMut.mutate({ equipmentId: eq.id });
+                              }
+                            }}
+                            className="absolute top-2 right-8 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-zinc-800"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">Remover credenciais SSH</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                </div>
               ))}
             </div>
           </div>

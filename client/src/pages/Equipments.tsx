@@ -425,9 +425,9 @@ export default function Equipments() {
       interfaceIp: form.interfaceIp || undefined,
       ipBlockId: form.ipBlockId ? parseInt(form.ipBlockId) : undefined,
       serviceDescription: form.serviceDescription || undefined,
-      sshUser: form.sshUser || undefined,
-      sshPassword: form.sshPassword || undefined,
-      sshPort: form.sshPort ? parseInt(form.sshPort) : undefined,
+      sshUser: form.sshUser || null,
+      sshPassword: form.sshPassword || null,
+      sshPort: form.sshPort ? parseInt(form.sshPort) : null,
     };
     if (editId) {
       updateMutation.mutate({ id: editId, ...payload });

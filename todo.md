@@ -1219,3 +1219,13 @@
 - [ ] SSH Commander usa credenciais do equipamento directamente (sem modal separado)
 - [ ] Selector de equipamentos no SSH Commander com pesquisa/filtro
 - [ ] Remover modal de credenciais separado do SSH Commander
+- [ ] Bug: SSH Commander — sem botão para remover equipamento da lista
+- [ ] Bug: Credenciais SSH (sshUser/sshPassword/sshPort) não guardam no cadastro de equipamento
+- [ ] Bug: Criar comando SSH não dá feedback de sucesso/erro
+
+## v6.5.4 — Correcções de bugs SSH Commander
+- [x] Bug fix: getEquipments agora inclui sshUser e sshPort na listagem
+- [x] Bug fix: Credenciais SSH guardam correctamente (frontend envia null em vez de undefined)
+- [x] Bug fix: Botão de remover credenciais SSH adicionado na lista do SSH Commander (desktop e mobile)
+- [x] Bug fix: Procedure clearSshCredentials adicionada ao router sshCommander
+- [x] Bug fix: onError adicionado ao CommandForm para mostrar erros ao criar/actualizar comandos

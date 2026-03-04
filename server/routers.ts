@@ -3294,27 +3294,25 @@ ${fiberFolder}
       const db = await (await import("./db")).getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const cred = await getSshCredential(input.equipmentId);
-      if (!cred) throw new TRPCError({ code: "NOT_FOUND", message: "Credenciais SSH não configuradas para este equipamento" });
-
-      const cmdRows = await db.select().from(sshCommandsTable).where(eqOp(sshCommandsTable.id, input.commandId));
-      const cmd = cmdRows[0];
-      if (!cmd) throw new TRPCError({ code: "NOT_FOUND", message: "Comando não encontrado" });
-
+       // Buscar equipamento (credenciais SSH estão na tabela equipments)
       const equipRows = await db.select().from(equipmentsTable).where(eqOp(equipmentsTable.id, input.equipmentId));
       const equip = equipRows[0];
       if (!equip) throw new TRPCError({ code: "NOT_FOUND", message: "Equipamento não encontrado" });
-
+      const sshUser = (equip as any).sshUser as string | null;
+      const sshPasswordEnc = (equip as any).sshPasswordEnc as string | null;
+      const sshPort = (equip as any).sshPort as number | null ?? 22;
+      if (!sshUser || !sshPasswordEnc) throw new TRPCError({ code: "NOT_FOUND", message: "Credenciais SSH não configuradas para este equipamento. Configure em Equipamentos → editar → secção SSH." });
+      const cmdRows = await db.select().from(sshCommandsTable).where(eqOp(sshCommandsTable.id, input.commandId));
+      const cmd = cmdRows[0];
+      if (!cmd) throw new TRPCError({ code: "NOT_FOUND", message: "Comando não encontrado" });
       let password: string;
-      try { password = decryptPassword(cred.sshPasswordEnc); }
+      try { password = decryptPassword(sshPasswordEnc); }
       catch { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao desencriptar credenciais" }); }
-
       const rawLines = JSON.parse(cmd.commandLines) as string[];
       const lines = applyParams(rawLines, input.params ?? {});
-
       const host = (equip as any).ipAddress ?? equip.name;
       const confirmMode = (cmd as any).confirmMode ?? "none";
-      const result = await executeSshCommand(host, cred.sshPort, cred.sshUser, password, lines, cmd.sleepMs, confirmMode);
+      const result = await executeSshCommand(host, sshPort, sshUser, password, lines, cmd.sleepMs, confirmMode);
 
       await db.insert(sshExecLogTable).values({
         equipmentId: input.equipmentId,
@@ -3334,6 +3332,17 @@ ${fiberFolder}
     .input(z.object({ equipmentId: z.number(), limit: z.number().int().min(1).max(100).default(20) }))
     .query(async ({ input }) => {
       return getRecentExecutionLog(input.equipmentId, input.limit);
+    }),
+  // Limpar credenciais SSH de um equipamento (remove do SSH Commander)
+  clearSshCredentials: protectedProcedure
+    .input(z.object({ equipmentId: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await (await import("./db")).getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.update(equipmentsTable)
+        .set({ sshUser: null, sshPasswordEnc: null, sshPort: 22 } as any)
+        .where(eqOp(equipmentsTable.id, input.equipmentId));
+      return { success: true };
     }),
   }),
 });

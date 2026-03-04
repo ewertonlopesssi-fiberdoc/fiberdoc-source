@@ -200,6 +200,10 @@ export async function getEquipments(search?: string, type?: string, roomId?: num
     powerSourceId: equipments.powerSourceId,
     // Altura em rack
     rackUnits: equipments.rackUnits,
+    // Campos SSH
+    sshUser: equipments.sshUser,
+    sshPort: equipments.sshPort,
+    // Nota: sshPasswordEnc não é retornado na listagem por segurança
   }).from(equipments).leftJoin(rooms, eq(equipments.roomId, rooms.id));
   const rows = conditions.length > 0
     ? await query.where(and(...conditions)).orderBy(equipments.name)
