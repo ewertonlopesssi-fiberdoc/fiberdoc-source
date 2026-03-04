@@ -262,6 +262,8 @@ export default function SshCommander() {
 
   // Equipamentos com SSH configurado
   const { data: equipList = [], refetch: refetchEquip } = trpc.sshCommander.listEquipmentsWithSsh.useQuery();
+  // Todos os equipamentos (para o selector do modal de credenciais)
+  const { data: allEquipments = [] } = trpc.equipments.list.useQuery({});
 
   // Equipamento seleccionado
   const [selectedEquip, setSelectedEquip] = useState<SshEquipment | null>(null);
@@ -630,7 +632,7 @@ export default function SshCommander() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {credEquipId === 0 && (
+            {credEquipId === null && (
               <div className="space-y-1.5">
                 <Label>Equipamento</Label>
                 <Select onValueChange={v => setCredEquipId(parseInt(v))}>
@@ -638,8 +640,8 @@ export default function SshCommander() {
                     <SelectValue placeholder="Seleccionar equipamento..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {equipList.map((eq: SshEquipment) => (
-                      <SelectItem key={eq.id} value={String(eq.id)}>{eq.name}</SelectItem>
+                    {(allEquipments as any[]).map((eq: any) => (
+                      <SelectItem key={eq.id} value={String(eq.id)}>{eq.name} {eq.type ? `(${eq.type})` : ""}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
