@@ -1,18 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
   Terminal, Server, Play, Plus, Pencil, Trash2, ChevronRight,
-  ChevronLeft, Settings, Clock, CheckCircle2, XCircle, Loader2,
-  Key, AlertTriangle, Info, HelpCircle,
+  Clock, CheckCircle2, XCircle, Loader2,
+  AlertTriangle, HelpCircle, Search, Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -26,12 +27,14 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 type ConfirmMode = "none" | "auto_y" | "auto_n" | "manual";
 
-interface SshEquipment {
+type SshEquipment = {
   id: number;
   name: string;
   type: string;
-  sshUser: string;
-}
+  sshUser?: string | null;
+  sshPort?: number | null;
+  [key: string]: unknown;
+};
 
 interface SshCommand {
   id: number;
@@ -259,11 +262,17 @@ function CommandForm({
 export default function SshCommander() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const [, navigate] = useLocation();
 
-  // Equipamentos com SSH configurado
-  const { data: equipList = [], refetch: refetchEquip } = trpc.sshCommander.listEquipmentsWithSsh.useQuery();
-  // Todos os equipamentos (para o selector do modal de credenciais)
-  const { data: allEquipments = [] } = trpc.equipments.list.useQuery({});
+  // Equipamentos com SSH configurado (sshUser preenchido no cadastro)
+  const { data: equipList = [] } = trpc.sshCommander.listEquipmentsWithSsh.useQuery();
+
+  // Pesquisa de equipamentos
+  const [equipSearch, setEquipSearch] = useState("");
+  const filteredEquipList = (equipList as SshEquipment[]).filter(eq =>
+    eq.name.toLowerCase().includes(equipSearch.toLowerCase()) ||
+    (eq.type ?? "").toLowerCase().includes(equipSearch.toLowerCase())
+  );
 
   // Equipamento seleccionado
   const [selectedEquip, setSelectedEquip] = useState<SshEquipment | null>(null);
@@ -287,14 +296,6 @@ export default function SshCommander() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<{ success: boolean } | null>(null);
 
-  // Dialog de credenciais SSH
-  const [showCredDialog, setShowCredDialog] = useState(false);
-  const [credEquipId, setCredEquipId] = useState<number | null>(null);
-  const [credUser, setCredUser] = useState("");
-  const [credPassword, setCredPassword] = useState("");
-  const [credPort, setCredPort] = useState("22");
-  const [credNotes, setCredNotes] = useState("");
-
   // Dialog de novo/editar comando
   const [showCmdDialog, setShowCmdDialog] = useState(false);
   const [editingCmd, setEditingCmd] = useState<SshCommand | null>(null);
@@ -304,11 +305,6 @@ export default function SshCommander() {
   const [pendingCmd, setPendingCmd] = useState<SshCommand | null>(null);
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
 
-  // Mutations
-  const saveCredMut = trpc.sshCommander.saveCredential.useMutation({
-    onSuccess: () => { setShowCredDialog(false); refetchEquip(); toast.success("Credenciais guardadas"); },
-    onError: (err: any) => toast.error("Erro ao guardar credenciais: " + err.message),
-  });
   const deleteCmdMut = trpc.sshCommander.deleteCommand.useMutation({
     onSuccess: () => { refetchCmds(); toast.success("Comando removido"); },
   });
@@ -394,12 +390,6 @@ export default function SshCommander() {
     }
   };
 
-  const handleOpenCredDialog = (equipId: number) => {
-    setCredEquipId(equipId);
-    setCredUser(""); setCredPassword(""); setCredPort("22"); setCredNotes("");
-    setShowCredDialog(true);
-  };
-
   return (
     <DashboardLayout>
       <div className="p-6 space-y-6">
@@ -412,28 +402,54 @@ export default function SshCommander() {
               <p className="text-sm text-zinc-400">Execute comandos nos equipamentos da rede</p>
             </div>
           </div>
+          {isAdmin && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs gap-1.5 border-zinc-600"
+              onClick={() => navigate("/equipments")}
+            >
+              <Settings className="w-3.5 h-3.5" />
+              Gerir Equipamentos SSH
+            </Button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Coluna esquerda: lista de equipamentos */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">Equipamentos</h2>
-              {isAdmin && (
-                <Button size="sm" variant="outline" onClick={() => handleOpenCredDialog(0)} className="h-7 text-xs gap-1">
-                  <Key className="w-3 h-3" /> Configurar SSH
-                </Button>
-              )}
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wider">Equipamentos</h2>
+
+            {/* Pesquisa */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-zinc-500" />
+              <Input
+                value={equipSearch}
+                onChange={e => setEquipSearch(e.target.value)}
+                placeholder="Pesquisar equipamento..."
+                className="pl-8 h-8 text-sm bg-zinc-900 border-zinc-700"
+              />
             </div>
-            <div className="space-y-2">
-              {equipList.length === 0 && (
+
+            <div className="space-y-2 max-h-[calc(100vh-280px)] overflow-y-auto pr-1">
+              {filteredEquipList.length === 0 && (
                 <div className="text-center py-8 text-zinc-500 text-sm">
                   <Server className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p>Nenhum equipamento com SSH configurado.</p>
-                  {isAdmin && <p className="text-xs mt-1">Clique em "Configurar SSH" para adicionar.</p>}
+                  {equipList.length === 0 ? (
+                    <>
+                      <p>Nenhum equipamento com SSH configurado.</p>
+                      {isAdmin && (
+                        <p className="text-xs mt-2">
+                          Vá a <button className="text-cyan-400 underline" onClick={() => navigate("/equipments")}>Equipamentos</button> e preencha os campos SSH no cadastro.
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p>Nenhum resultado para "{equipSearch}"</p>
+                  )}
                 </div>
               )}
-              {equipList.map((eq: SshEquipment) => (
+              {filteredEquipList.map((eq) => (
                 <button
                   key={eq.id}
                   onClick={() => { setSelectedEquip(eq); setTerminalLines([]); setLastResult(null); }}
@@ -444,11 +460,11 @@ export default function SshCommander() {
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-white">{eq.name}</p>
-                      <p className="text-xs text-zinc-400">{eq.type} · {eq.sshUser}</p>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{eq.name}</p>
+                      <p className="text-xs text-zinc-400">{eq.type} · {eq.sshUser ?? "—"}</p>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-zinc-500" />
+                    <ChevronRight className="w-4 h-4 text-zinc-500 shrink-0" />
                   </div>
                 </button>
               ))}
@@ -472,16 +488,10 @@ export default function SshCommander() {
                   </div>
                   <div className="flex items-center gap-2">
                     {isAdmin && (
-                      <>
-                        <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                          onClick={() => handleOpenCredDialog(selectedEquip.id)}>
-                          <Key className="w-3 h-3" /> Credenciais
-                        </Button>
-                        <Button size="sm" className="h-7 text-xs gap-1 bg-cyan-700 hover:bg-cyan-600"
-                          onClick={() => { setEditingCmd(null); setShowCmdDialog(true); }}>
-                          <Plus className="w-3 h-3" /> Novo Comando
-                        </Button>
-                      </>
+                      <Button size="sm" className="h-7 text-xs gap-1 bg-cyan-700 hover:bg-cyan-600"
+                        onClick={() => { setEditingCmd(null); setShowCmdDialog(true); }}>
+                        <Plus className="w-3 h-3" /> Novo Comando
+                      </Button>
                     )}
                     <TabsList className="h-7">
                       <TabsTrigger value="commands" className="text-xs h-6">Comandos</TabsTrigger>
@@ -622,66 +632,6 @@ export default function SshCommander() {
           </div>
         </div>
       </div>
-
-      {/* Dialog: Credenciais SSH */}
-      <Dialog open={showCredDialog} onOpenChange={setShowCredDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Key className="w-4 h-4" /> Configurar Credenciais SSH
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {credEquipId === null && (
-              <div className="space-y-1.5">
-                <Label>Equipamento</Label>
-                <Select onValueChange={v => setCredEquipId(parseInt(v))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar equipamento..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(allEquipments as any[]).map((eq: any) => (
-                      <SelectItem key={eq.id} value={String(eq.id)}>{eq.name} {eq.type ? `(${eq.type})` : ""}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Utilizador SSH *</Label>
-                <Input value={credUser} onChange={e => setCredUser(e.target.value)} placeholder="admin" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Porta SSH</Label>
-                <Input type="number" value={credPort} onChange={e => setCredPort(e.target.value)} min={1} max={65535} />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Password SSH *</Label>
-              <Input type="password" value={credPassword} onChange={e => setCredPassword(e.target.value)} placeholder="••••••••" />
-              <p className="text-xs text-zinc-500">Guardada encriptada (AES-256). Não é possível recuperar o valor original.</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Notas</Label>
-              <Input value={credNotes} onChange={e => setCredNotes(e.target.value)} placeholder="Opcional" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCredDialog(false)}>Cancelar</Button>
-            <Button
-              disabled={saveCredMut.isPending || !credUser || !credPassword || (!credEquipId)}
-              onClick={() => {
-                if (!credEquipId) return;
-                saveCredMut.mutate({ equipmentId: credEquipId, sshUser: credUser, sshPassword: credPassword, sshPort: parseInt(credPort) || 22, notes: credNotes || undefined });
-              }}
-            >
-              {saveCredMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Guardar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Dialog: Novo/Editar Comando */}
       <Dialog open={showCmdDialog} onOpenChange={setShowCmdDialog}>

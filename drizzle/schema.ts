@@ -88,6 +88,10 @@ export const equipments = mysqlTable("equipments", {
   ipBlockId: int("ipBlockId"),                                                // FK para ip_blocks (bloco IP associado)
   serviceDescription: varchar("serviceDescription", { length: 255 }),        // Descrição do serviço (ex: "Core MPLS", "Acesso cliente")
   status: mysqlEnum("status", ["active", "inactive", "maintenance"]).default("active").notNull(),
+  // Campos SSH (para o módulo SSH Commander)
+  sshUser: varchar("sshUser", { length: 64 }),                         // Utilizador SSH (ex: admin)
+  sshPasswordEnc: text("sshPasswordEnc"),                              // Password SSH encriptada (AES-256)
+  sshPort: int("sshPort").default(22),                                 // Porta SSH (default: 22)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

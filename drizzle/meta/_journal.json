@@ -295,6 +295,13 @@
       "when": 1772592453566,
       "tag": "0041_third_ravenous",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "5",
+      "when": 1772594199417,
+      "tag": "0042_dark_bastion",
+      "breakpoints": true
     }
   ]
 }

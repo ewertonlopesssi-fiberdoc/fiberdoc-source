@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `equipments` ADD `sshUser` varchar(64);\nALTER TABLE `equipments` ADD `sshPasswordEnc` text;\nALTER TABLE `equipments` ADD `sshPort` int DEFAULT 22;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute ALTER TABLE `equipments` ADD `sshUser` varchar(64);\nALTER TABLE `equipments` ADD `sshPasswordEnc` text;\nALTER TABLE `equipments` ADD `sshPort` int DEFAULT 22;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1234
+}

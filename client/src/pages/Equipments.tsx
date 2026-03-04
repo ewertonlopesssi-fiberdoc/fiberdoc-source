@@ -135,6 +135,10 @@ type EquipmentForm = {
   interfaceIp: string;
   ipBlockId: string;
   serviceDescription: string;
+  // Campos SSH
+  sshUser: string;
+  sshPassword: string;
+  sshPort: string;
 };
 
 const defaultForm: EquipmentForm = {
@@ -165,6 +169,9 @@ const defaultForm: EquipmentForm = {
   interfaceIp: "",
   ipBlockId: "",
   serviceDescription: "",
+  sshUser: "",
+  sshPassword: "",
+  sshPort: "22",
 };
 
 // ─── Formulário de Interface de Rede ────────────────────────────────────────
@@ -382,6 +389,9 @@ export default function Equipments() {
       interfaceIp: (eq as any).interfaceIp ?? "",
       ipBlockId: (eq as any).ipBlockId?.toString() ?? "",
       serviceDescription: (eq as any).serviceDescription ?? "",
+      sshUser: (eq as any).sshUser ?? "",
+      sshPassword: "",  // nunca pré-preencher a password
+      sshPort: (eq as any).sshPort?.toString() ?? "22",
     });
     setDialogOpen(true);
   }
@@ -415,8 +425,10 @@ export default function Equipments() {
       interfaceIp: form.interfaceIp || undefined,
       ipBlockId: form.ipBlockId ? parseInt(form.ipBlockId) : undefined,
       serviceDescription: form.serviceDescription || undefined,
+      sshUser: form.sshUser || undefined,
+      sshPassword: form.sshPassword || undefined,
+      sshPort: form.sshPort ? parseInt(form.sshPort) : undefined,
     };
-
     if (editId) {
       updateMutation.mutate({ id: editId, ...payload });
     } else {
@@ -942,6 +954,52 @@ export default function Equipments() {
               {editId && (!interfaces || interfaces.length === 0) && (
                 <p className="text-xs text-muted-foreground">Nenhuma interface cadastrada. Clique em "Adicionar Interface" para criar.</p>
               )}
+            </div>
+
+            {/* SSH */}
+            <div className="col-span-2">
+              <div className="flex items-center gap-2 mb-3 mt-1">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                <span className="text-sm font-medium text-foreground">Acesso SSH</span>
+                <span className="text-xs text-muted-foreground">(opcional — usado pelo SSH Commander)</span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Utilizador SSH</Label>
+              <Input
+                value={form.sshUser}
+                onChange={(e) => setForm({ ...form, sshUser: e.target.value })}
+                placeholder="Ex: admin"
+                className="bg-background border-border/50 font-mono"
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Porta SSH</Label>
+              <Input
+                type="number"
+                min={1}
+                max={65535}
+                value={form.sshPort}
+                onChange={(e) => setForm({ ...form, sshPort: e.target.value })}
+                placeholder="22"
+                className="bg-background border-border/50 font-mono"
+              />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label className="flex items-center gap-2">
+                Password SSH
+                {editId && <span className="text-[10px] text-muted-foreground font-normal">(deixe em branco para manter a actual)</span>}
+              </Label>
+              <Input
+                type="password"
+                value={form.sshPassword}
+                onChange={(e) => setForm({ ...form, sshPassword: e.target.value })}
+                placeholder={editId ? "•••••••• (manter actual)" : "Password SSH"}
+                className="bg-background border-border/50"
+                autoComplete="new-password"
+              />
+              <p className="text-[11px] text-muted-foreground">Guardada encriptada (AES-256). Não é possível recuperar o valor original.</p>
             </div>
 
             <div className="col-span-2 space-y-1.5">

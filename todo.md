@@ -1210,3 +1210,12 @@
 - [ ] Para modo manual: SSE streaming para enviar output parcial ao frontend
 - [ ] UI desktop: selector confirmMode no formulário de comando
 - [ ] UI desktop: terminal interactivo com botões Y/N quando modo=manual
+
+## v6.5.2 — SSH integrado no cadastro de equipamento
+- [ ] Campos sshUser, sshPassword (enc), sshPort na tabela equipments
+- [ ] Migration SQL para os novos campos SSH na tabela equipments
+- [ ] Formulário de equipamento com separador SSH (utilizador, senha, porta)
+- [ ] Procedure equipments.update aceita campos SSH
+- [ ] SSH Commander usa credenciais do equipamento directamente (sem modal separado)
+- [ ] Selector de equipamentos no SSH Commander com pesquisa/filtro
+- [ ] Remover modal de credenciais separado do SSH Commander

@@ -7,7 +7,7 @@ import {
   extractParams, applyParams,
 } from "./ssh";
 import { sshCommands as sshCommandsTable, sshExecutionLog as sshExecLogTable, sshCredentials as sshCredentialsTable, equipments as equipmentsTable } from "../drizzle/schema";
-import { eq as eqOp, inArray as inArrayOp } from "drizzle-orm";
+import { eq as eqOp, inArray as inArrayOp, isNotNull } from "drizzle-orm";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -275,9 +275,17 @@ export const appRouter = router({
         interfaceIp: z.string().optional().nullable(),
         ipBlockId: z.number().optional().nullable(),
         serviceDescription: z.string().max(255).optional().nullable(),
+        // Campos SSH
+        sshUser: z.string().max(64).optional().nullable(),
+        sshPassword: z.string().optional().nullable(),  // recebida em plain text, encriptada no servidor
+        sshPort: z.number().int().min(1).max(65535).optional().nullable(),
       }))
       .mutation(async ({ input, ctx }) => {
-        const { autoCreatePorts, portType, ...equipData } = input;
+        const { autoCreatePorts, portType, sshPassword, ...equipData } = input;
+        if (sshPassword) {
+          const { encryptPassword } = await import("./ssh");
+          (equipData as any).sshPasswordEnc = encryptPassword(sshPassword);
+        }
         await createEquipment(equipData);
         const newEquip = await getEquipments(input.name);
         const created = newEquip[0];
@@ -320,9 +328,21 @@ export const appRouter = router({
         interfaceIp: z.string().optional().nullable(),
         ipBlockId: z.number().optional().nullable(),
         serviceDescription: z.string().max(255).optional().nullable(),
+        // Campos SSH
+        sshUser: z.string().max(64).optional().nullable(),
+        sshPassword: z.string().optional().nullable(),  // plain text, encriptada no servidor
+        sshPort: z.number().int().min(1).max(65535).optional().nullable(),
       }))
       .mutation(async ({ input, ctx }) => {
-        const { id, ...data } = input;
+        const { id, sshPassword, ...data } = input;
+        if (sshPassword !== undefined) {
+          if (sshPassword) {
+            const { encryptPassword } = await import("./ssh");
+            (data as any).sshPasswordEnc = encryptPassword(sshPassword);
+          } else {
+            (data as any).sshPasswordEnc = null;
+          }
+        }
         await updateEquipment(id, data);
         await createMaintenanceRecord({
           entityType: "equipment", entityId: id, action: "updated",
@@ -3184,20 +3204,15 @@ ${fiberFolder}
       return { success: true };
     }),
 
-  // Listar equipamentos com SSH configurado
+  // Listar equipamentos com SSH configurado (usa campos SSH directamente da tabela equipments)
   listEquipmentsWithSsh: protectedProcedure
     .query(async () => {
       const db = await (await import("./db")).getDb();
       if (!db) return [];
-      const creds = await db.select().from(sshCredentialsTable);
-      if (creds.length === 0) return [];
-      const equipIds = creds.map((c: typeof creds[0]) => c.equipmentId);
-      const equips = await db.select().from(equipmentsTable).where(inArrayOp(equipmentsTable.id, equipIds));
-      return equips.map((e: typeof equips[0]) => ({
-        ...e,
-        sshPort: creds.find((c: typeof creds[0]) => c.equipmentId === e.id)?.sshPort ?? 22,
-        sshUser: creds.find((c: typeof creds[0]) => c.equipmentId === e.id)?.sshUser ?? "",
-      }));
+      // Retorna equipamentos que têm sshUser preenchido (credenciais no cadastro)
+      const equips = await db.select().from(equipmentsTable)
+        .where(isNotNull(equipmentsTable.sshUser));
+      return equips.filter((e: typeof equips[0]) => e.sshUser && e.sshUser.trim() !== "");
     }),
 
   // Listar comandos de um equipamento
