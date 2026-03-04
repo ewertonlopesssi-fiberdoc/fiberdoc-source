@@ -1,11 +1,11 @@
 {
   "name": "FiberDoc",
-  "version": "6.5.17",
-  "package": "fiberdoc-v6.5.17-20260304.zip",
-  "generated_at": "2026-03-04T15:46:45Z",
-  "size_bytes": 1421737,
+  "version": "6.5.20",
+  "package": "fiberdoc-v6.5.20-20260304.zip",
+  "generated_at": "2026-03-04T16:46:07Z",
+  "size_bytes": 1422813,
   "size_human": "1.4M",
-  "sha256": "c3b950eed8c1fb9d6a3bab5ab8fbfc71394d7078bf4162a307796d801634983c",
+  "sha256": "f1479e1c7b4a83df0a7ad8d05eed76f9db27df427a9a0e515ab2b41d56e86bdb",
   "file_count": 25,
   "includes": {
     "dist": true,

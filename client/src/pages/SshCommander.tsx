@@ -1,12 +1,11 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
   Terminal, Server, Play, Plus, Pencil, Trash2, ChevronRight,
   Clock, CheckCircle2, XCircle, Loader2,
-  AlertTriangle, HelpCircle, Search, Settings,
+  HelpCircle, Search, KeyRound, Wifi, WifiOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +30,7 @@ type SshEquipment = {
   id: number;
   name: string;
   type: string;
+  hasCredentials?: boolean;
   sshUser?: string | null;
   sshPort?: number | null;
   [key: string]: unknown;
@@ -84,57 +84,125 @@ function TerminalOutput({
   onConfirm: (answer: "y" | "n") => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [lines]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [lines]);
 
   return (
-    <div className="rounded-lg border border-zinc-700 bg-zinc-950 font-mono text-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border-b border-zinc-700">
+    <div className="bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border-b border-zinc-800">
         <div className="w-3 h-3 rounded-full bg-red-500" />
         <div className="w-3 h-3 rounded-full bg-yellow-500" />
         <div className="w-3 h-3 rounded-full bg-green-500" />
-        <span className="ml-2 text-zinc-400 text-xs">SSH Terminal</span>
+        <span className="text-xs text-zinc-500 ml-2">SSH Terminal</span>
       </div>
-      <div className="p-3 min-h-[200px] max-h-[420px] overflow-y-auto space-y-0.5">
+      <div className="p-4 font-mono text-sm min-h-[200px] max-h-[400px] overflow-y-auto space-y-0.5">
         {lines.length === 0 && (
-          <span className="text-zinc-600 text-xs">Aguardando execução...</span>
+          <span className="text-zinc-600">Aguardando execução...</span>
         )}
         {lines.map((line, i) => (
           <div key={i} className={
             line.type === "error" ? "text-red-400" :
-            line.type === "input" ? "text-cyan-400" :
-            line.type === "info" ? "text-yellow-400" :
-            line.type === "confirm" ? "text-yellow-300 font-bold" :
+            line.type === "info" ? "text-cyan-400" :
+            line.type === "input" ? "text-yellow-300" :
+            line.type === "confirm" ? "text-orange-400 font-bold" :
             "text-green-300"
           }>
-            {line.type === "input" && <span className="text-zinc-500 mr-1">→</span>}
-            {line.type === "info" && <span className="text-yellow-500 mr-1">ℹ</span>}
-            {line.type === "confirm" && <span className="text-yellow-400 mr-1">⚠</span>}
-            <span className="whitespace-pre-wrap">{line.text}</span>
+            {line.type === "input" ? `> ${line.text}` : line.text}
           </div>
         ))}
         {waitingConfirm && (
-          <div className="flex items-center gap-3 mt-3 p-2 rounded bg-yellow-900/30 border border-yellow-700">
-            <AlertTriangle className="w-4 h-4 text-yellow-400 shrink-0" />
-            <span className="text-yellow-300 text-xs flex-1">O equipamento aguarda confirmação:</span>
-            <Button
-              size="sm"
-              className="bg-green-700 hover:bg-green-600 text-white h-7 px-3"
-              onClick={() => onConfirm("y")}
-            >
+          <div className="flex items-center gap-2 mt-2">
+            <Button size="sm" className="h-7 bg-green-700 hover:bg-green-600 text-xs"
+              onClick={() => onConfirm("y")}>
               Confirmar (Y)
             </Button>
-            <Button
-              size="sm"
-              className="bg-red-700 hover:bg-red-600 text-white h-7 px-3"
-              onClick={() => onConfirm("n")}
-            >
+            <Button size="sm" variant="outline" className="h-7 text-xs border-red-600 text-red-400 hover:bg-red-950"
+              onClick={() => onConfirm("n")}>
               Cancelar (N)
             </Button>
           </div>
         )}
         <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Formulário de Credenciais SSH ────────────────────────────────────────────
+function SshCredentialForm({
+  equip,
+  onSaved,
+  onCancel,
+}: {
+  equip: SshEquipment;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [sshUser, setSshUser] = useState(equip.sshUser ?? "");
+  const [sshPassword, setSshPassword] = useState("");
+  const [sshPort, setSshPort] = useState(String(equip.sshPort ?? 22));
+
+  const save = trpc.sshCommander.saveCredential.useMutation({
+    onSuccess: () => { toast.success("Credenciais SSH guardadas"); onSaved(); },
+    onError: (e) => toast.error("Erro ao guardar credenciais: " + e.message),
+  });
+
+  const handleSave = () => {
+    if (!sshUser.trim()) { toast.error("Preencha o utilizador SSH"); return; }
+    if (!sshPassword.trim()) { toast.error("Preencha a senha SSH"); return; }
+    save.mutate({
+      equipmentId: equip.id,
+      sshUser: sshUser.trim(),
+      sshPassword: sshPassword.trim(),
+      sshPort: parseInt(sshPort) || 22,
+    });
+  };
+
+  return (
+    <div className="space-y-4 p-4 bg-zinc-900 rounded-lg border border-zinc-700">
+      <div className="flex items-center gap-2 mb-2">
+        <KeyRound className="w-4 h-4 text-cyan-400" />
+        <span className="text-sm font-semibold text-white">Credenciais SSH — {equip.name}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="col-span-2 space-y-1.5">
+          <Label className="text-xs">Utilizador SSH</Label>
+          <Input
+            value={sshUser}
+            onChange={e => setSshUser(e.target.value)}
+            placeholder="admin"
+            className="h-8 text-sm bg-zinc-950 border-zinc-700"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Porta</Label>
+          <Input
+            type="number"
+            value={sshPort}
+            onChange={e => setSshPort(e.target.value)}
+            placeholder="22"
+            className="h-8 text-sm bg-zinc-950 border-zinc-700"
+          />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs">Senha SSH</Label>
+        <Input
+          type="password"
+          value={sshPassword}
+          onChange={e => setSshPassword(e.target.value)}
+          placeholder="Senha do equipamento"
+          className="h-8 text-sm bg-zinc-950 border-zinc-700"
+          onKeyDown={e => { if (e.key === "Enter") handleSave(); }}
+        />
+      </div>
+      <div className="flex gap-2 justify-end">
+        <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button size="sm" className="h-8 text-xs bg-cyan-700 hover:bg-cyan-600" onClick={handleSave} disabled={save.isPending}>
+          {save.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <KeyRound className="w-3 h-3 mr-1" />}
+          Guardar Credenciais
+        </Button>
       </div>
     </div>
   );
@@ -268,10 +336,9 @@ function CommandForm({
 export default function SshCommander() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const [, navigate] = useLocation();
 
-  // Equipamentos com SSH configurado (sshUser preenchido no cadastro)
-  const { data: equipList = [] } = trpc.sshCommander.listEquipmentsWithSsh.useQuery();
+  // Todos os equipamentos com indicador de credenciais
+  const { data: equipList = [], refetch: refetchEquips } = trpc.sshCommander.listEquipmentsWithSsh.useQuery();
 
   // Pesquisa de equipamentos
   const [equipSearch, setEquipSearch] = useState("");
@@ -282,6 +349,9 @@ export default function SshCommander() {
 
   // Equipamento seleccionado
   const [selectedEquip, setSelectedEquip] = useState<SshEquipment | null>(null);
+
+  // Mostrar formulário de credenciais inline
+  const [showCredForm, setShowCredForm] = useState(false);
 
   // Comandos do equipamento seleccionado
   const { data: commands = [], refetch: refetchCmds } = trpc.sshCommander.listCommands.useQuery(
@@ -318,14 +388,26 @@ export default function SshCommander() {
   });
 
   const utils = trpc.useUtils();
-  const clearSshMut = trpc.sshCommander.clearSshCredentials.useMutation({
+  const deleteCredMut = trpc.sshCommander.deleteCredential.useMutation({
     onSuccess: () => {
       utils.sshCommander.listEquipmentsWithSsh.invalidate();
-      if (selectedEquip) setSelectedEquip(null);
-      toast.success("Credenciais SSH removidas do equipamento");
+      toast.success("Credenciais SSH removidas");
     },
     onError: (e) => toast.error("Erro ao remover credenciais: " + e.message),
   });
+
+  // Quando selecciona equipamento, esconder formulário de credenciais e limpar estado
+  const handleSelectEquip = (eq: SshEquipment) => {
+    setSelectedEquip(eq);
+    setTerminalLines([]);
+    setLastResult(null);
+    setActiveTab("commands");
+    setIsExecuting(false);  // Limpar estado de execução ao trocar de equipamento
+    setWaitingConfirm(false);
+    setActiveSessionId(null);
+    // Mostrar formulário de credenciais automaticamente se não tiver credenciais
+    setShowCredForm(!eq.hasCredentials);
+  };
 
   // ─── Execução SSH via SSE ────────────────────────────────────────────────
   const executeCommand = useCallback((cmd: SshCommand, params: Record<string, string> = {}) => {
@@ -346,13 +428,14 @@ export default function SshCommander() {
     }
 
     const es = new EventSource(url.toString());
+    // Flag de closure para saber se o evento 'done' já foi recebido
+    let receivedDone = false;
 
     es.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data) as { type: string; data?: string; success?: boolean; output?: string };
         if (msg.type === "output") {
           const text = msg.data ?? "";
-          // Mostrar todo o output (incluindo linhas só com espaços/ANSI)
           setTerminalLines(prev => [...prev, { type: "output", text }]);
         } else if (msg.type === "input") {
           setTerminalLines(prev => [...prev, { type: "input", text: msg.data ?? "" }]);
@@ -360,6 +443,7 @@ export default function SshCommander() {
           setTerminalLines(prev => [...prev, { type: "confirm", text: msg.data ?? "O equipamento aguarda confirmação [Y/N]" }]);
           setWaitingConfirm(true);
         } else if (msg.type === "done") {
+          receivedDone = true;
           setIsExecuting(false);
           setWaitingConfirm(false);
           setLastResult({ success: msg.success ?? true });
@@ -367,19 +451,36 @@ export default function SshCommander() {
           refetchLog();
           es.close();
         } else if (msg.type === "error") {
+          receivedDone = true; // tratar erro como terminal também
           setIsExecuting(false);
           setWaitingConfirm(false);
           setLastResult({ success: false });
           setTerminalLines(prev => [...prev, { type: "error", text: `Erro: ${msg.data}` }]);
+          // Se erro de credenciais, mostrar formulário automaticamente
+          if (msg.data?.includes("credenciais") || msg.data?.includes("desencriptar")) {
+            setShowCredForm(true);
+            setActiveTab("commands");
+          }
           es.close();
         }
       } catch { /* ignore parse errors */ }
     };
 
+    // onerror é disparado quando o servidor fecha a ligação SSE (normal após done)
+    // Sempre resetar isExecuting para desbloquear o botão Executar
     es.onerror = () => {
       setIsExecuting(false);
       setWaitingConfirm(false);
-      setTerminalLines(prev => [...prev, { type: "error", text: "Conexão SSE encerrada inesperadamente." }]);
+      if (!receivedDone) {
+        // Fecho inesperado sem evento done — mostrar mensagem de sessão encerrada
+        setTerminalLines(prev => {
+          const last = prev[prev.length - 1];
+          if (last && (last.type === "info" || last.type === "error")) return prev;
+          return [...prev, { type: "info", text: "✓ Sessão SSH concluída." }];
+        });
+        setLastResult({ success: true });
+        refetchLog();
+      }
       es.close();
     };
   }, [selectedEquip, refetchLog]);
@@ -396,7 +497,6 @@ export default function SshCommander() {
   }, [activeSessionId]);
 
   const handleRunCmd = (cmd: SshCommand) => {
-    // Mudar para aba Terminal ao executar
     setActiveTab("terminal");
     if (cmd.params.length > 0) {
       const initial: Record<string, string> = {};
@@ -421,17 +521,6 @@ export default function SshCommander() {
               <p className="text-sm text-zinc-400">Execute comandos nos equipamentos da rede</p>
             </div>
           </div>
-          {isAdmin && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs gap-1.5 border-zinc-600"
-              onClick={() => navigate("/equipamentos")}
-            >
-              <Settings className="w-3.5 h-3.5" />
-              Gerir Equipamentos SSH
-            </Button>
-          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -454,61 +543,39 @@ export default function SshCommander() {
               {filteredEquipList.length === 0 && (
                 <div className="text-center py-8 text-zinc-500 text-sm">
                   <Server className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  {equipList.length === 0 ? (
-                    <>
-                      <p>Nenhum equipamento com SSH configurado.</p>
-                      {isAdmin && (
-                        <p className="text-xs mt-2">
-                          Vá a <button className="text-cyan-400 underline" onClick={() => navigate("/equipamentos")}>Equipamentos</button> e preencha os campos SSH no cadastro.
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <p>Nenhum resultado para "{equipSearch}"</p>
-                  )}
+                  <p>{equipList.length === 0 ? "Nenhum equipamento cadastrado." : `Nenhum resultado para "${equipSearch}"`}</p>
                 </div>
               )}
               {filteredEquipList.map((eq) => (
                 <div
                   key={eq.id}
-                  className={`group relative rounded-lg border transition-colors ${
+                  className={`group relative rounded-lg border transition-colors cursor-pointer ${
                     selectedEquip?.id === eq.id
                       ? "border-cyan-500 bg-cyan-950/30"
                       : "border-zinc-700 bg-zinc-900 hover:border-zinc-500"
                   }`}
+                  onClick={() => handleSelectEquip(eq)}
                 >
-                  <button
-                    onClick={() => { setSelectedEquip(eq); setTerminalLines([]); setLastResult(null); }}
-                    className="w-full text-left p-3"
-                  >
+                  <div className="w-full text-left p-3">
                     <div className="flex items-center justify-between">
                       <div className="min-w-0 pr-6">
                         <p className="text-sm font-medium text-white truncate">{eq.name}</p>
-                        <p className="text-xs text-zinc-400">{eq.type} · {eq.sshUser ?? "—"}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-xs text-zinc-400">{eq.type}</span>
+                          {eq.hasCredentials ? (
+                            <span className="flex items-center gap-0.5 text-xs text-green-400">
+                              <Wifi className="w-3 h-3" /> SSH
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-0.5 text-xs text-zinc-600">
+                              <WifiOff className="w-3 h-3" /> Sem SSH
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <ChevronRight className="w-4 h-4 text-zinc-500 shrink-0" />
                     </div>
-                  </button>
-                  {isAdmin && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (confirm(`Remover credenciais SSH de "${eq.name}"? O equipamento sairá da lista do SSH Commander.`)) {
-                                clearSshMut.mutate({ equipmentId: eq.id });
-                              }
-                            }}
-                            className="absolute top-2 right-8 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-zinc-800"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="left">Remover credenciais SSH</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -522,155 +589,226 @@ export default function SshCommander() {
                 <p>Seleccione um equipamento para ver os comandos</p>
               </div>
             ) : (
-              <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <div className="flex items-center justify-between mb-3">
+              <>
+                {/* Cabeçalho do equipamento */}
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Server className="w-4 h-4 text-cyan-400" />
                     <span className="font-semibold text-white">{selectedEquip.name}</span>
                     <Badge variant="outline" className="text-xs">{selectedEquip.type}</Badge>
+                    {selectedEquip.hasCredentials ? (
+                      <span className="flex items-center gap-1 text-xs text-green-400 bg-green-950/40 border border-green-800 rounded px-2 py-0.5">
+                        <Wifi className="w-3 h-3" /> SSH configurado
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-xs text-orange-400 bg-orange-950/40 border border-orange-800 rounded px-2 py-0.5">
+                        <WifiOff className="w-3 h-3" /> Sem credenciais SSH
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
-                    {isAdmin && (
-                      <Button size="sm" className="h-7 text-xs gap-1 bg-cyan-700 hover:bg-cyan-600"
-                        onClick={() => { setEditingCmd(null); setShowCmdDialog(true); }}>
-                        <Plus className="w-3 h-3" /> Novo Comando
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className={`h-7 text-xs gap-1 ${showCredForm ? "border-cyan-500 text-cyan-400" : "border-zinc-600"}`}
+                            onClick={() => setShowCredForm(v => !v)}
+                          >
+                            <KeyRound className="w-3 h-3" />
+                            {selectedEquip.hasCredentials ? "Editar SSH" : "Configurar SSH"}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Configurar credenciais SSH para este equipamento</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    {isAdmin && selectedEquip.hasCredentials && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs gap-1 text-red-400 hover:text-red-300 hover:bg-red-950/30"
+                        onClick={() => {
+                          if (confirm(`Remover credenciais SSH de "${selectedEquip.name}"?`)) {
+                            deleteCredMut.mutate({ equipmentId: selectedEquip.id });
+                            setSelectedEquip({ ...selectedEquip, hasCredentials: false });
+                            setShowCredForm(true);
+                          }
+                        }}
+                      >
+                        <Trash2 className="w-3 h-3" /> Remover SSH
                       </Button>
                     )}
+                  </div>
+                </div>
+
+                {/* Formulário de credenciais SSH (inline) */}
+                {showCredForm && (
+                  <SshCredentialForm
+                    equip={selectedEquip}
+                    onSaved={() => {
+                      setShowCredForm(false);
+                      refetchEquips();
+                      // Actualizar o equipamento seleccionado com hasCredentials=true
+                      setSelectedEquip(prev => prev ? { ...prev, hasCredentials: true } : prev);
+                    }}
+                    onCancel={() => setShowCredForm(false)}
+                  />
+                )}
+
+                {/* Aviso se sem credenciais e formulário fechado */}
+                {!showCredForm && !selectedEquip.hasCredentials && (
+                  <div className="flex items-center gap-3 p-3 bg-orange-950/30 border border-orange-800 rounded-lg text-sm text-orange-300">
+                    <WifiOff className="w-4 h-4 shrink-0" />
+                    <span>Este equipamento não tem credenciais SSH configuradas. Clique em <strong>Configurar SSH</strong> para adicionar.</span>
+                  </div>
+                )}
+
+                <Tabs value={activeTab} onValueChange={setActiveTab}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      {isAdmin && (
+                        <Button size="sm" className="h-7 text-xs gap-1 bg-cyan-700 hover:bg-cyan-600"
+                          onClick={() => { setEditingCmd(null); setShowCmdDialog(true); }}>
+                          <Plus className="w-3 h-3" /> Novo Comando
+                        </Button>
+                      )}
+                    </div>
                     <TabsList className="h-7">
                       <TabsTrigger value="commands" className="text-xs h-6">Comandos</TabsTrigger>
                       <TabsTrigger value="terminal" className="text-xs h-6">Terminal</TabsTrigger>
                       <TabsTrigger value="history" className="text-xs h-6">Histórico</TabsTrigger>
                     </TabsList>
                   </div>
-                </div>
 
-                {/* Aba: Comandos */}
-                <TabsContent value="commands" className="space-y-2">
-                  {commands.length === 0 && (
-                    <div className="text-center py-10 text-zinc-500 text-sm">
-                      <Terminal className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                      <p>Nenhum comando cadastrado.</p>
-                      {isAdmin && <p className="text-xs mt-1">Clique em "Novo Comando" para adicionar.</p>}
-                    </div>
-                  )}
-                  {commands.map(cmd => {
-                    const badge = CONFIRM_MODE_BADGES[cmd.confirmMode as ConfirmMode] ?? CONFIRM_MODE_BADGES.none;
-                    return (
-                      <Card key={cmd.id} className="bg-zinc-900 border-zinc-700">
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-medium text-white">{cmd.name}</span>
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${badge.color}`}>{badge.label}</span>
-                                {cmd.params.length > 0 && (
-                                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900 text-blue-200">
-                                    {cmd.params.length} parâm.
-                                  </span>
-                                )}
-                              </div>
-                              {cmd.description && (
-                                <p className="text-xs text-zinc-400 mt-1">{cmd.description}</p>
-                              )}
-                              <div className="mt-2 bg-zinc-950 rounded p-2 font-mono text-xs text-green-400 max-h-20 overflow-y-auto">
-                                {cmd.commandLines.map((l, i) => <div key={i}>{l}</div>)}
-                              </div>
-                              <p className="text-xs text-zinc-600 mt-1">Sleep: {cmd.sleepMs}ms entre linhas</p>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              {isAdmin && (
-                                <>
-                                  <Button size="icon" variant="ghost" className="h-7 w-7"
-                                    onClick={() => { setEditingCmd(cmd); setShowCmdDialog(true); }}>
-                                    <Pencil className="w-3 h-3" />
-                                  </Button>
-                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:text-red-300"
-                                    onClick={() => { if (confirm(`Remover "${cmd.name}"?`)) deleteCmdMut.mutate({ id: cmd.id }); }}>
-                                    <Trash2 className="w-3 h-3" />
-                                  </Button>
-                                </>
-                              )}
-                              <Button size="sm" className="h-7 bg-green-700 hover:bg-green-600 gap-1"
-                                disabled={isExecuting}
-                                onClick={() => handleRunCmd(cmd)}>
-                                <Play className="w-3 h-3" /> Executar
-                              </Button>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </TabsContent>
-
-                {/* Aba: Terminal */}
-                <TabsContent value="terminal">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {isExecuting && <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />}
-                        {lastResult !== null && !isExecuting && (
-                          lastResult.success
-                            ? <CheckCircle2 className="w-4 h-4 text-green-400" />
-                            : <XCircle className="w-4 h-4 text-red-400" />
-                        )}
-                        <span className="text-sm text-zinc-400">
-                          {isExecuting ? "Executando..." : lastResult === null ? "Pronto" : lastResult.success ? "Sucesso" : "Erro"}
-                        </span>
-                      </div>
-                      <Button size="sm" variant="outline" className="h-7 text-xs"
-                        onClick={() => { setTerminalLines([]); setLastResult(null); }}>
-                        Limpar
-                      </Button>
-                    </div>
-                    <TerminalOutput
-                      lines={terminalLines}
-                      waitingConfirm={waitingConfirm}
-                      sessionId={activeSessionId}
-                      onConfirm={handleConfirm}
-                    />
-                  </div>
-                </TabsContent>
-
-                {/* Aba: Histórico */}
-                <TabsContent value="history">
-                  <div className="space-y-2">
-                    {execLog.length === 0 && (
-                      <div className="text-center py-8 text-zinc-500 text-sm">
-                        <Clock className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                        <p>Nenhuma execução registada.</p>
+                  {/* Aba: Comandos */}
+                  <TabsContent value="commands" className="space-y-2">
+                    {commands.length === 0 && (
+                      <div className="text-center py-10 text-zinc-500 text-sm">
+                        <Terminal className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                        <p>Nenhum comando cadastrado.</p>
+                        {isAdmin && <p className="text-xs mt-1">Clique em "Novo Comando" para adicionar.</p>}
                       </div>
                     )}
-                    {execLog.map(log => (
-                      <Card key={log.id} className="bg-zinc-900 border-zinc-700">
-                        <CardContent className="p-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                {log.success
-                                  ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 shrink-0" />
-                                  : <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
-                                <span className="text-sm font-medium text-white">{log.commandName}</span>
-                                {log.executedBy && (
-                                  <span className="text-xs text-zinc-500">por {log.executedBy}</span>
+                    {commands.map(cmd => {
+                      const badge = CONFIRM_MODE_BADGES[cmd.confirmMode as ConfirmMode] ?? CONFIRM_MODE_BADGES.none;
+                      return (
+                        <Card key={cmd.id} className="bg-zinc-900 border-zinc-700">
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium text-white">{cmd.name}</span>
+                                  <span className={`text-xs px-2 py-0.5 rounded-full ${badge.color}`}>{badge.label}</span>
+                                  {cmd.params.length > 0 && (
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900 text-blue-200">
+                                      {cmd.params.length} parâm.
+                                    </span>
+                                  )}
+                                </div>
+                                {cmd.description && (
+                                  <p className="text-xs text-zinc-400 mt-1">{cmd.description}</p>
+                                )}
+                                <div className="mt-2 bg-zinc-950 rounded p-2 font-mono text-xs text-green-400 max-h-20 overflow-y-auto">
+                                  {cmd.commandLines.map((l, i) => <div key={i}>{l}</div>)}
+                                </div>
+                                <p className="text-xs text-zinc-600 mt-1">Sleep: {cmd.sleepMs}ms entre linhas</p>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {isAdmin && (
+                                  <>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7"
+                                      onClick={() => { setEditingCmd(cmd); setShowCmdDialog(true); }}>
+                                      <Pencil className="w-3 h-3" />
+                                    </Button>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:text-red-300"
+                                      onClick={() => { if (confirm(`Remover "${cmd.name}"?`)) deleteCmdMut.mutate({ id: cmd.id }); }}>
+                                      <Trash2 className="w-3 h-3" />
+                                    </Button>
+                                  </>
+                                )}
+                                <Button size="sm" className="h-7 bg-green-700 hover:bg-green-600 gap-1"
+                                  disabled={isExecuting || !selectedEquip.hasCredentials}
+                                  onClick={() => handleRunCmd(cmd)}>
+                                  <Play className="w-3 h-3" /> Executar
+                                </Button>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </TabsContent>
+
+                  {/* Aba: Terminal */}
+                  <TabsContent value="terminal">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {isExecuting && <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />}
+                          {lastResult !== null && !isExecuting && (
+                            lastResult.success
+                              ? <CheckCircle2 className="w-4 h-4 text-green-400" />
+                              : <XCircle className="w-4 h-4 text-red-400" />
+                          )}
+                          <span className="text-sm text-zinc-400">
+                            {isExecuting ? "Executando..." : lastResult === null ? "Pronto" : lastResult.success ? "Sucesso" : "Erro"}
+                          </span>
+                        </div>
+                        <Button size="sm" variant="outline" className="h-7 text-xs"
+                          onClick={() => { setTerminalLines([]); setLastResult(null); }}>
+                          Limpar
+                        </Button>
+                      </div>
+                      <TerminalOutput
+                        lines={terminalLines}
+                        waitingConfirm={waitingConfirm}
+                        sessionId={activeSessionId}
+                        onConfirm={handleConfirm}
+                      />
+                    </div>
+                  </TabsContent>
+
+                  {/* Aba: Histórico */}
+                  <TabsContent value="history">
+                    <div className="space-y-2">
+                      {execLog.length === 0 && (
+                        <div className="text-center py-8 text-zinc-500 text-sm">
+                          <Clock className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                          <p>Nenhuma execução registada.</p>
+                        </div>
+                      )}
+                      {execLog.map(log => (
+                        <Card key={log.id} className="bg-zinc-900 border-zinc-700">
+                          <CardContent className="p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  {log.success
+                                    ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 shrink-0" />
+                                    : <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
+                                  <span className="text-sm font-medium text-white">{log.commandName}</span>
+                                  {log.executedBy && (
+                                    <span className="text-xs text-zinc-500">por {log.executedBy}</span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-zinc-500 mt-0.5">
+                                  {new Date(log.executedAt).toLocaleString()}
+                                </p>
+                                {log.output && (
+                                  <div className="mt-2 bg-zinc-950 rounded p-2 font-mono text-xs text-green-400 max-h-24 overflow-y-auto">
+                                    {log.output.slice(0, 500)}{log.output.length > 500 ? "..." : ""}
+                                  </div>
                                 )}
                               </div>
-                              <p className="text-xs text-zinc-500 mt-0.5">
-                                {new Date(log.executedAt).toLocaleString()}
-                              </p>
-                              {log.output && (
-                                <div className="mt-2 bg-zinc-950 rounded p-2 font-mono text-xs text-green-400 max-h-24 overflow-y-auto">
-                                  {log.output.slice(0, 500)}{log.output.length > 500 ? "..." : ""}
-                                </div>
-                              )}
                             </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </TabsContent>
-              </Tabs>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </>
             )}
           </div>
         </div>

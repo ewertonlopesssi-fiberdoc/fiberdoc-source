@@ -1230,10 +1230,72 @@
 - [x] Bug fix: Procedure clearSshCredentials adicionada ao router sshCommander
 - [x] Bug fix: onError adicionado ao CommandForm para mostrar erros ao criar/actualizar comandos
 
-## Reformulação SSH Commander — Credenciais Próprias
-- [ ] SSH Commander lista todos os equipamentos (não apenas os com sshUser no cadastro)
-- [ ] Ao seleccionar equipamento sem credenciais SSH, mostrar formulário inline (host/IP, user, senha, porta)
-- [ ] Botão "Configurar SSH" sempre visível no painel do equipamento
-- [ ] Guardar credenciais na tabela ssh_credentials (não na tabela equipments)
-- [ ] Remover dependência de sshUser/sshPasswordEnc da tabela equipments no SSH Commander
-- [ ] Indicador visual: ícone verde se tem credenciais, vermelho se não tem
+## v6.5.5 — Scripts de Distribuição
+- [x] Script gerar-pacote-update.sh: compila, consolida SQL, empacota ZIP com manifesto SHA256
+- [x] Script fiberdoc-wget-update.sh: download, validação, backup, deploy via wget/curl
+
+## v6.5.6 — SSH Commander + Script de Update v1.1
+- [x] SSH Commander: output sempre mostrado no terminal (removido filtro text.trim())
+- [x] SSH Commander: aba muda automaticamente para "Terminal" ao clicar em Executar
+- [x] Script de update v1.1: guarda DATABASE_URL de TODAS as fontes antes de qualquer operação
+- [x] Novo script fiberdoc-fix-502.sh para recuperação rápida do erro 502
+
+## v6.5.7 — Script de Update v1.2
+- [x] Script usa npm como método principal de instalação (mais estável em produção)
+- [x] pnpm como fallback
+- [x] rsync ignora pastas residuais fiberdoc-v530 e .manus-logs sem erros
+
+## v6.5.8 — SSH Commander: timeout e ANSI strip
+- [x] Timeout de espera aumentado de 800ms para 3000ms para MikroTik
+- [x] Strip de sequências ANSI adicionado no servidor
+
+## v6.5.9 — SSH Commander reescrito (detecção de prompt)
+- [x] Abordagem baseada em detecção de prompt (como Netmiko/Paramiko)
+- [x] Suporte nativo para MikroTik RouterOS, Huawei NE8000 (VRP) e Huawei MA5800 (OLT)
+- [x] Gestão automática de paginação (---- More ----)
+- [x] Auto-detecção do tipo de equipamento pelo banner
+- [x] PTY com 220 colunas para evitar quebra de linha
+
+## v6.5.10 a v6.5.12 — Script de Update: correcções de sintaxe
+- [x] Removido array REQUIRED_FILES com grep -qE que causava syntax error
+- [x] Removidos todos os if-then vazios que causavam syntax error no bash 4.x/5.x
+- [x] Causa raiz encontrada: comentários com caracteres Unicode U+2500 (─) causavam falha em locale ASCII
+- [x] Substituídos por hifens ASCII simples
+
+## v6.5.13 — Script de Update v1.3 com JWT_SECRET
+- [x] Script fiberdoc-wget-update.sh v1.3: auto-gera JWT_SECRET se ausente no .env após update
+- [x] ZIP verificado: 311 linhas, 5 ocorrências JWT_SECRET, sintaxe bash OK, 0 caracteres não-ASCII
+- [x] Causa raiz do ZIP errado identificada e corrigida (script de geração copiava versão antiga)
+
+## v6.5.14 — Script de Update v1.4: suporte a ficheiro local
+- [x] Script fiberdoc-wget-update.sh v1.4: aceita tanto URL remota como caminho local (/tmp/ficheiro.zip)
+- [x] Deteccao automatica: se o argumento for um ficheiro existente, copia-o; se comecar por http://, faz download
+- [x] Mensagem de erro clara se o argumento nao for nem URL nem ficheiro local valido
+
+## Bug: SSH Commander — Credenciais SSH não encontradas
+- [x] Bug: SSH Commander mostra "Credenciais SSH não configuradas" mesmo com credenciais preenchidas no cadastro do equipamento
+- [x] Investigar: getSshCredential procura na tabela ssh_credentials mas as credenciais podem estar na tabela equipments (campos sshUser/sshPassword)
+- [x] Corrigir: getSshCredential deve verificar ambas as fontes (ssh_credentials e equipments)
+
+## Bug: SSH Commander — Erro ao desencriptar credenciais
+- [x] Bug: "Erro ao desencriptar credenciais" quando JWT_SECRET muda entre versões
+- [x] Causa: chave AES derivada do JWT_SECRET — se o JWT_SECRET mudar, passwords antigas ficam ilegíveis
+- [x] Solução: usar chave de encriptação SSH separada e fixa (SSH_ENC_KEY no .env), independente do JWT_SECRET
+- [x] Solução imediata: decryptPassword tenta chave principal + fallback (chave padrão original)
+
+## Funcionalidade: Credenciais SSH no SSH Commander
+- [ ] Adicionar painel de credenciais SSH directamente no ecrã do SSH Commander
+- [ ] Mostrar formulário (host/IP, utilizador, senha, porta) ao seleccionar um equipamento sem credenciais
+- [ ] Botão "Guardar Credenciais" que chama upsertSshCredential via tRPC
+- [ ] Indicador visual de estado: "Credenciais configuradas" / "Sem credenciais"
+- [ ] Botão de edição de credenciais sempre visível no painel do equipamento
+
+## Bug: SSH Commander — exit automático e More pager
+- [x] Bug: SSH Commander envia "exit" automaticamente no final da sessão — Huawei VRP não reconhece "exit" no modo utilizador (apenas "quit")
+- [x] Corrigir: não enviar comando de fecho automático, deixar a sessão fechar naturalmente após os comandos
+- [x] Melhoria: detectar "---- More ----" no output e enviar espaço automaticamente para paginar
+
+## Bug: SSH Commander — botão Executar bloqueado após execução
+- [x] Bug: após executar um comando, o botão Executar fica desactivado (isExecuting=true) mesmo após a sessão terminar — o evento 'done' do SSE não chega ao frontend quando a sessão fecha com stream.end()
+- [x] Corrigir: resetar isExecuting quando o EventSource fecha (onerror/onclose) ou adicionar timeout de segurança
+- [x] Corrigir: limpar estado isExecuting ao trocar de equipamento
