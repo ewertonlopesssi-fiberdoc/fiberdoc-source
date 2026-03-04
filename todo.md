@@ -1282,3 +1282,10 @@
 - [x] Causa: chave AES derivada do JWT_SECRET — se o JWT_SECRET mudar, passwords antigas ficam ilegíveis
 - [x] Solução: usar chave de encriptação SSH separada e fixa (SSH_ENC_KEY no .env), independente do JWT_SECRET
 - [x] Solução imediata: decryptPassword tenta chave principal + fallback (chave padrão original)
+
+## Funcionalidade: Credenciais SSH no SSH Commander
+- [ ] Adicionar painel de credenciais SSH directamente no ecrã do SSH Commander
+- [ ] Mostrar formulário (host/IP, utilizador, senha, porta) ao seleccionar um equipamento sem credenciais
+- [ ] Botão "Guardar Credenciais" que chama upsertSshCredential via tRPC
+- [ ] Indicador visual de estado: "Credenciais configuradas" / "Sem credenciais"
+- [ ] Botão de edição de credenciais sempre visível no painel do equipamento

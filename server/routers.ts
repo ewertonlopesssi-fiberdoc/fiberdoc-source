@@ -3204,15 +3204,28 @@ ${fiberFolder}
       return { success: true };
     }),
 
-  // Listar equipamentos com SSH configurado (usa campos SSH directamente da tabela equipments)
+  // Listar todos os equipamentos com indicação de credenciais SSH configuradas
   listEquipmentsWithSsh: protectedProcedure
     .query(async () => {
       const db = await (await import("./db")).getDb();
       if (!db) return [];
-      // Retorna equipamentos que têm sshUser preenchido (credenciais no cadastro)
-      const equips = await db.select().from(equipmentsTable)
-        .where(isNotNull(equipmentsTable.sshUser));
-      return equips.filter((e: typeof equips[0]) => e.sshUser && e.sshUser.trim() !== "");
+      // Listar todos os equipamentos
+      const equips = await db.select().from(equipmentsTable);
+      // Listar credenciais SSH existentes
+      const creds = await db.select({ equipmentId: sshCredentialsTable.equipmentId, sshUser: sshCredentialsTable.sshUser, sshPort: sshCredentialsTable.sshPort }).from(sshCredentialsTable);
+      const credMap = new Map(creds.map(c => [c.equipmentId, c]));
+      // Combinar: credenciais da tabela ssh_credentials primeiro, depois fallback para equipments
+      return equips.map((e: typeof equips[0]) => {
+        const cred = credMap.get(e.id);
+        const hasSshCred = !!cred;
+        const hasEquipCred = !!(e as any).sshUser && !!((e as any).sshPasswordEnc);
+        return {
+          ...e,
+          hasCredentials: hasSshCred || hasEquipCred,
+          sshUser: cred?.sshUser ?? (e as any).sshUser ?? null,
+          sshPort: cred?.sshPort ?? (e as any).sshPort ?? 22,
+        };
+      });
     }),
 
   // Listar comandos de um equipamento
