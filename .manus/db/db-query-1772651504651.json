@@ -1,0 +1,49 @@
+{
+  "query": "SHOW TABLES LIKE 'users'; DESCRIBE users;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SHOW TABLES LIKE 'users'; DESCRIBE users;",
+  "rows": [
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "users"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "Field\tType\tNull\tKey\tDefault\tExtra"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "id\tint\tNO\tPRI\tNULL\tauto_increment"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "openId\tvarchar(64)\tNO\tUNI\tNULL\t"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "name\ttext\tYES\t\tNULL\t"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "email\tvarchar(320)\tYES\t\tNULL\t"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "loginMethod\tvarchar(64)\tYES\t\tNULL\t"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "role\tenum('user','admin')\tNO\t\tuser\t"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "createdAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "updatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\tDEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "lastSignedIn\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "passwordHash\tvarchar(255)\tYES\t\tNULL\t"
+    },
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)": "mustChangePassword\ttinyint(1)\tNO\t\t0\t"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (users)\nusers\nField\tType\tNull\tKey\tDefault\tExtra\nid\tint\tNO\tPRI\tNULL\tauto_increment\nopenId\tvarchar(64)\tNO\tUNI\tNULL\t\nname\ttext\tYES\t\tNULL\t\nemail\tvarchar(320)\tYES\t\tNULL\t\nloginMethod\tvarchar(64)\tYES\t\tNULL\t\nrole\tenum('user','admin')\tNO\t\tuser\t\ncreatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nupdatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\tDEFAULT_GENERATED on update CURRENT_TIMESTAMP\nlastSignedIn\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\npasswordHash\tvarchar(255)\tYES\t\tNULL\t\nmustChangePassword\ttinyint(1)\tNO\t\t0\t\n",
+  "stderr": "",
+  "execution_time_ms": 58
+}
