@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  FiberDoc — Script de Implantação v6.0
+#  FiberDoc — Script de Implantação v6.1
 #  Uso: bash deploy.sh [FIBERDOC_DIR] [FIBERDOC_SERVICE]
 #  Padrões: /opt/fiberdoc  e  fiberdoc
 # =============================================================================
@@ -13,7 +13,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "============================================================"
-echo "  FiberDoc — Implantação v6.0"
+echo "  FiberDoc — Implantação v6.1"
 echo "  Diretório: ${FIBERDOC_DIR}"
 echo "  Serviço:   ${FIBERDOC_SERVICE}"
 echo "  Data/Hora: $(date '+%d/%m/%Y %H:%M:%S')"
@@ -135,7 +135,16 @@ echo "[6/7] Aplicando migração de base de dados v6.0 ..."
 DB_URL=$(grep -E '^Environment=DATABASE_URL=' "${SERVICE_FILE}" 2>/dev/null \
          | head -1 | sed 's/^Environment=DATABASE_URL=//' || true)
 
-# Se não encontrou no serviço, tentar variável de ambiente do processo actual
+# Se não encontrou no systemd, tentar o ficheiro .env do directorio de instalação
+if [[ -z "${DB_URL}" ]]; then
+  ENV_FILE="${FIBERDOC_DIR}/.env"
+  if [[ -f "${ENV_FILE}" ]]; then
+    DB_URL=$(grep -E '^DATABASE_URL=' "${ENV_FILE}" 2>/dev/null \
+             | head -1 | sed 's/^DATABASE_URL=//' | tr -d '"' || true)
+  fi
+fi
+
+# Se ainda não encontrou, tentar variável de ambiente do processo actual
 if [[ -z "${DB_URL}" ]]; then
   DB_URL="${DATABASE_URL:-}"
 fi
@@ -217,6 +226,6 @@ fi
 
 echo ""
 echo "============================================================"
-echo "  FiberDoc v6.0 implantado com sucesso!"
+echo "  FiberDoc v6.1 implantado com sucesso!"
 echo "  Backup anterior: ${BACKUP_DIR}/fiberdoc_backup_${TIMESTAMP}.tar.gz"
 echo "============================================================"

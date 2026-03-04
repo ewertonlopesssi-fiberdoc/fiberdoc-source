@@ -1,5 +1,5 @@
 -- =============================================================================
---  FiberDoc v6.0 — Migração Incremental
+--  FiberDoc v6.1 — Migração Incremental
 --  Novas tabelas: bandejas CEO, splitters, vias de splitter, associações de vias
 --  Alteração: coluna bandejaId em ceo_tubes
 --
@@ -81,5 +81,5 @@ EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
 -- =============================================================================
---  Migração v6.0 concluída.
+--  Migração v6.1 concluída.
 -- =============================================================================
