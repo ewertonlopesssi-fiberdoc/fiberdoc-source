@@ -1164,3 +1164,11 @@
 - [x] Sincronização bidirecional CEO ↔ Mapa: updateCeoMutation invalida ceos.list para o mapa
 - [x] Sincronização bidirecional CEO ↔ Mapa: updateCeoMut no mapa invalida ceos.list e ceos.byId
 - [x] Gerar pacote deploy v6.0 com migração SQL automática no deploy.sh
+
+## Responsividade Mobile — CEO Bandejas e Fusões (v6.4)
+- [x] Verificar e corrigir layout mobile do CeoDetail: aba Bandejas visível em ecrãs pequenos
+- [x] Verificar e corrigir layout mobile: tubos e vias com fusões visíveis no mobile
+- [x] Verificar e corrigir layout mobile: splitters e suas vias visíveis no mobile
+- [x] Verificar e corrigir layout mobile: dialog de fusão funcional no mobile
+- [x] Verificar e corrigir layout mobile: dialog de associação funcional no mobile
+- [x] Verificar e corrigir layout mobile: relatório de impressão acessível no mobile
