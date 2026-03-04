@@ -355,7 +355,8 @@ export default function InfrastructureMap() {
   const updateCeoMut = trpc.ceos.update.useMutation({
     onSuccess: () => {
       refetchElements();
-      refetchCeos();
+      mapUtils.ceos.list.invalidate(); // sincroniza com CeoDetail
+      mapUtils.ceos.byId.invalidate(); // sincroniza com CeoDetail
       setEditElementDialogOpen(false);
       if (sidePanel?.kind === "element") {
         setSidePanel({ ...sidePanel, element: { ...sidePanel.element, name: editElementForm.name, status: editElementForm.status } });
@@ -412,8 +413,8 @@ export default function InfrastructureMap() {
   });
   const createCeoTubeMut = trpc.ceoTubes.create.useMutation({
     onSuccess: () => {
-      ceoTubesQuery.refetch();
-      ceoViasQuery.refetch();
+      mapUtils.ceoTubes.byCeo.invalidate({ ceoId: sidePanelRefId });
+      mapUtils.ceoVias.byCeo.invalidate({ ceoId: sidePanelRefId });
       setAddTubeDialogOpen(false);
       setAddTubeForm({ identifier: "", type: "tube", totalVias: 12, color: "", notes: "" });
       toast.success("Tubo adicionado com sucesso");
@@ -430,15 +431,15 @@ export default function InfrastructureMap() {
     onError: (e) => toast.error(e.message),
   });
   const updateCeoTubeMut = trpc.ceoTubes.update.useMutation({
-    onSuccess: () => { ceoTubesQuery.refetch(); setEditTubeDialogOpen(false); toast.success("Tubo atualizado"); },
+    onSuccess: () => { mapUtils.ceoTubes.byCeo.invalidate({ ceoId: sidePanelRefId }); setEditTubeDialogOpen(false); toast.success("Tubo atualizado"); },
     onError: (e) => toast.error(e.message),
   });
   const deleteCtoTubeMut = trpc.ctoTubes.delete.useMutation({
-    onSuccess: () => { ctoTubesQuery.refetch(); ctoViasQuery.refetch(); setDeleteTubeId(null); toast.success("Tubo excluído"); },
+    onSuccess: () => { mapUtils.ctoTubes.byCto.invalidate({ ctoId: sidePanelRefId }); mapUtils.ctoVias.byCto.invalidate({ ctoId: sidePanelRefId }); setDeleteTubeId(null); toast.success("Tubo excluído"); },
     onError: (e) => toast.error(e.message),
   });
   const deleteCeoTubeMut = trpc.ceoTubes.delete.useMutation({
-    onSuccess: () => { ceoTubesQuery.refetch(); ceoViasQuery.refetch(); setDeleteTubeId(null); toast.success("Tubo excluído"); },
+    onSuccess: () => { mapUtils.ceoTubes.byCeo.invalidate({ ceoId: sidePanelRefId }); mapUtils.ceoVias.byCeo.invalidate({ ceoId: sidePanelRefId }); setDeleteTubeId(null); toast.success("Tubo excluído"); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -450,7 +451,12 @@ export default function InfrastructureMap() {
     onError: (e) => toast.error(e.message),
   });
   const updateCeoViaMut = trpc.ceoVias.updateLabel.useMutation({
-    onSuccess: () => { ceoViasQuery.refetch(); setEditViaDialogOpen(false); toast.success("Via atualizada"); },
+    onSuccess: () => {
+      mapUtils.ceoVias.byCeo.invalidate({ ceoId: sidePanelRefId });
+      mapUtils.ceoVias.byTube.invalidate();
+      setEditViaDialogOpen(false);
+      toast.success("Via atualizada");
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -533,8 +539,6 @@ export default function InfrastructureMap() {
   });
   const setCeoFusionMut = trpc.ceoVias.setFusion.useMutation({
     onSuccess: () => {
-      ceoViasQuery.refetch();
-      // Invalidar queries do menu CEO para sincronização bidirecional
       mapUtils.ceoVias.byCeo.invalidate({ ceoId: sidePanelRefId });
       mapUtils.ceoVias.byTube.invalidate();
       setFusionDialogOpen(false);
@@ -544,7 +548,6 @@ export default function InfrastructureMap() {
   });
   const clearCeoFusionMut = trpc.ceoVias.clearFusion.useMutation({
     onSuccess: () => {
-      ceoViasQuery.refetch();
       mapUtils.ceoVias.byCeo.invalidate({ ceoId: sidePanelRefId });
       mapUtils.ceoVias.byTube.invalidate();
       toast.success("Fusão removida");

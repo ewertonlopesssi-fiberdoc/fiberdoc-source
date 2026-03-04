@@ -881,7 +881,11 @@ export default function CeoDetail() {
   const { data: allSplitterViasMain = [] } = trpc.ceoSplitterVias.byCeo.useQuery({ ceoId }, { enabled: ceoId > 0 });
 
   const updateCeoMutation = trpc.ceos.update.useMutation({
-    onSuccess: () => { toast.success("CEO atualizado!"); utils.ceos.byId.invalidate({ id: ceoId }); },
+    onSuccess: () => {
+      toast.success("CEO atualizado!");
+      utils.ceos.byId.invalidate({ id: ceoId });
+      utils.ceos.list.invalidate(); // sincroniza com o mapa
+    },
     onError: e => toast.error("Erro: " + e.message),
   });
 
@@ -947,8 +951,8 @@ export default function CeoDetail() {
   });
 
   function handleBandejaSubmit() {
-    const num = parseInt(bandejaForm.number);
-    if (!num || num < 1) { toast.error("Número da bandeja inválido"); return; }
+    const num = parseInt(bandejaForm.number, 10);
+    if (isNaN(num) || num < 1 || !Number.isFinite(num)) { toast.error("Número da bandeja inválido"); return; }
     if (editBandeja) {
       updateBandejaMutation.mutate({ id: editBandeja.id, number: num, label: bandejaForm.label || null, notes: bandejaForm.notes || null });
     } else {
@@ -1256,7 +1260,7 @@ export default function CeoDetail() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Número da Bandeja *</Label>
-                <Input type="number" min={1} value={bandejaForm.number} onChange={e => setBandejaForm({ ...bandejaForm, number: e.target.value })} placeholder="Ex: 1" className="bg-background border-border/50" />
+                <Input type="number" min={1} step={1} value={bandejaForm.number} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ''); setBandejaForm({ ...bandejaForm, number: v }); }} placeholder="Ex: 1" className="bg-background border-border/50" />
               </div>
               <div className="space-y-1.5">
                 <Label>Etiqueta</Label>

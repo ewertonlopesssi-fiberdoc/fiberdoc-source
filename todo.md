@@ -1157,3 +1157,10 @@
 - [x] Criar migrate-v6.sql com verificações idempotentes
 - [x] Criar README-INSTALACAO.md com guia SSH completo
 - [x] Gerar pacote fiberdoc-v6.zip e publicar URL de download
+
+## Correcções v6.1
+- [x] Corrigir erro ao adicionar bandeja (campo number recebia "e" como string)
+- [x] Sincronização bidirecional CEO ↔ Mapa: mutations do mapa usam invalidate em vez de refetch local
+- [x] Sincronização bidirecional CEO ↔ Mapa: updateCeoMutation invalida ceos.list para o mapa
+- [x] Sincronização bidirecional CEO ↔ Mapa: updateCeoMut no mapa invalida ceos.list e ceos.byId
+- [x] Gerar pacote deploy v6.0 com migração SQL automática no deploy.sh
