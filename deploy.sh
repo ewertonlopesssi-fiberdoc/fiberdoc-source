@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  FiberDoc — Script de Implantação v6.1
+#  FiberDoc — Script de Implantação v6.2
 #  Uso: bash deploy.sh [FIBERDOC_DIR] [FIBERDOC_SERVICE]
 #  Padrões: /opt/fiberdoc  e  fiberdoc
 # =============================================================================
@@ -13,7 +13,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "============================================================"
-echo "  FiberDoc — Implantação v6.1"
+echo "  FiberDoc — Implantação v6.2"
 echo "  Diretório: ${FIBERDOC_DIR}"
 echo "  Serviço:   ${FIBERDOC_SERVICE}"
 echo "  Data/Hora: $(date '+%d/%m/%Y %H:%M:%S')"
@@ -226,6 +226,6 @@ fi
 
 echo ""
 echo "============================================================"
-echo "  FiberDoc v6.1 implantado com sucesso!"
+echo "  FiberDoc v6.2 implantado com sucesso!"
 echo "  Backup anterior: ${BACKUP_DIR}/fiberdoc_backup_${TIMESTAMP}.tar.gz"
 echo "============================================================"

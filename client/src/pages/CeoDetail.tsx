@@ -846,6 +846,7 @@ export default function CeoDetail() {
   const [geoLoading, setGeoLoading] = useState(false);
   const [printFilterOpen, setPrintFilterOpen] = useState(false);
   const [selectedTubeIds, setSelectedTubeIds] = useState<Set<number>>(new Set());
+  const [selectedSplitterPrintIds, setSelectedSplitterPrintIds] = useState<Set<number>>(new Set());
 
   // Estados de bandeja
   const [bandejaDialog, setBandejaDialog] = useState(false);
@@ -1016,15 +1017,28 @@ export default function CeoDetail() {
 
   function handleOpenPrintFilter() {
     setSelectedTubeIds(new Set((tubes as Tube[]).map(t => t.id)));
+    setSelectedSplitterPrintIds(new Set((splitters as Splitter[]).map(s => s.id)));
     setPrintFilterOpen(true);
   }
-  function handlePrint(printList: Tube[]) {
+  function handlePrint(printTubes: Tube[], printSplitterIds: Set<number>) {
     const allViasArr = allVias as Via[];
+    const allTubesArr = tubes as Tube[]; // todos os tubos para lookup de fusões
+    const tubeById: Record<number, Tube> = {};
+    for (const t of allTubesArr) tubeById[t.id] = t;
+    const viaById: Record<number, Via> = {};
+    for (const v of allViasArr) viaById[v.id] = v;
     const viasByTube: Record<number, Via[]> = {};
     for (const v of allViasArr) { if (!viasByTube[v.tubeId]) viasByTube[v.tubeId] = []; viasByTube[v.tubeId].push(v); }
     for (const k of Object.keys(viasByTube)) viasByTube[Number(k)].sort((a, b) => a.viaNumber - b.viaNumber);
-    const totalVias = printList.reduce((s, t) => s + t.totalVias, 0);
-    const fusedVias = allViasArr.filter(v => v.fusedToViaId !== null && printList.some(t => t.id === v.tubeId)).length;
+    const totalVias = printTubes.reduce((s, t) => s + t.totalVias, 0);
+    const fusedVias = allViasArr.filter(v => v.fusedToViaId !== null && printTubes.some(t => t.id === v.tubeId)).length;
+    // Splitters seleccionados
+    const printSplitterList = (splitters as Splitter[]).filter(s => printSplitterIds.has(s.id));
+    const splitterViasMap: Record<number, SplitterVia[]> = {};
+    for (const sv of (allSplitterViasMain as SplitterVia[])) {
+      if (!splitterViasMap[sv.splitterId]) splitterViasMap[sv.splitterId] = [];
+      splitterViasMap[sv.splitterId].push(sv);
+    }
     const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
     const PRINT_VIA_COLORS: Record<number, { bg: string; text: string; border: string }> = {
       1: { bg: "#dcfce7", text: "#15803d", border: "#86efac" }, 2: { bg: "#fef9c3", text: "#854d0e", border: "#fde047" },
@@ -1038,32 +1052,62 @@ export default function CeoDetail() {
     function renderTubeHtml(tube: Tube): string {
       const vias = viasByTube[tube.id] ?? [];
       const fused = vias.filter(v => v.fusedToViaId !== null).length;
-      return `<div class="tube-section"><div class="tube-title${tube.type === "splitter" ? " splitter-title" : ""}">
-        ${tube.type === "splitter" ? "SPLITTER" : "TUBO"} &mdash; ${escHtml(tube.identifier)}
-        ${tube.color ? `<span style="font-size:8pt;margin-left:4mm;color:#6b7280">${escHtml(tube.color)}</span>` : ""}
+      return `<div class="tube-section"><div class="tube-title">
+        TUBO &mdash; ${escHtml(tube.identifier)}
+        ${tube.color ? `<span style="font-size:8pt;margin-left:4mm;color:#6b7280;text-transform:uppercase">${escHtml(tube.color)}</span>` : ""}
         <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${tube.totalVias} vias &middot; ${fused} fusionada${fused !== 1 ? "s" : ""}</span>
       </div>
-      <table><thead><tr><th style="width:8%">VIA</th><th style="width:20%">ETIQUETA</th><th style="width:12%">STATUS</th><th style="width:35%">FUSÃO</th><th>OBSERVAÇÕES</th></tr></thead><tbody>
-      ${vias.map(via => {
-        const vc = PRINT_VIA_COLORS[via.viaNumber];
-        const bg = vc ? vc.bg : "#fff";
-        const fusedVia = via.fusedToViaId ? allViasArr.find(v => v.id === via.fusedToViaId) : null;
-        const fusedTube = fusedVia ? printList.find(t => t.id === fusedVia.tubeId) : null;
-        const statusCell = via.fusedToViaId !== null ? "<b style='color:#0891b2'>FUSIONADA</b>" : "<span style='color:#6b7280'>Livre</span>";
-        const fusionText = fusedVia && fusedTube ? `VIA ${String(fusedVia.viaNumber).padStart(2,"0")} &rarr; ${escHtml(fusedTube.identifier)}` : "&mdash;";
-        const viaCell = vc ? `<span style="background:${vc.bg};color:${vc.text};border:1px solid ${vc.border};padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700">${String(via.viaNumber).padStart(2,"0")}</span>` : `<b>${String(via.viaNumber).padStart(2,"0")}</b>`;
-        return `<tr style="background:${bg}"><td style="text-align:center">${viaCell}</td><td>${escHtml(via.label)}</td><td style="text-align:center">${statusCell}</td><td style="color:#0891b2">${fusionText}</td><td style="font-size:8pt;color:#6b7280">${escHtml(via.notes)}</td></tr>`;
+      <table><thead><tr><th style="width:8%">VIA</th><th style="width:20%">ETIQUETA</th><th style="width:12%">STATUS</th><th style="width:35%">FUNDIÇÃO</th><th>OBSERVAÇÕES</th></tr></thead><tbody>
+      ${Array.from({ length: tube.totalVias }, (_, i) => i + 1).map(i => {
+        const via = vias.find(v => v.viaNumber === i);
+        const vc = PRINT_VIA_COLORS[i];
+        const bg = via?.fusedToViaId ? "#e0f2fe" : "#fff";
+        const fusedVia = via?.fusedToViaId ? viaById[via.fusedToViaId] : null;
+        // Usar tubeById (todos os tubos) em vez de printTubes para encontrar o tubo de destino
+        const fusedTubeObj = fusedVia ? tubeById[fusedVia.tubeId] : null;
+        const statusCell = via?.fusedToViaId != null ? "<b style='color:#0891b2'>FUSIONADA</b>" : "<span style='color:#9ca3af'>Livre</span>";
+        const fusionText = fusedVia && fusedTubeObj
+          ? `VIA ${String(fusedVia.viaNumber).padStart(2,"0")} &rarr; ${escHtml(fusedTubeObj.identifier)}`
+          : "&mdash;";
+        const viaCell = vc ? `<span style="background:${vc.bg};color:${vc.text};border:1px solid ${vc.border};padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700">${String(i).padStart(2,"0")}</span>` : `<b>${String(i).padStart(2,"0")}</b>`;
+        return `<tr style="background:${bg}"><td style="text-align:center">${viaCell}</td><td>${escHtml(via?.label)}</td><td style="text-align:center">${statusCell}</td><td style="color:#0891b2;font-weight:${fusedVia ? '600' : '400'}">${fusionText}</td><td style="font-size:8pt;color:#6b7280">${escHtml(via?.notes)}</td></tr>`;
       }).join("")}
       </tbody></table></div>`;
     }
-    const allContent = printList.map(t => renderTubeHtml(t)).join("");
+    function renderSplitterHtml(splitter: Splitter): string {
+      const svias = (splitterViasMap[splitter.id] ?? []).sort((a, b) => a.viaNumber - b.viaNumber);
+      const entrada = svias.find(v => v.viaNumber === 0);
+      const saidas = svias.filter(v => v.viaNumber > 0);
+      const typeLabel = splitter.splitterType === "balanced" ? "Balanceado" : "Desbalanceado";
+      const ratioLabel = splitter.ratio.includes("_") ? splitter.ratio.replace("_", " (") + ")" : splitter.ratio;
+      return `<div class="tube-section"><div class="tube-title splitter-title">
+        &#8853; SPLITTER &mdash; ${escHtml(splitter.identifier)}
+        <span style="font-weight:400;font-size:7.5pt;margin-left:4mm;color:#92400e">${typeLabel} &middot; ${ratioLabel}</span>
+        <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${svias.length} vias (1 entrada + ${saidas.length} saídas)</span>
+      </div>
+      <table><thead><tr><th style="width:8%">VIA</th><th style="width:12%">TIPO</th><th style="width:18%">ETIQUETA</th><th style="width:14%">PERDA (dB)</th><th style="width:28%">ASSOCIAÇÃO</th><th>OBSERVAÇÕES</th></tr></thead><tbody>
+      ${[...(entrada ? [entrada] : []), ...saidas].map(sv => {
+        const isEntrada = sv.viaNumber === 0;
+        const vc = isEntrada ? null : PRINT_VIA_COLORS[(sv.viaNumber % 12) || 12];
+        const rowBg = isEntrada ? "#fefce8" : "#fff";
+        const viaLabel = isEntrada ? "ENTRADA" : `SAÍDA ${sv.viaNumber}`;
+        const viaNum = isEntrada ? "E" : String(sv.viaNumber).padStart(2,"0");
+        const viaCell = vc ? `<span style="background:${vc.bg};color:${vc.text};border:1px solid ${vc.border};padding:2px 6px;border-radius:3px;font-size:8pt;font-weight:700">${viaNum}</span>` : `<span style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;padding:2px 6px;border-radius:3px;font-size:8pt;font-weight:700">${viaNum}</span>`;
+        const lossText = sv.lossDb != null ? `${sv.lossDb.toFixed(1)} dB` : "&mdash;";
+        return `<tr style="background:${rowBg}"><td style="text-align:center">${viaCell}</td><td style="font-size:8pt;color:${isEntrada ? '#92400e' : '#374151'}">${viaLabel}</td><td>${escHtml(sv.label)}</td><td style="text-align:center;font-weight:600;color:#7c3aed">${lossText}</td><td>&mdash;</td><td style="font-size:8pt;color:#6b7280">${escHtml(sv.notes)}</td></tr>`;
+      }).join("")}
+      </tbody></table></div>`;
+    }
+    const tubeContent = printTubes.map(t => renderTubeHtml(t)).join("");
+    const splitterContent = printSplitterList.map(s => renderSplitterHtml(s)).join("");
+    const allContent = tubeContent + (splitterContent ? `<div style="margin-top:6mm;border-top:2px solid #7c3aed;padding-top:4mm"><div style="font-size:11pt;font-weight:700;color:#7c3aed;margin-bottom:4mm">SPLITTERS</div>${splitterContent}</div>` : "");
     const ceoName = escHtml(ceo?.name);
     const ceoLocation = ceo?.location ? `<div style="font-size:9pt;color:#6b7280;margin-top:1mm">${escHtml(ceo.location)}</div>` : "";
     const statusColor = ceo?.status === "active" ? "#059669" : "#d97706";
     const statusLabel = ceo?.status === "active" ? "Ativo" : ceo?.status === "maintenance" ? "Manutenção" : "Inativo";
     const statsHtml = [
-      { l: "Tubos", v: printList.filter(t => t.type === "tube").length },
-      { l: "Splitters", v: printList.filter(t => t.type === "splitter").length },
+      { l: "Tubos", v: printTubes.filter(t => t.type !== "splitter").length },
+      { l: "Splitters", v: printSplitterList.length },
       { l: "Total de Vias", v: totalVias }, { l: "Vias Fusionadas", v: fusedVias },
       { l: "Vias Livres", v: totalVias - fusedVias },
       { l: "Ocupação", v: totalVias > 0 ? Math.round((fusedVias / totalVias) * 100) + "%" : "0%" },
@@ -1081,14 +1125,14 @@ export default function CeoDetail() {
     td { padding: 4px 8px; border: 1px solid #ddd; vertical-align: middle; }
     .tube-section { margin-bottom: 8mm; page-break-inside: avoid; }
     .tube-title { font-size: 10pt; font-weight: 700; margin-bottom: 2mm; padding: 3px 8px; background: #e8f4f8; border-left: 4px solid #0891b2; }
-    .splitter-title { background: #f3e8ff; border-left-color: #7c3aed; }
+    .splitter-title { background: #fef3c7; border-left-color: #f59e0b; }
     .footer { border-top: 1px solid #ddd; padding-top: 4mm; margin-top: 6mm; font-size: 7pt; color: #6b7280; display: flex; justify-content: space-between; }
     @media print { body { padding: 0; } @page { size: A4 portrait; margin: 14mm 16mm; } }</style>
     </head><body>
     <div class="header"><div><h1>MAPA DE FUSÕES — CEO</h1><h2>${ceoName}</h2>${ceoLocation}</div>
     <div class="header-right"><div style="font-weight:700;font-size:9pt;color:#1a1a2e;margin-bottom:1mm">FiberDoc</div><div>Gerado em: ${now}</div><div style="margin-top:1mm">Status: <b style="color:${statusColor}">${statusLabel}</b></div></div></div>
     <div class="stats">${statsHtml}</div>${allContent}
-    <div class="footer"><span>FiberDoc — Sistema de Gestão de Infraestrutura de Rede Óptica</span><span>${ceoName} · ${now}</span></div>
+    <div class="footer"><span>FiberDoc — Sistema de Gestão de Infraestrutura de Rede Óptica</span><span>${ceoName} &middot; ${now}</span></div>
     </body></html>`;
     const win = window.open("", "_blank", "width=900,height=700");
     if (!win) { toast.error("Popup bloqueado pelo navegador."); return; }
@@ -1448,40 +1492,79 @@ export default function CeoDetail() {
       <Dialog open={printFilterOpen} onOpenChange={setPrintFilterOpen}>
         <DialogContent className="bg-card border-border max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Printer className="h-4 w-4" /> Selecionar Tubos para Imprimir</DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><Printer className="h-4 w-4" /> Selecionar para Imprimir</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs text-muted-foreground">{selectedTubeIds.size} de {tubeList.length} selecionados</span>
-              <div className="flex gap-2">
-                <button onClick={() => setSelectedTubeIds(new Set(tubeList.map(t => t.id)))} className="text-xs text-cyan-400 hover:underline">Todos</button>
-                <span className="text-muted-foreground/40">|</span>
-                <button onClick={() => setSelectedTubeIds(new Set())} className="text-xs text-muted-foreground hover:underline">Nenhum</button>
-              </div>
-            </div>
-            {tubeList.map(tube => {
-              const checked = selectedTubeIds.has(tube.id);
-              return (
-                <label key={tube.id} className={cn("flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors",
-                  checked ? "border-cyan-500/40 bg-cyan-500/5" : "border-border/40 hover:bg-muted/30")}>
-                  <input type="checkbox" checked={checked} onChange={() => {
-                    const next = new Set(selectedTubeIds);
-                    if (checked) next.delete(tube.id); else next.add(tube.id);
-                    setSelectedTubeIds(next);
-                  }} className="accent-cyan-500" />
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-sm font-medium truncate">{tube.identifier}</span>
-                    {tube.color && <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-border/40 shrink-0">{tube.color}</Badge>}
-                    <span className="text-xs text-muted-foreground shrink-0">{tube.totalVias} vias</span>
+          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+            {/* Tubos */}
+            {tubeList.length > 0 && (
+              <>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tubos ({selectedTubeIds.size}/{tubeList.length})</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => setSelectedTubeIds(new Set(tubeList.map(t => t.id)))} className="text-xs text-cyan-400 hover:underline">Todos</button>
+                    <span className="text-muted-foreground/40">|</span>
+                    <button onClick={() => setSelectedTubeIds(new Set())} className="text-xs text-muted-foreground hover:underline">Nenhum</button>
                   </div>
-                </label>
-              );
-            })}
+                </div>
+                {tubeList.map(tube => {
+                  const checked = selectedTubeIds.has(tube.id);
+                  return (
+                    <label key={tube.id} className={cn("flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors",
+                      checked ? "border-cyan-500/40 bg-cyan-500/5" : "border-border/40 hover:bg-muted/30")}>
+                      <input type="checkbox" checked={checked} onChange={() => {
+                        const next = new Set(selectedTubeIds);
+                        if (checked) next.delete(tube.id); else next.add(tube.id);
+                        setSelectedTubeIds(next);
+                      }} className="accent-cyan-500" />
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-medium truncate">{tube.identifier}</span>
+                        {tube.color && <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-border/40 shrink-0">{tube.color}</Badge>}
+                        <span className="text-xs text-muted-foreground shrink-0">{tube.totalVias} vias</span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </>
+            )}
+            {/* Splitters */}
+            {splitterList.length > 0 && (
+              <>
+                <div className="flex items-center justify-between mt-3 mb-1">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Splitters ({selectedSplitterPrintIds.size}/{splitterList.length})</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => setSelectedSplitterPrintIds(new Set(splitterList.map(s => s.id)))} className="text-xs text-violet-400 hover:underline">Todos</button>
+                    <span className="text-muted-foreground/40">|</span>
+                    <button onClick={() => setSelectedSplitterPrintIds(new Set())} className="text-xs text-muted-foreground hover:underline">Nenhum</button>
+                  </div>
+                </div>
+                {splitterList.map(sp => {
+                  const checked = selectedSplitterPrintIds.has(sp.id);
+                  return (
+                    <label key={sp.id} className={cn("flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors",
+                      checked ? "border-violet-500/40 bg-violet-500/5" : "border-border/40 hover:bg-muted/30")}>
+                      <input type="checkbox" checked={checked} onChange={() => {
+                        const next = new Set(selectedSplitterPrintIds);
+                        if (checked) next.delete(sp.id); else next.add(sp.id);
+                        setSelectedSplitterPrintIds(next);
+                      }} className="accent-violet-500" />
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-medium truncate">{sp.identifier}</span>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-violet-500/40 text-violet-400 shrink-0">{formatRatio(sp.ratio)}</Badge>
+                      </div>
+                    </label>
+                  );
+                })}
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPrintFilterOpen(false)} className="border-border/50">Cancelar</Button>
-            <Button disabled={selectedTubeIds.size === 0} onClick={() => { setPrintFilterOpen(false); handlePrint(tubeList.filter(t => selectedTubeIds.has(t.id))); }} className="gap-2">
-              <Printer className="h-4 w-4" /> Imprimir ({selectedTubeIds.size})
+            <Button
+              disabled={selectedTubeIds.size === 0 && selectedSplitterPrintIds.size === 0}
+              onClick={() => { setPrintFilterOpen(false); handlePrint(tubeList.filter(t => selectedTubeIds.has(t.id)), selectedSplitterPrintIds); }}
+              className="gap-2"
+            >
+              <Printer className="h-4 w-4" /> Imprimir ({selectedTubeIds.size + selectedSplitterPrintIds.size})
             </Button>
           </DialogFooter>
         </DialogContent>
