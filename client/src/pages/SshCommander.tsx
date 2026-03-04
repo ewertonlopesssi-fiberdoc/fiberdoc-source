@@ -301,6 +301,8 @@ export default function SshCommander() {
   const [waitingConfirm, setWaitingConfirm] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<{ success: boolean } | null>(null);
+  // Aba activa (controlled) — muda para "terminal" ao executar
+  const [activeTab, setActiveTab] = useState<string>("commands");
 
   // Dialog de novo/editar comando
   const [showCmdDialog, setShowCmdDialog] = useState(false);
@@ -350,9 +352,8 @@ export default function SshCommander() {
         const msg = JSON.parse(ev.data) as { type: string; data?: string; success?: boolean; output?: string };
         if (msg.type === "output") {
           const text = msg.data ?? "";
-          if (text.trim()) {
-            setTerminalLines(prev => [...prev, { type: "output", text }]);
-          }
+          // Mostrar todo o output (incluindo linhas só com espaços/ANSI)
+          setTerminalLines(prev => [...prev, { type: "output", text }]);
         } else if (msg.type === "input") {
           setTerminalLines(prev => [...prev, { type: "input", text: msg.data ?? "" }]);
         } else if (msg.type === "confirm_required") {
@@ -395,6 +396,8 @@ export default function SshCommander() {
   }, [activeSessionId]);
 
   const handleRunCmd = (cmd: SshCommand) => {
+    // Mudar para aba Terminal ao executar
+    setActiveTab("terminal");
     if (cmd.params.length > 0) {
       const initial: Record<string, string> = {};
       cmd.params.forEach(p => { initial[p] = ""; });
@@ -519,7 +522,7 @@ export default function SshCommander() {
                 <p>Seleccione um equipamento para ver os comandos</p>
               </div>
             ) : (
-              <Tabs defaultValue="commands">
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Server className="w-4 h-4 text-cyan-400" />
