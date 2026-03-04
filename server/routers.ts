@@ -344,32 +344,6 @@ export const appRouter = router({
           }
         }
         await updateEquipment(id, data);
-        // Sincronizar credenciais SSH com a tabela ssh_credentials
-        try {
-          const db2 = await (await import("./db")).getDb();
-          if (db2) {
-            const { sshCredentials: sshCredTable } = await import("../drizzle/schema");
-            const { eq: eqOp2 } = await import("drizzle-orm");
-            const newSshUser = (data as any).sshUser as string | null | undefined;
-            const newSshPasswordEnc = (data as any).sshPasswordEnc as string | null | undefined;
-            const newSshPort = (data as any).sshPort as number | null | undefined;
-            if (newSshUser && newSshPasswordEnc) {
-              const existingCred = await db2.select().from(sshCredTable).where(eqOp2(sshCredTable.equipmentId, id));
-              if (existingCred.length > 0) {
-                await db2.update(sshCredTable)
-                  .set({ sshUser: newSshUser, sshPasswordEnc: newSshPasswordEnc, sshPort: newSshPort ?? 22 })
-                  .where(eqOp2(sshCredTable.equipmentId, id));
-              } else {
-                await db2.insert(sshCredTable).values({
-                  equipmentId: id, sshUser: newSshUser,
-                  sshPasswordEnc: newSshPasswordEnc, sshPort: newSshPort ?? 22,
-                });
-              }
-            } else if (newSshUser === null) {
-              await db2.delete(sshCredTable).where(eqOp2(sshCredTable.equipmentId, id)).catch(() => {});
-            }
-          }
-        } catch { /* sincronização SSH não crítica */ }
         await createMaintenanceRecord({
           entityType: "equipment", entityId: id, action: "updated",
           description: `Equipamento #${id} atualizado`, performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
