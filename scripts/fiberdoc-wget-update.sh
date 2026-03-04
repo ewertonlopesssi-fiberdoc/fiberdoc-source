@@ -1,6 +1,7 @@
 #!/bin/bash
-# fiberdoc-wget-update.sh v1.3
+# fiberdoc-wget-update.sh v1.4
 # Compativel com bash 3.x, 4.x e 5.x (Debian, Ubuntu, CentOS)
+# Aceita URL remota OU caminho local para o ficheiro ZIP
 
 set -euo pipefail
 
@@ -22,7 +23,7 @@ log_info()  { echo -e "  ${CYAN}INFO${NC} $1"; }
 
 echo ""
 echo -e "${BOLD}============================================================${NC}"
-echo -e "${CYAN}${BOLD}  FiberDoc -- Script de Actualizacao v1.3${NC}"
+echo -e "${CYAN}${BOLD}  FiberDoc -- Script de Actualizacao v1.4${NC}"
 echo -e "${BOLD}============================================================${NC}"
 echo ""
 
@@ -32,8 +33,10 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 if [ -z "${UPDATE_URL}" ]; then
-  log_error "URL do pacote nao fornecida."
-  echo "  Uso: bash fiberdoc-wget-update.sh <URL_DO_PACOTE_ZIP>"
+  log_error "URL ou caminho do pacote nao fornecido."
+  echo "  Uso: bash fiberdoc-wget-update.sh <URL_OU_CAMINHO_DO_ZIP>"
+  echo "  Ex:  bash fiberdoc-wget-update.sh /tmp/fiberdoc-update.zip"
+  echo "  Ex:  bash fiberdoc-wget-update.sh https://exemplo.com/fiberdoc.zip"
   exit 1
 fi
 
@@ -43,7 +46,7 @@ if command -v wget >/dev/null 2>&1; then
 elif command -v curl >/dev/null 2>&1; then
   DOWNLOADER="curl"; log_ok "curl encontrado."
 else
-  log_error "Nem wget nem curl estao instalados."; exit 1
+  log_warn "Nem wget nem curl encontrados (apenas necessario para URL remota)."
 fi
 
 if ! command -v unzip >/dev/null 2>&1; then
@@ -54,26 +57,40 @@ log_ok "unzip encontrado."
 mkdir -p "${FIBERDOC_DIR}" "${BACKUP_DIR}" "${TMP_DIR}"
 log_ok "Verificacoes concluidas."
 
-# -- 1. Download ----------------------------------------------------------------
-log_step "[1/7] A fazer download do pacote..."
-log_info "URL: ${UPDATE_URL}"
+# -- 1. Obter o pacote (URL remota ou ficheiro local) ---------------------------
+log_step "[1/7] A obter o pacote..."
+log_info "Origem: ${UPDATE_URL}"
 ZIP_FILE="${TMP_DIR}/fiberdoc-update.zip"
 
-if [ "${DOWNLOADER}" = "wget" ]; then
-  wget --progress=bar:force --timeout=120 --tries=3 \
-    --output-document="${ZIP_FILE}" "${UPDATE_URL}" 2>&1 \
-    || { log_error "Falha no download."; exit 1; }
+if [ -f "${UPDATE_URL}" ]; then
+  log_info "Ficheiro local detectado -- a copiar..."
+  cp "${UPDATE_URL}" "${ZIP_FILE}" \
+    || { log_error "Falha ao copiar ficheiro local."; exit 1; }
+elif echo "${UPDATE_URL}" | grep -qE '^https?://'; then
+  log_info "URL remota detectada -- a fazer download..."
+  if [ -z "${DOWNLOADER}" ]; then
+    log_error "Nem wget nem curl estao instalados. Instale um deles."; exit 1
+  fi
+  if [ "${DOWNLOADER}" = "wget" ]; then
+    wget --progress=bar:force --timeout=120 --tries=3 \
+      --output-document="${ZIP_FILE}" "${UPDATE_URL}" 2>&1 \
+      || { log_error "Falha no download."; exit 1; }
+  else
+    curl --location --progress-bar --connect-timeout 30 --max-time 300 --retry 3 \
+      --output "${ZIP_FILE}" "${UPDATE_URL}" \
+      || { log_error "Falha no download."; exit 1; }
+  fi
 else
-  curl --location --progress-bar --connect-timeout 30 --max-time 300 --retry 3 \
-    --output "${ZIP_FILE}" "${UPDATE_URL}" \
-    || { log_error "Falha no download."; exit 1; }
+  log_error "Argumento nao reconhecido como URL nem como ficheiro local: ${UPDATE_URL}"
+  log_error "Verifique se o caminho esta correcto e o ficheiro existe."
+  exit 1
 fi
 
 if [ ! -f "${ZIP_FILE}" ] || [ ! -s "${ZIP_FILE}" ]; then
-  log_error "Ficheiro descarregado vazio."; exit 1
+  log_error "Ficheiro ZIP vazio ou inexistente."; exit 1
 fi
 ZIP_SIZE=$(du -sh "${ZIP_FILE}" | cut -f1)
-log_ok "Download concluido. Tamanho: ${ZIP_SIZE}"
+log_ok "Pacote obtido. Tamanho: ${ZIP_SIZE}"
 
 # -- 2. Validar ZIP -------------------------------------------------------------
 log_step "[2/7] A validar o pacote..."
@@ -292,7 +309,6 @@ fi
 rm -rf "${TMP_DIR}" 2>/dev/null || true
 
 echo ""
-  echo -e "${GREEN}${BOLD}  FiberDoc actualizado com sucesso!${NC}"
 echo -e "${BOLD}============================================================${NC}"
 if systemctl is-active --quiet "${FIBERDOC_SERVICE}" 2>/dev/null; then
   echo -e "${GREEN}${BOLD}  FiberDoc actualizado com sucesso!${NC}"

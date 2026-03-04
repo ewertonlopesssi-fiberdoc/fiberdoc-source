@@ -1266,3 +1266,8 @@
 - [x] Script fiberdoc-wget-update.sh v1.3: auto-gera JWT_SECRET se ausente no .env após update
 - [x] ZIP verificado: 311 linhas, 5 ocorrências JWT_SECRET, sintaxe bash OK, 0 caracteres não-ASCII
 - [x] Causa raiz do ZIP errado identificada e corrigida (script de geração copiava versão antiga)
+
+## v6.5.14 — Script de Update v1.4: suporte a ficheiro local
+- [x] Script fiberdoc-wget-update.sh v1.4: aceita tanto URL remota como caminho local (/tmp/ficheiro.zip)
+- [x] Deteccao automatica: se o argumento for um ficheiro existente, copia-o; se comecar por http://, faz download
+- [x] Mensagem de erro clara se o argumento nao for nem URL nem ficheiro local valido
