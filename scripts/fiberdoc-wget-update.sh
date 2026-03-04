@@ -231,6 +231,17 @@ else
   exit 1
 fi
 
+# Preservar ficheiros críticos antes do rsync
+ENV_BACKUP="${TMP_DIR}/env_backup"
+mkdir -p "${ENV_BACKUP}"
+if [[ -f "${FIBERDOC_DIR}/.env" ]]; then
+  cp "${FIBERDOC_DIR}/.env" "${ENV_BACKUP}/.env"
+  log_info ".env guardado para preservação."
+fi
+if [[ -d "${FIBERDOC_DIR}/local-uploads" ]]; then
+  cp -r "${FIBERDOC_DIR}/local-uploads" "${ENV_BACKUP}/local-uploads" 2>/dev/null || true
+fi
+
 # Copiar ficheiros (preservar .env e backups)
 rsync -a --delete \
   --exclude=".env" \
@@ -240,6 +251,15 @@ rsync -a --delete \
   --exclude="local-uploads/" \
   --exclude="local-backups/" \
   "${SOURCE_DIR}/" "${FIBERDOC_DIR}/"
+
+# Restaurar ficheiros críticos após rsync
+if [[ -f "${ENV_BACKUP}/.env" ]]; then
+  cp "${ENV_BACKUP}/.env" "${FIBERDOC_DIR}/.env"
+  log_ok ".env restaurado com sucesso."
+fi
+if [[ -d "${ENV_BACKUP}/local-uploads" ]]; then
+  cp -r "${ENV_BACKUP}/local-uploads" "${FIBERDOC_DIR}/" 2>/dev/null || true
+fi
 
 log_ok "Ficheiros aplicados em ${FIBERDOC_DIR}."
 
