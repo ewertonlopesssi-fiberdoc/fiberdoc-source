@@ -45,6 +45,19 @@ export function applyParams(lines: string[], params: Record<string, string>): st
   );
 }
 
+// ─── Strip de sequências ANSI (cores, cursor, etc.) ─────────────────────────
+// O MikroTik envia sequências ANSI que poluem o output no terminal web
+function stripAnsi(text: string): string {
+  // Remove: ESC[...m (cores), ESC[...J/K/H/A/B/C/D (cursor), ESC(B, ESC> etc.
+  return text
+    .replace(/\x1b\[[0-9;]*[mGKJHABCDEFPSTfhilnpqrsu]/g, "")
+    .replace(/\x1b[()][A-Z0-9]/g, "")
+    .replace(/\x1b[=>]/g, "")
+    .replace(/\x1b\[\?[0-9;]*[hlr]/g, "")
+    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
+    .replace(/\x1b./g, "");
+}
+
 // ─── Padrões de confirmação interactiva ──────────────────────────────────────
 const CONFIRM_PATTERNS = [
   /\[Y\/N\]/i,
@@ -147,9 +160,12 @@ export async function executeSshCommand(
             if (sess) sess.outputSoFar = output;
           }
 
-          // Enviar via SSE se disponível
+          // Enviar via SSE se disponível (com ANSI removido para leitura limpa)
           if (sseRes) {
-            sendSseEvent(sseRes, { type: "output", data: chunk });
+            const clean = stripAnsi(chunk);
+            if (clean.length > 0) {
+              sendSseEvent(sseRes, { type: "output", data: clean });
+            }
           }
 
           // Detectar prompt de confirmação
@@ -172,7 +188,12 @@ export async function executeSshCommand(
         stream.stderr.on("data", (data: Buffer) => {
           const chunk = data.toString();
           output += chunk;
-          if (sseRes) sendSseEvent(sseRes, { type: "output", data: chunk });
+          if (sseRes) {
+            const clean = stripAnsi(chunk);
+            if (clean.length > 0) {
+              sendSseEvent(sseRes, { type: "output", data: clean });
+            }
+          }
         });
 
         stream.on("close", () => {
@@ -188,13 +209,14 @@ export async function executeSshCommand(
           }
         });
 
-        // Enviar linhas com sleep entre elas
+          // Enviar linhas com sleep entre elas
         (async () => {
           for (const line of lines) {
             stream.write(line + "\n");
             await new Promise(r => setTimeout(r, sleepMs));
           }
-          await new Promise(r => setTimeout(r, Math.max(sleepMs * 2, 800)));
+          // Aguardar resposta do equipamento — MikroTik pode demorar até 3s
+          await new Promise(r => setTimeout(r, Math.max(sleepMs * 3, 3000)));
           stream.write("exit\n");
         })();
       });
