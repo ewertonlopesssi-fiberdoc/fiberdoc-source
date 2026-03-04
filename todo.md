@@ -1276,3 +1276,9 @@
 - [x] Bug: SSH Commander mostra "Credenciais SSH não configuradas" mesmo com credenciais preenchidas no cadastro do equipamento
 - [x] Investigar: getSshCredential procura na tabela ssh_credentials mas as credenciais podem estar na tabela equipments (campos sshUser/sshPassword)
 - [x] Corrigir: getSshCredential deve verificar ambas as fontes (ssh_credentials e equipments)
+
+## Bug: SSH Commander — Erro ao desencriptar credenciais
+- [x] Bug: "Erro ao desencriptar credenciais" quando JWT_SECRET muda entre versões
+- [x] Causa: chave AES derivada do JWT_SECRET — se o JWT_SECRET mudar, passwords antigas ficam ilegíveis
+- [x] Solução: usar chave de encriptação SSH separada e fixa (SSH_ENC_KEY no .env), independente do JWT_SECRET
+- [x] Solução imediata: decryptPassword tenta chave principal + fallback (chave padrão original)

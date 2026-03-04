@@ -5,11 +5,25 @@ import { sshCredentials, sshCommands, sshExecutionLog } from "../drizzle/schema"
 import { eq } from "drizzle-orm";
 import type { Response } from "express";
 
+// Chave de encriptação SSH — usa SSH_ENC_KEY dedicada (independente do JWT_SECRET)
+// Se SSH_ENC_KEY não estiver definida, usa JWT_SECRET como fallback (compatibilidade)
+// IMPORTANTE: SSH_ENC_KEY deve ser gerada uma vez e nunca alterada
 const SSH_ENC_KEY = (() => {
-  const k = process.env.JWT_SECRET ?? "fiberdoc-ssh-default-key-32bytes!";
+  const k = process.env.SSH_ENC_KEY ?? process.env.JWT_SECRET ?? "fiberdoc-ssh-default-key-32bytes!";
   const buf = Buffer.alloc(32, 0);
   Buffer.from(k).copy(buf);
   return buf;
+})();
+
+// Chaves de fallback para tentar desencriptar passwords antigas
+// (quando JWT_SECRET mudou e as passwords foram encriptadas com o valor antigo)
+const SSH_FALLBACK_KEYS: Buffer[] = (() => {
+  const keys: Buffer[] = [];
+  // Chave padrão original (antes de qualquer JWT_SECRET personalizado)
+  const defaultBuf = Buffer.alloc(32, 0);
+  Buffer.from("fiberdoc-ssh-default-key-32bytes!").copy(defaultBuf);
+  keys.push(defaultBuf);
+  return keys;
 })();
 
 // ─── Encriptação AES-256-GCM ─────────────────────────────────────────────────
@@ -23,9 +37,23 @@ export function encryptPassword(plain: string): string {
 
 export function decryptPassword(enc: string): string {
   const [ivHex, tagHex, dataHex] = enc.split(":");
-  const decipher = createDecipheriv("aes-256-gcm", SSH_ENC_KEY, Buffer.from(ivHex, "hex"));
-  decipher.setAuthTag(Buffer.from(tagHex, "hex"));
-  return decipher.update(Buffer.from(dataHex, "hex")).toString("utf8") + decipher.final("utf8");
+  const iv = Buffer.from(ivHex, "hex");
+  const tag = Buffer.from(tagHex, "hex");
+  const data = Buffer.from(dataHex, "hex");
+
+  // Tentar com a chave principal
+  const keysToTry = [SSH_ENC_KEY, ...SSH_FALLBACK_KEYS];
+  for (const key of keysToTry) {
+    try {
+      const decipher = createDecipheriv("aes-256-gcm", key, iv);
+      decipher.setAuthTag(tag);
+      const result = decipher.update(data).toString("utf8") + decipher.final("utf8");
+      return result;
+    } catch {
+      // Tentar próxima chave
+    }
+  }
+  throw new Error("Não foi possível desencriptar as credenciais. Por favor re-introduza a password SSH no cadastro do equipamento.");
 }
 
 // ─── Detectar parâmetros variáveis {param} ───────────────────────────────────
