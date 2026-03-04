@@ -162,11 +162,12 @@ if ! unzip -t "${ZIP_FILE}" &>/dev/null; then
   exit 1
 fi
 
-# Verificar conteúdo mínimo esperado
+# Verificar conteúdo mínimo esperado (aceita pasta raiz no ZIP)
 REQUIRED_FILES=("dist/index.js" "package.json")
 MISSING=()
 for f in "${REQUIRED_FILES[@]}"; do
-  if ! unzip -l "${ZIP_FILE}" | grep -q "${f}"; then
+  # Aceita tanto na raiz como dentro de uma pasta raiz (ex: fiberdoc-v6.5.4/dist/index.js)
+  if ! unzip -l "${ZIP_FILE}" | grep -qE "(^|/)${f}$"; then
     MISSING+=("${f}")
   fi
 done
@@ -234,6 +235,11 @@ fi
 # Preservar ficheiros críticos antes do rsync
 ENV_BACKUP="${TMP_DIR}/env_backup"
 mkdir -p "${ENV_BACKUP}"
+# Remover symlink quebrado se existir, antes de tentar copiar
+if [[ -L "${FIBERDOC_DIR}/.env" ]] && [[ ! -e "${FIBERDOC_DIR}/.env" ]]; then
+  rm -f "${FIBERDOC_DIR}/.env"
+  log_info "Symlink quebrado .env removido."
+fi
 if [[ -f "${FIBERDOC_DIR}/.env" ]]; then
   cp "${FIBERDOC_DIR}/.env" "${ENV_BACKUP}/.env"
   log_info ".env guardado para preservação."
@@ -254,6 +260,10 @@ rsync -a --delete \
 
 # Restaurar ficheiros críticos após rsync
 if [[ -f "${ENV_BACKUP}/.env" ]]; then
+  # Remover symlink quebrado no destino se existir
+  if [[ -L "${FIBERDOC_DIR}/.env" ]]; then
+    rm -f "${FIBERDOC_DIR}/.env"
+  fi
   cp "${ENV_BACKUP}/.env" "${FIBERDOC_DIR}/.env"
   log_ok ".env restaurado com sucesso."
 fi
