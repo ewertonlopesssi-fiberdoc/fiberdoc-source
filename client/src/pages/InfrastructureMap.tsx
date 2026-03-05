@@ -1048,7 +1048,7 @@ export default function InfrastructureMap() {
     renderMidpoints(path, routeColor);
   }, [clearEditRouteMarkers]);
 
-  // Renderizar pontos médios entre vértices
+  // Renderizar pontos médios entre vértices (arrastáveis para inserir e posicionar)
   const renderMidpoints = useCallback((path: { lat: number; lng: number }[], routeColor: string) => {
     if (!mapRef.current) return;
     editRouteMidMarkersRef.current.forEach(m => m.remove());
@@ -1056,18 +1056,110 @@ export default function InfrastructureMap() {
     for (let i = 0; i < path.length - 1; i++) {
       const midLat = (path[i].lat + path[i + 1].lat) / 2;
       const midLng = (path[i].lng + path[i + 1].lng) / 2;
+      const insertIdx = i + 1;
       const mid = L.circleMarker([midLat, midLng], {
-        radius: 5,
+        radius: 6,
         color: "white",
         fillColor: routeColor,
-        fillOpacity: 0.5,
-        weight: 1.5,
+        fillOpacity: 0.45,
+        weight: 2,
         bubblingMouseEvents: false,
       }).addTo(mapRef.current!);
-      mid.getElement()?.setAttribute("title", "Clique para adicionar ponto");
+      mid.getElement()?.setAttribute("title", "Arraste ou clique para adicionar ponto");
+      if (mid.getElement()) mid.getElement()!.style.cursor = "grab";
+
+      let midDragging = false;
+      let midInserted = false;
+
+      // Helper: converter clientX/Y para LatLng
+      const midClientToLatLng = (clientX: number, clientY: number): { lat: number; lng: number } | null => {
+        if (!mapRef.current) return null;
+        const rect = mapRef.current.getContainer().getBoundingClientRect();
+        const pt = L.point(clientX - rect.left, clientY - rect.top);
+        const ll = mapRef.current.containerPointToLatLng(pt);
+        return { lat: ll.lat, lng: ll.lng };
+      };
+
+      const doInsertAndMove = (lat: number, lng: number) => {
+        if (!midInserted) {
+          // Inserir o novo ponto na posição do midpoint
+          midInserted = true;
+          const newPath = [
+            ...editingRoutePathRef.current.slice(0, insertIdx),
+            { lat, lng },
+            ...editingRoutePathRef.current.slice(insertIdx),
+          ];
+          editingRoutePathRef.current = newPath;
+        } else {
+          // Actualizar a posição do ponto inserido
+          editingRoutePathRef.current[insertIdx] = { lat, lng };
+        }
+        mid.setLatLng([lat, lng]);
+        if (editRoutePolylineRef.current) {
+          editRoutePolylineRef.current.setLatLngs(
+            editingRoutePathRef.current.map(p => [p.lat, p.lng] as L.LatLngExpression)
+          );
+        }
+      };
+
+      // Mouse drag
+      mid.on("mousedown", (e: L.LeafletMouseEvent) => {
+        L.DomEvent.stopPropagation(e);
+        midDragging = true;
+        midInserted = false;
+        mapRef.current!.dragging.disable();
+        if (mid.getElement()) mid.getElement()!.style.cursor = "grabbing";
+        const onMove = (ev: L.LeafletMouseEvent) => {
+          if (!midDragging) return;
+          doInsertAndMove(ev.latlng.lat, ev.latlng.lng);
+        };
+        const onUp = () => {
+          mapRef.current!.off("mousemove", onMove);
+          mapRef.current!.off("mouseup", onUp);
+          if (!midDragging) return;
+          midDragging = false;
+          mapRef.current!.dragging.enable();
+          if (mid.getElement()) mid.getElement()!.style.cursor = "grab";
+          if (midInserted) {
+            setEditingRoutePath([...editingRoutePathRef.current]);
+            renderEditRouteMarkers([...editingRoutePathRef.current], routeColor);
+          }
+        };
+        mapRef.current!.on("mousemove", onMove);
+        mapRef.current!.on("mouseup", onUp);
+      });
+
+      // Touch drag
+      const midEl = mid.getElement?.();
+      if (midEl) {
+        midEl.addEventListener("touchstart", (e: TouchEvent) => {
+          e.stopPropagation(); e.preventDefault();
+          midDragging = true; midInserted = false;
+          mapRef.current!.dragging.disable();
+        }, { passive: false });
+        midEl.addEventListener("touchmove", (e: TouchEvent) => {
+          if (!midDragging) return;
+          e.stopPropagation(); e.preventDefault();
+          const touch = e.touches[0];
+          const ll = midClientToLatLng(touch.clientX, touch.clientY);
+          if (ll) doInsertAndMove(ll.lat, ll.lng);
+        }, { passive: false });
+        midEl.addEventListener("touchend", (e: TouchEvent) => {
+          e.stopPropagation();
+          if (!midDragging) return;
+          midDragging = false;
+          mapRef.current!.dragging.enable();
+          if (midInserted) {
+            setEditingRoutePath([...editingRoutePathRef.current]);
+            renderEditRouteMarkers([...editingRoutePathRef.current], routeColor);
+          }
+        }, { passive: false });
+      }
+
+      // Clique simples (sem arrastar) — insere no midpoint
       mid.on("click", (e: L.LeafletMouseEvent) => {
         L.DomEvent.stopPropagation(e);
-        const insertIdx = i + 1;
+        if (midInserted) return; // já foi inserido pelo drag
         const newPath = [
           ...editingRoutePathRef.current.slice(0, insertIdx),
           { lat: midLat, lng: midLng },
@@ -1077,6 +1169,7 @@ export default function InfrastructureMap() {
         setEditingRoutePath([...newPath]);
         renderEditRouteMarkers(newPath, routeColor);
       });
+
       editRouteMidMarkersRef.current.push(mid);
     }
   }, []);
@@ -2002,6 +2095,38 @@ export default function InfrastructureMap() {
             <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => { setKmlImportResult(null); setKmlImportOpen(true); }} title="Importar posições de CEO/CTO de um arquivo KML">
               <Upload className="w-3 h-3" />Importar KML
             </Button>
+          )}
+          {/* Filtro rápido por grupo */}
+          {(mapGroups as any[]).length > 0 && (
+            <div className="relative flex items-center">
+              <Select
+                value={activeGroupFilter !== null ? String(activeGroupFilter) : "all"}
+                onValueChange={(v) => setActiveGroupFilter(v === "all" ? null : Number(v))}
+              >
+                <SelectTrigger
+                  className={`h-7 text-xs pr-2 pl-2 gap-1 border rounded-md min-w-[90px] max-w-[140px] ${
+                    activeGroupFilter !== null
+                      ? "bg-violet-600/20 border-violet-500/60 text-violet-300"
+                      : "bg-background border-border text-muted-foreground"
+                  }`}
+                  title="Filtrar mapa por grupo"
+                >
+                  <Folder className="w-3 h-3 flex-shrink-0" />
+                  <SelectValue placeholder="Grupo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os grupos</SelectItem>
+                  {(mapGroups as any[]).map((g: any) => (
+                    <SelectItem key={g.id} value={String(g.id)}>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full inline-block flex-shrink-0" style={{ background: g.color ?? "#6366f1" }} />
+                        {g.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
           <Button size="sm" variant={groupsPanelOpen ? "default" : "outline"} className={`h-7 gap-1 text-xs ${groupsPanelOpen ? "bg-violet-600 hover:bg-violet-700 border-violet-500" : ""}`} onClick={() => setGroupsPanelOpen(v => !v)} title="Grupos/Pastas de setores">
             <Folder className="w-3 h-3" />Grupos {(mapGroups as any[]).length > 0 && <span className="ml-0.5 bg-white/20 rounded px-1">{(mapGroups as any[]).length}</span>}
