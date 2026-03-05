@@ -1299,3 +1299,6 @@
 - [x] Bug: após executar um comando, o botão Executar fica desactivado (isExecuting=true) mesmo após a sessão terminar — o evento 'done' do SSE não chega ao frontend quando a sessão fecha com stream.end()
 - [x] Corrigir: resetar isExecuting quando o EventSource fecha (onerror/onclose) ou adicionar timeout de segurança
 - [x] Corrigir: limpar estado isExecuting ao trocar de equipamento
+
+- [x] Coloração sintáctica no terminal SSH (up=verde, down=vermelho, *down=vermelho, valores %=amarelo, interfaces=cian, erros=laranja)
+- [x] Corrigir botões Executar desactivados na aba Comandos Rápidos (adicionar aviso claro quando nenhum dispositivo está seleccionado)
