@@ -51,6 +51,7 @@ import {
   Cpu,
   Search,
   Terminal,
+  Router,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -75,6 +76,7 @@ const publicMenuItems = [
   { icon: Wifi, label: "Salas / Locais", path: "/salas" },
   { icon: Server, label: "Equipamentos", path: "/equipamentos" },
   { icon: Terminal, label: "SSH Commander", path: "/ssh-commander" },
+  { icon: Router, label: "CPE Manager", path: "/cpe-manager" },
   { icon: Globe, label: "IP DOC", path: "/ip-doc" },
   { icon: Network, label: "Topologia", path: "/topologia" },
   { icon: Box, label: "CEO", path: "/ceo" },
