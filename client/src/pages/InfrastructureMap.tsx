@@ -1066,7 +1066,7 @@ export default function InfrastructureMap() {
         bubblingMouseEvents: false,
       }).addTo(mapRef.current!);
       mid.getElement()?.setAttribute("title", "Arraste ou clique para adicionar ponto");
-      if (mid.getElement()) mid.getElement()!.style.cursor = "grab";
+      if (mid.getElement()) (mid.getElement() as HTMLElement).style.cursor = "grab";
 
       let midDragging = false;
       let midInserted = false;
@@ -1108,7 +1108,7 @@ export default function InfrastructureMap() {
         midDragging = true;
         midInserted = false;
         mapRef.current!.dragging.disable();
-        if (mid.getElement()) mid.getElement()!.style.cursor = "grabbing";
+        if (mid.getElement()) (mid.getElement() as HTMLElement).style.cursor = "grabbing";
         const onMove = (ev: L.LeafletMouseEvent) => {
           if (!midDragging) return;
           doInsertAndMove(ev.latlng.lat, ev.latlng.lng);
@@ -1119,7 +1119,7 @@ export default function InfrastructureMap() {
           if (!midDragging) return;
           midDragging = false;
           mapRef.current!.dragging.enable();
-          if (mid.getElement()) mid.getElement()!.style.cursor = "grab";
+          if (mid.getElement()) (mid.getElement() as HTMLElement).style.cursor = "grab";
           if (midInserted) {
             setEditingRoutePath([...editingRoutePathRef.current]);
             renderEditRouteMarkers([...editingRoutePathRef.current], routeColor);
@@ -1132,20 +1132,23 @@ export default function InfrastructureMap() {
       // Touch drag
       const midEl = mid.getElement?.();
       if (midEl) {
-        midEl.addEventListener("touchstart", (e: TouchEvent) => {
-          e.stopPropagation(); e.preventDefault();
+        midEl.addEventListener("touchstart", ((e: Event) => {
+          const te = e as TouchEvent;
+          te.stopPropagation(); te.preventDefault();
           midDragging = true; midInserted = false;
           mapRef.current!.dragging.disable();
-        }, { passive: false });
-        midEl.addEventListener("touchmove", (e: TouchEvent) => {
+        }) as EventListener, { passive: false });
+        midEl.addEventListener("touchmove", ((e: Event) => {
           if (!midDragging) return;
-          e.stopPropagation(); e.preventDefault();
-          const touch = e.touches[0];
+          const te = e as TouchEvent;
+          te.stopPropagation(); te.preventDefault();
+          const touch = te.touches[0];
           const ll = midClientToLatLng(touch.clientX, touch.clientY);
           if (ll) doInsertAndMove(ll.lat, ll.lng);
-        }, { passive: false });
-        midEl.addEventListener("touchend", (e: TouchEvent) => {
-          e.stopPropagation();
+        }) as EventListener, { passive: false });
+        midEl.addEventListener("touchend", ((e: Event) => {
+          const te = e as TouchEvent;
+          te.stopPropagation();
           if (!midDragging) return;
           midDragging = false;
           mapRef.current!.dragging.enable();
@@ -1153,7 +1156,7 @@ export default function InfrastructureMap() {
             setEditingRoutePath([...editingRoutePathRef.current]);
             renderEditRouteMarkers([...editingRoutePathRef.current], routeColor);
           }
-        }, { passive: false });
+        }) as EventListener, { passive: false });
       }
 
       // Clique simples (sem arrastar) — insere no midpoint

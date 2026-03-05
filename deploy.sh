@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  FiberDoc — Script de Implantação v6.3
+#  FiberDoc — Script de Implantação v7.0
 #  Uso: bash deploy.sh [FIBERDOC_DIR] [FIBERDOC_SERVICE]
 #  Padrões: /opt/fiberdoc  e  fiberdoc
 # =============================================================================
@@ -13,7 +13,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "============================================================"
-echo "  FiberDoc — Implantação v6.3"
+echo "  FiberDoc — Implantação v7.0"
 echo "  Diretório: ${FIBERDOC_DIR}"
 echo "  Serviço:   ${FIBERDOC_SERVICE}"
 echo "  Data/Hora: $(date '+%d/%m/%Y %H:%M:%S')"
@@ -55,7 +55,7 @@ echo "[3/7] Copiando artefactos para ${FIBERDOC_DIR} ..."
 rsync -a --delete "${SCRIPT_DIR}/dist/" "${FIBERDOC_DIR}/dist/"
 [[ -f "${SCRIPT_DIR}/package.json" ]]    && cp "${SCRIPT_DIR}/package.json"    "${FIBERDOC_DIR}/package.json"    || true
 [[ -f "${SCRIPT_DIR}/pnpm-lock.yaml" ]]  && cp "${SCRIPT_DIR}/pnpm-lock.yaml"  "${FIBERDOC_DIR}/pnpm-lock.yaml"  || true
-[[ -f "${SCRIPT_DIR}/migrate-v6.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v6.sql"  "${FIBERDOC_DIR}/migrate-v6.sql"  || true
+[[ -f "${SCRIPT_DIR}/migrate-v7.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v7.sql"  "${FIBERDOC_DIR}/migrate-v7.sql"  || true
 echo "      Artefactos copiados."
 
 # ── 6. Instalar dependências ─────────────────────────────────────────────────
@@ -152,7 +152,7 @@ fi
 if [[ -z "${DB_URL}" ]]; then
   echo "  [AVISO] DATABASE_URL não configurada — migração SQL ignorada."
   echo "          Após configurar, execute manualmente:"
-  echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v6.sql"
+  echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v7.sql"
 else
   # Parsear a URL: mysql://user:pass@host:port/dbname?...
   # Remover prefixo mysql:// e parâmetros após ?
@@ -172,9 +172,9 @@ else
     SSL_OPT="--ssl-mode=REQUIRED"
   fi
 
-  MIGRATE_SQL="${FIBERDOC_DIR}/migrate-v6.sql"
+  MIGRATE_SQL="${FIBERDOC_DIR}/migrate-v7.sql"
   if [[ ! -f "${MIGRATE_SQL}" ]]; then
-    MIGRATE_SQL="${SCRIPT_DIR}/migrate-v6.sql"
+    MIGRATE_SQL="${SCRIPT_DIR}/migrate-v7.sql"
   fi
 
   if [[ -f "${MIGRATE_SQL}" ]]; then
@@ -182,7 +182,7 @@ else
       echo "      Conectando a ${DB_HOST}:${DB_PORT} / ${DB_NAME} ..."
       if mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" "-p${DB_PASS}" \
                ${SSL_OPT} "${DB_NAME}" < "${MIGRATE_SQL}" 2>&1; then
-        echo "      Migração v6.0 aplicada com sucesso."
+        echo "      Migração v7.0 aplicada com sucesso."
       else
         echo "  [AVISO] Falha ao aplicar migração. Verifique as credenciais e tente manualmente:"
         echo "          mysql -h ${DB_HOST} -P ${DB_PORT} -u ${DB_USER} -pSENHA ${DB_NAME} < ${MIGRATE_SQL}"
@@ -192,7 +192,7 @@ else
       echo "          Depois execute: mysql -h ${DB_HOST} -P ${DB_PORT} -u ${DB_USER} -pSENHA ${DB_NAME} < ${MIGRATE_SQL}"
     fi
   else
-    echo "  [AVISO] Arquivo migrate-v6.sql não encontrado — migração ignorada."
+    echo "  [AVISO] Arquivo migrate-v7.sql não encontrado — migração ignorada."
   fi
 fi
 
@@ -226,6 +226,6 @@ fi
 
 echo ""
 echo "============================================================"
-echo "  FiberDoc v6.3 implantado com sucesso!"
+echo "  FiberDoc v7.0 implantado com sucesso!"
 echo "  Backup anterior: ${BACKUP_DIR}/fiberdoc_backup_${TIMESTAMP}.tar.gz"
 echo "============================================================"
