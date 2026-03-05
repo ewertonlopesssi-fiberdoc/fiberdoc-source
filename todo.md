@@ -1308,3 +1308,4 @@
 - [x] tRPC procedures: deviceCommands.byDevice, deviceCommands.create, deviceCommands.update, deviceCommands.delete
 - [x] Frontend: secção 'Comandos deste Dispositivo'' na aba Comandos Rápidos (acima dos globais)
 - [x] CRUD de comandos por dispositivo (botão Novo Comando do Dispositivo, editar, excluir)
+- [x] Corrigir espaçamento de colunas no terminal SSH (preservar linhas em branco + fonte monospace fixa)

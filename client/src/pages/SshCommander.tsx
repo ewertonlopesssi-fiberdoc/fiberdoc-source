@@ -162,7 +162,7 @@ function TerminalOutput({ lines, isRunning }: { lines: TerminalLine[]; isRunning
         )}
       </div>
       {/* overflow-x-auto + whitespace-pre preserva o espaçamento de colunas do VRP */}
-      <div className="px-3 py-2 font-mono text-xs flex-1 overflow-y-auto overflow-x-auto min-h-[300px] leading-[1.45]">
+      <div className="px-3 py-2 flex-1 overflow-y-auto overflow-x-auto min-h-[300px]" style={{ fontFamily: "'JetBrains Mono', 'Courier New', Courier, monospace", fontSize: "12px", lineHeight: "1.5", letterSpacing: "0" }}>
         {lines.length === 0 && (
           <span className="text-zinc-600">Selecione um dispositivo e execute um comando...</span>
         )}
@@ -774,8 +774,8 @@ export default function SshCommander() {
   });
   const execute = trpc.sshCommander.execute.useMutation({
     onSuccess: (r: { output: string; success: boolean; durationMs: number }) => {
+      // Preservar todas as linhas incluindo as em branco (importantes para o alinhamento de colunas do VRP)
       const lines: TerminalLine[] = r.output.split("\n")
-        .filter((l: string) => l.trim())
         .map((l: string) => ({ type: (r.success ? "output" : "error") as TerminalLine["type"], text: l }));
       const ts = new Date().toLocaleTimeString("pt-BR");
       setTerminalLines(prev => [
@@ -809,8 +809,8 @@ export default function SshCommander() {
   const executeBgp = trpc.sshCommander.executeBgpAction.useMutation({
     onSuccess: (r: { output: string; success: boolean; durationMs: number }) => {
       const pendingAction = bgpConfirm?.action;
+      // Preservar todas as linhas incluindo as em branco (importantes para o alinhamento de colunas do VRP)
       const lines: TerminalLine[] = r.output.split("\n")
-        .filter((l: string) => l.trim())
         .map((l: string) => ({ type: (r.success ? "output" : "error") as TerminalLine["type"], text: l }));
       const actionLabel = pendingAction === "activate" ? "Activado" : "Desactivado";
       setTerminalLines(prev => [
