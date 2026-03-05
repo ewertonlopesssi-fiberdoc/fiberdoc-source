@@ -862,3 +862,69 @@ export const sshExecutionLog = mysqlTable("ssh_execution_log", {
   executedAt: timestamp("executedAt").defaultNow().notNull(),
 });
 export type SshExecutionLog = typeof sshExecutionLog.$inferSelect;
+
+// ─── SSH Commander — Dispositivos ─────────────────────────────────────────────
+// Dispositivos SSH geridos pelo SSH Commander (independente dos equipamentos do inventário)
+export const sshDevices = mysqlTable("ssh_devices", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  host: varchar("host", { length: 255 }).notNull(),
+  port: int("port").notNull().default(22),
+  username: varchar("username", { length: 100 }).notNull(),
+  authType: mysqlEnum("ssh_auth_type", ["password", "key"]).notNull().default("password"),
+  password: text("password"),
+  privateKey: text("private_key"),
+  deviceType: varchar("device_type", { length: 50 }).default("generic"),
+  notes: text("notes"),
+  createdAt: timestamp("ssh_device_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("ssh_device_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type SshDevice = typeof sshDevices.$inferSelect;
+export type InsertSshDevice = typeof sshDevices.$inferInsert;
+
+// ─── SSH Commander — Comandos Rápidos ─────────────────────────────────────────
+export const sshQuickCommands = mysqlTable("ssh_quick_commands", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  command: text("command").notNull(),
+  category: varchar("category", { length: 50 }).default("diagnostico"),
+  deviceType: varchar("device_type", { length: 50 }).default("generic"),
+  isDangerous: int("is_dangerous").default(0),
+  color: varchar("color", { length: 20 }).default("#3B82F6"),
+  createdAt: timestamp("ssh_qcmd_created_at").defaultNow().notNull(),
+});
+export type SshQuickCommand = typeof sshQuickCommands.$inferSelect;
+export type InsertSshQuickCommand = typeof sshQuickCommands.$inferInsert;
+
+// ─── SSH Commander — Execuções ────────────────────────────────────────────────
+export const sshExecutions = mysqlTable("ssh_executions", {
+  id: int("id").autoincrement().primaryKey(),
+  deviceId: int("device_id").notNull(),
+  commandName: varchar("command_name", { length: 100 }),
+  commandText: text("command_text").notNull(),
+  output: text("output"),
+  status: mysqlEnum("ssh_exec_status", ["success", "error", "timeout"]).default("success"),
+  durationMs: int("duration_ms"),
+  executedBy: int("executed_by"),
+  executedAt: timestamp("ssh_executed_at").defaultNow().notNull(),
+});
+export type SshExecution = typeof sshExecutions.$inferSelect;
+
+// ─── SSH Commander — BGP Peers ────────────────────────────────────────────────
+export const bgpPeers = mysqlTable("bgp_peers", {
+  id: int("id").autoincrement().primaryKey(),
+  deviceId: int("device_id").notNull(),
+  peerIp: varchar("peer_ip", { length: 45 }).notNull(),
+  remoteAs: int("remote_as").notNull(),
+  description: varchar("description", { length: 200 }),
+  peerType: mysqlEnum("bgp_peer_type", ["ebgp", "ibgp"]).default("ebgp"),
+  localAs: int("local_as"),
+  activateScript: text("activate_script"),
+  deactivateScript: text("deactivate_script"),
+  notes: text("notes"),
+  createdAt: timestamp("bgp_peer_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("bgp_peer_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type BgpPeer = typeof bgpPeers.$inferSelect;
+export type InsertBgpPeer = typeof bgpPeers.$inferInsert;

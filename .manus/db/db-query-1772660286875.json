@@ -1,0 +1,36 @@
+{
+  "query": "SELECT id, name, totalBandejas, viasPerBandeja FROM fm_ceos;\nSELECT id, ceoId, number, label, totalVias FROM fm_ceo_bandejas;\nSELECT id, ceoId, bandejaId, tube_type, identifier, totalVias, tube_color FROM fm_ceo_tubes;\nSELECT id, tubeId, viaNumber, fiber_color, label, fusedToViaId, ctoId FROM fm_ceo_vias LIMIT 12;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SELECT id, name, totalBandejas, viasPerBandeja FROM fm_ceos;\nSELECT id, ceoId, number, label, totalVias FROM fm_ceo_bandejas;\nSELECT id, ceoId, bandejaId, tube_type, identifier, totalVias, tube_color FROM fm_ceo_tubes;\nSELECT id, tubeId, viaNumber, fiber_color, label, fusedToViaId, ctoId FROM fm_ceo_vias LIMIT 12;",
+  "rows": [
+    {
+      "id": "2",
+      "name": "CEO-01",
+      "totalBandejas": "2",
+      "viasPerBandeja": "12"
+    }
+  ],
+  "messages": [
+    "id\tceoId\tnumber\tlabel\ttotalVias",
+    "1\t1\t1\tBandeja 1\t12",
+    "2\t2\t1\tBandeja 1\t12",
+    "id\tceoId\tbandejaId\ttube_type\tidentifier\ttotalVias\ttube_color",
+    "1\t2\t2\ttube\tTubo 1\t12\tverde",
+    "2\t2\t2\ttube\tTubo 2\t12\tamarelo",
+    "id\ttubeId\tviaNumber\tfiber_color\tlabel\tfusedToViaId\tctoId",
+    "1\t1\t1\tverde\tNULL\tNULL\tNULL",
+    "2\t1\t2\tamarelo\tNULL\tNULL\tNULL",
+    "3\t1\t3\tbranco\tNULL\tNULL\tNULL",
+    "4\t1\t4\tazul\tNULL\tNULL\tNULL",
+    "5\t1\t5\tvermelho\tNULL\tNULL\tNULL",
+    "6\t1\t6\troxo\tNULL\tNULL\tNULL",
+    "7\t1\t7\tmarrom\tNULL\tNULL\tNULL",
+    "8\t1\t8\trosa\tNULL\tNULL\tNULL",
+    "9\t1\t9\tpreto\tNULL\tNULL\tNULL",
+    "10\t1\t10\tcinza\tNULL\tNULL\tNULL",
+    "11\t1\t11\tlaranja\tNULL\tNULL\tNULL",
+    "12\t1\t12\taqua\tNULL\tNULL\tNULL"
+  ],
+  "stdout": "id\tname\ttotalBandejas\tviasPerBandeja\n2\tCEO-01\t2\t12\nid\tceoId\tnumber\tlabel\ttotalVias\n1\t1\t1\tBandeja 1\t12\n2\t2\t1\tBandeja 1\t12\nid\tceoId\tbandejaId\ttube_type\tidentifier\ttotalVias\ttube_color\n1\t2\t2\ttube\tTubo 1\t12\tverde\n2\t2\t2\ttube\tTubo 2\t12\tamarelo\nid\ttubeId\tviaNumber\tfiber_color\tlabel\tfusedToViaId\tctoId\n1\t1\t1\tverde\tNULL\tNULL\tNULL\n2\t1\t2\tamarelo\tNULL\tNULL\tNULL\n3\t1\t3\tbranco\tNULL\tNULL\tNULL\n4\t1\t4\tazul\tNULL\tNULL\tNULL\n5\t1\t5\tvermelho\tNULL\tNULL\tNULL\n6\t1\t6\troxo\tNULL\tNULL\tNULL\n7\t1\t7\tmarrom\tNULL\tNULL\tNULL\n8\t1\t8\trosa\tNULL\tNULL\tNULL\n9\t1\t9\tpreto\tNULL\tNULL\tNULL\n10\t1\t10\tcinza\tNULL\tNULL\tNULL\n11\t1\t11\tlaranja\tNULL\tNULL\tNULL\n12\t1\t12\taqua\tNULL\tNULL\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 69
+}

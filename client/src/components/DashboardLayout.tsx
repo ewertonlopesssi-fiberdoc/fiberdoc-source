@@ -74,7 +74,7 @@ const publicMenuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Wifi, label: "Salas / Locais", path: "/salas" },
   { icon: Server, label: "Equipamentos", path: "/equipamentos" },
-  { icon: Terminal, label: "Comandos SSH", path: "/ssh-commander" },
+  { icon: Terminal, label: "SSH Commander", path: "/ssh-commander" },
   { icon: Globe, label: "IP DOC", path: "/ip-doc" },
   { icon: Network, label: "Topologia", path: "/topologia" },
   { icon: Box, label: "CEO", path: "/ceo" },

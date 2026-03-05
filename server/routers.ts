@@ -1,12 +1,7 @@
 import { z } from "zod";
 import path from "path";
 import fs from "fs";
-import {
-  getSshCredential, upsertSshCredential, getSshCommandsByEquipment,
-  getRecentExecutionLog, executeSshCommand, decryptPassword,
-  extractParams, applyParams,
-} from "./ssh";
-import { sshCommands as sshCommandsTable, sshExecutionLog as sshExecLogTable, sshCredentials as sshCredentialsTable, equipments as equipmentsTable } from "../drizzle/schema";
+// ssh.ts antigo: encryptPassword ainda é usada dinamicamente em equipamentos (import dinâmico)
 import { eq as eqOp, inArray as inArrayOp, isNotNull } from "drizzle-orm";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -137,6 +132,7 @@ import {
   addSgpLinkHistory, getSgpLinkHistory,
 } from "./db";
 import { getRacks, getRackById, createRack, updateRack, deleteRack } from "./db";
+import { sshCommanderRouter } from "./sshCommanderRouter";
 import {
   getMapGroups, createMapGroup, updateMapGroup, deleteMapGroup,
   getGroupMembers, addElementToGroup, removeElementFromGroup,
@@ -3167,197 +3163,7 @@ ${fiberFolder}
         }));
       }),
   }),
-  // ─── SSH Commander ─────────────────────────────────────────────────────
-  sshCommander: router({
-  // Obter credenciais SSH de um equipamento
-  getCredential: protectedProcedure
-    .input(z.object({ equipmentId: z.number() }))
-    .query(async ({ input }) => {
-      const cred = await getSshCredential(input.equipmentId);
-      if (!cred) return null;
-      return { id: cred.id, equipmentId: cred.equipmentId, sshUser: cred.sshUser, sshPort: cred.sshPort, notes: cred.notes, hasPassword: true };
-    }),
-
-  // Guardar/actualizar credenciais SSH (apenas admin)
-  saveCredential: protectedProcedure
-    .input(z.object({
-      equipmentId: z.number(),
-      sshUser: z.string().min(1),
-      sshPassword: z.string().min(1),
-      sshPort: z.number().int().min(1).max(65535).default(22),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      await upsertSshCredential(input);
-      return { success: true };
-    }),
-
-  // Remover credenciais SSH (apenas admin)
-  deleteCredential: protectedProcedure
-    .input(z.object({ equipmentId: z.number() }))
-    .mutation(async ({ input, ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      const db = await (await import("./db")).getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.delete(sshCredentialsTable).where(eqOp(sshCredentialsTable.equipmentId, input.equipmentId));
-      return { success: true };
-    }),
-
-  // Listar todos os equipamentos com indicação de credenciais SSH configuradas
-  listEquipmentsWithSsh: protectedProcedure
-    .query(async () => {
-      const db = await (await import("./db")).getDb();
-      if (!db) return [];
-      // Listar todos os equipamentos
-      const equips = await db.select().from(equipmentsTable);
-      // Listar credenciais SSH existentes
-      const creds = await db.select({ equipmentId: sshCredentialsTable.equipmentId, sshUser: sshCredentialsTable.sshUser, sshPort: sshCredentialsTable.sshPort }).from(sshCredentialsTable);
-      const credMap = new Map(creds.map(c => [c.equipmentId, c]));
-      // Combinar: credenciais da tabela ssh_credentials primeiro, depois fallback para equipments
-      return equips.map((e: typeof equips[0]) => {
-        const cred = credMap.get(e.id);
-        const hasSshCred = !!cred;
-        const hasEquipCred = !!(e as any).sshUser && !!((e as any).sshPasswordEnc);
-        return {
-          ...e,
-          hasCredentials: hasSshCred || hasEquipCred,
-          sshUser: cred?.sshUser ?? (e as any).sshUser ?? null,
-          sshPort: cred?.sshPort ?? (e as any).sshPort ?? 22,
-        };
-      });
-    }),
-
-  // Listar comandos de um equipamento
-  listCommands: protectedProcedure
-    .input(z.object({ equipmentId: z.number() }))
-    .query(async ({ input }) => {
-      const cmds = await getSshCommandsByEquipment(input.equipmentId);
-      return cmds.map(c => ({
-        ...c,
-        commandLines: JSON.parse(c.commandLines) as string[],
-        params: extractParams(JSON.parse(c.commandLines) as string[]),
-      }));
-    }),
-
-  // Criar comando SSH (apenas admin)
-  createCommand: protectedProcedure
-    .input(z.object({
-      equipmentId: z.number(),
-      name: z.string().min(1).max(128),
-      description: z.string().optional(),
-      commandLines: z.array(z.string()).min(1),
-      sleepMs: z.number().int().min(0).max(10000).default(300),
-      confirmMode: z.enum(["none", "auto_y", "auto_n", "manual"]).default("none"),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      const db = await (await import("./db")).getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.insert(sshCommandsTable).values({
-        equipmentId: input.equipmentId,
-        name: input.name,
-        description: input.description ?? null,
-        commandLines: JSON.stringify(input.commandLines),
-        sleepMs: input.sleepMs,
-        confirmMode: input.confirmMode,
-      });
-      return { success: true };
-    }),
-
-  // Actualizar comando SSH (apenas admin)
-  updateCommand: protectedProcedure
-    .input(z.object({
-      id: z.number(),
-      name: z.string().min(1).max(128),
-      description: z.string().optional(),
-      commandLines: z.array(z.string()).min(1),
-      sleepMs: z.number().int().min(0).max(10000),
-      confirmMode: z.enum(["none", "auto_y", "auto_n", "manual"]).default("none"),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      const db = await (await import("./db")).getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.update(sshCommandsTable)
-        .set({ name: input.name, description: input.description ?? null, commandLines: JSON.stringify(input.commandLines), sleepMs: input.sleepMs, confirmMode: input.confirmMode })
-        .where(eqOp(sshCommandsTable.id, input.id));
-      return { success: true };
-    }),
-
-  // Remover comando SSH (apenas admin)
-  deleteCommand: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input, ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-      const db = await (await import("./db")).getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.delete(sshCommandsTable).where(eqOp(sshCommandsTable.id, input.id));
-      return { success: true };
-    }),
-
-  // Executar comando SSH
-  execute: protectedProcedure
-    .input(z.object({
-      equipmentId: z.number(),
-      commandId: z.number(),
-      params: z.record(z.string(), z.string()).optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const db = await (await import("./db")).getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-       // Buscar equipamento (credenciais SSH estão na tabela equipments)
-      const equipRows = await db.select().from(equipmentsTable).where(eqOp(equipmentsTable.id, input.equipmentId));
-      const equip = equipRows[0];
-      if (!equip) throw new TRPCError({ code: "NOT_FOUND", message: "Equipamento não encontrado" });
-      const sshUser = (equip as any).sshUser as string | null;
-      const sshPasswordEnc = (equip as any).sshPasswordEnc as string | null;
-      const sshPort = (equip as any).sshPort as number | null ?? 22;
-      if (!sshUser || !sshPasswordEnc) throw new TRPCError({ code: "NOT_FOUND", message: "Credenciais SSH não configuradas para este equipamento. Configure em Equipamentos → editar → secção SSH." });
-      const cmdRows = await db.select().from(sshCommandsTable).where(eqOp(sshCommandsTable.id, input.commandId));
-      const cmd = cmdRows[0];
-      if (!cmd) throw new TRPCError({ code: "NOT_FOUND", message: "Comando não encontrado" });
-      let password: string;
-      try { password = decryptPassword(sshPasswordEnc); }
-      catch { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao desencriptar credenciais" }); }
-      const rawLines = JSON.parse(cmd.commandLines) as string[];
-      const lines = applyParams(rawLines, input.params ?? {});
-      const host = (equip as any).ipAddress ?? equip.name;
-      const confirmMode = (cmd as any).confirmMode ?? "none";
-      const result = await executeSshCommand(host, sshPort, sshUser, password, lines, cmd.sleepMs, confirmMode);
-
-      await db.insert(sshExecLogTable).values({
-        equipmentId: input.equipmentId,
-        commandId: input.commandId,
-        commandName: cmd.name,
-        params: input.params ? JSON.stringify(input.params) : null,
-        output: result.output,
-        success: result.success,
-        executedBy: ctx.user.name ?? ctx.user.openId,
-      });
-
-      return result;
-    }),
-
-  // Histórico de execuções
-  executionLog: protectedProcedure
-    .input(z.object({ equipmentId: z.number(), limit: z.number().int().min(1).max(100).default(20) }))
-    .query(async ({ input }) => {
-      return getRecentExecutionLog(input.equipmentId, input.limit);
-    }),
-  // Limpar credenciais SSH de um equipamento (remove do SSH Commander)
-  clearSshCredentials: protectedProcedure
-    .input(z.object({ equipmentId: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await (await import("./db")).getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.update(equipmentsTable)
-        .set({ sshUser: null, sshPasswordEnc: null, sshPort: 22 } as any)
-        .where(eqOp(equipmentsTable.id, input.equipmentId));
-      return { success: true };
-    }),
-  }),
+  sshCommander: sshCommanderRouter,
 });
 export type AppRouter = typeof appRouter;
 
