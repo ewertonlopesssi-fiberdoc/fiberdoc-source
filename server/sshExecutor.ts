@@ -177,23 +177,6 @@ export function executeSSH(
       keepaliveInterval: 5000,
       // Aceitar qualquer fingerprint (equivalente a StrictHostKeyChecking=no)
       hostVerifier: () => true,
-      // Suportar algoritmos mais antigos usados em equipamentos Huawei/Cisco
-      algorithms: {
-        kex: [
-          "ecdh-sha2-nistp256", "ecdh-sha2-nistp384", "ecdh-sha2-nistp521",
-          "diffie-hellman-group14-sha256", "diffie-hellman-group14-sha1",
-          "diffie-hellman-group1-sha1",
-        ],
-        cipher: [
-          "aes128-ctr", "aes192-ctr", "aes256-ctr",
-          "aes128-cbc", "3des-cbc",
-        ],
-        serverHostKey: [
-          "ssh-rsa", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384",
-          "ecdsa-sha2-nistp521", "ssh-ed25519",
-        ],
-        hmac: ["hmac-sha2-256", "hmac-sha2-512", "hmac-sha1"],
-      },
     };
 
     if (config.authType === "key" && config.privateKey) {
@@ -245,23 +228,6 @@ export function testSSHConnection(
       readyTimeout: 10000,
       // Aceitar qualquer fingerprint (equivalente a StrictHostKeyChecking=no)
       hostVerifier: () => true,
-      // Suportar algoritmos mais antigos usados em equipamentos Huawei/Cisco
-      algorithms: {
-        kex: [
-          "ecdh-sha2-nistp256", "ecdh-sha2-nistp384", "ecdh-sha2-nistp521",
-          "diffie-hellman-group14-sha256", "diffie-hellman-group14-sha1",
-          "diffie-hellman-group1-sha1",
-        ],
-        cipher: [
-          "aes128-ctr", "aes192-ctr", "aes256-ctr",
-          "aes128-cbc", "3des-cbc",
-        ],
-        serverHostKey: [
-          "ssh-rsa", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384",
-          "ecdsa-sha2-nistp521", "ssh-ed25519",
-        ],
-        hmac: ["hmac-sha2-256", "hmac-sha2-512", "hmac-sha1"],
-      },
     };
 
     if (config.authType === "key" && config.privateKey) {
