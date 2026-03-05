@@ -1302,3 +1302,9 @@
 
 - [x] Coloração sintáctica no terminal SSH (up=verde, down=vermelho, *down=vermelho, valores %=amarelo, interfaces=cian, erros=laranja)
 - [x] Corrigir botões Executar desactivados na aba Comandos Rápidos (adicionar aviso claro quando nenhum dispositivo está seleccionado)
+
+- [x] Schema: tabela ssh_device_commands (id, deviceId, name, description, command, category, isDangerous, color, createdAt)
+- [x] Migration SQL para ssh_device_commands
+- [x] tRPC procedures: deviceCommands.byDevice, deviceCommands.create, deviceCommands.update, deviceCommands.delete
+- [x] Frontend: secção 'Comandos deste Dispositivo'' na aba Comandos Rápidos (acima dos globais)
+- [x] CRUD de comandos por dispositivo (botão Novo Comando do Dispositivo, editar, excluir)

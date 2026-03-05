@@ -928,3 +928,21 @@ export const bgpPeers = mysqlTable("bgp_peers", {
 });
 export type BgpPeer = typeof bgpPeers.$inferSelect;
 export type InsertBgpPeer = typeof bgpPeers.$inferInsert;
+
+// ─── SSH Commander — Comandos por Dispositivo ─────────────────────────────────
+// Comandos rápidos específicos de cada dispositivo SSH
+export const sshDeviceCommands = mysqlTable("ssh_device_commands", {
+  id: int("id").autoincrement().primaryKey(),
+  deviceId: int("device_id").notNull(),                  // FK sshDevices.id
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  command: text("command").notNull(),
+  category: varchar("category", { length: 50 }).default("diagnostico"),
+  isDangerous: int("is_dangerous").default(0),
+  color: varchar("color", { length: 20 }).default("#3B82F6"),
+  sortOrder: int("sort_order").default(0),
+  createdAt: timestamp("ssh_dcmd_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("ssh_dcmd_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type SshDeviceCommand = typeof sshDeviceCommands.$inferSelect;
+export type InsertSshDeviceCommand = typeof sshDeviceCommands.$inferInsert;

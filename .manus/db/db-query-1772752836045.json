@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `ssh_device_commands` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`device_id` int NOT NULL,\n\t`name` varchar(100) NOT NULL,\n\t`description` text,\n\t`command` text NOT NULL,\n\t`category` varchar(50) DEFAULT 'diagnostico',\n\t`is_dangerous` int DEFAULT 0,\n\t`color` varchar(20) DEFAULT '#3B82F6',\n\t`sort_order` int DEFAULT 0,\n\t`ssh_dcmd_created_at` timestamp NOT NULL DEFAULT (now()),\n\t`ssh_dcmd_updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `ssh_device_commands_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute CREATE TABLE IF NOT EXISTS `ssh_device_commands` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`device_id` int NOT NULL,\n\t`name` varchar(100) NOT NULL,\n\t`description` text,\n\t`command` text NOT NULL,\n\t`category` varchar(50) DEFAULT 'diagnostico',\n\t`is_dangerous` int DEFAULT 0,\n\t`color` varchar(20) DEFAULT '#3B82F6',\n\t`sort_order` int DEFAULT 0,\n\t`ssh_dcmd_created_at` timestamp NOT NULL DEFAULT (now()),\n\t`ssh_dcmd_updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `ssh_device_commands_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1008
+}

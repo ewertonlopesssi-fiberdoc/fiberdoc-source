@@ -11,6 +11,7 @@ import {
   sshDevices,
   sshQuickCommands,
   sshExecutions,
+  sshDeviceCommands,
   bgpPeers,
 } from "../drizzle/schema";
 import { executeSSH, testSSHConnection } from "./sshExecutor";
@@ -361,5 +362,65 @@ export const sshCommanderRouter = router({
         executedBy: (ctx as any).user?.id || null,
       } as any);
       return result;
+    }),
+
+  // ─── Comandos por Dispositivo ────────────────────────────────────────────────
+  listDeviceCommands: protectedProcedure
+    .input(z.object({ deviceId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      return db.select().from(sshDeviceCommands)
+        .where(eq(sshDeviceCommands.deviceId, input.deviceId))
+        .orderBy(sshDeviceCommands.sortOrder, sshDeviceCommands.name);
+    }),
+
+  createDeviceCommand: protectedProcedure
+    .input(z.object({
+      deviceId: z.number(),
+      name: z.string().min(1),
+      description: z.string().optional(),
+      command: z.string().min(1),
+      category: z.string().default("diagnostico"),
+      isDangerous: z.number().default(0),
+      color: z.string().default("#3B82F6"),
+      sortOrder: z.number().default(0),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [result] = await db.insert(sshDeviceCommands).values(input as any);
+      return { id: (result as any).insertId };
+    }),
+
+  updateDeviceCommand: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      command: z.string().optional(),
+      category: z.string().optional(),
+      isDangerous: z.number().optional(),
+      color: z.string().optional(),
+      sortOrder: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { id, ...data } = input;
+      const updateData = Object.fromEntries(
+        Object.entries(data).filter(([_, v]) => v !== undefined)
+      );
+      await db.update(sshDeviceCommands).set(updateData as any).where(eq(sshDeviceCommands.id, id));
+      return { updated: true };
+    }),
+
+  deleteDeviceCommand: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.delete(sshDeviceCommands).where(eq(sshDeviceCommands.id, input.id));
+      return { deleted: true };
     }),
 });

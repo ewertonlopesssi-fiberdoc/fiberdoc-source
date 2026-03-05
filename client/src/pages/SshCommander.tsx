@@ -46,6 +46,17 @@ interface SshCommand {
   isDangerous: number | null;
   color: string | null;
 }
+interface SshDeviceCommand {
+  id: number;
+  deviceId: number;
+  name: string;
+  description: string | null;
+  command: string;
+  category: string | null;
+  isDangerous: number | null;
+  color: string | null;
+  sortOrder: number | null;
+}
 interface BgpPeer {
   id: number;
   deviceId: number;
@@ -472,7 +483,114 @@ function CommandForm({
   );
 }
 
-// ─── BGP Peer Form ────────────────────────────────────────────────────────────
+// ───// ─── Device Command Form ─────────────────────────────────────────────
+function DeviceCommandForm({
+  deviceId,
+  command,
+  onClose,
+  onSaved,
+}: {
+  deviceId: number;
+  command?: SshDeviceCommand;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(command?.name ?? "");
+  const [description, setDescription] = useState(command?.description ?? "");
+  const [commandText, setCommandText] = useState(command?.command ?? "");
+  const [category, setCategory] = useState(command?.category ?? "diagnostico");
+  const [color, setColor] = useState(command?.color ?? "#06B6D4");
+  const [isDangerous, setIsDangerous] = useState(command?.isDangerous === 1);
+
+  const create = trpc.sshCommander.createDeviceCommand.useMutation({
+    onSuccess: () => { toast.success("Comando adicionado ao dispositivo"); onSaved(); onClose(); },
+    onError: (e) => toast.error("Erro: " + e.message),
+  });
+  const update = trpc.sshCommander.updateDeviceCommand.useMutation({
+    onSuccess: () => { toast.success("Comando actualizado"); onSaved(); onClose(); },
+    onError: (e) => toast.error("Erro: " + e.message),
+  });
+
+  const handleSave = () => {
+    if (!name.trim() || !commandText.trim()) { toast.error("Preencha nome e comando"); return; }
+    const payload: any = {
+      name: name.trim(),
+      description: description || undefined,
+      command: commandText.trim(),
+      category,
+      color,
+      isDangerous: isDangerous ? 1 : 0,
+    };
+    if (command) {
+      update.mutate({ id: command.id, ...payload });
+    } else {
+      create.mutate({ deviceId, ...payload });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <Label className="text-xs">Nome do Comando *</Label>
+        <Input value={name} onChange={e => setName(e.target.value)}
+          placeholder="Ver interfaces" className="h-8 text-sm bg-zinc-950 border-zinc-700" />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs">Descrição</Label>
+        <Input value={description} onChange={e => setDescription(e.target.value)}
+          placeholder="Breve descrição do comando" className="h-8 text-sm bg-zinc-950 border-zinc-700" />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs">Comando(s) * (um por linha)</Label>
+        <Textarea value={commandText} onChange={e => setCommandText(e.target.value)}
+          placeholder={"display interface brief\ndisplay cpu-usage"}
+          className="text-xs bg-zinc-950 border-zinc-700 font-mono h-24 resize-none" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs">Categoria</Label>
+          <Select value={category} onValueChange={setCategory}>
+            <SelectTrigger className="h-8 text-sm bg-zinc-950 border-zinc-700">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(CATEGORY_LABELS).map(([v, l]) => (
+                <SelectItem key={v} value={v}>{l.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Cor do Botão</Label>
+          <div className="flex gap-2">
+            <input type="color" value={color} onChange={e => setColor(e.target.value)}
+              className="h-8 w-12 rounded border border-zinc-700 bg-zinc-950 cursor-pointer" />
+            <Input value={color} onChange={e => setColor(e.target.value)}
+              className="h-8 text-xs bg-zinc-950 border-zinc-700 font-mono" />
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="dcmd-dangerous" checked={isDangerous}
+          onChange={e => setIsDangerous(e.target.checked)}
+          className="w-4 h-4 rounded border-zinc-600" />
+        <Label htmlFor="dcmd-dangerous" className="text-xs text-red-400 cursor-pointer">
+          ⚠️ Marcar como perigoso (pede confirmação antes de executar)
+        </Label>
+      </div>
+      <div className="flex gap-2 justify-end pt-2">
+        <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onClose}>Cancelar</Button>
+        <Button size="sm" className="h-8 text-xs bg-cyan-700 hover:bg-cyan-600" onClick={handleSave}
+          disabled={create.isPending || update.isPending}>
+          {(create.isPending || update.isPending) && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+          {command ? "Actualizar" : "Adicionar"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── BGP Peer Form ────────────────────────────────────────────────
 function BgpPeerForm({
   deviceId,
   peer,
@@ -605,6 +723,8 @@ export default function SshCommander() {
   const [editDevice, setEditDevice] = useState<SshDevice | undefined>();
   const [showCommandForm, setShowCommandForm] = useState(false);
   const [editCommand, setEditCommand] = useState<SshCommand | undefined>();
+  const [showDeviceCmdForm, setShowDeviceCmdForm] = useState(false);
+  const [editDeviceCmd, setEditDeviceCmd] = useState<SshDeviceCommand | undefined>();
   const [showBgpForm, setShowBgpForm] = useState(false);
   const [editBgpPeer, setEditBgpPeer] = useState<BgpPeer | undefined>();
   const [bgpConfirm, setBgpConfirm] = useState<{ peer: BgpPeer; action: "activate" | "deactivate" } | null>(null);
@@ -615,6 +735,10 @@ export default function SshCommander() {
   // Queries — usando os nomes correctos do sshCommanderRouter do fiberdoc
   const devicesQ = trpc.sshCommander.listDevices.useQuery();
   const commandsQ = trpc.sshCommander.listQuickCommands.useQuery({ deviceType: "all" });
+  const deviceCommandsQ = trpc.sshCommander.listDeviceCommands.useQuery(
+    { deviceId: selectedDevice?.id ?? 0 },
+    { enabled: !!selectedDevice }
+  );
   const bgpPeersQ = trpc.sshCommander.listBgpPeers.useQuery(
     { deviceId: selectedDevice?.id ?? 0 },
     { enabled: !!selectedDevice }
@@ -632,6 +756,10 @@ export default function SshCommander() {
   const deleteCommand = trpc.sshCommander.deleteQuickCommand.useMutation({
     onSuccess: () => { toast.success("Comando removido"); commandsQ.refetch(); },
     onError: (e) => toast.error("Erro: " + e.message),
+  });
+  const deleteDeviceCmd = trpc.sshCommander.deleteDeviceCommand.useMutation({
+    onSuccess: () => { toast.success("Comando do dispositivo removido"); deviceCommandsQ.refetch(); },
+    onError: (e: { message: string }) => toast.error("Erro: " + e.message),
   });
   const deleteBgpPeer = trpc.sshCommander.deleteBgpPeer.useMutation({
     onSuccess: () => { toast.success("Peer removido"); bgpPeersQ.refetch(); },
@@ -885,6 +1013,78 @@ export default function SshCommander() {
                   <span>Seleccione um dispositivo no painel esquerdo para activar os botões <strong>Executar</strong>.</span>
                 </div>
               )}
+              {/* ── Comandos do Dispositivo ── */}
+              {selectedDevice && (
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-4 rounded-full bg-cyan-500" />
+                      <h3 className="text-sm font-semibold text-cyan-300">Comandos de {selectedDevice.name}</h3>
+                      {deviceCommandsQ.isLoading && <span className="text-xs text-zinc-500">a carregar...</span>}
+                    </div>
+                    <Button size="sm" className="h-7 text-xs bg-cyan-800 hover:bg-cyan-700"
+                      onClick={() => { setEditDeviceCmd(undefined); setShowDeviceCmdForm(true); }}>
+                      <Plus className="w-3 h-3 mr-1" /> Novo
+                    </Button>
+                  </div>
+                  {(deviceCommandsQ.data ?? []).length === 0 && !deviceCommandsQ.isLoading ? (
+                    <div className="text-xs text-zinc-500 italic px-3 py-4 text-center border border-dashed border-zinc-800 rounded-lg">
+                      Nenhum comando específico para este dispositivo.<br />Clique em <strong>Novo</strong> para adicionar.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2">
+                      {(deviceCommandsQ.data ?? []).map((cmd: SshDeviceCommand) => (
+                        <div key={cmd.id}
+                          className="flex items-center gap-3 p-3 bg-cyan-950/20 rounded-lg border border-cyan-900/40 hover:border-cyan-800/60 group">
+                          <div className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: cmd.color || "#06B6D4" }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium">{cmd.name}</p>
+                              {cmd.isDangerous === 1 && (
+                                <Badge className="text-[10px] h-4 px-1 bg-red-900/50 text-red-300 border-red-700">Perigoso</Badge>
+                              )}
+                            </div>
+                            {cmd.description && (
+                              <p className="text-xs text-zinc-500 truncate">{cmd.description}</p>
+                            )}
+                            <p className="text-xs text-zinc-600 font-mono truncate mt-0.5">{cmd.command}</p>
+                          </div>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button className="p-1.5 text-zinc-500 hover:text-yellow-400"
+                              onClick={() => { setEditDeviceCmd(cmd); setShowDeviceCmdForm(true); }}>
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button className="p-1.5 text-zinc-500 hover:text-red-400"
+                              onClick={() => { if (confirm(`Remover "${cmd.name}"?`)) deleteDeviceCmd.mutate({ id: cmd.id }); }}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <Button size="sm"
+                            className={`h-8 text-xs flex-shrink-0 ${
+                              cmd.isDangerous === 1
+                                ? "bg-red-900/50 hover:bg-red-800 text-red-300 border border-red-700"
+                                : "bg-cyan-800 hover:bg-cyan-700"
+                            }`}
+                            disabled={execute.isPending}
+                            onClick={() => {
+                              if (cmd.isDangerous === 1 && !confirm(`⚠️ Comando perigoso!\n\n"${cmd.name}"\n\nDeseja continuar?`)) return;
+                              handleExecuteCommand(
+                                cmd.command.split("\n").filter((l: string) => l.trim()),
+                                cmd.name
+                              );
+                              setActiveTab("terminal");
+                            }}>
+                            <Play className="w-3 h-3 mr-1" /> Executar
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Comandos Globais ── */}
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold">Comandos Pré-configurados</h3>
                 <div className="flex gap-2">
@@ -1147,6 +1347,26 @@ export default function SshCommander() {
             onClose={() => setShowCommandForm(false)}
             onSaved={() => commandsQ.refetch()}
           />
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog: Comando do Dispositivo ── */}
+      <Dialog open={showDeviceCmdForm} onOpenChange={setShowDeviceCmdForm}>
+        <DialogContent className="bg-zinc-900 border-zinc-700 max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Zap className="w-4 h-4 text-cyan-400" />
+              {editDeviceCmd ? "Editar Comando" : `Novo Comando — ${selectedDevice?.name ?? ""}`}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedDevice && (
+            <DeviceCommandForm
+              deviceId={selectedDevice.id}
+              command={editDeviceCmd}
+              onClose={() => setShowDeviceCmdForm(false)}
+              onSaved={() => deviceCommandsQ.refetch()}
+            />
+          )}
         </DialogContent>
       </Dialog>
 
