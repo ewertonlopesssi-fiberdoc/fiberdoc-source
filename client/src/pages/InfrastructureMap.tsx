@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,8 @@ import {
   Radio, Box, Cable, Navigation, Users, Trash2,
   FileDown, MousePointer2, Search, Layers, Upload,
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
-  Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw
+  Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw,
+  Lock, Unlock, ExternalLink
 } from "lucide-react";
 import L from "leaflet";
 import { unzipSync, strFromU8 } from "fflate";
@@ -225,6 +227,10 @@ export default function InfrastructureMap() {
   const [showCeos, setShowCeos] = useState(true);
   const [showCtos, setShowCtos] = useState(true);
   const [showRoutes, setShowRoutes] = useState(true);
+  // Modo edição: quando false, os markers ficam bloqueados (não arrastáveis)
+  const [editMode, setEditMode] = useState(false);
+  // Painel de detalhes sobreposto ao mapa (Sheet)
+  const [detailPanel, setDetailPanel] = useState<{ type: "ceo" | "cto"; id: number } | null>(null);
   const [addingMode, setAddingMode] = useState<"ceo" | "cto" | null>(null);
   const [addingRouteMode, setAddingRouteMode] = useState(false);
   const [routeFrom, setRouteFrom] = useState<number | null>(null);
@@ -729,9 +735,10 @@ export default function InfrastructureMap() {
       const sgpIdForBadge = isCto ? (ref?.sgpId ?? null) : null;
       const onuBadgeData = sgpIdForBadge != null ? (onuCountMap[sgpIdForBadge] ?? null) : null;
       const icon = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData);
-      const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isAdmin }).addTo(mapRef.current!);
+      const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isAdmin && editMode }).addTo(mapRef.current!);
       if (isAdmin) {
         marker.on("dragend", () => {
+          if (!editMode) return;
           const pos = marker.getLatLng();
           upsertElementMut.mutate({ type: el.type, referenceId: el.referenceId, lat: pos.lat, lng: pos.lng });
         });
@@ -748,7 +755,7 @@ export default function InfrastructureMap() {
       });
       markersRef.current[el.id] = marker;
     });
-  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, onuCountMap]);
+  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, onuCountMap]);
 
   // Renderizar rotas
   const renderRoutes = useCallback(() => {
@@ -1542,6 +1549,34 @@ export default function InfrastructureMap() {
               <Button variant="outline" size="sm" className="flex-1 gap-2 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10" onClick={() => startEditRoutePath(r)}>
                 <Cable className="w-3.5 h-3.5" /> Traçado
               </Button>
+              {r.fromElementId ? (
+                <Button
+                  variant="outline" size="sm"
+                  className="flex-1 gap-1 border-orange-500/40 text-orange-400 hover:bg-orange-500/10 text-xs"
+                  disabled={updateRouteMut.isPending}
+                  title="Desvincular extremidade de origem"
+                  onClick={() => {
+                    updateRouteMut.mutate({ id: r.id, fromElementId: null });
+                    setSidePanel({ kind: "route", route: { ...r, fromElementId: 0 } });
+                  }}
+                >
+                  <Unlink className="w-3 h-3" /> Orig.
+                </Button>
+              ) : null}
+              {r.toElementId ? (
+                <Button
+                  variant="outline" size="sm"
+                  className="flex-1 gap-1 border-orange-500/40 text-orange-400 hover:bg-orange-500/10 text-xs"
+                  disabled={updateRouteMut.isPending}
+                  title="Desvincular extremidade de destino"
+                  onClick={() => {
+                    updateRouteMut.mutate({ id: r.id, toElementId: null });
+                    setSidePanel({ kind: "route", route: { ...r, toElementId: 0 } });
+                  }}
+                >
+                  <Unlink className="w-3 h-3" /> Dest.
+                </Button>
+              ) : null}
               {(!r.fromElementId || !r.toElementId) && (
                 <Button variant="outline" size="sm" className="flex-1 gap-2 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10 min-w-full" onClick={() => {
                   setLinkEndpointsRouteId(r.id);
@@ -1677,14 +1712,20 @@ export default function InfrastructureMap() {
         )}
         {/* Botões de ação */}
         <div className="flex gap-2">
+          <Button
+            variant="outline" size="sm" className="flex-1 gap-1.5"
+            onClick={() => setDetailPanel({ type: isCto ? "cto" : "ceo", id: el.referenceId })}
+          >
+            <Link2 className="w-3.5 h-3.5" /> Abrir detalhes
+          </Button>
           <a
             href={isCto ? `/cto/${el.referenceId}` : `/ceo/${el.referenceId}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-1"
+            title="Abrir em nova aba"
           >
-            <Button variant="outline" size="sm" className="w-full gap-1.5">
-              <Link2 className="w-3.5 h-3.5" /> Abrir detalhes
+            <Button variant="outline" size="sm" className="gap-1 px-2">
+              <ExternalLink className="w-3.5 h-3.5" />
             </Button>
           </a>
           {isAdmin && (
@@ -1920,6 +1961,17 @@ export default function InfrastructureMap() {
         </Button>
         {isAdmin && (
           <>
+            <div className="w-px h-4 bg-border mx-1" />
+            <Button
+              size="sm"
+              variant={editMode ? "default" : "outline"}
+              className={`h-7 gap-1.5 text-xs font-medium ${editMode ? "bg-amber-600 hover:bg-amber-700 border-amber-500 text-white" : "border-amber-500/40 text-amber-400 hover:bg-amber-500/10"}`}
+              onClick={() => setEditMode(v => !v)}
+              title={editMode ? "Desactivar modo edição (bloquear elementos)" : "Activar modo edição (permitir mover CEO/CTO)"}
+            >
+              {editMode ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+              {editMode ? "Edição ON" : "Edição"}
+            </Button>
             <div className="w-px h-4 bg-border mx-1" />
             <Button size="sm" variant={addingMode === "ceo" ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setAddingMode(v => v === "ceo" ? null : "ceo")}>
               <Plus className="w-3 h-3" />{addingMode === "ceo" ? "Cancelar CEO" : "Add CEO"}
@@ -3476,6 +3528,32 @@ export default function InfrastructureMap() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Painel de detalhes CEO/CTO sobreposto ao mapa ── */}
+      <Sheet open={detailPanel !== null} onOpenChange={(open) => { if (!open) setDetailPanel(null); }}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-4xl overflow-hidden p-0"
+          style={{ zIndex: 9999 }}
+        >
+          <SheetHeader className="px-6 pt-5 pb-3 border-b border-border sticky top-0 bg-background z-10">
+            <SheetTitle className="text-base font-semibold">
+              {detailPanel?.type === "cto" ? "Detalhes da CTO" : "Detalhes da CEO"}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="h-full overflow-y-auto">
+            {detailPanel !== null && (
+              <iframe
+                key={`${detailPanel.type}-${detailPanel.id}`}
+                src={detailPanel.type === "cto" ? `/cto/${detailPanel.id}` : `/ceo/${detailPanel.id}`}
+                className="w-full border-0"
+                style={{ height: "calc(100vh - 80px)", minHeight: 600 }}
+                title={detailPanel.type === "cto" ? `CTO ${detailPanel.id}` : `CEO ${detailPanel.id}`}
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
