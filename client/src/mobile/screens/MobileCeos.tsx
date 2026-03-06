@@ -343,13 +343,25 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
     // Usar allVias se disponível, senão procurar no tubeViasCache
     let fusedVia = allVias.find(v => v.id === via.fusedToViaId);
     if (!fusedVia) {
-      for (const vias of tubeViasCache.values()) {
-        const found = vias.find(v => v.id === via.fusedToViaId);
+      for (const tvias of tubeViasCache.values()) {
+        const found = tvias.find(v => v.id === via.fusedToViaId);
         if (found) { fusedVia = found; break; }
       }
     }
-    const fusedTube = tubes.find(t => t.id === via.fusedToTubeId);
-    return `${fusedTube?.identifier ?? "Tubo ?"} · Via ${fusedVia?.viaNumber ?? "?"}`;
+    if (fusedVia) {
+      const fusedTube = tubes.find(t => t.id === via.fusedToTubeId);
+      return `${fusedTube?.identifier ?? "Tubo ?"} · Via ${fusedVia.viaNumber}`;
+    }
+    // fusedToViaId aponta para uma via de splitter — usar associationLabel
+    const assocLabel = associationLabel(via);
+    if (assocLabel) return assocLabel;
+    // Procurar directamente em allSplitterVias
+    const sv = allSplitterVias.find(s => s.id === via.fusedToViaId);
+    if (sv) {
+      const sp = splitters.find(s => s.id === sv.splitterId);
+      return `Splitter ${sp?.identifier ?? "?"} · Via ${sv.viaNumber}`;
+    }
+    return "Fusionada";
   }
 
   function associationLabel(via: Via): string | null {

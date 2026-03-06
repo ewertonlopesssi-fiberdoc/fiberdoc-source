@@ -483,7 +483,7 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed, onGoToMap
                                 if (found) { fusedVia = found; break; }
                               }
                             }
-                            const fusedTube = isFused ? tubes.find(t => t.id === via.fusedToTubeId) : null;
+                            const fusedTube = isFused ? (tubes.find(t => t.id === via.fusedToTubeId) ?? tubes.find(t => t.id === fusedVia?.tubeId)) : null;
                             return (
                               <div
                                 key={via.id}
@@ -766,8 +766,14 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed, onGoToMap
           ) : vias.map(via => {
             const fiberColor = VIA_FIBER_COLORS[via.viaNumber];
             const isFused = via.fusedToViaId != null;
-            const fusedTube = isFused ? tubes.find(t => t.id === via.fusedToTubeId) : null;
-            const fusedVia = isFused ? allVias.find(v => v.id === via.fusedToViaId) : null;
+            let fusedVia = isFused ? allVias.find(v => v.id === via.fusedToViaId) : null;
+            if (isFused && !fusedVia) {
+              for (const tvias of tubeViasCache.values()) {
+                const found = tvias.find(v => v.id === via.fusedToViaId);
+                if (found) { fusedVia = found; break; }
+              }
+            }
+            const fusedTube = isFused ? (tubes.find(t => t.id === via.fusedToTubeId) ?? tubes.find(t => t.id === fusedVia?.tubeId)) : null;
             return (
               <button
                 key={via.id}
@@ -899,8 +905,14 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed, onGoToMap
   // ═══════════════════════════════════════════════════════════════════════════
   if (view === "editVia" && selectedVia && selectedTube) {
     const isFused = selectedVia.fusedToViaId != null;
-    const fusedTube = isFused ? tubes.find(t => t.id === selectedVia.fusedToTubeId) : null;
-    const fusedVia = isFused ? allVias.find(v => v.id === selectedVia.fusedToViaId) : null;
+    let fusedVia = isFused ? allVias.find(v => v.id === selectedVia.fusedToViaId) : null;
+    if (isFused && !fusedVia) {
+      for (const tvias of tubeViasCache.values()) {
+        const found = tvias.find(v => v.id === selectedVia.fusedToViaId);
+        if (found) { fusedVia = found; break; }
+      }
+    }
+    const fusedTube = isFused ? (tubes.find(t => t.id === selectedVia.fusedToTubeId) ?? tubes.find(t => t.id === fusedVia?.tubeId)) : null;
     return (
       <div className="flex flex-col h-full">
         <div className="bg-zinc-900 border-b border-zinc-800 px-4 pt-4 pb-3 flex-shrink-0">
