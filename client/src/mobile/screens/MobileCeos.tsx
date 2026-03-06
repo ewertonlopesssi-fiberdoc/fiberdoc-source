@@ -274,7 +274,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
   const loadBandejas = useCallback(async (ceoId: number) => {
     try {
       if (isOnline()) {
-        const data = await (client as any).ceoBandejas.list.query({ ceoId });
+        const data = await (client as any).ceoBandejas.byCeo.query({ ceoId });
         setBandejas(data as Bandeja[]);
       }
     } catch { setBandejas([]); }
