@@ -552,6 +552,10 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
                                 const isExpanded = expandedTubeIds.has(tube.id);
                                 const cachedVias = tubeViasCache.get(tube.id) ?? [];
                                 const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
+                                const occCount = allVias.filter(v => v.tubeId === tube.id && v.fusedToViaId != null).length;
+                                const occPct = tube.totalVias > 0 ? Math.round((occCount / tube.totalVias) * 100) : 0;
+                                const occBar = occPct >= 90 ? "bg-red-500" : occPct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
+                                const occText = occPct >= 90 ? "text-red-400" : occPct >= 70 ? "text-yellow-400" : "text-emerald-400";
                                 return (
                                   <div key={tube.id} className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl overflow-hidden">
                                     <div className="flex items-center gap-3 px-3 py-2.5">
@@ -562,12 +566,15 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
                                         <div className={`w-3.5 h-3.5 rounded-full flex-shrink-0 ${TUBE_COLORS[tube.color ?? ""] ?? "bg-zinc-500"}`} />
                                         <div className="flex-1 min-w-0">
                                           <span className="text-xs font-medium text-white">{tube.identifier}</span>
-                                          <p className="text-[11px] text-zinc-500">
-                                            {TUBE_COLOR_LABELS[tube.color ?? ""] ?? tube.color} · {tube.totalVias} vias
-                                            {isExpanded && cachedVias.length > 0 && (
-                                              <span className="ml-1 text-cyan-400">· {fusedInTube} fusionadas</span>
-                                            )}
-                                          </p>
+                                          <div className="flex flex-col gap-0.5">
+                                            <p className="text-[11px] text-zinc-500">{TUBE_COLOR_LABELS[tube.color ?? ""] ?? tube.color} · {tube.totalVias} vias</p>
+                                            <div className="flex items-center gap-1.5">
+                                              <div className="flex-1 h-1 bg-zinc-700 rounded-full overflow-hidden">
+                                                <div className={`h-full rounded-full ${occBar}`} style={{ width: `${occPct}%` }} />
+                                              </div>
+                                              <span className={`text-[10px] font-medium ${occText}`}>{occCount}/{tube.totalVias}</span>
+                                            </div>
+                                          </div>
                                         </div>
                                         {isExpanded
                                           ? <ChevronRight className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0 rotate-90" />
@@ -752,6 +759,10 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
                   const isExpanded = expandedTubeIds.has(tube.id);
                   const cachedVias = tubeViasCache.get(tube.id) ?? [];
                   const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
+                  const occCount = allVias.filter(v => v.tubeId === tube.id && v.fusedToViaId != null).length;
+                  const occPct = tube.totalVias > 0 ? Math.round((occCount / tube.totalVias) * 100) : 0;
+                  const occBar = occPct >= 90 ? "bg-red-500" : occPct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
+                  const occText = occPct >= 90 ? "text-red-400" : occPct >= 70 ? "text-yellow-400" : "text-emerald-400";
                   return (
                     <div key={tube.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
                       {/* Cabeçalho do tubo */}
@@ -763,12 +774,15 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
                           <div className={`w-4 h-4 rounded-full flex-shrink-0 ${TUBE_COLORS[tube.color ?? ""] ?? "bg-zinc-500"}`} />
                           <div className="flex-1 min-w-0">
                             <span className="text-sm font-medium text-white">{tube.identifier}</span>
-                            <p className="text-xs text-zinc-500">
-                              {TUBE_COLOR_LABELS[tube.color ?? ""] ?? tube.color} · {tube.totalVias} vias
-                              {isExpanded && cachedVias.length > 0 && (
-                                <span className="ml-1 text-cyan-400">· {fusedInTube} fusionadas</span>
-                              )}
-                            </p>
+                            <div className="flex flex-col gap-0.5">
+                              <p className="text-xs text-zinc-500">{TUBE_COLOR_LABELS[tube.color ?? ""] ?? tube.color} · {tube.totalVias} vias</p>
+                              <div className="flex items-center gap-1.5">
+                                <div className="flex-1 h-1 bg-zinc-700 rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full ${occBar}`} style={{ width: `${occPct}%` }} />
+                                </div>
+                                <span className={`text-[10px] font-medium ${occText}`}>{occCount}/{tube.totalVias}</span>
+                              </div>
+                            </div>
                           </div>
                           {isExpanded
                             ? <ChevronRight className="w-4 h-4 text-zinc-400 flex-shrink-0 rotate-90 transition-transform" />
@@ -1102,6 +1116,10 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
                   const isExpanded = expandedTubeIds.has(tube.id);
                   const cachedVias = tubeViasCache.get(tube.id) ?? [];
                   const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
+                  const occCount = allVias.filter(v => v.tubeId === tube.id && v.fusedToViaId != null).length;
+                  const occPct = tube.totalVias > 0 ? Math.round((occCount / tube.totalVias) * 100) : 0;
+                  const occBar = occPct >= 90 ? "bg-red-500" : occPct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
+                  const occText = occPct >= 90 ? "text-red-400" : occPct >= 70 ? "text-yellow-400" : "text-emerald-400";
                   return (
                     <div key={tube.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
                       <div className="flex items-center gap-3 px-4 py-3">
@@ -1112,12 +1130,15 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
                           <div className={`w-4 h-4 rounded-full flex-shrink-0 ${TUBE_COLORS[tube.color ?? ""] ?? "bg-zinc-500"}`} />
                           <div className="flex-1 min-w-0">
                             <span className="text-sm font-medium text-white">{tube.identifier}</span>
-                            <p className="text-xs text-zinc-500">
-                              {TUBE_COLOR_LABELS[tube.color ?? ""] ?? tube.color} · {tube.totalVias} vias
-                              {isExpanded && cachedVias.length > 0 && (
-                                <span className="ml-1 text-cyan-400">· {fusedInTube} fusionadas</span>
-                              )}
-                            </p>
+                            <div className="flex flex-col gap-0.5">
+                              <p className="text-xs text-zinc-500">{TUBE_COLOR_LABELS[tube.color ?? ""] ?? tube.color} · {tube.totalVias} vias</p>
+                              <div className="flex items-center gap-1.5">
+                                <div className="flex-1 h-1 bg-zinc-700 rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full ${occBar}`} style={{ width: `${occPct}%` }} />
+                                </div>
+                                <span className={`text-[10px] font-medium ${occText}`}>{occCount}/{tube.totalVias}</span>
+                              </div>
+                            </div>
                           </div>
                           {isExpanded
                             ? <ChevronRight className="w-4 h-4 text-zinc-400 flex-shrink-0 rotate-90 transition-transform" />

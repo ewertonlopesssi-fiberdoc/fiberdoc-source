@@ -1366,3 +1366,8 @@
 - [x] Actualizar página de Usuários para permitir atribuir role=operator
 - [x] Adicionar card de contagem de Operadores na página de Usuários
 - [x] Testes vitest: operator não acede a users.list, updateRole, remove (FORBIDDEN)
+
+## Mobile — Indicador de Ocupação por Tubo
+- [ ] CEO mobile: mostrar "X/Y vias ocupadas" no cabeçalho de cada tubo (detalhe, bandejas, bandejaDetail)
+- [ ] CTO mobile: mostrar "X/Y vias ocupadas" no cabeçalho de cada tubo
+- [ ] Barra de progresso colorida (verde/amarelo/vermelho conforme ocupação)
