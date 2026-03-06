@@ -610,6 +610,7 @@ export const mapElements = mysqlTable("map_elements", {
   referenceId: int("referenceId").notNull(),                          // ID do CEO ou CTO
   lat: double("lat").notNull(),
   lng: double("lng").notNull(),
+  color: varchar("color", { length: 16 }),                              // Cor personalizada do marcador (null = cor padrão por status)
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 export type MapElement = typeof mapElements.$inferSelect;

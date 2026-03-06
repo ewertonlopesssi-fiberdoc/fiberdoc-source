@@ -1,0 +1,1 @@
+ALTER TABLE `map_elements` ADD `color` varchar(16);

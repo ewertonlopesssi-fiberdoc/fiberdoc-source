@@ -2147,17 +2147,19 @@ export async function getMapElements(): Promise<MapElement[]> {
   if (!db) return [];
   return db.select().from(mapElements);
 }
-export async function upsertMapElement(type: string, referenceId: number, lat: number, lng: number): Promise<number> {
+export async function upsertMapElement(type: string, referenceId: number, lat: number, lng: number, color?: string | null): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const existing = await db.select().from(mapElements)
     .where(eq(mapElements.referenceId, referenceId))
     .limit(1);
   if (existing.length > 0) {
-    await db.update(mapElements).set({ lat, lng }).where(eq(mapElements.id, existing[0].id));
+    const updateData: any = { lat, lng };
+    if (color !== undefined) updateData.color = color;
+    await db.update(mapElements).set(updateData).where(eq(mapElements.id, existing[0].id));
     return existing[0].id;
   }
-  const result = await db.insert(mapElements).values({ type, referenceId, lat, lng });
+  const result = await db.insert(mapElements).values({ type, referenceId, lat, lng, color: color ?? null });
   return (result[0] as any).insertId;
 }
 export async function deleteMapElement(id: number): Promise<void> {

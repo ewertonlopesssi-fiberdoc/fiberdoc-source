@@ -2112,9 +2112,10 @@ export const appRouter = router({
         referenceId: z.number(),
         lat: z.number(),
         lng: z.number(),
+        color: z.string().nullable().optional(),
       }))
       .mutation(async ({ input }) => {
-        const id = await upsertMapElement(input.type, input.referenceId, input.lat, input.lng);
+        const id = await upsertMapElement(input.type, input.referenceId, input.lat, input.lng, input.color);
         return { id };
       }),
     deleteElement: adminProcedure

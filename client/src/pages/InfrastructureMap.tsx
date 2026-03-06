@@ -1,5 +1,100 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+
+// ─── Painel de detalhes redimensionável ─────────────────────────────────────
+function ResizableDetailPanel({ open, onClose, title, children }: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  const [width, setWidth] = useState(700);
+  const draggingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWRef = useRef(700);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    draggingRef.current = true;
+    startXRef.current = e.clientX;
+    startWRef.current = width;
+    e.preventDefault();
+  }, [width]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const delta = startXRef.current - e.clientX;
+      const newW = Math.min(Math.max(startWRef.current + delta, 320), window.innerWidth - 80);
+      setWidth(newW);
+    };
+    const onUp = () => { draggingRef.current = false; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
+
+  if (!open) return null;
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 9999, pointerEvents: "none" }}
+    >
+      {/* Overlay para fechar ao clicar fora */}
+      <div
+        style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}
+        onClick={onClose}
+      />
+      {/* Painel */}
+      <div
+        style={{
+          position: "absolute", top: 0, right: 0, bottom: 0,
+          width: `${width}px`, maxWidth: "100vw",
+          background: "var(--background)",
+          borderLeft: "1px solid var(--border)",
+          display: "flex", flexDirection: "column",
+          pointerEvents: "auto",
+          boxShadow: "-4px 0 24px rgba(0,0,0,0.4)",
+        }}
+      >
+        {/* Handle de redimensionamento */}
+        <div
+          onMouseDown={onMouseDown}
+          style={{
+            position: "absolute", left: 0, top: 0, bottom: 0, width: "6px",
+            cursor: "ew-resize",
+            background: "transparent",
+            zIndex: 10,
+          }}
+          title="Arraste para redimensionar"
+        >
+          <div style={{
+            position: "absolute", left: "2px", top: "50%", transform: "translateY(-50%)",
+            width: "2px", height: "40px", borderRadius: "2px",
+            background: "var(--border)",
+            opacity: 0.6,
+          }} />
+        </div>
+        {/* Cabeçalho */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 20px", borderBottom: "1px solid var(--border)",
+          flexShrink: 0,
+        }}>
+          <span style={{ fontWeight: 600, fontSize: "14px" }}>{title}</span>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted-foreground)", padding: "4px" }}
+          >
+            ✕
+          </button>
+        </div>
+        {/* Conteúdo */}
+        <div style={{ flex: 1, overflow: "auto" }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -127,6 +222,7 @@ type MapElement = {
   id: number; type: "ceo" | "cto"; referenceId: number;
   lat: number; lng: number; name?: string; status?: string;
   capacity?: number; usedPorts?: number; sgpId?: number | null;
+  color?: string | null;
 };
 type MapRoute = {
   id: number; fromElementId: number; toElementId: number;
@@ -145,9 +241,10 @@ function createLeafletIcon(
   status: string,
   name: string,
   selected = false,
-  onuBadge?: { total: number; online?: number } | null
+  onuBadge?: { total: number; online?: number } | null,
+  customColor?: string | null
 ) {
-  const color = STATUS_COLOR[status] ?? "#6b7280";
+  const color = customColor ?? STATUS_COLOR[status] ?? "#6b7280";
   const outline = selected ? "3px solid #22d3ee" : "3px solid white";
   const shape = type === "cto"
     ? `<rect x="3" y="3" width="18" height="18" rx="2" fill="white"/>`
@@ -335,7 +432,7 @@ export default function InfrastructureMap() {
 
   // Edição inline de CEO/CTO/Cabo pelo painel lateral
   const [editElementDialogOpen, setEditElementDialogOpen] = useState(false);
-  const [editElementForm, setEditElementForm] = useState({ name: "", address: "", capacity: 8, status: "active", notes: "" });
+  const [editElementForm, setEditElementForm] = useState({ name: "", address: "", capacity: 8, status: "active", notes: "", color: "" });
   const [editRouteDialogOpen, setEditRouteDialogOpen] = useState(false);
   const [editRouteForm, setEditRouteForm] = useState({ name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: "", fromElementId: null as number | null, toElementId: null as number | null, fromTubeId: null as number | null, toTubeId: null as number | null });
   const [fromSearch, setFromSearch] = useState("");
@@ -752,7 +849,8 @@ export default function InfrastructureMap() {
       // Badge de ONUs: usar sgpId da CTO para buscar contagem no onuCountMap
       const sgpIdForBadge = isCto ? (ref?.sgpId ?? null) : null;
       const onuBadgeData = sgpIdForBadge != null ? (onuCountMap[sgpIdForBadge] ?? null) : null;
-      const icon = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData);
+      const icon = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null);
+      // Drag só ativo em modo edição global OU quando este elemento específico está em modo mover
       const isDraggable = isAdmin && (editMode || movingElementId === el.id);
       const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isDraggable }).addTo(mapRef.current!);
       if (isAdmin) {
@@ -771,7 +869,7 @@ export default function InfrastructureMap() {
           toast.info(`Ponto adicionado: ${name}`);
           return;
         }
-        setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts, sgpId: ref?.sgpId ?? null } });
+        setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts, sgpId: ref?.sgpId ?? null, color: el.color ?? null } });
       });
       markersRef.current[el.id] = marker;
     });
@@ -1852,6 +1950,7 @@ export default function InfrastructureMap() {
                 capacity: el.capacity ?? 8,
                 status: el.status ?? "active",
                 notes: "",
+                color: el.color ?? "",
               });
               setEditElementDialogOpen(true);
             }}>
@@ -2644,6 +2743,37 @@ export default function InfrastructureMap() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label>Cor do marcador</Label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={editElementForm.color || (editElementForm.status === "active" ? "#22c55e" : editElementForm.status === "maintenance" ? "#f59e0b" : "#ef4444")}
+                  onChange={e => setEditElementForm(f => ({ ...f, color: e.target.value }))}
+                  className="w-10 h-8 rounded cursor-pointer border border-border"
+                />
+                <div className="flex gap-1.5 flex-wrap">
+                  {["#22c55e","#3b82f6","#f59e0b","#ef4444","#8b5cf6","#ec4899","#06b6d4","#f97316","#6b7280"].map(c => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setEditElementForm(f => ({ ...f, color: c }))}
+                      className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${editElementForm.color === c ? "border-white scale-110" : "border-transparent"}`}
+                      style={{ background: c }}
+                      title={c}
+                    />
+                  ))}
+                  {editElementForm.color && (
+                    <button
+                      type="button"
+                      onClick={() => setEditElementForm(f => ({ ...f, color: "" }))}
+                      className="text-xs text-muted-foreground hover:text-foreground underline ml-1"
+                    >Padrão</button>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">Deixe em branco para usar a cor padrão do status</p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditElementDialogOpen(false)}>Cancelar</Button>
@@ -2658,6 +2788,8 @@ export default function InfrastructureMap() {
                 } else {
                   updateCeoMut.mutate({ id: el.referenceId, name: editElementForm.name, status: editElementForm.status as any });
                 }
+                // Salvar cor personalizada no elemento do mapa
+                upsertElementMut.mutate({ type: el.type, referenceId: el.referenceId, lat: el.lat, lng: el.lng, color: editElementForm.color || null });
               }}
             >
               {updateCeoMut.isPending || updateCtoMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}
@@ -3744,31 +3876,22 @@ export default function InfrastructureMap() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Painel de detalhes CEO/CTO sobreposto ao mapa ── */}
-      <Sheet open={detailPanel !== null} onOpenChange={(open) => { if (!open) setDetailPanel(null); }}>
-        <SheetContent
-          side="right"
-          className="w-full sm:max-w-full overflow-hidden p-0"
-          style={{ zIndex: 9999, position: "fixed", inset: 0, width: "100vw", maxWidth: "100vw" }}
-        >
-          <SheetHeader className="px-6 pt-5 pb-3 border-b border-border sticky top-0 bg-background z-10">
-            <SheetTitle className="text-base font-semibold">
-              {detailPanel?.type === "cto" ? "Detalhes da CTO" : "Detalhes da CEO"}
-            </SheetTitle>
-          </SheetHeader>
-          <div className="h-full overflow-y-auto">
-            {detailPanel !== null && (
-              <iframe
-                key={`${detailPanel.type}-${detailPanel.id}`}
-                src={detailPanel.type === "cto" ? `/cto/${detailPanel.id}` : `/ceo/${detailPanel.id}`}
-                className="w-full border-0"
-                style={{ height: "calc(100vh - 80px)", minHeight: 600 }}
-                title={detailPanel.type === "cto" ? `CTO ${detailPanel.id}` : `CEO ${detailPanel.id}`}
-              />
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
+      {/* ── Painel de detalhes CEO/CTO sobreposto ao mapa (redimensionável) ── */}
+      <ResizableDetailPanel
+        open={detailPanel !== null}
+        onClose={() => setDetailPanel(null)}
+        title={detailPanel?.type === "cto" ? "Detalhes da CTO" : "Detalhes da CEO"}
+      >
+        {detailPanel !== null && (
+          <iframe
+            key={`${detailPanel.type}-${detailPanel.id}`}
+            src={detailPanel.type === "cto" ? `/cto/${detailPanel.id}` : `/ceo/${detailPanel.id}`}
+            className="w-full border-0"
+            style={{ height: "calc(100vh - 56px)", minHeight: 600 }}
+            title={detailPanel.type === "cto" ? `CTO ${detailPanel.id}` : `CEO ${detailPanel.id}`}
+          />
+        )}
+      </ResizableDetailPanel>
     </div>
   );
 }
