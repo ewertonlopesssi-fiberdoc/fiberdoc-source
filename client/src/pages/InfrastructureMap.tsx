@@ -17,10 +17,26 @@ import {
   FileDown, MousePointer2, Search, Layers, Upload,
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
   Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw,
-  Lock, Unlock, ExternalLink
+  Lock, Unlock, ExternalLink, Move
 } from "lucide-react";
 import L from "leaflet";
 import { unzipSync, strFromU8 } from "fflate";
+
+// Cores padrão de fibras ópticas (norma ABNT NBR 14772)
+const FIBER_VIA_COLORS: Record<number, string> = {
+  1: "#3b82f6",   // azul
+  2: "#f97316",   // laranja
+  3: "#22c55e",   // verde
+  4: "#92400e",   // marrom
+  5: "#6b7280",   // cinza
+  6: "#f3f4f6",   // branco
+  7: "#ef4444",   // vermelho
+  8: "#111827",   // preto
+  9: "#eab308",   // amarelo
+  10: "#8b5cf6",  // violeta
+  11: "#ec4899",  // rosa
+  12: "#06b6d4",  // aqua/turquesa
+};
 
 // Sub-componente para seletores de tubo (evita hooks em IIFE)
 function TubeSelectors({ fromElId, toElId, fromTubeId, toTubeId, onChange }: {
@@ -229,6 +245,8 @@ export default function InfrastructureMap() {
   const [showRoutes, setShowRoutes] = useState(true);
   // Modo edição: quando false, os markers ficam bloqueados (não arrastáveis)
   const [editMode, setEditMode] = useState(false);
+  // Elemento em modo de mover individualmente (drag individual sem modo edição global)
+  const [movingElementId, setMovingElementId] = useState<number | null>(null);
   // Painel de detalhes sobreposto ao mapa (Sheet)
   const [detailPanel, setDetailPanel] = useState<{ type: "ceo" | "cto"; id: number } | null>(null);
   const [addingMode, setAddingMode] = useState<"ceo" | "cto" | null>(null);
@@ -735,10 +753,12 @@ export default function InfrastructureMap() {
       const sgpIdForBadge = isCto ? (ref?.sgpId ?? null) : null;
       const onuBadgeData = sgpIdForBadge != null ? (onuCountMap[sgpIdForBadge] ?? null) : null;
       const icon = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData);
-      const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isAdmin && editMode }).addTo(mapRef.current!);
+      const isDraggable = isAdmin && (editMode || movingElementId === el.id);
+      const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isDraggable }).addTo(mapRef.current!);
       if (isAdmin) {
         marker.on("dragend", () => {
-          if (!editMode) return;
+          if (!editMode && movingElementId !== el.id) return;
+          setMovingElementId(null);
           const pos = marker.getLatLng();
           upsertElementMut.mutate({ type: el.type, referenceId: el.referenceId, lat: pos.lat, lng: pos.lng });
         });
@@ -755,7 +775,7 @@ export default function InfrastructureMap() {
       });
       markersRef.current[el.id] = marker;
     });
-  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, onuCountMap]);
+  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, movingElementId, onuCountMap]);
 
   // Renderizar rotas
   const renderRoutes = useCallback(() => {
@@ -1839,6 +1859,30 @@ export default function InfrastructureMap() {
             </Button>
           )}
         </div>
+        {/* Botão Mover (drag individual) */}
+        {isAdmin && (
+          <Button
+            variant="outline"
+            size="sm"
+            className={`w-full gap-1.5 ${
+              movingElementId === el.id
+                ? "bg-amber-500/20 border-amber-500/60 text-amber-300 hover:bg-amber-500/30"
+                : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+            }`}
+            onClick={() => {
+              if (movingElementId === el.id) {
+                setMovingElementId(null);
+                toast.info("Modo mover desativado");
+              } else {
+                setMovingElementId(el.id);
+                toast.info(`Arraste ${el.name ?? el.type.toUpperCase()} para reposicionar. Clique em 'Mover' novamente para cancelar.`, { duration: 4000 });
+              }
+            }}
+          >
+            <Move className="w-3.5 h-3.5" />
+            {movingElementId === el.id ? "Cancelar mover" : "Mover"}
+          </Button>
+        )}
         {/* Botão Exportar PDF de Fusões */}
         <Button
           variant="outline"
@@ -1850,15 +1894,47 @@ export default function InfrastructureMap() {
             try {
               const refId = el.referenceId;
               const name = el.name ?? (isCto ? "CTO" : "CEO");
-              const res = await fetch(`/api/fusion-report/${isCto ? "cto" : "ceo"}/${refId}`, { credentials: "include" });
-              if (!res.ok) throw new Error("Falha ao gerar relatório");
-              const blob = await res.blob();
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url; a.download = `fusoes_${name.replace(/\s+/g, "_")}.pdf`;
-              document.body.appendChild(a); a.click();
-              document.body.removeChild(a); URL.revokeObjectURL(url);
-            } catch { /* ignora */ } finally { setFusionPdfLoading(false); }
+              // Buscar dados de fusões via tRPC
+              const tubes = (isCto ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
+              const allVias = (isCto ? ctoViasQuery.data : ceoViasQuery.data) as any[] | undefined;
+              if (!tubes || !allVias) { toast.error("Dados ainda não carregados. Aguarde."); return; }
+              // Gerar HTML para impressão
+              const rows: string[] = [];
+              for (const tube of tubes) {
+                const tubVias = allVias.filter((v: any) => v.tubeId === tube.id).sort((a: any, b: any) => a.viaNumber - b.viaNumber);
+                for (const via of tubVias) {
+                  const colorHex = FIBER_VIA_COLORS[via.viaNumber] ?? "#6b7280";
+                  const fusedVia = via.fusedToViaId ? allVias.find((v: any) => v.id === via.fusedToViaId) : null;
+                  const fusedTube = fusedVia ? tubes.find((t: any) => t.id === fusedVia.tubeId) : null;
+                  rows.push(`<tr>
+                    <td>${tube.identifier}</td>
+                    <td style="text-align:center"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${colorHex};border:1px solid #999;"></span></td>
+                    <td>${via.viaNumber}</td>
+                    <td>${via.label ?? "—"}</td>
+                    <td style="color:${via.fusedToViaId ? "#16a34a" : "#9ca3af"}">${via.fusedToViaId ? "Fusionada" : "Livre"}</td>
+                    <td>${fusedTube ? fusedTube.identifier : "—"}</td>
+                    <td>${fusedVia ? fusedVia.viaNumber : "—"}</td>
+                    <td>${fusedVia?.label ?? "—"}</td>
+                  </tr>`);
+                }
+              }
+              const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Fusões — ${name}</title><style>
+                body{font-family:Arial,sans-serif;font-size:11px;margin:20px;color:#111}
+                h1{font-size:16px;margin-bottom:4px}p{margin:0 0 12px;color:#555;font-size:10px}
+                table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px 6px;text-align:left}
+                th{background:#1e293b;color:#fff;font-size:10px}tr:nth-child(even){background:#f8fafc}
+                @media print{body{margin:10px}}
+              </style></head><body>
+                <h1>Relatório de Fusões — ${name}</h1>
+                <p>Gerado em ${new Date().toLocaleString("pt-BR")} · ${isCto ? "CTO" : "CEO"} ID ${refId}</p>
+                <table><thead><tr>
+                  <th>Tubo</th><th>Cor</th><th>Via Nº</th><th>Label</th><th>Status</th><th>Tubo Destino</th><th>Via Destino</th><th>Label Destino</th>
+                </tr></thead><tbody>${rows.join("")}</tbody></table>
+              </body></html>`;
+              const w = window.open("", "_blank");
+              if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 500); }
+              toast.success("PDF aberto para impressão");
+            } catch (e: any) { toast.error(e.message ?? "Erro ao gerar PDF"); } finally { setFusionPdfLoading(false); }
           }}
         >
           {fusionPdfLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
@@ -1956,6 +2032,7 @@ export default function InfrastructureMap() {
                           {tubVias.length === 0 && <div className="text-xs text-muted-foreground/50 italic py-0.5">Nenhuma via cadastrada</div>}
                           {tubVias.sort((a: any, b: any) => a.viaNumber - b.viaNumber).map((via: any) => {
                             const isFused = via.fusedToViaId !== null;
+                            const viaColor = FIBER_VIA_COLORS[via.viaNumber] ?? "#6b7280";
                             return (
                               <div key={via.id} className="flex items-center gap-0.5 group">
                                 <button
@@ -1974,7 +2051,17 @@ export default function InfrastructureMap() {
                                   }}
                                 >
                                   <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isFused ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
-                                  <span className="text-muted-foreground w-5 shrink-0">{via.viaNumber}</span>
+                                  <span
+                                    className="shrink-0 flex items-center gap-0.5"
+                                    style={{ minWidth: "2rem" }}
+                                    title={`Via ${via.viaNumber}`}
+                                  >
+                                    <span
+                                      className="inline-block w-2 h-2 rounded-full border border-white/20 shrink-0"
+                                      style={{ background: viaColor }}
+                                    />
+                                    <span className="text-muted-foreground">{via.viaNumber}</span>
+                                  </span>
                                   {via.label
                                     ? <span className="truncate font-medium">{via.label}</span>
                                     : <span className="text-muted-foreground/50 italic">livre</span>}
@@ -3661,8 +3748,8 @@ export default function InfrastructureMap() {
       <Sheet open={detailPanel !== null} onOpenChange={(open) => { if (!open) setDetailPanel(null); }}>
         <SheetContent
           side="right"
-          className="w-full sm:max-w-4xl overflow-hidden p-0"
-          style={{ zIndex: 9999 }}
+          className="w-full sm:max-w-full overflow-hidden p-0"
+          style={{ zIndex: 9999, position: "fixed", inset: 0, width: "100vw", maxWidth: "100vw" }}
         >
           <SheetHeader className="px-6 pt-5 pb-3 border-b border-border sticky top-0 bg-background z-10">
             <SheetTitle className="text-base font-semibold">

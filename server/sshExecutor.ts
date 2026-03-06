@@ -30,6 +30,11 @@ export interface SshExecResult {
 
 /** Remove códigos ANSI, \r, e outros caracteres de controlo do VRP */
 function cleanOutput(raw: string): string {
+  // DEBUG: log do output bruto para diagnóstico de alinhamento de colunas
+  if (raw.includes("Interface") || raw.includes("GE0/") || raw.includes("Eth-Trunk")) {
+    const escaped = raw.slice(0, 500).replace(/[\x00-\x1f\x7f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2,'0')}`);
+    console.log("[SSH RAW DEBUG]", escaped);
+  }
   return raw
     .replace(/\x1b\[[0-9;]*[mGKHFJABCDEFsuhl]/g, "") // ANSI escape codes
     .replace(/\x1b\[?[0-9;]*[a-zA-Z]/g, "")           // outros escapes

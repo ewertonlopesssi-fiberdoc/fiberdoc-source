@@ -1310,3 +1310,7 @@
 - [x] CRUD de comandos por dispositivo (botão Novo Comando do Dispositivo, editar, excluir)
 - [x] Corrigir espaçamento de colunas no terminal SSH (preservar linhas em branco + fonte monospace fixa)
 - [x] Corrigir cleanOutput: preservar espaços internos das colunas VRP (remover trim trailing spaces) + cols 512
+- [ ] Mapa: ocultar sidebar ao abrir detalhes e expandir mapa para tela cheia
+- [ ] Mapa: botão Exportar Fusões PDF igual ao Imprimir Mapa na tela de detalhes
+- [ ] Mapa: botão para mover elementos CEO/CTO no mapa (drag mode)
+- [ ] Mapa: cor da via da fibra junto ao número de via
