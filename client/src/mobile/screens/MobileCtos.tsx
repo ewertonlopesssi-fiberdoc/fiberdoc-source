@@ -175,6 +175,7 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed }: MobileC
     if (target) {
       setSelected(target);
       loadTubes(target.id);
+      loadAllVias(target.id);
       setView("detail");
       onDeepLinkConsumed?.();
     }
