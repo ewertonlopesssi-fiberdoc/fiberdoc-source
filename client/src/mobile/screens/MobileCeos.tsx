@@ -340,7 +340,14 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
 
   function fusionLabel(via: Via): string {
     if (!via.fusedToViaId) return "";
-    const fusedVia = allVias.find(v => v.id === via.fusedToViaId);
+    // Usar allVias se disponível, senão procurar no tubeViasCache
+    let fusedVia = allVias.find(v => v.id === via.fusedToViaId);
+    if (!fusedVia) {
+      for (const vias of tubeViasCache.values()) {
+        const found = vias.find(v => v.id === via.fusedToViaId);
+        if (found) { fusedVia = found; break; }
+      }
+    }
     const fusedTube = tubes.find(t => t.id === via.fusedToTubeId);
     return `${fusedTube?.identifier ?? "Tubo ?"} · Via ${fusedVia?.viaNumber ?? "?"}`;
   }
@@ -570,7 +577,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                                 const isExpanded = expandedTubeIds.has(tube.id);
                                 const cachedVias = tubeViasCache.get(tube.id) ?? [];
                                 const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
-                                const occCount = allVias.filter(v => v.tubeId === tube.id && v.fusedToViaId != null).length;
+                                const occCount = fusedInTube;
                                 const occPct = tube.totalVias > 0 ? Math.round((occCount / tube.totalVias) * 100) : 0;
                                 const occBar = occPct >= 90 ? "bg-red-500" : occPct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
                                 const occText = occPct >= 90 ? "text-red-400" : occPct >= 70 ? "text-yellow-400" : "text-emerald-400";
@@ -777,7 +784,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                   const isExpanded = expandedTubeIds.has(tube.id);
                   const cachedVias = tubeViasCache.get(tube.id) ?? [];
                   const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
-                  const occCount = allVias.filter(v => v.tubeId === tube.id && v.fusedToViaId != null).length;
+                  const occCount = fusedInTube;
                   const occPct = tube.totalVias > 0 ? Math.round((occCount / tube.totalVias) * 100) : 0;
                   const occBar = occPct >= 90 ? "bg-red-500" : occPct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
                   const occText = occPct >= 90 ? "text-red-400" : occPct >= 70 ? "text-yellow-400" : "text-emerald-400";
@@ -1134,7 +1141,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                   const isExpanded = expandedTubeIds.has(tube.id);
                   const cachedVias = tubeViasCache.get(tube.id) ?? [];
                   const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
-                  const occCount = allVias.filter(v => v.tubeId === tube.id && v.fusedToViaId != null).length;
+                  const occCount = fusedInTube;
                   const occPct = tube.totalVias > 0 ? Math.round((occCount / tube.totalVias) * 100) : 0;
                   const occBar = occPct >= 90 ? "bg-red-500" : occPct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
                   const occText = occPct >= 90 ? "text-red-400" : occPct >= 70 ? "text-yellow-400" : "text-emerald-400";

@@ -420,7 +420,7 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed, onGoToMap
                   const isExpanded = expandedTubeIds.has(tube.id);
                   const cachedVias = tubeViasCache.get(tube.id) ?? [];
                   const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
-                  const occCount = allVias.filter(v => v.tubeId === tube.id && v.fusedToViaId != null).length;
+                  const occCount = fusedInTube;
                   const occPct = tube.totalVias > 0 ? Math.round((occCount / tube.totalVias) * 100) : 0;
                   const occBar = occPct >= 90 ? "bg-red-500" : occPct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
                   const occText = occPct >= 90 ? "text-red-400" : occPct >= 70 ? "text-yellow-400" : "text-emerald-400";
@@ -465,7 +465,14 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed, onGoToMap
                           ) : cachedVias.map(via => {
                             const fiberColor = VIA_FIBER_COLORS[via.viaNumber];
                             const isFused = via.fusedToViaId != null;
-                            const fusedVia = isFused ? allVias.find(v => v.id === via.fusedToViaId) : null;
+                            // Procurar via fusionada em allVias ou no tubeViasCache
+                            let fusedVia = isFused ? allVias.find(v => v.id === via.fusedToViaId) : null;
+                            if (isFused && !fusedVia) {
+                              for (const tvias of tubeViasCache.values()) {
+                                const found = tvias.find(v => v.id === via.fusedToViaId);
+                                if (found) { fusedVia = found; break; }
+                              }
+                            }
                             const fusedTube = isFused ? tubes.find(t => t.id === via.fusedToTubeId) : null;
                             return (
                               <div
