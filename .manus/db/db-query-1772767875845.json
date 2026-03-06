@@ -1,0 +1,18 @@
+{
+  "query": "SHOW COLUMNS FROM `map_elements` LIKE 'color';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SHOW COLUMNS FROM `map_elements` LIKE 'color';",
+  "rows": [
+    {
+      "Field": "color",
+      "Type": "varchar(16)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\ncolor\tvarchar(16)\tYES\t\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 74
+}

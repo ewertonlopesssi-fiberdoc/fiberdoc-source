@@ -1332,3 +1332,15 @@
 - [x] Script de atualização v4 (update_fiberdoc_v4.sh) para sistema PM2
 - [x] Script de atualização v5.77 (update-fiberdoc-v5.77.sh) para sistema systemd
 - [x] Pacote de deploy v5.77 (fiberdoc-v5.77.tar.gz) com artefactos compilados
+
+## Bug: CTO — cor não persiste
+- [x] Migração SQL: ADD COLUMN IF NOT EXISTS `color` varchar(16) na tabela map_elements
+- [x] Verificar se o procedure updateMapElement salva o campo color
+- [x] Verificar se o frontend envia o campo color ao actualizar elemento
+- [x] Corrigir race condition: refetchElements com delay 400ms para garantir que upsertElement (cor) já foi persistido
+- [x] Corrigir instrução SQL no script de atualização (executar via mysql, não bash)
+
+## Bug: Mapa — Exportar Fusões PDF diferente do Imprimir Mapa
+- [x] Identificar o componente do botão Exportar Fusões PDF no mapa
+- [x] Identificar o componente do botão Imprimir Mapa na tela de detalhes
+- [x] Unificar a lógica de geração de PDF: botão do mapa agora usa o mesmo HTML profissional do CtoDetail/CeoDetail (cabeçalho, estatísticas, cores por via, badges de tubo, rodapé)
