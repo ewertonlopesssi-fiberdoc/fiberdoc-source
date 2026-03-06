@@ -322,6 +322,142 @@ export async function sgpConfigureOnuWifi(
   return res.json().catch(() => ({}));
 }
 
+// ─── Gerenciador CPE (envia comandos directamente para a ONT via GenieACS) ────
+
+/** Configurar PPPoE (WAN) na ONT via Gerenciador CPE do SGP */
+export async function sgpCpeConfigurePppoe(
+  cfg: SgpConfig,
+  servicoId: number
+): Promise<{ ok: boolean; message?: string }> {
+  const res = await sgpFetch(cfg, `/api/cpemanager/servico/${servicoId}/pppoe/`, {
+    method: "POST",
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`SGP CPE PPPoE ${res.status}: ${txt}`);
+  }
+  const data = await res.json().catch(() => ({}));
+  return { ok: true, message: (data as Record<string, string>)?.message ?? "PPPoE configurado com sucesso" };
+}
+
+/** Definir Wi-Fi na ONT via Gerenciador CPE do SGP */
+export async function sgpCpeSetWifi(
+  cfg: SgpConfig,
+  servicoId: number
+): Promise<{ ok: boolean; message?: string }> {
+  const res = await sgpFetch(cfg, `/api/cpemanager/servico/${servicoId}/wifi/set/`, {
+    method: "POST",
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`SGP CPE Wi-Fi ${res.status}: ${txt}`);
+  }
+  const data = await res.json().catch(() => ({}));
+  return { ok: true, message: (data as Record<string, string>)?.message ?? "Wi-Fi configurado com sucesso" };
+}
+
+/** Importar Wi-Fi da ONT para o SGP via Gerenciador CPE */
+export async function sgpCpeImportWifi(
+  cfg: SgpConfig,
+  servicoId: number
+): Promise<{ ok: boolean; message?: string }> {
+  const res = await sgpFetch(cfg, `/api/cpemanager/servico/${servicoId}/wifi/import/`, {
+    method: "POST",
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`SGP CPE Import Wi-Fi ${res.status}: ${txt}`);
+  }
+  const data = await res.json().catch(() => ({}));
+  return { ok: true, message: (data as Record<string, string>)?.message ?? "Wi-Fi importado com sucesso" };
+}
+
+/** Sincronizar WAN da ONT via Gerenciador CPE do SGP */
+export async function sgpCpeSyncWan(
+  cfg: SgpConfig,
+  servicoId: number
+): Promise<{ ok: boolean; message?: string }> {
+  const res = await sgpFetch(cfg, `/api/cpemanager/servico/${servicoId}/sync/`, {
+    method: "POST",
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`SGP CPE Sync WAN ${res.status}: ${txt}`);
+  }
+  const data = await res.json().catch(() => ({}));
+  return { ok: true, message: (data as Record<string, string>)?.message ?? "WAN sincronizada com sucesso" };
+}
+
+/** Ping via Gerenciador CPE do SGP */
+export async function sgpCpePing(
+  cfg: SgpConfig,
+  servicoId: number
+): Promise<{ ok: boolean; message?: string; result?: unknown }> {
+  const res = await sgpFetch(cfg, `/api/cpemanager/servico/${servicoId}/command/ping/`, {
+    method: "POST",
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`SGP CPE Ping ${res.status}: ${txt}`);
+  }
+  const data = await res.json().catch(() => ({}));
+  return { ok: true, message: (data as Record<string, string>)?.message, result: data };
+}
+
+/** SpeedTest via Gerenciador CPE do SGP */
+export async function sgpCpeSpeedTest(
+  cfg: SgpConfig,
+  servicoId: number
+): Promise<{ ok: boolean; message?: string; result?: unknown }> {
+  const res = await sgpFetch(cfg, `/api/cpemanager/servico/${servicoId}/command/speedtest/`, {
+    method: "POST",
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`SGP CPE SpeedTest ${res.status}: ${txt}`);
+  }
+  const data = await res.json().catch(() => ({}));
+  return { ok: true, message: (data as Record<string, string>)?.message, result: data };
+}
+
+/** Reboot da ONT via Gerenciador CPE do SGP */
+export async function sgpCpeReboot(
+  cfg: SgpConfig,
+  servicoId: number
+): Promise<{ ok: boolean; message?: string }> {
+  const res = await sgpFetch(cfg, `/api/cpemanager/servico/${servicoId}/command/reboot/`, {
+    method: "POST",
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`SGP CPE Reboot ${res.status}: ${txt}`);
+  }
+  const data = await res.json().catch(() => ({}));
+  return { ok: true, message: (data as Record<string, string>)?.message ?? "Reboot enviado com sucesso" };
+}
+
+/** Detalhes da ONT via Gerenciador CPE do SGP */
+export async function sgpCpeGetDetails(
+  cfg: SgpConfig,
+  servicoId: number
+): Promise<unknown> {
+  const res = await sgpFetch(cfg, `/api/cpemanager/servico/${servicoId}/infodetail`, {
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`SGP CPE Details ${res.status}: ${txt}`);
+  }
+  return res.json().catch(() => ({}));
+}
+
 /** Testar conectividade com o SGP */
 export async function sgpTestConnection(cfg: SgpConfig): Promise<boolean> {
   try {

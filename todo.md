@@ -1314,3 +1314,21 @@
 - [ ] Mapa: botão Exportar Fusões PDF igual ao Imprimir Mapa na tela de detalhes
 - [ ] Mapa: botão para mover elementos CEO/CTO no mapa (drag mode)
 - [ ] Mapa: cor da via da fibra junto ao número de via
+
+## SGP CPE Manager — Integração v5.77
+- [x] Adicionar campo servicoId ao retorno de getOnuFromSgp no genieacsRouter.ts
+- [x] Adicionar mutations SGP CPE Manager no CpeManager.tsx (mkSgpMut helper)
+- [x] Secção "Gerenciador CPE SGP" na aba Config com botões de acção
+- [x] Botão PPPoE: configura PPPoE automaticamente do contrato SGP
+- [x] Botão Wi-Fi: define SSID/senha na ONT via SGP
+- [x] Botão Sync WAN: sincroniza WAN com dados do SGP
+- [x] Botão Import Wi-Fi: importa Wi-Fi da ONT para o SGP
+- [x] Botão Ping: diagnóstico de ping via SGP
+- [x] Botão Speed Test: teste de velocidade via SGP
+- [x] Botão Reboot via SGP: reinicia a ONT pelo SGP
+- [x] Mostrar ID do serviço SGP (Serviço #N) quando disponível
+- [x] Aviso quando ONU não tem servicoId vinculado
+- [x] Feedback visual de resultado (sucesso/erro) após cada acção
+- [x] Script de atualização v4 (update_fiberdoc_v4.sh) para sistema PM2
+- [x] Script de atualização v5.77 (update-fiberdoc-v5.77.sh) para sistema systemd
+- [x] Pacote de deploy v5.77 (fiberdoc-v5.77.tar.gz) com artefactos compilados

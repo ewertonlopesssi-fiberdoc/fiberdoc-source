@@ -655,6 +655,7 @@ export const genieacsRouter = router({
           found: true,
           data: {
             id: onu.id,
+            servicoId: onu.servico || null,
             pppoeLogin: onu.onu_login || null,
             hasPppoePassword: !!(onu.onu_password),
             wifiSsid: onu.wifi_ssid || null,
@@ -670,6 +671,88 @@ export const genieacsRouter = router({
       } catch (err: any) {
         return { found: false, data: null, message: err.message };
       }
+    }),
+
+  // ─── Gerenciador CPE do SGP (envia comandos para a ONT via SGP → GenieACS) ───
+
+  /** Configurar PPPoE na ONT via Gerenciador CPE do SGP */
+  sgpCpePppoe: protectedProcedure
+    .input(z.object({ servicoId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getSgpConfig: getCfg, sgpCpeConfigurePppoe } = await import("./sgpApi");
+      const cfg = await getCfg();
+      if (!cfg) throw new Error("SGP não configurado");
+      return sgpCpeConfigurePppoe(cfg, input.servicoId);
+    }),
+
+  /** Definir Wi-Fi na ONT via Gerenciador CPE do SGP */
+  sgpCpeWifi: protectedProcedure
+    .input(z.object({ servicoId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getSgpConfig: getCfg, sgpCpeSetWifi } = await import("./sgpApi");
+      const cfg = await getCfg();
+      if (!cfg) throw new Error("SGP não configurado");
+      return sgpCpeSetWifi(cfg, input.servicoId);
+    }),
+
+  /** Importar Wi-Fi da ONT para o SGP */
+  sgpCpeImportWifi: protectedProcedure
+    .input(z.object({ servicoId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getSgpConfig: getCfg, sgpCpeImportWifi } = await import("./sgpApi");
+      const cfg = await getCfg();
+      if (!cfg) throw new Error("SGP não configurado");
+      return sgpCpeImportWifi(cfg, input.servicoId);
+    }),
+
+  /** Sincronizar WAN da ONT via Gerenciador CPE do SGP */
+  sgpCpeSyncWan: protectedProcedure
+    .input(z.object({ servicoId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getSgpConfig: getCfg, sgpCpeSyncWan } = await import("./sgpApi");
+      const cfg = await getCfg();
+      if (!cfg) throw new Error("SGP não configurado");
+      return sgpCpeSyncWan(cfg, input.servicoId);
+    }),
+
+  /** Ping via Gerenciador CPE do SGP */
+  sgpCpePing: protectedProcedure
+    .input(z.object({ servicoId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getSgpConfig: getCfg, sgpCpePing } = await import("./sgpApi");
+      const cfg = await getCfg();
+      if (!cfg) throw new Error("SGP não configurado");
+      return sgpCpePing(cfg, input.servicoId);
+    }),
+
+  /** SpeedTest via Gerenciador CPE do SGP */
+  sgpCpeSpeedTest: protectedProcedure
+    .input(z.object({ servicoId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getSgpConfig: getCfg, sgpCpeSpeedTest } = await import("./sgpApi");
+      const cfg = await getCfg();
+      if (!cfg) throw new Error("SGP não configurado");
+      return sgpCpeSpeedTest(cfg, input.servicoId);
+    }),
+
+  /** Reboot da ONT via Gerenciador CPE do SGP */
+  sgpCpeReboot: protectedProcedure
+    .input(z.object({ servicoId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getSgpConfig: getCfg, sgpCpeReboot } = await import("./sgpApi");
+      const cfg = await getCfg();
+      if (!cfg) throw new Error("SGP não configurado");
+      return sgpCpeReboot(cfg, input.servicoId);
+    }),
+
+  /** Detalhes da ONT via Gerenciador CPE do SGP */
+  sgpCpeDetails: protectedProcedure
+    .input(z.object({ servicoId: z.number() }))
+    .query(async ({ input }) => {
+      const { getSgpConfig: getCfg, sgpCpeGetDetails } = await import("./sgpApi");
+      const cfg = await getCfg();
+      if (!cfg) throw new Error("SGP não configurado");
+      return sgpCpeGetDetails(cfg, input.servicoId);
     }),
 
   // Forçar actualização de parâmetros (refresh)

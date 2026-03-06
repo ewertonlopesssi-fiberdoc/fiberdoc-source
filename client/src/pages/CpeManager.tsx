@@ -12,7 +12,7 @@ import {
   Cpu, Wifi, RefreshCw, Power, Settings, Search,
   Signal, Activity, AlertTriangle, CheckCircle, XCircle,
   Router, Eye, EyeOff, Save, TestTube, Info,
-  ChevronRight, Zap, User, Lock, Globe,
+  ChevronRight, Zap, User, Lock, Globe, Gauge, Download, RotateCcw, Plug,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -199,6 +199,8 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
   const [useGenieacs, setUseGenieacs] = useState(true);
   const [configResult, setConfigResult] = useState<{ success: boolean; results: string[]; errors: string[] } | null>(null);
   const [sgpFilled, setSgpFilled] = useState(false);
+  // SGP CPE Manager
+  const [sgpCpeResult, setSgpCpeResult] = useState<{ action: string; success: boolean; message: string } | null>(null);
 
   const { data: device, isLoading, refetch } = trpc.genieacs.getDevice.useQuery(
     { deviceId },
@@ -257,6 +259,30 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
     },
     onError: (e: any) => toast.error(e.message),
   });
+
+  // ─── Mutations SGP CPE Manager ───
+  const mkSgpMut = (action: string) => (trpc as any).genieacs[action].useMutation({
+    onSuccess: (r: any) => {
+      const ok = r?.ok !== false && r?.success !== false;
+      const msg = r?.message || r?.status || (typeof r === "string" ? r : JSON.stringify(r));
+      setSgpCpeResult({ action, success: ok, message: msg });
+      if (ok) toast.success(`SGP CPE: ${msg || "Comando enviado"}`);
+      else toast.error(`SGP CPE: ${msg || "Erro"}`);
+    },
+    onError: (e: any) => {
+      setSgpCpeResult({ action, success: false, message: e.message });
+      toast.error(`SGP CPE: ${e.message}`);
+    },
+  });
+  const sgpCpePppoeMut = mkSgpMut("sgpCpePppoe");
+  const sgpCpeWifiMut = mkSgpMut("sgpCpeWifi");
+  const sgpCpeImportWifiMut = mkSgpMut("sgpCpeImportWifi");
+  const sgpCpeSyncWanMut = mkSgpMut("sgpCpeSyncWan");
+  const sgpCpePingMut = mkSgpMut("sgpCpePing");
+  const sgpCpeSpeedTestMut = mkSgpMut("sgpCpeSpeedTest");
+  const sgpCpeRebootMut = mkSgpMut("sgpCpeReboot");
+
+  const sgpServiceId: number | null = (sgpData as any)?.data?.servicoId ?? null;
 
   if (isLoading) {
     return (
@@ -532,6 +558,113 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
             <Zap className="w-4 h-4 mr-2" />
             {configureOntMut.isPending ? "Configurando..." : "Configurar ONT"}
           </Button>
+
+          {/* ─── Gerenciador CPE SGP ─── */}
+          <div className="border border-purple-500/30 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
+                <Plug className="w-3.5 h-3.5" /> Gerenciador CPE SGP
+              </div>
+              {sgpServiceId ? (
+                <span className="text-xs text-purple-400 font-mono">Serviço #{sgpServiceId}</span>
+              ) : (
+                <span className="text-xs text-slate-500">ID não encontrado</span>
+              )}
+            </div>
+
+            {!sgpServiceId && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded p-2 flex gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-300">
+                  ONU sem serviço SGP vinculado. Verifique o campo <span className="font-mono">servico</span> na ONU do SGP.
+                </p>
+              </div>
+            )}
+
+            {/* Resultado SGP CPE */}
+            {sgpCpeResult && (
+              <div className={`rounded p-2 text-xs flex items-start gap-1.5 ${
+                sgpCpeResult.success
+                  ? "bg-green-500/10 border border-green-500/20 text-green-300"
+                  : "bg-red-500/10 border border-red-500/20 text-red-300"
+              }`}>
+                {sgpCpeResult.success
+                  ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  : <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                <span>{sgpCpeResult.message}</span>
+              </div>
+            )}
+
+            {/* Botões de acção */}
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpePppoeMut.mutate({ servicoId: sgpServiceId }); }}
+                disabled={!sgpServiceId || sgpCpePppoeMut.isPending}
+                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Globe className="w-3 h-3" />
+                {sgpCpePppoeMut.isPending ? "..." : "PPPoE"}
+              </button>
+
+              <button
+                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpeWifiMut.mutate({ servicoId: sgpServiceId }); }}
+                disabled={!sgpServiceId || sgpCpeWifiMut.isPending}
+                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Wifi className="w-3 h-3" />
+                {sgpCpeWifiMut.isPending ? "..." : "Wi-Fi"}
+              </button>
+
+              <button
+                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpeSyncWanMut.mutate({ servicoId: sgpServiceId }); }}
+                disabled={!sgpServiceId || sgpCpeSyncWanMut.isPending}
+                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className="w-3 h-3" />
+                {sgpCpeSyncWanMut.isPending ? "..." : "Sync WAN"}
+              </button>
+
+              <button
+                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpeImportWifiMut.mutate({ servicoId: sgpServiceId }); }}
+                disabled={!sgpServiceId || sgpCpeImportWifiMut.isPending}
+                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Download className="w-3 h-3" />
+                {sgpCpeImportWifiMut.isPending ? "..." : "Import Wi-Fi"}
+              </button>
+
+              <button
+                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpePingMut.mutate({ servicoId: sgpServiceId }); }}
+                disabled={!sgpServiceId || sgpCpePingMut.isPending}
+                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Activity className="w-3 h-3" />
+                {sgpCpePingMut.isPending ? "..." : "Ping"}
+              </button>
+
+              <button
+                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpeSpeedTestMut.mutate({ servicoId: sgpServiceId }); }}
+                disabled={!sgpServiceId || sgpCpeSpeedTestMut.isPending}
+                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Gauge className="w-3 h-3" />
+                {sgpCpeSpeedTestMut.isPending ? "..." : "Speed Test"}
+              </button>
+
+              <button
+                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpeRebootMut.mutate({ servicoId: sgpServiceId }); }}
+                disabled={!sgpServiceId || sgpCpeRebootMut.isPending}
+                className="col-span-2 flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-amber-700/30 border-amber-600/40 text-amber-200 hover:bg-amber-700/60 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <RotateCcw className="w-3 h-3" />
+                {sgpCpeRebootMut.isPending ? "Reiniciando..." : "Reboot via SGP"}
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 text-center">
+              Comandos enviados via SGP → GenieACS → ONT
+            </p>
+          </div>
         </TabsContent>
 
         {/* Aba Wi-Fi */}
