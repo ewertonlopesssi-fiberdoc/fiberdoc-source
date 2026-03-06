@@ -36,7 +36,7 @@ function cleanOutput(raw: string): string {
     .replace(/\x08+/g, "")                              // backspace
     .replace(/\r\n/g, "\n")                             // CRLF → LF
     .replace(/\r/g, "\n")                               // CR → LF
-    .replace(/[ \t]+$/gm, "")                           // trailing spaces
+    // NÃO remover trailing spaces — o VRP usa espaços para alinhar colunas
     .replace(/\n{3,}/g, "\n\n");                        // múltiplas linhas vazias
 }
 
@@ -95,7 +95,7 @@ export function executeSSH(
     conn.on("ready", () => {
       const deviceType = config.deviceType || "generic";
 
-      conn.shell({ term: "dumb", cols: 200, rows: 50 }, (err, stream) => {
+      conn.shell({ term: "dumb", cols: 512, rows: 50 }, (err, stream) => {
         if (err) {
           clearTimeout(globalTimeout);
           finish(false, err.message);

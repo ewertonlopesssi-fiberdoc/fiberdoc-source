@@ -1309,3 +1309,4 @@
 - [x] Frontend: secção 'Comandos deste Dispositivo'' na aba Comandos Rápidos (acima dos globais)
 - [x] CRUD de comandos por dispositivo (botão Novo Comando do Dispositivo, editar, excluir)
 - [x] Corrigir espaçamento de colunas no terminal SSH (preservar linhas em branco + fonte monospace fixa)
+- [x] Corrigir cleanOutput: preservar espaços internos das colunas VRP (remover trim trailing spaces) + cols 512
