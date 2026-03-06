@@ -21,6 +21,30 @@ export interface SgpCto {
   lng?: string | null;
 }
 
+export interface SgpOnuDetail {
+  id: number;
+  onu: number;
+  slot: number;
+  pon: number;
+  olt_id: number;
+  olt_name?: string;
+  serial?: string | null;
+  onu_login?: string | null;
+  onu_password?: string | null;
+  login?: string | null;
+  contrato?: number | null;
+  servico?: number | null;
+  status?: number | null;
+  vlan?: string | null;
+  address?: string | null;
+  signal?: string | null;
+  connection?: string | null;
+  wifi_ssid?: string | null;
+  wifi_password?: string | null;
+  wifi_ssid5?: string | null;
+  wifi_password5?: string | null;
+}
+
 export interface SgpOnu {
   id: number;
   onu: number;
@@ -213,6 +237,89 @@ export async function sgpSearchClients(
   }
   const data = await res.json();
   return Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+}
+
+/** Buscar ONU pelo serial */
+export async function sgpGetOnuBySerial(
+  cfg: SgpConfig,
+  serial: string
+): Promise<SgpOnuDetail | null> {
+  // Tenta buscar diretamente pelo serial como identificador
+  const res = await sgpFetch(cfg, `/api/fttx/onu/${encodeURIComponent(serial)}/`);
+  if (res.ok) {
+    const data = await res.json();
+    if (data && data.id) return data as SgpOnuDetail;
+  }
+  // Fallback: busca na lista de ONUs de todas as OLTs
+  try {
+    const res2 = await sgpFetch(cfg, `/api/fttx/onu/?serial=${encodeURIComponent(serial)}`);
+    if (res2.ok) {
+      const data2 = await res2.json();
+      const list = Array.isArray(data2) ? data2 : (data2.results ?? data2.data ?? []);
+      if (list.length > 0) return list[0] as SgpOnuDetail;
+    }
+  } catch { /* ignora */ }
+  return null;
+}
+
+/** Buscar detalhes completos de uma ONU pelo ID */
+export async function sgpGetOnuDetail(
+  cfg: SgpConfig,
+  onuId: number
+): Promise<SgpOnuDetail | null> {
+  const res = await sgpFetch(cfg, `/api/fttx/onu/${onuId}/`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data as SgpOnuDetail;
+}
+
+/** Configurar PPPoE (WAN) de uma ONU via SGP */
+export async function sgpConfigureOnuWan(
+  cfg: SgpConfig,
+  onuId: number,
+  params: { onu_login: string; onu_password: string }
+): Promise<unknown> {
+  const body = new FormData();
+  body.append("onu_update", "wan");
+  body.append("onu_login", params.onu_login);
+  body.append("onu_password", params.onu_password);
+  const res = await sgpFetch(cfg, `/api/fttx/onu/${onuId}/edit/`, {
+    method: "POST",
+    body,
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`SGP configureOnuWan: ${res.status} ${txt}`);
+  }
+  return res.json().catch(() => ({}));
+}
+
+/** Configurar Wi-Fi de uma ONU via SGP */
+export async function sgpConfigureOnuWifi(
+  cfg: SgpConfig,
+  onuId: number,
+  params: {
+    wifi_ssid?: string;
+    wifi_password?: string;
+    wifi_ssid5?: string;
+    wifi_password5?: string;
+  }
+): Promise<unknown> {
+  const body = new FormData();
+  body.append("onu_update", "wifi");
+  if (params.wifi_ssid) body.append("wifi_ssid", params.wifi_ssid);
+  if (params.wifi_password) body.append("wifi_password", params.wifi_password);
+  if (params.wifi_ssid5) body.append("wifi_ssid5", params.wifi_ssid5);
+  if (params.wifi_password5) body.append("wifi_password5", params.wifi_password5);
+  const res = await sgpFetch(cfg, `/api/fttx/onu/${onuId}/edit/`, {
+    method: "POST",
+    body,
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`SGP configureOnuWifi: ${res.status} ${txt}`);
+  }
+  return res.json().catch(() => ({}));
 }
 
 /** Testar conectividade com o SGP */

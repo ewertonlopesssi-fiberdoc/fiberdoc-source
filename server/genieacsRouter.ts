@@ -3,6 +3,13 @@ import { router, protectedProcedure } from "./_core/trpc";
 import { getDb } from "./db";
 import { systemSettings } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
+import {
+  getSgpConfig,
+  sgpGetOnuBySerial,
+  sgpGetOnuDetail,
+  sgpConfigureOnuWan,
+  sgpConfigureOnuWifi,
+} from "./sgpApi";
 
 // ─── GenieACS API Helper ──────────────────────────────────────────────────────
 
@@ -444,6 +451,224 @@ export const genieacsRouter = router({
           host: input.host,
           message: "Diagnóstico iniciado — aguarde o próximo inform da ONT para ver resultados",
         };
+      }
+    }),
+
+  // Configurar ONT automaticamente via SGP (PPPoE + Wi-Fi)
+  configureOnt: protectedProcedure
+    .input(z.object({
+      deviceId: z.string(),           // ID do dispositivo no GenieACS (serial)
+      sgpOnuId: z.number().optional(), // ID da ONU no SGP (se já conhecido)
+      serial: z.string().optional(),   // Serial da ONU para busca no SGP
+      // Campos manuais (sobrepõem os do SGP)
+      pppoeLogin: z.string().optional(),
+      pppoePassword: z.string().optional(),
+      wifiSsid: z.string().optional(),
+      wifiPassword: z.string().optional(),
+      wifiSsid5: z.string().optional(),
+      wifiPassword5: z.string().optional(),
+      // Opções de configuração
+      configurePppoe: z.boolean().default(true),
+      configureWifi: z.boolean().default(true),
+      useGenieacs: z.boolean().default(true),  // true = via TR-069, false = via SGP API
+    }))
+    .mutation(async ({ input }) => {
+      const results: string[] = [];
+      const errors: string[] = [];
+
+      // ─── 1. Buscar dados da ONU no SGP ───────────────────────────────────
+      let sgpOnu: Awaited<ReturnType<typeof sgpGetOnuDetail>> = null;
+      let pppoeLogin = input.pppoeLogin || "";
+      let pppoePassword = input.pppoePassword || "";
+      let wifiSsid = input.wifiSsid || "";
+      let wifiPassword = input.wifiPassword || "";
+      let wifiSsid5 = input.wifiSsid5 || "";
+      let wifiPassword5 = input.wifiPassword5 || "";
+
+      try {
+        const sgpCfg = await getSgpConfig();
+        if (sgpCfg) {
+          // Buscar ONU pelo ID ou serial
+          if (input.sgpOnuId) {
+            sgpOnu = await sgpGetOnuDetail(sgpCfg, input.sgpOnuId);
+          } else {
+            // Extrair serial do deviceId GenieACS (formato: OUI-ProductClass-SerialNumber)
+            const serial = input.serial || input.deviceId.split("-").slice(2).join("-") || input.deviceId;
+            sgpOnu = await sgpGetOnuBySerial(sgpCfg, serial);
+          }
+
+          if (sgpOnu) {
+            // Preencher campos do SGP se não fornecidos manualmente
+            if (!pppoeLogin && sgpOnu.onu_login) pppoeLogin = sgpOnu.onu_login;
+            if (!pppoePassword && sgpOnu.onu_password) pppoePassword = sgpOnu.onu_password;
+            if (!wifiSsid && sgpOnu.wifi_ssid) wifiSsid = sgpOnu.wifi_ssid;
+            if (!wifiPassword && sgpOnu.wifi_password) wifiPassword = sgpOnu.wifi_password;
+            if (!wifiSsid5 && sgpOnu.wifi_ssid5) wifiSsid5 = sgpOnu.wifi_ssid5;
+            if (!wifiPassword5 && sgpOnu.wifi_password5) wifiPassword5 = sgpOnu.wifi_password5;
+            results.push(`ONU encontrada no SGP: ID ${sgpOnu.id} (${sgpOnu.onu_login || "sem login"})`);
+          } else {
+            results.push("ONU não encontrada no SGP — usando parâmetros manuais");
+          }
+        } else {
+          results.push("SGP não configurado — usando parâmetros manuais");
+        }
+      } catch (err: any) {
+        errors.push(`Erro ao consultar SGP: ${err.message}`);
+      }
+
+      // ─── 2. Configurar PPPoE ──────────────────────────────────────────────
+      if (input.configurePppoe && pppoeLogin) {
+        if (input.useGenieacs) {
+          // Via TR-069 (GenieACS) — caminhos para TP-Link, Intelbras e VSOL
+          try {
+            const encoded = encodeURIComponent(input.deviceId);
+            const parameterValues: Array<[string, string, string]> = [];
+
+            // Caminhos PPPoE — compatíveis com TP-Link, Intelbras e VSOL
+            const pppoeBasePaths = [
+              "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANPPPConnection.1",
+            ];
+
+            for (const base of pppoeBasePaths) {
+              parameterValues.push([`${base}.Username`, pppoeLogin, "xsd:string"]);
+              if (pppoePassword) {
+                parameterValues.push([`${base}.Password`, pppoePassword, "xsd:string"]);
+              }
+              parameterValues.push([`${base}.Enable`, "true", "xsd:boolean"]);
+              parameterValues.push([`${base}.ConnectionType`, "IP_Routed", "xsd:string"]);
+            }
+
+            await genieRequest(
+              `/devices/${encoded}/tasks?connection_request`,
+              "POST",
+              { name: "setParameterValues", parameterValues }
+            );
+            results.push(`PPPoE configurado via TR-069: ${pppoeLogin}`);
+          } catch (err: any) {
+            errors.push(`Erro ao configurar PPPoE via GenieACS: ${err.message}`);
+          }
+        } else if (sgpOnu) {
+          // Via API do SGP
+          try {
+            const sgpCfg = await getSgpConfig();
+            if (sgpCfg) {
+              await sgpConfigureOnuWan(sgpCfg, sgpOnu.id, {
+                onu_login: pppoeLogin,
+                onu_password: pppoePassword,
+              });
+              results.push(`PPPoE configurado via SGP: ${pppoeLogin}`);
+            }
+          } catch (err: any) {
+            errors.push(`Erro ao configurar PPPoE via SGP: ${err.message}`);
+          }
+        }
+      } else if (input.configurePppoe && !pppoeLogin) {
+        errors.push("Login PPPoE não disponível — verifique o cadastro no SGP");
+      }
+
+      // ─── 3. Configurar Wi-Fi ─────────────────────────────────────────────
+      if (input.configureWifi && (wifiSsid || wifiPassword)) {
+        if (input.useGenieacs) {
+          // Via TR-069 (GenieACS)
+          try {
+            const parameterValues: Array<[string, string, string]> = [];
+            const encoded = encodeURIComponent(input.deviceId);
+
+            // 2.4GHz
+            if (wifiSsid) {
+              parameterValues.push(["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID", wifiSsid, "xsd:string"]);
+            }
+            if (wifiPassword) {
+              parameterValues.push(["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey.1.PreSharedKey", wifiPassword, "xsd:string"]);
+              parameterValues.push(["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase", wifiPassword, "xsd:string"]);
+            }
+            // 5GHz
+            if (wifiSsid5) {
+              parameterValues.push(["InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID", wifiSsid5, "xsd:string"]);
+            }
+            if (wifiPassword5) {
+              parameterValues.push(["InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey.1.PreSharedKey", wifiPassword5, "xsd:string"]);
+              parameterValues.push(["InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase", wifiPassword5, "xsd:string"]);
+            }
+
+            if (parameterValues.length > 0) {
+              await genieRequest(
+                `/devices/${encodeURIComponent(input.deviceId)}/tasks?connection_request`,
+                "POST",
+                { name: "setParameterValues", parameterValues }
+              );
+              results.push(`Wi-Fi configurado via TR-069: ${wifiSsid || "(sem SSID)"}`);
+            }
+          } catch (err: any) {
+            errors.push(`Erro ao configurar Wi-Fi via GenieACS: ${err.message}`);
+          }
+        } else if (sgpOnu) {
+          // Via API do SGP
+          try {
+            const sgpCfg = await getSgpConfig();
+            if (sgpCfg) {
+              await sgpConfigureOnuWifi(sgpCfg, sgpOnu.id, {
+                wifi_ssid: wifiSsid || undefined,
+                wifi_password: wifiPassword || undefined,
+                wifi_ssid5: wifiSsid5 || undefined,
+                wifi_password5: wifiPassword5 || undefined,
+              });
+              results.push(`Wi-Fi configurado via SGP: ${wifiSsid || "(sem SSID)"}`);
+            }
+          } catch (err: any) {
+            errors.push(`Erro ao configurar Wi-Fi via SGP: ${err.message}`);
+          }
+        }
+      }
+
+      return {
+        success: errors.length === 0,
+        results,
+        errors,
+        sgpData: sgpOnu ? {
+          id: sgpOnu.id,
+          pppoeLogin: sgpOnu.onu_login || null,
+          hasPppoePassword: !!(sgpOnu.onu_password),
+          wifiSsid: sgpOnu.wifi_ssid || null,
+          wifiSsid5: sgpOnu.wifi_ssid5 || null,
+        } : null,
+      };
+    }),
+
+  // Buscar dados da ONU no SGP pelo serial/deviceId
+  getOnuFromSgp: protectedProcedure
+    .input(z.object({
+      deviceId: z.string(),
+      serial: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const sgpCfg = await getSgpConfig();
+        if (!sgpCfg) return { found: false, data: null, message: "SGP não configurado" };
+
+        const serial = input.serial || input.deviceId.split("-").slice(2).join("-") || input.deviceId;
+        const onu = await sgpGetOnuBySerial(sgpCfg, serial);
+
+        if (!onu) return { found: false, data: null, message: "ONU não encontrada no SGP" };
+
+        return {
+          found: true,
+          data: {
+            id: onu.id,
+            pppoeLogin: onu.onu_login || null,
+            hasPppoePassword: !!(onu.onu_password),
+            wifiSsid: onu.wifi_ssid || null,
+            wifiSsid5: onu.wifi_ssid5 || null,
+            address: onu.address || null,
+            vlan: onu.vlan || null,
+            olt: onu.olt_name || null,
+            slot: onu.slot,
+            pon: onu.pon,
+          },
+          message: "ONU encontrada",
+        };
+      } catch (err: any) {
+        return { found: false, data: null, message: err.message };
       }
     }),
 

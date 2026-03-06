@@ -12,7 +12,7 @@ import {
   Cpu, Wifi, RefreshCw, Power, Settings, Search,
   Signal, Activity, AlertTriangle, CheckCircle, XCircle,
   Router, Eye, EyeOff, Save, TestTube, Info,
-  ChevronRight,
+  ChevronRight, Zap, User, Lock, Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -184,6 +184,21 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
   const [showWifiPass, setShowWifiPass] = useState(false);
   const [showRebootConfirm, setShowRebootConfirm] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  // Configuração automática SGP
+  const [pppoeLogin, setPppoeLogin] = useState("");
+  const [pppoePassword, setPppoePassword] = useState("");
+  const [showPppoePass, setShowPppoePass] = useState(false);
+  const [wifiSsid2, setWifiSsid2] = useState("");
+  const [wifiPassword2, setWifiPassword2] = useState("");
+  const [wifiSsid5, setWifiSsid5] = useState("");
+  const [wifiPassword5, setWifiPassword5] = useState("");
+  const [showWifiPass2, setShowWifiPass2] = useState(false);
+  const [showWifiPass5, setShowWifiPass5] = useState(false);
+  const [configurePppoe, setConfigurePppoe] = useState(true);
+  const [configureWifi, setConfigureWifi] = useState(true);
+  const [useGenieacs, setUseGenieacs] = useState(true);
+  const [configResult, setConfigResult] = useState<{ success: boolean; results: string[]; errors: string[] } | null>(null);
+  const [sgpFilled, setSgpFilled] = useState(false);
 
   const { data: device, isLoading, refetch } = trpc.genieacs.getDevice.useQuery(
     { deviceId },
@@ -213,6 +228,34 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
   const refresh = trpc.genieacs.refreshDevice.useMutation({
     onSuccess: () => { toast.success("Actualização solicitada"); setTimeout(() => refetch(), 5000); },
     onError: (e) => toast.error(e.message),
+  });
+
+  // Buscar dados SGP
+  const { data: sgpData, isLoading: sgpLoading } = (trpc as any).genieacs.getOnuFromSgp.useQuery(
+    { deviceId },
+    { retry: false, refetchOnWindowFocus: false,
+      onSuccess: (d: any) => {
+        if (d?.found && d?.data && !sgpFilled) {
+          setSgpFilled(true);
+          if (d.data.pppoeLogin) setPppoeLogin(d.data.pppoeLogin);
+          if (d.data.wifiSsid) setWifiSsid2(d.data.wifiSsid);
+          if (d.data.wifiSsid5) setWifiSsid5(d.data.wifiSsid5);
+        }
+      }
+    }
+  );
+
+  const configureOntMut = (trpc as any).genieacs.configureOnt.useMutation({
+    onSuccess: (r: any) => {
+      setConfigResult(r);
+      if (r.success) {
+        toast.success(`ONT configurada! (${r.results.length} acções)`);
+      } else {
+        toast.error(`Configuração parcial: ${r.errors.join("; ")}`);
+      }
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
   });
 
   if (isLoading) {
@@ -257,6 +300,9 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="bg-slate-700/50 w-full">
           <TabsTrigger value="info" className="flex-1 text-xs">Info</TabsTrigger>
+          <TabsTrigger value="configure" className="flex-1 text-xs flex items-center gap-1">
+            <Zap className="w-3 h-3" />Config
+          </TabsTrigger>
           <TabsTrigger value="wifi" className="flex-1 text-xs">Wi-Fi</TabsTrigger>
           <TabsTrigger value="ping" className="flex-1 text-xs">Ping</TabsTrigger>
           <TabsTrigger value="actions" className="flex-1 text-xs">Acções</TabsTrigger>
@@ -314,6 +360,178 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
               </div>
             </div>
           )}
+        </TabsContent>
+
+        {/* Aba Configuração Automática */}
+        <TabsContent value="configure" className="space-y-3 mt-3">
+          {/* Banner SGP */}
+          {sgpLoading ? (
+            <div className="bg-slate-700/30 rounded-lg p-3 flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 text-slate-400 animate-spin" />
+              <span className="text-xs text-slate-400">Buscando dados no SGP...</span>
+            </div>
+          ) : (sgpData as any)?.found ? (
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 flex gap-2">
+              <CheckCircle className="w-4 h-4 text-green-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-green-300 space-y-0.5">
+                <p className="font-medium">ONU encontrada no SGP</p>
+                {(sgpData as any).data?.pppoeLogin && <p>Login PPPoE: <span className="font-mono">{(sgpData as any).data.pppoeLogin}</span></p>}
+                {(sgpData as any).data?.address && <p>Endereço: {(sgpData as any).data.address}</p>}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-300">
+                <p className="font-medium">ONU não encontrada no SGP</p>
+                <p>Preencha os campos manualmente</p>
+              </div>
+            </div>
+          )}
+
+          {/* Toggle de opções */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfigurePppoe(!configurePppoe)}
+              className={`flex-1 py-1.5 rounded text-xs font-medium border transition-colors flex items-center justify-center gap-1 ${
+                configurePppoe ? "bg-blue-600 border-blue-500 text-white" : "bg-slate-700 border-slate-600 text-slate-400"
+              }`}
+            >
+              <Globe className="w-3 h-3" /> PPPoE
+            </button>
+            <button
+              onClick={() => setConfigureWifi(!configureWifi)}
+              className={`flex-1 py-1.5 rounded text-xs font-medium border transition-colors flex items-center justify-center gap-1 ${
+                configureWifi ? "bg-blue-600 border-blue-500 text-white" : "bg-slate-700 border-slate-600 text-slate-400"
+              }`}
+            >
+              <Wifi className="w-3 h-3" /> Wi-Fi
+            </button>
+            <button
+              onClick={() => setUseGenieacs(!useGenieacs)}
+              title={useGenieacs ? "Via TR-069 (GenieACS)" : "Via API SGP"}
+              className={`flex-1 py-1.5 rounded text-xs font-medium border transition-colors ${
+                useGenieacs ? "bg-emerald-700 border-emerald-600 text-white" : "bg-purple-700 border-purple-600 text-white"
+              }`}
+            >
+              {useGenieacs ? "TR-069" : "SGP API"}
+            </button>
+          </div>
+
+          {/* Campos PPPoE */}
+          {configurePppoe && (
+            <div className="space-y-2 border border-slate-700/50 rounded-lg p-3">
+              <div className="flex items-center gap-1 text-xs font-medium text-slate-300 mb-2">
+                <Globe className="w-3 h-3 text-blue-400" /> PPPoE WAN
+              </div>
+              <div>
+                <Label className="text-slate-400 text-xs">Login PPPoE</Label>
+                <div className="relative mt-1">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                  <Input
+                    value={pppoeLogin}
+                    onChange={e => setPppoeLogin(e.target.value)}
+                    placeholder="usuario@provedor.com.br"
+                    className="pl-8 bg-slate-700 border-slate-600 text-white text-sm h-8"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-slate-400 text-xs">Senha PPPoE</Label>
+                <div className="relative mt-1">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                  <Input
+                    type={showPppoePass ? "text" : "password"}
+                    value={pppoePassword}
+                    onChange={e => setPppoePassword(e.target.value)}
+                    placeholder="Senha PPPoE"
+                    className="pl-8 pr-8 bg-slate-700 border-slate-600 text-white text-sm h-8"
+                  />
+                  <button onClick={() => setShowPppoePass(!showPppoePass)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400">
+                    {showPppoePass ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Campos Wi-Fi */}
+          {configureWifi && (
+            <div className="space-y-2 border border-slate-700/50 rounded-lg p-3">
+              <div className="flex items-center gap-1 text-xs font-medium text-slate-300 mb-2">
+                <Wifi className="w-3 h-3 text-emerald-400" /> Wi-Fi
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-slate-400 text-xs">SSID 2.4GHz</Label>
+                  <Input value={wifiSsid2} onChange={e => setWifiSsid2(e.target.value)} placeholder="Nome da rede" className="mt-1 bg-slate-700 border-slate-600 text-white text-sm h-8" />
+                </div>
+                <div>
+                  <Label className="text-slate-400 text-xs">Senha 2.4GHz</Label>
+                  <div className="relative mt-1">
+                    <Input type={showWifiPass2 ? "text" : "password"} value={wifiPassword2} onChange={e => setWifiPassword2(e.target.value)} placeholder="Senha Wi-Fi" className="pr-7 bg-slate-700 border-slate-600 text-white text-sm h-8" />
+                    <button onClick={() => setShowWifiPass2(!showWifiPass2)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400">
+                      {showWifiPass2 ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-slate-400 text-xs">SSID 5GHz</Label>
+                  <Input value={wifiSsid5} onChange={e => setWifiSsid5(e.target.value)} placeholder="Nome 5GHz" className="mt-1 bg-slate-700 border-slate-600 text-white text-sm h-8" />
+                </div>
+                <div>
+                  <Label className="text-slate-400 text-xs">Senha 5GHz</Label>
+                  <div className="relative mt-1">
+                    <Input type={showWifiPass5 ? "text" : "password"} value={wifiPassword5} onChange={e => setWifiPassword5(e.target.value)} placeholder="Senha 5GHz" className="pr-7 bg-slate-700 border-slate-600 text-white text-sm h-8" />
+                    <button onClick={() => setShowWifiPass5(!showWifiPass5)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400">
+                      {showWifiPass5 ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Resultado */}
+          {configResult && (
+            <div className={`rounded-lg p-3 space-y-1 text-xs ${
+              configResult.success ? "bg-green-500/10 border border-green-500/20" : "bg-amber-500/10 border border-amber-500/20"
+            }`}>
+              {configResult.results.map((r, i) => (
+                <div key={i} className="flex items-center gap-1 text-green-300">
+                  <CheckCircle className="w-3 h-3 shrink-0" /> {r}
+                </div>
+              ))}
+              {configResult.errors.map((e, i) => (
+                <div key={i} className="flex items-center gap-1 text-red-300">
+                  <XCircle className="w-3 h-3 shrink-0" /> {e}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <Button
+            onClick={() => {
+              setConfigResult(null);
+              configureOntMut.mutate({
+                deviceId,
+                pppoeLogin: pppoeLogin || undefined,
+                pppoePassword: pppoePassword || undefined,
+                wifiSsid: wifiSsid2 || undefined,
+                wifiPassword: wifiPassword2 || undefined,
+                wifiSsid5: wifiSsid5 || undefined,
+                wifiPassword5: wifiPassword5 || undefined,
+                configurePppoe,
+                configureWifi,
+                useGenieacs,
+              });
+            }}
+            disabled={configureOntMut.isPending || (!configurePppoe && !configureWifi)}
+            className="w-full bg-blue-600 hover:bg-blue-700"
+          >
+            <Zap className="w-4 h-4 mr-2" />
+            {configureOntMut.isPending ? "Configurando..." : "Configurar ONT"}
+          </Button>
         </TabsContent>
 
         {/* Aba Wi-Fi */}
