@@ -4,7 +4,7 @@ import { createMobileTrpcClient, saveOfflineCache, loadOfflineCache, isOnline } 
 import {
   Radio, ChevronRight, ChevronLeft, Search, RefreshCw, Edit2, Check,
   AlertCircle, Plus, Trash2, Link2, Link2Off, LocateFixed, Loader2, Layers, MapPin,
-  ArrowRightLeft, Map,
+  ArrowRightLeft, Map as MapIcon,
 } from "lucide-react";
 
 // ─── Cores de tubo ─────────────────────────────────────────────────────────
@@ -337,7 +337,7 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed, onGoToMap
                   className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-cyan-400 transition-colors"
                   title="Ver no Mapa"
                 >
-                  <Map className="w-3.5 h-3.5" /> Mapa
+                  <MapIcon className="w-3.5 h-3.5" /> Mapa
                 </button>
               )}
               {isOnline() && (

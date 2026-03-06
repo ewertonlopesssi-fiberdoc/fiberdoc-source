@@ -4,7 +4,7 @@ import { createMobileTrpcClient, saveOfflineCache, loadOfflineCache, isOnline } 
 import {
   Cable, ChevronRight, ChevronLeft, Search, RefreshCw, Edit2, Check,
   AlertCircle, Plus, Trash2, Link2, Link2Off, LocateFixed, Loader2, Layers,
-  Boxes, Zap, ArrowRightLeft, Map,
+  Boxes, Zap, ArrowRightLeft, Map as MapIcon,
 } from "lucide-react";
 
 // ─── Cores de tubo ─────────────────────────────────────────────────────────
@@ -462,7 +462,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                   className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-cyan-400 transition-colors"
                   title="Ver no Mapa"
                 >
-                  <Map className="w-3.5 h-3.5" /> Mapa
+                  <MapIcon className="w-3.5 h-3.5" /> Mapa
                 </button>
               )}
               {isOnline() && (
@@ -536,11 +536,17 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                   return (
                     <div key={bandeja.id} className="bg-zinc-900 border border-violet-500/20 rounded-xl overflow-hidden">
                       <button
-                        onClick={() => setExpandedBandejaIds(prev => {
-                          const s = new Set(prev);
-                          if (s.has(bandeja.id)) s.delete(bandeja.id); else s.add(bandeja.id);
-                          return s;
-                        })}
+                        onClick={() => {
+                          // Carregar allVias ao expandir pela primeira vez (necessário para fusionLabel e indicador de ocupação)
+                          if (!expandedBandejaIds.has(bandeja.id) && allVias.length === 0 && selected) {
+                            loadAllVias(selected.id);
+                          }
+                          setExpandedBandejaIds(prev => {
+                            const s = new Set(prev);
+                            if (s.has(bandeja.id)) s.delete(bandeja.id); else s.add(bandeja.id);
+                            return s;
+                          });
+                        }}
                         className="w-full flex items-center gap-3 px-4 py-3 text-left"
                       >
                         <Boxes className="w-4 h-4 text-violet-400 flex-shrink-0" />
