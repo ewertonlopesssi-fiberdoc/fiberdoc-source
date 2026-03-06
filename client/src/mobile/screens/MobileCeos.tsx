@@ -138,6 +138,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
   const [expandedTubeIds, setExpandedTubeIds] = useState<Set<number>>(new Set());
   const [tubeViasCache, setTubeViasCache] = useState<Map<number, Via[]>>(new Map());
   const [expandedSplitterIds, setExpandedSplitterIds] = useState<Set<number>>(new Set());
+  const [expandedBandejaIds, setExpandedBandejaIds] = useState<Set<number>>(new Set());
 
   // UI
   const [saving, setSaving] = useState(false);
@@ -500,19 +501,226 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
           )}
 
           {/* Bandejas */}
-          <div>
-            <button
-              onClick={() => setView("bandejas")}
-              className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 hover:bg-zinc-800/50 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Boxes className="w-4 h-4 text-violet-400" />
-                <span className="text-sm font-medium text-white">Bandejas</span>
-                <span className="text-xs bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full">{bandejas.length}</span>
+          {bandejas.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Boxes className="w-3.5 h-3.5" /> Bandejas ({bandejas.length})
+                </p>
+                {isOnline() && (
+                  <button
+                    onClick={() => setView("bandejas")}
+                    className="flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Gerir
+                  </button>
+                )}
               </div>
-              <ChevronRight className="w-4 h-4 text-zinc-600" />
-            </button>
-          </div>
+              <div className="space-y-2">
+                {bandejas.map(bandeja => {
+                  const isBandejaExpanded = expandedBandejaIds.has(bandeja.id);
+                  const bandejasTubes = tubes.filter(t => t.bandejaId === bandeja.id);
+                  const bandejasSplitters = splitters.filter(s => s.bandejaId === bandeja.id);
+                  return (
+                    <div key={bandeja.id} className="bg-zinc-900 border border-violet-500/20 rounded-xl overflow-hidden">
+                      <button
+                        onClick={() => setExpandedBandejaIds(prev => {
+                          const s = new Set(prev);
+                          if (s.has(bandeja.id)) s.delete(bandeja.id); else s.add(bandeja.id);
+                          return s;
+                        })}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                      >
+                        <Boxes className="w-4 h-4 text-violet-400 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium text-white">Bandeja {bandeja.number}{bandeja.label ? ` — ${bandeja.label}` : ""}</span>
+                          <p className="text-xs text-zinc-500">
+                            {bandejasTubes.length} tubo{bandejasTubes.length !== 1 ? "s" : ""}
+                            {bandejasSplitters.length > 0 ? ` · ${bandejasSplitters.length} splitter${bandejasSplitters.length !== 1 ? "s" : ""}` : ""}
+                          </p>
+                        </div>
+                        {isBandejaExpanded
+                          ? <ChevronRight className="w-4 h-4 text-zinc-400 flex-shrink-0 rotate-90 transition-transform" />
+                          : <ChevronRight className="w-4 h-4 text-zinc-600 flex-shrink-0 transition-transform" />}
+                      </button>
+                      {isBandejaExpanded && (
+                        <div className="border-t border-zinc-800">
+                          {/* Tubos da bandeja */}
+                          {bandejasTubes.length > 0 && (
+                            <div className="p-3 space-y-2">
+                              {bandejasTubes.map(tube => {
+                                const isExpanded = expandedTubeIds.has(tube.id);
+                                const cachedVias = tubeViasCache.get(tube.id) ?? [];
+                                const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
+                                return (
+                                  <div key={tube.id} className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl overflow-hidden">
+                                    <div className="flex items-center gap-3 px-3 py-2.5">
+                                      <button
+                                        onClick={() => toggleTubeExpand(tube)}
+                                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                                      >
+                                        <div className={`w-3.5 h-3.5 rounded-full flex-shrink-0 ${TUBE_COLORS[tube.color ?? ""] ?? "bg-zinc-500"}`} />
+                                        <div className="flex-1 min-w-0">
+                                          <span className="text-xs font-medium text-white">{tube.identifier}</span>
+                                          <p className="text-[11px] text-zinc-500">
+                                            {TUBE_COLOR_LABELS[tube.color ?? ""] ?? tube.color} · {tube.totalVias} vias
+                                            {isExpanded && cachedVias.length > 0 && (
+                                              <span className="ml-1 text-cyan-400">· {fusedInTube} fusionadas</span>
+                                            )}
+                                          </p>
+                                        </div>
+                                        {isExpanded
+                                          ? <ChevronRight className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0 rotate-90" />
+                                          : <ChevronRight className="w-3.5 h-3.5 text-zinc-600 flex-shrink-0" />}
+                                      </button>
+                                      {isOnline() && (
+                                        <button
+                                          onClick={() => { setSelectedTube(tube); loadVias(tube.id); setView("vias"); }}
+                                          className="flex-shrink-0 p-1 text-zinc-500 hover:text-cyan-400"
+                                          title="Editar tubo"
+                                        >
+                                          <Edit2 className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                    {isExpanded && (
+                                      <div className="border-t border-zinc-700/50 divide-y divide-zinc-700/30">
+                                        {cachedVias.length === 0 ? (
+                                          <p className="text-[11px] text-zinc-600 px-3 py-2 text-center">Nenhuma via neste tubo</p>
+                                        ) : cachedVias.map(via => {
+                                          const fiberColor = VIA_FIBER_COLORS[via.viaNumber];
+                                          const isFused = via.fusedToViaId != null;
+                                          const assocLbl = associationLabel(via);
+                                          return (
+                                            <div
+                                              key={via.id}
+                                              className={`flex items-center gap-2.5 px-3 py-2 ${
+                                                isFused ? "bg-cyan-500/5" : assocLbl ? "bg-emerald-500/5" : ""
+                                              }`}
+                                            >
+                                              <div className={`w-4 h-4 rounded-full flex-shrink-0 border border-white/10 flex items-center justify-center text-[8px] font-bold text-white ${fiberColor?.dot ?? "bg-zinc-700"}`}>
+                                                {via.viaNumber}
+                                              </div>
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[11px] font-medium text-zinc-200">Via {via.viaNumber}</span>
+                                                  {via.label && <span className="text-[10px] text-zinc-500">— {via.label}</span>}
+                                                </div>
+                                                {isFused ? (
+                                                  <p className="text-[10px] text-cyan-300 flex items-center gap-0.5">
+                                                    <Link2 className="w-2 h-2" />
+                                                    {fusionLabel(via) || "Fusionada"}
+                                                  </p>
+                                                ) : assocLbl ? (
+                                                  <p className="text-[10px] text-emerald-300 flex items-center gap-0.5">
+                                                    <ArrowRightLeft className="w-2 h-2" />
+                                                    {assocLbl}
+                                                  </p>
+                                                ) : (
+                                                  <p className="text-[10px] text-zinc-600">Livre</p>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {/* Splitters da bandeja */}
+                          {bandejasSplitters.length > 0 && (
+                            <div className="p-3 pt-0 space-y-2">
+                              {bandejasSplitters.map(sp => {
+                                const isSpExpanded = expandedSplitterIds.has(sp.id);
+                                const spVias = allSplitterVias.filter(sv => sv.splitterId === sp.id);
+                                return (
+                                  <div key={sp.id} className="bg-zinc-800/50 border border-amber-500/20 rounded-xl overflow-hidden">
+                                    <div className="flex items-center gap-3 px-3 py-2.5">
+                                      <button
+                                        onClick={() => toggleSplitterExpand(sp)}
+                                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                                      >
+                                        <Zap className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                                        <div className="flex-1 min-w-0">
+                                          <span className="text-xs font-medium text-white">{sp.identifier}</span>
+                                          <p className="text-[11px] text-zinc-500">{sp.type === "balanced" ? "Balanceado" : "Desbalanceado"} · {sp.ratio}</p>
+                                        </div>
+                                        {isSpExpanded
+                                          ? <ChevronRight className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0 rotate-90" />
+                                          : <ChevronRight className="w-3.5 h-3.5 text-zinc-600 flex-shrink-0" />}
+                                      </button>
+                                      {isOnline() && (
+                                        <button
+                                          onClick={() => { setSelectedSplitter(sp); loadSplitterVias(sp.id); setView("splitterVias"); }}
+                                          className="flex-shrink-0 p-1 text-zinc-500 hover:text-amber-400"
+                                          title="Editar splitter"
+                                        >
+                                          <Edit2 className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                    {isSpExpanded && (
+                                      <div className="border-t border-zinc-700/50 divide-y divide-zinc-700/30">
+                                        {spVias.length === 0 ? (
+                                          <p className="text-[11px] text-zinc-600 px-3 py-2 text-center">Nenhuma via neste splitter</p>
+                                        ) : spVias.map(sv => {
+                                          const svAssoc = associations.find(a => a.sourceViaId === sv.id || a.targetViaId === sv.id);
+                                          let assocLbl2: string | null = null;
+                                          if (svAssoc) {
+                                            const isSource = svAssoc.sourceViaId === sv.id;
+                                            if (isSource) {
+                                              const tv = allVias.find(v => v.id === svAssoc.targetViaId);
+                                              const tt = tubes.find(t => t.id === tv?.tubeId);
+                                              assocLbl2 = `${tt?.identifier ?? "?"} · Via ${tv?.viaNumber ?? "?"}`;
+                                            } else {
+                                              const sv2 = allVias.find(v => v.id === svAssoc.sourceViaId);
+                                              const st = tubes.find(t => t.id === sv2?.tubeId);
+                                              assocLbl2 = `${st?.identifier ?? "?"} · Via ${sv2?.viaNumber ?? "?"}`;
+                                            }
+                                          }
+                                          return (
+                                            <div key={sv.id} className={`flex items-center gap-2.5 px-3 py-2 ${assocLbl2 ? "bg-emerald-500/5" : ""}`}>
+                                              <div className="w-4 h-4 rounded-full flex-shrink-0 border border-amber-500/30 bg-amber-500/10 flex items-center justify-center text-[8px] font-bold text-amber-300">
+                                                {sv.viaNumber}
+                                              </div>
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[11px] font-medium text-zinc-200">Via {sv.viaNumber}</span>
+                                                  {sv.label && <span className="text-[10px] text-zinc-500">— {sv.label}</span>}
+                                                </div>
+                                                {assocLbl2 ? (
+                                                  <p className="text-[10px] text-emerald-300 flex items-center gap-0.5">
+                                                    <ArrowRightLeft className="w-2 h-2" />
+                                                    {assocLbl2}
+                                                  </p>
+                                                ) : (
+                                                  <p className="text-[10px] text-zinc-600">Livre</p>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {bandejasTubes.length === 0 && bandejasSplitters.length === 0 && (
+                            <p className="text-xs text-zinc-600 px-4 py-3 text-center">Bandeja vazia</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Tubos sem bandeja */}
           <div>
