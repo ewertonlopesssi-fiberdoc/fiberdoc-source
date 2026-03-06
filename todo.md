@@ -1344,3 +1344,9 @@
 - [x] Identificar o componente do botão Exportar Fusões PDF no mapa
 - [x] Identificar o componente do botão Imprimir Mapa na tela de detalhes
 - [x] Unificar a lógica de geração de PDF: botão do mapa agora usa o mesmo HTML profissional do CtoDetail/CeoDetail (cabeçalho, estatísticas, cores por via, badges de tubo, rodapé)
+
+## Bug: Mapa — Splitters não aparecem no painel lateral
+- [x] Identificar causa: CEO usa tabela separada ceo_splitters (não ceo_tubes)
+- [x] Adicionar queries ceoSplitters.byCeo e ceoSplitterVias.byCeo no InfrastructureMap
+- [x] Mostrar splitters do CEO no painel lateral (secção roxa com ratio e vias expansíveis)
+- [x] Incluir splitters do CEO no PDF de fusões gerado pelo botão do mapa

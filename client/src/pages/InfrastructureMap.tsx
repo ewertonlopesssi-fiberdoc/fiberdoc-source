@@ -806,6 +806,14 @@ export default function InfrastructureMap() {
     { ceoId: sidePanelRefId },
     { enabled: sidePanelType === "ceo" && sidePanelRefId > 0 }
   );
+  const ceoSplittersQuery = trpc.ceoSplitters.byCeo.useQuery(
+    { ceoId: sidePanelRefId },
+    { enabled: sidePanelType === "ceo" && sidePanelRefId > 0 }
+  );
+  const ceoSplitterViasQuery = trpc.ceoSplitterVias.byCeo.useQuery(
+    { ceoId: sidePanelRefId },
+    { enabled: sidePanelType === "ceo" && sidePanelRefId > 0 }
+  );
 
   // Auto-expandir todos os tubos quando carregados no painel lateral
   useEffect(() => {
@@ -2035,6 +2043,8 @@ export default function InfrastructureMap() {
               const elName = el.name ?? (isCto ? "CTO" : "CEO");
               const tubes = (isCto ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
               const allVias = (isCto ? ctoViasQuery.data : ceoViasQuery.data) as any[] | undefined;
+              const pdfCeoSplitters = (!isCto ? ceoSplittersQuery.data : undefined) as any[] | undefined;
+              const pdfCeoSplitterVias = (!isCto ? ceoSplitterViasQuery.data : undefined) as any[] | undefined;
               if (!tubes || !allVias) { toast.error("Dados ainda n\u00e3o carregados. Aguarde."); setFusionPdfLoading(false); return; }
 
               // Helpers de formata\u00e7\u00e3o (igual ao CtoDetail/CeoDetail)
@@ -2048,6 +2058,13 @@ export default function InfrastructureMap() {
                 viasByTube[v.tubeId].push(v);
               }
               for (const k of Object.keys(viasByTube)) viasByTube[Number(k)].sort((a: any, b: any) => a.viaNumber - b.viaNumber);
+              // CEO splitter vias grouped by splitterId
+              const viasBySplitter: Record<number, any[]> = {};
+              for (const v of (pdfCeoSplitterVias ?? [])) {
+                if (!viasBySplitter[v.splitterId]) viasBySplitter[v.splitterId] = [];
+                viasBySplitter[v.splitterId].push(v);
+              }
+              for (const k of Object.keys(viasBySplitter)) viasBySplitter[Number(k)].sort((a: any, b: any) => a.viaNumber - b.viaNumber);
 
               const totalVias = tubes.reduce((s: number, t: any) => s + t.totalVias, 0);
               const fusedVias = allVias.filter((v: any) => v.fusedToViaId !== null).length;
@@ -2110,13 +2127,34 @@ export default function InfrastructureMap() {
                   </tbody></table></div>`;
               }
 
-              const allContent = tubes.map((t: any) => renderTubeHtml(t)).join("");
+              // Render CEO splitter as a section in the PDF
+              const renderCeoSplitterHtml = (spl: any): string => {
+                const vias = viasBySplitter[spl.id] ?? [];
+                const escH2 = escH;
+                return `<div class="tube-section">
+                  <div class="tube-title splitter-title">
+                    SPLITTER &mdash; ${escH2(spl.identifier)}
+                    <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${escH2(spl.ratio)} &middot; ${vias.length} vias</span>
+                  </div>
+                  <table><thead><tr>
+                    <th style="width:10%">VIA</th><th style="width:25%">ETIQUETA</th><th>OBSERVA&Ccedil;&Otilde;ES</th>
+                  </tr></thead><tbody>
+                  ${vias.map((via: any, idx: number) => {
+                    const bg = idx % 2 === 0 ? "#fff" : "#f8f9fa";
+                    const lbl = via.label ? "<b>" + escH2(via.label) + "</b>" : "<span style='color:#9ca3af;font-style:italic'>&mdash;</span>";
+                    const viaLabel = via.viaNumber === 0 ? "ENT" : String(via.viaNumber).padStart(2, "0");
+                    return `<tr style='background:${bg}'><td style='text-align:center;font-weight:700;color:#7c3aed'>${viaLabel}</td><td>${lbl}</td><td style='font-size:8pt;color:#6b7280'>${escH2(via.notes)}</td></tr>`;
+                  }).join("")}
+                  </tbody></table></div>`;
+              };
+              const splitterContent = (pdfCeoSplitters ?? []).map((s: any) => renderCeoSplitterHtml(s)).join("");
+              const allContent = tubes.map((t: any) => renderTubeHtml(t)).join("") + splitterContent;
               const elNameSafe = escH(elName);
               const statusColor = (el.status === "active") ? "#059669" : "#d97706";
               const statusLabel = el.status === "active" ? "Ativo" : el.status === "maintenance" ? "Manuten&ccedil;&atilde;o" : "Inativo";
               const statsHtml = [
                 { l: "Tubos", v: tubes.filter((t: any) => t.type === "tube").length },
-                { l: "Splitters", v: tubes.filter((t: any) => t.type === "splitter").length },
+                { l: "Splitters", v: (tubes.filter((t: any) => t.type === "splitter").length) + (pdfCeoSplitters?.length ?? 0) },
                 { l: "Total de Vias", v: totalVias },
                 { l: "Vias Fusionadas", v: fusedVias },
                 { l: "Vias Livres", v: totalVias - fusedVias },
@@ -2183,6 +2221,8 @@ export default function InfrastructureMap() {
         {(() => {
           const tubes = (isCto ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
           const allVias = (isCto ? ctoViasQuery.data : ceoViasQuery.data) as any[] | undefined;
+          const ceoSplitters = (!isCto ? ceoSplittersQuery.data : undefined) as any[] | undefined;
+          const ceoSplitterVias = (!isCto ? ceoSplitterViasQuery.data : undefined) as any[] | undefined;
           const isLoadingTubes = isCto ? ctoTubesQuery.isLoading : ceoTubesQuery.isLoading;
           if (isLoadingTubes) return (
             <div className="border-t border-border pt-2">
@@ -2194,11 +2234,13 @@ export default function InfrastructureMap() {
               </div>
             </div>
           );
+          const tubeCount = tubes?.length ?? 0;
+          const splitterCount = ceoSplitters?.length ?? 0;
           return (
             <div className="border-t border-border pt-2">
               <div className="text-xs text-muted-foreground mb-2 font-medium flex items-center gap-1">
                 <Layers className="w-3 h-3" /> Tubos e Vias
-                {tubes && tubes.length > 0 && <span className="ml-auto text-muted-foreground/60">{tubes.length} tubo{tubes.length !== 1 ? "s" : ""}</span>}
+                {(tubeCount > 0 || splitterCount > 0) && <span className="ml-auto text-muted-foreground/60">{tubeCount} tubo{tubeCount !== 1 ? "s" : ""}{splitterCount > 0 ? ` · ${splitterCount} splitter${splitterCount !== 1 ? "s" : ""}` : ""}</span>}
                 {isAdmin && (
                   <button
                     className="ml-auto flex items-center gap-0.5 text-xs text-primary hover:text-primary/80 font-medium"
@@ -2220,6 +2262,7 @@ export default function InfrastructureMap() {
                   const fusedCount = tubVias.filter((v: any) => v.fusedToViaId !== null).length;
                   const total = tube.totalVias;
                   const pct = total > 0 ? Math.round((fusedCount / total) * 100) : 0;
+                  // NOTE: For CEO, splitters are rendered separately below
                   const isExpanded = expandedTubeIds.has(tube.id);
                   const barColor = pct >= 90 ? "#ef4444" : pct >= 60 ? "#f59e0b" : "#22c55e";
                   return (
@@ -2335,6 +2378,51 @@ export default function InfrastructureMap() {
                   );
                 })}
               </div>
+              {/* Splitters do CEO */}
+              {!isCto && ceoSplitters && ceoSplitters.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <div className="text-xs text-muted-foreground/70 font-medium px-1 flex items-center gap-1">
+                    <span className="text-purple-400">⊕</span> Splitters
+                  </div>
+                  {ceoSplitters.map((spl: any) => {
+                    const splVias = (ceoSplitterVias ?? []).filter((v: any) => v.splitterId === spl.id);
+                    const isExpanded = expandedTubeIds.has(spl.id + 100000);
+                    return (
+                      <div key={spl.id} className="rounded border border-purple-500/30 overflow-hidden">
+                        <button
+                          className="flex-1 w-full flex items-center gap-2 px-2 py-1.5 hover:bg-purple-500/10 text-left min-w-0"
+                          onClick={() => {
+                            const next = new Set(expandedTubeIds);
+                            const key = spl.id + 100000;
+                            if (next.has(key)) next.delete(key); else next.add(key);
+                            setExpandedTubeIds(next);
+                          }}
+                        >
+                          <span className="text-xs text-muted-foreground shrink-0">{isExpanded ? "▾" : "▸"}</span>
+                          <span className="text-xs font-medium flex-1 truncate text-purple-300">⊕ {spl.identifier}</span>
+                          <span className="text-xs text-muted-foreground/60 shrink-0">{spl.ratio}</span>
+                          <span className="text-xs text-muted-foreground shrink-0">{splVias.length}v</span>
+                        </button>
+                        {isExpanded && (
+                          <div className="px-2 pb-1.5 space-y-0.5 max-h-40 overflow-y-auto">
+                            {splVias.map((via: any) => (
+                              <div key={via.id} className="flex items-center gap-1.5 text-xs py-0.5 px-1 rounded hover:bg-accent/20">
+                                <div className="w-1.5 h-1.5 rounded-full shrink-0 bg-purple-400/50" />
+                                <span className="text-muted-foreground shrink-0" style={{ minWidth: "2rem" }}>
+                                  {via.viaNumber === 0 ? "ENT" : String(via.viaNumber).padStart(2, "0")}
+                                </span>
+                                {via.label
+                                  ? <span className="truncate font-medium">{via.label}</span>
+                                  : <span className="text-muted-foreground/50 italic">{via.viaNumber === 0 ? "entrada" : "livre"}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })()}
