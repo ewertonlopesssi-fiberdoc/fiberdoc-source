@@ -278,7 +278,17 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed, onGoToMap
               return (
                 <button
                   key={cto.id}
-                  onClick={() => { setSelected(cto); loadTubes(cto.id); loadAllVias(cto.id); setView("detail"); }}
+                  onClick={() => {
+                    setSelected(cto);
+                    // Limpar estado do CTO anterior
+                    setTubeViasCache(new Map());
+                    setExpandedTubeIds(new Set());
+                    setAllVias([]);
+                    setTubes([]);
+                    loadTubes(cto.id);
+                    loadAllVias(cto.id);
+                    setView("detail");
+                  }}
                   className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-zinc-800/50 transition-colors text-left"
                 >
                   <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">

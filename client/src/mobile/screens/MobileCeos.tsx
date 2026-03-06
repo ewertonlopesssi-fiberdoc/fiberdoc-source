@@ -415,6 +415,13 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                 key={ceo.id}
                 onClick={() => {
                   setSelected(ceo);
+                  // Limpar estado do CEO anterior
+                  setTubeViasCache(new Map());
+                  setExpandedTubeIds(new Set());
+                  setExpandedBandejaIds(new Set());
+                  setAllVias([]);
+                  setTubes([]);
+                  setBandejas([]);
                   loadTubes(ceo.id);
                   loadBandejas(ceo.id);
                   loadSplitters(ceo.id);
