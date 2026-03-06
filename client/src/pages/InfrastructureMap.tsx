@@ -112,7 +112,7 @@ import {
   FileDown, MousePointer2, Search, Layers, Upload,
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
   Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw,
-  Lock, Unlock, ExternalLink, Move
+  Lock, Unlock, ExternalLink, Move, CheckCircle2
 } from "lucide-react";
 import L from "leaflet";
 import { unzipSync, strFromU8 } from "fflate";
@@ -344,6 +344,8 @@ export default function InfrastructureMap() {
   const [editMode, setEditMode] = useState(false);
   // Elemento em modo de mover individualmente (drag individual sem modo edição global)
   const [movingElementId, setMovingElementId] = useState<number | null>(null);
+  // Posição pendente após drag — aguarda confirmação do utilizador
+  const [pendingMovePos, setPendingMovePos] = useState<{ id: number; lat: number; lng: number } | null>(null);
   // Painel de detalhes sobreposto ao mapa (Sheet)
   const [detailPanel, setDetailPanel] = useState<{ type: "ceo" | "cto"; id: number } | null>(null);
   const [addingMode, setAddingMode] = useState<"ceo" | "cto" | null>(null);
@@ -480,7 +482,7 @@ export default function InfrastructureMap() {
       mapUtils.ceos.byId.invalidate(); // sincroniza com CeoDetail
       setEditElementDialogOpen(false);
       if (sidePanel?.kind === "element") {
-        setSidePanel({ ...sidePanel, element: { ...sidePanel.element, name: editElementForm.name, status: editElementForm.status } });
+        setSidePanel({ ...sidePanel, element: { ...sidePanel.element, name: editElementForm.name, status: editElementForm.status, color: editElementForm.color || null } });
       }
       toast.success("CEO atualizado");
     },
@@ -492,7 +494,7 @@ export default function InfrastructureMap() {
       refetchCtos();
       setEditElementDialogOpen(false);
       if (sidePanel?.kind === "element") {
-        setSidePanel({ ...sidePanel, element: { ...sidePanel.element, name: editElementForm.name, status: editElementForm.status, capacity: editElementForm.capacity } });
+        setSidePanel({ ...sidePanel, element: { ...sidePanel.element, name: editElementForm.name, status: editElementForm.status, capacity: editElementForm.capacity, color: editElementForm.color || null } });
       }
       toast.success("CTO atualizada");
     },
@@ -728,7 +730,8 @@ export default function InfrastructureMap() {
   const groupTotalSelected = groupSelectedElements.size + groupSelectedRoutes.size;
 
   const upsertElementMut = trpc.infraMap.upsertElement.useMutation({
-    onSuccess: () => { refetchElements(); toast.success("Posição salva"); },
+    // onSuccess genérico: só refetch; toast é feito pelo chamador quando necessário
+    onSuccess: () => { refetchElements(); },
     onError: (e) => toast.error(e.message),
   });
   const createCeoMut = trpc.ceos.create.useMutation({ onError: (e) => toast.error(e.message) });
@@ -856,9 +859,14 @@ export default function InfrastructureMap() {
       if (isAdmin) {
         marker.on("dragend", () => {
           if (!editMode && movingElementId !== el.id) return;
-          setMovingElementId(null);
           const pos = marker.getLatLng();
-          upsertElementMut.mutate({ type: el.type, referenceId: el.referenceId, lat: pos.lat, lng: pos.lng });
+          if (movingElementId === el.id) {
+            // Modo mover individual: guardar posição pendente, aguardar confirmação
+            setPendingMovePos({ id: el.id, lat: pos.lat, lng: pos.lng });
+          } else {
+            // Modo edição global: salvar imediatamente
+            upsertElementMut.mutate({ type: el.type, referenceId: el.referenceId, lat: pos.lat, lng: pos.lng });
+          }
         });
       }
       marker.on("click", () => {
@@ -1960,27 +1968,58 @@ export default function InfrastructureMap() {
         </div>
         {/* Botão Mover (drag individual) */}
         {isAdmin && (
-          <Button
-            variant="outline"
-            size="sm"
-            className={`w-full gap-1.5 ${
-              movingElementId === el.id
-                ? "bg-amber-500/20 border-amber-500/60 text-amber-300 hover:bg-amber-500/30"
-                : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
-            }`}
-            onClick={() => {
-              if (movingElementId === el.id) {
-                setMovingElementId(null);
-                toast.info("Modo mover desativado");
-              } else {
-                setMovingElementId(el.id);
-                toast.info(`Arraste ${el.name ?? el.type.toUpperCase()} para reposicionar. Clique em 'Mover' novamente para cancelar.`, { duration: 4000 });
-              }
-            }}
-          >
-            <Move className="w-3.5 h-3.5" />
-            {movingElementId === el.id ? "Cancelar mover" : "Mover"}
-          </Button>
+          <div className="flex flex-col gap-1.5">
+            {/* Botão principal: Mover / Cancelar */}
+            <Button
+              variant="outline"
+              size="sm"
+              className={`w-full gap-1.5 ${
+                movingElementId === el.id
+                  ? "bg-amber-500/20 border-amber-500/60 text-amber-300 hover:bg-amber-500/30"
+                  : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+              }`}
+              onClick={() => {
+                if (movingElementId === el.id) {
+                  setMovingElementId(null);
+                  setPendingMovePos(null);
+                  toast.info("Modo mover cancelado");
+                } else {
+                  setMovingElementId(el.id);
+                  setPendingMovePos(null);
+                  toast.info(`Arraste ${el.name ?? el.type.toUpperCase()} para reposicionar e clique em 'Salvar posição'.`, { duration: 5000 });
+                }
+              }}
+            >
+              <Move className="w-3.5 h-3.5" />
+              {movingElementId === el.id ? "Cancelar mover" : "Mover"}
+            </Button>
+            {/* Botão Salvar posição: só aparece após arrastar */}
+            {pendingMovePos?.id === el.id && (
+              <Button
+                size="sm"
+                className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                disabled={upsertElementMut.isPending}
+                onClick={() => {
+                  const pending = pendingMovePos;
+                  if (!pending) return;
+                  upsertElementMut.mutate(
+                    { type: el.type, referenceId: el.referenceId, lat: pending.lat, lng: pending.lng },
+                    {
+                      onSuccess: () => {
+                        setMovingElementId(null);
+                        setPendingMovePos(null);
+                        refetchElements();
+                        toast.success("Posição salva com sucesso");
+                      },
+                    }
+                  );
+                }}
+              >
+                {upsertElementMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                Salvar posição
+              </Button>
+            )}
+          </div>
         )}
         {/* Botão Exportar PDF de Fusões */}
         <Button
@@ -1996,7 +2035,7 @@ export default function InfrastructureMap() {
               // Buscar dados de fusões via tRPC
               const tubes = (isCto ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
               const allVias = (isCto ? ctoViasQuery.data : ceoViasQuery.data) as any[] | undefined;
-              if (!tubes || !allVias) { toast.error("Dados ainda não carregados. Aguarde."); return; }
+              if (!tubes || !allVias) { toast.error("Dados ainda não carregados. Aguarde."); setFusionPdfLoading(false); return; }
               // Gerar HTML para impressão
               const rows: string[] = [];
               for (const tube of tubes) {
@@ -2789,7 +2828,7 @@ export default function InfrastructureMap() {
                   updateCeoMut.mutate({ id: el.referenceId, name: editElementForm.name, status: editElementForm.status as any });
                 }
                 // Salvar cor personalizada no elemento do mapa
-                upsertElementMut.mutate({ type: el.type, referenceId: el.referenceId, lat: el.lat, lng: el.lng, color: editElementForm.color || null });
+                (upsertElementMut.mutate as any)({ type: el.type, referenceId: el.referenceId, lat: el.lat, lng: el.lng, color: editElementForm.color || null });
               }}
             >
               {updateCeoMut.isPending || updateCtoMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}
