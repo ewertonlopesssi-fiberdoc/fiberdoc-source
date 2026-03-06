@@ -1371,3 +1371,7 @@
 - [ ] CEO mobile: mostrar "X/Y vias ocupadas" no cabeçalho de cada tubo (detalhe, bandejas, bandejaDetail)
 - [ ] CTO mobile: mostrar "X/Y vias ocupadas" no cabeçalho de cada tubo
 - [ ] Barra de progresso colorida (verde/amarelo/vermelho conforme ocupação)
+
+## Mobile — Botão "Ver no Mapa"
+- [ ] Botão "Ver no Mapa" no detalhe de CEO mobile (navega para aba Mapa centrando no CEO)
+- [ ] Botão "Ver no Mapa" no detalhe de CTO mobile (navega para aba Mapa centrando na CTO)

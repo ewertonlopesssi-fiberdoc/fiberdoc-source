@@ -28,6 +28,10 @@ function MobileShell() {
   const [deepCeoId, setDeepCeoId] = useState<number | null>(null);
   const [deepCtoId, setDeepCtoId] = useState<number | null>(null);
 
+  // Foco no mapa: ao tocar "Ver no Mapa" no CEO/CTO, navegar para o mapa e centrar
+  const [mapFocusType, setMapFocusType] = useState<"ceo" | "cto" | null>(null);
+  const [mapFocusId, setMapFocusId] = useState<number | null>(null);
+
   useEffect(() => {
     const onOnline  = () => setOnline(true);
     const onOffline = () => setOnline(false);
@@ -50,6 +54,13 @@ function MobileShell() {
       setDeepCeoId(null);
       setActiveTab("ctos");
     }
+  }
+
+  // Callback chamado pelo CEO/CTO ao tocar "Ver no Mapa"
+  function handleGoToMap(type: "ceo" | "cto", id: number) {
+    setMapFocusType(type);
+    setMapFocusId(id);
+    setActiveTab("mapa");
   }
 
   // Limpar deep-link quando o utilizador muda de aba manualmente
@@ -86,9 +97,9 @@ function MobileShell() {
       {/* Conteúdo da aba ativa */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {activeTab === "equipamentos" && <MobileEquipments initialEquipmentId={deepEqId} />}
-        {activeTab === "ceos"         && <MobileCeos initialCeoId={deepCeoId} onDeepLinkConsumed={() => setDeepCeoId(null)} />}
-        {activeTab === "ctos"         && <MobileCtos initialCtoId={deepCtoId} onDeepLinkConsumed={() => setDeepCtoId(null)} />}
-        {activeTab === "mapa"         && <MobileMap onOpenDetail={handleOpenDetail} />}
+        {activeTab === "ceos"         && <MobileCeos initialCeoId={deepCeoId} onDeepLinkConsumed={() => setDeepCeoId(null)} onGoToMap={handleGoToMap} />}
+        {activeTab === "ctos"         && <MobileCtos initialCtoId={deepCtoId} onDeepLinkConsumed={() => setDeepCtoId(null)} onGoToMap={handleGoToMap} />}
+        {activeTab === "mapa"         && <MobileMap onOpenDetail={handleOpenDetail} focusType={mapFocusType} focusId={mapFocusId} onFocusConsumed={() => { setMapFocusType(null); setMapFocusId(null); }} />}
         {activeTab === "relatorio"    && <MobileReport />}
         {activeTab === "ssh"          && <MobileSshCommander />}
         {activeTab === "perfil"       && <MobileProfile />}

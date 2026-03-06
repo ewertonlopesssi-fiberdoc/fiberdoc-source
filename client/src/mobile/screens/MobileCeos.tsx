@@ -4,7 +4,7 @@ import { createMobileTrpcClient, saveOfflineCache, loadOfflineCache, isOnline } 
 import {
   Cable, ChevronRight, ChevronLeft, Search, RefreshCw, Edit2, Check,
   AlertCircle, Plus, Trash2, Link2, Link2Off, LocateFixed, Loader2, Layers,
-  Boxes, Zap, ArrowRightLeft,
+  Boxes, Zap, ArrowRightLeft, Map,
 } from "lucide-react";
 
 // ─── Cores de tubo ─────────────────────────────────────────────────────────
@@ -80,9 +80,10 @@ type View =
 interface MobileCeosProps {
   initialCeoId?: number | null;
   onDeepLinkConsumed?: () => void;
+  onGoToMap?: (type: "ceo" | "cto", id: number) => void;
 }
 
-export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileCeosProps = {}) {
+export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap }: MobileCeosProps = {}) {
   const { serverUrl, token } = useMobileAuth();
   const client = createMobileTrpcClient(serverUrl, token);
 
@@ -454,14 +455,25 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed }: MobileC
               <h1 className="text-base font-bold text-white">{selected.name}</h1>
               {selected.location && <p className="text-xs text-zinc-400 mt-0.5 truncate max-w-[220px]">{selected.location}</p>}
             </div>
-            {isOnline() && (
-              <button
-                onClick={() => { setEditCeoForm({ ...selected }); setError(null); setView("editCeo"); }}
-                className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white transition-colors"
-              >
-                <Edit2 className="w-3.5 h-3.5" /> Editar
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {onGoToMap && (
+                <button
+                  onClick={() => onGoToMap("ceo", selected.id)}
+                  className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-cyan-400 transition-colors"
+                  title="Ver no Mapa"
+                >
+                  <Map className="w-3.5 h-3.5" /> Mapa
+                </button>
+              )}
+              {isOnline() && (
+                <button
+                  onClick={() => { setEditCeoForm({ ...selected }); setError(null); setView("editCeo"); }}
+                  className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white transition-colors"
+                >
+                  <Edit2 className="w-3.5 h-3.5" /> Editar
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

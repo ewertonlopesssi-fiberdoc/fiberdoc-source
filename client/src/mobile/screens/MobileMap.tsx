@@ -70,9 +70,12 @@ function makeCtoIcon() {
 
 interface MobileMapProps {
   onOpenDetail?: (type: "ceo" | "cto", id: number) => void;
+  focusType?: "ceo" | "cto" | null;
+  focusId?: number | null;
+  onFocusConsumed?: () => void;
 }
 
-export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
+export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusConsumed }: MobileMapProps = {}) {
   const { serverUrl, token, user: mobileUser } = useMobileAuth();
   const isMobileAdmin = mobileUser?.role === "admin";
   const client = createMobileTrpcClient(serverUrl, token);
@@ -223,6 +226,29 @@ export default function MobileMap({ onOpenDetail }: MobileMapProps = {}) {
   };
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // ─── Auto-focus em CEO/CTO quando vindo de outra tela ────────────────────
+  useEffect(() => {
+    if (!focusType || !focusId || loading) return;
+    const el = elements.find(e => e.type === focusType && e.referenceId === focusId);
+    if (!el || !mapRef.current) return;
+    const ref = focusType === "ceo"
+      ? ceos.find(c => c.id === focusId)
+      : ctos.find(c => c.id === focusId);
+    if (!ref) return;
+    mapRef.current.setView([el.lat, el.lng], 17, { animate: true });
+    setSelectedEl(el);
+    setPanelType(focusType);
+    if (focusType === "ceo") { setSelectedCeo(ref as Ceo); setSelectedCto(null); }
+    else { setSelectedCto(ref as Cto); setSelectedCeo(null); }
+    setTubes([]); setVias([]); setAllVias([]);
+    setPanelView("detail");
+    setError(null);
+    setPanelOpen(true);
+    loadTubes(focusId, focusType);
+    onFocusConsumed?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusType, focusId, loading, elements, ceos, ctos]);
 
   // ─── Inicializar mapa ───────────────────────────────────────────────────
   useEffect(() => {

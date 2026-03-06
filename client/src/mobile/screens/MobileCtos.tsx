@@ -4,7 +4,7 @@ import { createMobileTrpcClient, saveOfflineCache, loadOfflineCache, isOnline } 
 import {
   Radio, ChevronRight, ChevronLeft, Search, RefreshCw, Edit2, Check,
   AlertCircle, Plus, Trash2, Link2, Link2Off, LocateFixed, Loader2, Layers, MapPin,
-  ArrowRightLeft,
+  ArrowRightLeft, Map,
 } from "lucide-react";
 
 // ─── Cores de tubo ─────────────────────────────────────────────────────────
@@ -69,9 +69,10 @@ const STATUS_COLOR: Record<string, string> = {
 interface MobileCtosProps {
   initialCtoId?: number | null;
   onDeepLinkConsumed?: () => void;
+  onGoToMap?: (type: "ceo" | "cto", id: number) => void;
 }
 
-export default function MobileCtos({ initialCtoId, onDeepLinkConsumed }: MobileCtosProps = {}) {
+export default function MobileCtos({ initialCtoId, onDeepLinkConsumed, onGoToMap }: MobileCtosProps = {}) {
   const { serverUrl, token } = useMobileAuth();
   const client = createMobileTrpcClient(serverUrl, token);
 
@@ -329,14 +330,25 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed }: MobileC
                 </p>
               )}
             </div>
-            {isOnline() && (
-              <button
-                onClick={() => { setEditForm({ ...selected }); setError(null); setView("edit"); }}
-                className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white transition-colors"
-              >
-                <Edit2 className="w-3.5 h-3.5" /> Editar
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {onGoToMap && (
+                <button
+                  onClick={() => onGoToMap("cto", selected.id)}
+                  className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-cyan-400 transition-colors"
+                  title="Ver no Mapa"
+                >
+                  <Map className="w-3.5 h-3.5" /> Mapa
+                </button>
+              )}
+              {isOnline() && (
+                <button
+                  onClick={() => { setEditForm({ ...selected }); setError(null); setView("edit"); }}
+                  className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white transition-colors"
+                >
+                  <Edit2 className="w-3.5 h-3.5" /> Editar
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
