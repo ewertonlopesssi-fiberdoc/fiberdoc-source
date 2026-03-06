@@ -4,6 +4,7 @@ import { createMobileTrpcClient, saveOfflineCache, loadOfflineCache, isOnline } 
 import {
   Radio, ChevronRight, ChevronLeft, Search, RefreshCw, Edit2, Check,
   AlertCircle, Plus, Trash2, Link2, Link2Off, LocateFixed, Loader2, Layers, MapPin,
+  ArrowRightLeft,
 } from "lucide-react";
 
 // ─── Cores de tubo ─────────────────────────────────────────────────────────
@@ -101,9 +102,29 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed }: MobileC
   const [editForm, setEditForm]   = useState<Partial<Cto>>({});
   const [geoLoading, setGeoLoading] = useState(false);
 
+  // Expansão inline de tubos na tela de detalhe
+  const [expandedTubeIds, setExpandedTubeIds] = useState<Set<number>>(new Set());
+  const [tubeViasCache, setTubeViasCache] = useState<Map<number, Via[]>>(new Map());
+
   // UI
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState<string | null>(null);
+
+  // ─── Toggle inline tube expansion ─────────────────────────────────────
+  async function toggleTubeExpand(tube: Tube) {
+    const id = tube.id;
+    if (expandedTubeIds.has(id)) {
+      setExpandedTubeIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+      return;
+    }
+    if (!tubeViasCache.has(id)) {
+      try {
+        const data = await client.ctoVias.byTube.query({ tubeId: id });
+        setTubeViasCache(prev => new Map(prev).set(id, data as unknown as Via[]));
+      } catch { setTubeViasCache(prev => new Map(prev).set(id, [])); }
+    }
+    setExpandedTubeIds(prev => new Set(prev).add(id));
+  }
 
   // ─── GPS ────────────────────────────────────────────────────────────────
   async function handleGetLocation() {
@@ -255,7 +276,7 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed }: MobileC
               return (
                 <button
                   key={cto.id}
-                  onClick={() => { setSelected(cto); loadTubes(cto.id); setView("detail"); }}
+                  onClick={() => { setSelected(cto); loadTubes(cto.id); loadAllVias(cto.id); setView("detail"); }}
                   className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-zinc-800/50 transition-colors text-left"
                 >
                   <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
@@ -382,20 +403,80 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed }: MobileC
               </div>
             ) : (
               <div className="space-y-2">
-                {tubes.map(tube => (
-                  <button
-                    key={tube.id}
-                    onClick={() => { setSelectedTube(tube); loadVias(tube.id); loadAllVias(selected.id); setView("vias"); }}
-                    className="w-full flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 hover:bg-zinc-800/50 transition-colors text-left"
-                  >
-                    <div className={`w-4 h-4 rounded-full flex-shrink-0 ${TUBE_COLORS[tube.color ?? ""] ?? "bg-zinc-500"}`} />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm font-medium text-white">{tube.identifier}</span>
-                      <p className="text-xs text-zinc-500">{TUBE_COLOR_LABELS[tube.color ?? ""] ?? tube.color} · {tube.totalVias} vias</p>
+                {tubes.map(tube => {
+                  const isExpanded = expandedTubeIds.has(tube.id);
+                  const cachedVias = tubeViasCache.get(tube.id) ?? [];
+                  const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
+                  return (
+                    <div key={tube.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        <button
+                          onClick={() => toggleTubeExpand(tube)}
+                          className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                        >
+                          <div className={`w-4 h-4 rounded-full flex-shrink-0 ${TUBE_COLORS[tube.color ?? ""] ?? "bg-zinc-500"}`} />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium text-white">{tube.identifier}</span>
+                            <p className="text-xs text-zinc-500">
+                              {TUBE_COLOR_LABELS[tube.color ?? ""] ?? tube.color} · {tube.totalVias} vias
+                              {isExpanded && cachedVias.length > 0 && (
+                                <span className="ml-1 text-cyan-400">· {fusedInTube} fusionadas</span>
+                              )}
+                            </p>
+                          </div>
+                          {isExpanded
+                            ? <ChevronRight className="w-4 h-4 text-zinc-400 flex-shrink-0 rotate-90 transition-transform" />
+                            : <ChevronRight className="w-4 h-4 text-zinc-600 flex-shrink-0 transition-transform" />}
+                        </button>
+                        {isOnline() && (
+                          <button
+                            onClick={() => { setSelectedTube(tube); loadVias(tube.id); loadAllVias(selected.id); setView("vias"); }}
+                            className="flex-shrink-0 p-1.5 text-zinc-500 hover:text-cyan-400"
+                            title="Editar tubo"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      {isExpanded && (
+                        <div className="border-t border-zinc-800 divide-y divide-zinc-800/50">
+                          {cachedVias.length === 0 ? (
+                            <p className="text-xs text-zinc-600 px-4 py-3 text-center">Nenhuma via neste tubo</p>
+                          ) : cachedVias.map(via => {
+                            const fiberColor = VIA_FIBER_COLORS[via.viaNumber];
+                            const isFused = via.fusedToViaId != null;
+                            const fusedVia = isFused ? allVias.find(v => v.id === via.fusedToViaId) : null;
+                            const fusedTube = isFused ? tubes.find(t => t.id === via.fusedToTubeId) : null;
+                            return (
+                              <div
+                                key={via.id}
+                                className={`flex items-center gap-3 px-4 py-2.5 ${isFused ? "bg-cyan-500/5" : ""}`}
+                              >
+                                <div className={`w-5 h-5 rounded-full flex-shrink-0 border border-white/10 flex items-center justify-center text-[9px] font-bold text-white ${fiberColor?.dot ?? "bg-zinc-700"}`}>
+                                  {via.viaNumber}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-medium text-zinc-200">Via {via.viaNumber}</span>
+                                    {via.label && <span className="text-[11px] text-zinc-500">— {via.label}</span>}
+                                  </div>
+                                  {isFused ? (
+                                    <p className="text-[10px] text-cyan-300 flex items-center gap-1">
+                                      <Link2 className="w-2.5 h-2.5" />
+                                      {fusedTube?.identifier ?? "Tubo ?"} · Via {fusedVia?.viaNumber ?? "?"}
+                                    </p>
+                                  ) : (
+                                    <p className="text-[10px] text-zinc-600">Livre</p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-zinc-600 flex-shrink-0" />
-                  </button>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

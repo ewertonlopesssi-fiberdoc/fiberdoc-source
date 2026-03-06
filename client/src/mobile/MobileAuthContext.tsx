@@ -4,7 +4,7 @@ export type MobileUser = {
   id: number;
   name: string | null;
   email: string | null;
-  role: "user" | "admin";
+  role: "user" | "admin" | "operator";
 };
 
 type MobileAuthContextType = {

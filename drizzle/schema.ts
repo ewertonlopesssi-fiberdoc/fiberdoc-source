@@ -17,7 +17,7 @@ export const users = mysqlTable("users", {
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin", "operator"]).default("user").notNull(),
   passwordHash: varchar("passwordHash", { length: 255 }),   // Login mobile por senha
   mustChangePassword: boolean("mustChangePassword").default(false).notNull(), // Forçar troca de senha no primeiro acesso
   createdAt: timestamp("createdAt").defaultNow().notNull(),

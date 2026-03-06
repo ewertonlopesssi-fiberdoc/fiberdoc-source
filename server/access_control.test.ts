@@ -4,12 +4,12 @@ import type { TrpcContext } from "./_core/context";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createCtx(role: "admin" | "user"): TrpcContext {
+function createCtx(role: "admin" | "user" | "operator"): TrpcContext {
   const user: AuthenticatedUser = {
-    id: role === "admin" ? 1 : 2,
-    openId: role === "admin" ? "admin-open-id" : "viewer-open-id",
+    id: role === "admin" ? 1 : role === "operator" ? 3 : 2,
+    openId: `${role}-open-id`,
     email: `${role}@example.com`,
-    name: role === "admin" ? "Admin User" : "Viewer User",
+    name: `${role.charAt(0).toUpperCase() + role.slice(1)} User`,
     loginMethod: "manus",
     role,
     createdAt: new Date(),
@@ -77,5 +77,49 @@ describe("access_control", () => {
     };
     const caller = appRouter.createCaller(ctx);
     await expect(caller.users.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("operator cannot access users.list (FORBIDDEN)", async () => {
+    const caller = appRouter.createCaller(createCtx("operator"));
+    await expect(caller.users.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("operator cannot call users.updateRole (FORBIDDEN)", async () => {
+    const caller = appRouter.createCaller(createCtx("operator"));
+    await expect(
+      caller.users.updateRole({ userId: 99, role: "user" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("operator cannot call users.remove (FORBIDDEN)", async () => {
+    const caller = appRouter.createCaller(createCtx("operator"));
+    await expect(
+      caller.users.remove({ userId: 99 })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("admin can call users.updateRole with operator role", async () => {
+    const caller = appRouter.createCaller(createCtx("admin"));
+    try {
+      await caller.users.updateRole({ userId: 99, role: "operator" });
+    } catch (e: any) {
+      // DB error is acceptable; FORBIDDEN is not
+      expect(e?.code).not.toBe("FORBIDDEN");
+    }
+  });
+
+  it("admin can create local user with operator role", async () => {
+    const caller = appRouter.createCaller(createCtx("admin"));
+    try {
+      await caller.users.createLocal({
+        name: "Test Operator",
+        email: "testoperator@example.com",
+        password: "senha123",
+        role: "operator",
+      });
+    } catch (e: any) {
+      // DB error is acceptable; FORBIDDEN is not
+      expect(e?.code).not.toBe("FORBIDDEN");
+    }
   });
 });

@@ -71,11 +71,11 @@ function AlertsBadge() {
   );
 }
 
+// Menus visíveis para todos os roles (user, operator, admin)
 const publicMenuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Wifi, label: "Salas / Locais", path: "/salas" },
   { icon: Server, label: "Equipamentos", path: "/equipamentos" },
-  { icon: Terminal, label: "SSH Commander", path: "/ssh-commander" },
   { icon: Router, label: "CPE Manager", path: "/cpe-manager" },
   { icon: Globe, label: "IP DOC", path: "/ip-doc" },
   { icon: Network, label: "Topologia", path: "/topologia" },
@@ -91,11 +91,13 @@ const publicMenuItems = [
   { icon: FileBarChart, label: "Relatório de Ocupação", path: "/relatorio-ocupacao" },
   { icon: Zap, label: "Fontes de Energia", path: "/fontes-energia" },
   { icon: Bell, label: "Alertas", path: "/alertas" },
-  { icon: Cpu, label: "Sensores Tuya", path: "/sensores-tuya" },
-  { icon: Settings2, label: "SGP Config", path: "/sgp" },
 ];
 
+// Menus visíveis apenas para admin (ocultos para operator e user)
 const adminOnlyMenuItems = [
+  { icon: Terminal, label: "SSH Commander", path: "/ssh-commander" },
+  { icon: Cpu, label: "Sensores Tuya", path: "/sensores-tuya" },
+  { icon: Settings2, label: "SGP Config", path: "/sgp" },
   { icon: UsersIcon, label: "Usuários", path: "/usuarios" },
   { icon: ShieldCheck, label: "Backup & Atualização", path: "/backup" },
   { icon: Settings, label: "Sistema", path: "/sistema" },
@@ -180,9 +182,10 @@ function DashboardLayoutContent({
   setSidebarWidth: (width: number) => void;
 }) {
   const { user, logout } = useAuth();
-  const { isAdmin, role } = useRole();
+  const { isAdmin, isOperator, role } = useRole();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
+  // admin: todos os menus; operator/user: apenas menus públicos
   const menuItems = isAdmin ? [...publicMenuItems, ...adminOnlyMenuItems] : publicMenuItems;
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
@@ -288,6 +291,10 @@ function DashboardLayoutContent({
                       {role === "admin" ? (
                         <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-400">
                           <Crown className="h-2.5 w-2.5" />Admin
+                        </span>
+                      ) : role === "operator" ? (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-400">
+                          <Settings2 className="h-2.5 w-2.5" />Operador
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-400">

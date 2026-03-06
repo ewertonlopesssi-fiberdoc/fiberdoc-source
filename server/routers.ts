@@ -1161,7 +1161,7 @@ export const appRouter = router({
     updateRole: adminProcedure
       .input(z.object({
         userId: z.number(),
-        role: z.enum(["admin", "user"]),
+        role: z.enum(["admin", "operator", "user"]),
       }))
       .mutation(async ({ input, ctx }) => {
         // Impedir que o admin remova seu próprio papel
@@ -1184,7 +1184,7 @@ export const appRouter = router({
         name: z.string().min(1, "Nome é obrigatório"),
         email: z.string().email("E-mail inválido"),
         password: z.string().min(6, "Senha deve ter no mínimo 6 caracteres"),
-        role: z.enum(["admin", "user"]).default("user"),
+        role: z.enum(["admin", "operator", "user"]).default("user"),
       }))
       .mutation(async ({ input }) => {
         const { hash } = await import("bcryptjs");

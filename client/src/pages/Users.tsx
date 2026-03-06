@@ -27,7 +27,7 @@ type UserRow = {
   openId: string;
   name: string | null;
   email: string | null;
-  role: "admin" | "user";
+  role: "admin" | "user" | "operator";
   loginMethod: string | null;
   createdAt: Date;
   lastSignedIn: Date;
@@ -39,7 +39,7 @@ export default function Users() {
   const [, setLocation] = useLocation();
   const [roleDialog, setRoleDialog] = useState<UserRow | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<UserRow | null>(null);
-  const [newRole, setNewRole] = useState<"admin" | "user">("user");
+  const [newRole, setNewRole] = useState<"admin" | "operator" | "user">("user");
   const [passwordDialog, setPasswordDialog] = useState<UserRow | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -50,7 +50,7 @@ export default function Users() {
   const [newUserName, setNewUserName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
-  const [newUserRole, setNewUserRole] = useState<"admin" | "user">("user");
+  const [newUserRole, setNewUserRole] = useState<"admin" | "operator" | "user">("user");
 
   // Estado para reset de senha
   const [resetDialog, setResetDialog] = useState<UserRow | null>(null);
@@ -129,11 +129,12 @@ export default function Users() {
 
   const userList = users as UserRow[];
   const adminCount = userList.filter(u => u.role === "admin").length;
+  const operatorCount = userList.filter(u => u.role === "operator").length;
   const viewerCount = userList.filter(u => u.role === "user").length;
 
   function openRoleDialog(user: UserRow) {
     setRoleDialog(user);
-    setNewRole(user.role);
+    setNewRole(user.role as "admin" | "operator" | "user");
   }
 
   function openPasswordDialog(user: UserRow) {
@@ -183,7 +184,7 @@ export default function Users() {
       </div>
 
       {/* Cards de resumo */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <Card className="border-border/50 bg-card">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
@@ -214,6 +215,17 @@ export default function Users() {
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Visualizadores</p>
               <p className="text-2xl font-bold text-blue-400">{viewerCount}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50 bg-card">
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+              <UserCog className="h-5 w-5 text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Operadores</p>
+              <p className="text-2xl font-bold text-emerald-400">{operatorCount}</p>
             </div>
           </CardContent>
         </Card>
@@ -253,6 +265,8 @@ export default function Users() {
                       "h-9 w-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0 border",
                       user.role === "admin"
                         ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
+                        : user.role === "operator"
+                        ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
                         : "bg-blue-500/10 border-blue-500/20 text-blue-400"
                     )}>
                       {(user.name ?? user.email ?? "U").charAt(0).toUpperCase()}
@@ -287,6 +301,11 @@ export default function Users() {
                         <Badge className="bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 gap-1">
                           <Crown className="h-3 w-3" />
                           Administrador
+                        </Badge>
+                      ) : user.role === "operator" ? (
+                        <Badge className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 gap-1">
+                          <UserCog className="h-3 w-3" />
+                          Operador
                         </Badge>
                       ) : (
                         <Badge className="bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 gap-1">
@@ -397,7 +416,7 @@ export default function Users() {
               Alterando o papel de <strong className="text-foreground">{roleDialog?.name ?? roleDialog?.email}</strong>
             </p>
             <div className="space-y-1.5">
-              <Select value={newRole} onValueChange={(v) => setNewRole(v as "admin" | "user")}>
+              <Select value={newRole} onValueChange={(v) => setNewRole(v as "admin" | "operator" | "user")}>
                 <SelectTrigger className="bg-background border-border/50">
                   <SelectValue />
                 </SelectTrigger>
@@ -406,6 +425,12 @@ export default function Users() {
                     <div className="flex items-center gap-2">
                       <Crown className="h-3.5 w-3.5 text-amber-400" />
                       Administrador — acesso total
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="operator">
+                    <div className="flex items-center gap-2">
+                      <UserCog className="h-3.5 w-3.5 text-emerald-400" />
+                      Operador — sem menus administrativos
                     </div>
                   </SelectItem>
                   <SelectItem value="user">
@@ -619,12 +644,13 @@ export default function Users() {
             </div>
             <div className="space-y-1.5">
               <Label>Papel</Label>
-              <Select value={newUserRole} onValueChange={(v) => setNewUserRole(v as "admin" | "user")}>
+              <Select value={newUserRole} onValueChange={(v) => setNewUserRole(v as "admin" | "operator" | "user")}>
                 <SelectTrigger className="bg-background border-border/50">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="user">Visualizador (somente leitura)</SelectItem>
+                  <SelectItem value="operator">Operador (sem menus administrativos)</SelectItem>
                   <SelectItem value="admin">Administrador (acesso total)</SelectItem>
                 </SelectContent>
               </Select>

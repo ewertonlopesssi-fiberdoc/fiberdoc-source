@@ -1350,3 +1350,19 @@
 - [x] Adicionar queries ceoSplitters.byCeo e ceoSplitterVias.byCeo no InfrastructureMap
 - [x] Mostrar splitters do CEO no painel lateral (secção roxa com ratio e vias expansíveis)
 - [x] Incluir splitters do CEO no PDF de fusões gerado pelo botão do mapa
+
+## Mobile — CEO/CTO Detalhes com Vias e Fusões
+- [x] Tela mobile CTO: expandir tubos mostrando vias com etiqueta, status de fusão e identificação
+- [x] Tela mobile CEO: expandir tubos/splitters mostrando vias com etiqueta, status de fusão e identificação
+- [x] Adicionar query de vias por tubo nas telas mobile (ctoVias.byTube / ceoVias.byTube)
+- [x] UI expansível: tap no tubo expande/recolhe a lista de vias
+- [x] Corrigir: carregar allVias ao abrir detalhe de CTO (para labels de fusão funcionarem)
+
+## Role Operador — Ocultar Menus Administrativos
+- [x] Adicionar valor 'operator' ao enum role no schema (admin | operator | user)
+- [x] Aplicar migration SQL para o novo enum
+- [x] Ocultar menus: Sistema, Backup, Usuários, SGP Config, Sensores Tuya, SSH Commander para role=operator
+- [x] Ocultar SSH Commander no menu mobile para role=operator
+- [x] Actualizar página de Usuários para permitir atribuir role=operator
+- [x] Adicionar card de contagem de Operadores na página de Usuários
+- [x] Testes vitest: operator não acede a users.list, updateRole, remove (FORBIDDEN)

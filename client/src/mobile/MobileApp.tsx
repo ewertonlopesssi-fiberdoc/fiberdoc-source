@@ -14,7 +14,9 @@ import { Server, Cable, BarChart2, User, WifiOff, Radio, Map, Terminal } from "l
 type Tab = "equipamentos" | "ceos" | "ctos" | "mapa" | "relatorio" | "ssh" | "perfil";
 
 function MobileShell() {
-  const { isConfigured, isAuthenticated } = useMobileAuth();
+  const { isConfigured, isAuthenticated, user } = useMobileAuth();
+  const isAdmin = user?.role === "admin";
+  // operator e user não vêem o SSH Commander
   const [online, setOnline] = useState(navigator.onLine);
 
   // Deep-link via URL: /mobile?eq=ID abre directamente o equipamento
@@ -60,15 +62,16 @@ function MobileShell() {
   if (!isConfigured)    return <MobileSetup />;
   if (!isAuthenticated) return <MobileLogin />;
 
-  const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
+  const allTabs: { id: Tab; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
     { id: "equipamentos", label: "Equip.",    icon: Server    },
     { id: "ceos",         label: "CEO",       icon: Cable     },
     { id: "ctos",         label: "CTO",       icon: Radio     },
     { id: "mapa",         label: "Mapa",      icon: Map       },
     { id: "relatorio",    label: "Relatório", icon: BarChart2 },
-    { id: "ssh",          label: "SSH",       icon: Terminal  },
+    { id: "ssh",          label: "SSH",       icon: Terminal, adminOnly: true },
     { id: "perfil",       label: "Perfil",    icon: User      },
   ];
+  const tabs = allTabs.filter(t => !t.adminOnly || isAdmin); // adminOnly=true => só admin vê
 
   return (
     <div className="flex flex-col h-screen bg-[#0a0f1e] overflow-hidden">
