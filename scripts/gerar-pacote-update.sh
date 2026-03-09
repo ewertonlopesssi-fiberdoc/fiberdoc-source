@@ -262,6 +262,13 @@ if [[ -f "${PROJECT_DIR}/deploy.sh" ]]; then
   log_ok "deploy.sh incluído."
 fi
 
+# Copiar ficheiros de migração SQL incremental (migrate-vN.sql)
+for migrate_file in "${PROJECT_DIR}"/migrate-v*.sql; do
+  [[ -f "${migrate_file}" ]] || continue
+  cp "${migrate_file}" "${STAGE_ROOT}/$(basename ${migrate_file})"
+  log_ok "$(basename ${migrate_file}) incluído."
+done
+
 # Criar ficheiro de versão
 cat > "${STAGE_ROOT}/VERSION" << VERSION_EOF
 ${VERSION}

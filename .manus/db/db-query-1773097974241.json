@@ -1,0 +1,13 @@
+{
+  "query": "SHOW TABLES LIKE 'network_snmp_config';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SHOW TABLES LIKE 'network_snmp_config';",
+  "rows": [
+    {
+      "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (network_snmp_config)": "network_snmp_config"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_KioPgWiG3Nyw2z6a2yjfqA (network_snmp_config)\nnetwork_snmp_config\n",
+  "stderr": "",
+  "execution_time_ms": 124
+}

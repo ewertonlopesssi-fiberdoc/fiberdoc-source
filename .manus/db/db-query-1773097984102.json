@@ -1,0 +1,218 @@
+{
+  "query": "DESCRIBE network_snmp_config;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute DESCRIBE network_snmp_config;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "equipmentId",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "UNI",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "enabled",
+      "Type": "tinyint(1)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "snmpHost",
+      "Type": "varchar(128)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "snmpPort",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "161",
+      "Extra": ""
+    },
+    {
+      "Field": "net_snmp_version",
+      "Type": "enum('v1','v2c','v3')",
+      "Null": "YES",
+      "Key": "",
+      "Default": "v2c",
+      "Extra": ""
+    },
+    {
+      "Field": "snmpCommunity",
+      "Type": "varchar(128)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "snmpV3User",
+      "Type": "varchar(128)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "net_snmpv3_auth_proto",
+      "Type": "enum('MD5','SHA')",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "snmpV3AuthKey",
+      "Type": "varchar(255)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "net_snmpv3_priv_proto",
+      "Type": "enum('DES','AES')",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "snmpV3PrivKey",
+      "Type": "varchar(255)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "pollInterval",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "300",
+      "Extra": ""
+    },
+    {
+      "Field": "alertsEnabled",
+      "Type": "tinyint(1)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "alertCpuMax",
+      "Type": "float",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "alertMemMax",
+      "Type": "float",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "alertTempMax",
+      "Type": "float",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "lastPollAt",
+      "Type": "timestamp",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "lastPollError",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "lastCpuPercent",
+      "Type": "float",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "lastMemPercent",
+      "Type": "float",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "lastTemperature",
+      "Type": "float",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "lastUptimeSeconds",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "lastPortCount",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "net_snmp_created_at",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "net_snmp_updated_at",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tint\tNO\tPRI\tNULL\tauto_increment\nequipmentId\tint\tNO\tUNI\tNULL\t\nenabled\ttinyint(1)\tNO\t\t0\t\nsnmpHost\tvarchar(128)\tYES\t\tNULL\t\nsnmpPort\tint\tYES\t\t161\t\nnet_snmp_version\tenum('v1','v2c','v3')\tYES\t\tv2c\t\nsnmpCommunity\tvarchar(128)\tYES\t\tNULL\t\nsnmpV3User\tvarchar(128)\tYES\t\tNULL\t\nnet_snmpv3_auth_proto\tenum('MD5','SHA')\tYES\t\tNULL\t\nsnmpV3AuthKey\tvarchar(255)\tYES\t\tNULL\t\nnet_snmpv3_priv_proto\tenum('DES','AES')\tYES\t\tNULL\t\nsnmpV3PrivKey\tvarchar(255)\tYES\t\tNULL\t\npollInterval\tint\tYES\t\t300\t\nalertsEnabled\ttinyint(1)\tNO\t\t0\t\nalertCpuMax\tfloat\tYES\t\tNULL\t\nalertMemMax\tfloat\tYES\t\tNULL\t\nalertTempMax\tfloat\tYES\t\tNULL\t\nlastPollAt\ttimestamp\tYES\t\tNULL\t\nlastPollError\ttext\tYES\t\tNULL\t\nlastCpuPercent\tfloat\tYES\t\tNULL\t\nlastMemPercent\tfloat\tYES\t\tNULL\t\nlastTemperature\tfloat\tYES\t\tNULL\t\nlastUptimeSeconds\tint\tYES\t\tNULL\t\nlastPortCount\tint\tYES\t\tNULL\t\nnet_snmp_created_at\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nnet_snmp_updated_at\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\tDEFAULT_GENERATED on update CURRENT_TIMESTAMP\n",
+  "stderr": "",
+  "execution_time_ms": 59
+}
