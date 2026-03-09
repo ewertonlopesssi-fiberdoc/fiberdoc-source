@@ -330,6 +330,20 @@
       "when": 1773093778184,
       "tag": "0046_funny_magma",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "5",
+      "when": 1773095484057,
+      "tag": "0047_nasty_kree",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "5",
+      "when": 1773095576830,
+      "tag": "0048_kind_silver_fox",
+      "breakpoints": true
     }
   ]
 }

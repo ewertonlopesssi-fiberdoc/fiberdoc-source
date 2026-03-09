@@ -62,6 +62,7 @@ import {
   BellOff,
 } from "lucide-react";
 import { useRole } from "@/hooks/useRole";
+import { useLocation } from "wouter";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -108,6 +109,7 @@ function alertTypeLabel(type: string): string {
     tx_power_low: "Sinal TX Baixo",
     tx_power_high: "Sinal TX Alto",
     snmp_unreachable: "SNMP Inacessível",
+    traffic_high: "Tráfego Alto",
   };
   return map[type] ?? type;
 }
@@ -454,6 +456,7 @@ function PortsPanel({ equipmentId }: { equipmentId: number }) {
 function EquipmentMonitorCard({ row }: { row: any }) {
   const [expanded, setExpanded] = useState(false);
   const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
 
   const pollNow = trpc.networkSnmp.pollNow.useMutation({
     onSuccess: () => {
@@ -497,6 +500,22 @@ function EquipmentMonitorCard({ row }: { row: any }) {
                 {row.activeAlertCount} alerta{row.activeAlertCount > 1 ? "s" : ""}
               </Badge>
             )}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs gap-1 text-primary"
+                    onClick={() => setLocation(`/monitor-rede/${cfg.equipmentId}`)}
+                  >
+                    <Activity className="h-3.5 w-3.5" />
+                    Gráficos
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Ver gráficos e histórico</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>

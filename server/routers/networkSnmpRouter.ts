@@ -38,6 +38,18 @@ const snmpConfigSchema = z.object({
   alertTempMax: z.number().min(0).max(200).optional().nullable(),
 });
 
+// Períodos disponíveis em minutos
+// 5min, 15min, 30min, 1h, 3h, 6h, 12h, 24h, 2d, 7d, 30d
+const PERIOD_MINUTES = [5, 15, 30, 60, 180, 360, 720, 1440, 2880, 10080, 43200] as const;
+
+// Calcular limite de pontos com base no período e intervalo de polling
+function calcLimit(periodMinutes: number): number {
+  // Máximo de 1000 pontos por gráfico; para períodos longos, retorna menos pontos
+  if (periodMinutes <= 60) return 500;
+  if (periodMinutes <= 1440) return 720;
+  return 1000;
+}
+
 // ─── Router ──────────────────────────────────────────────────────────────────
 
 export const networkSnmpRouter = router({
@@ -118,12 +130,13 @@ export const networkSnmpRouter = router({
         .orderBy(networkSnmpPorts.ifIndex);
     }),
 
-  // Atualizar configuração de alertas de porta (GBIC)
+  // Atualizar configuração de alertas de porta (GBIC + threshold de tráfego)
   updatePortAlerts: protectedProcedure
     .input(z.object({
       portId: z.number().int(),
       alertRxMin: z.number().optional().nullable(),
       alertRxMax: z.number().optional().nullable(),
+      alertBpsMax: z.number().min(0).optional().nullable(), // threshold de tráfego em bps
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -133,21 +146,23 @@ export const networkSnmpRouter = router({
         .set({
           alertRxMin: input.alertRxMin ?? undefined,
           alertRxMax: input.alertRxMax ?? undefined,
+          alertBpsMax: input.alertBpsMax ?? undefined,
         })
         .where(eq(networkSnmpPorts.id, input.portId));
       return { ok: true };
     }),
 
   // Histórico de leituras gerais (CPU, memória, temperatura)
+  // periodMinutes: 5, 15, 30, 60, 180, 360, 720, 1440, 2880, 10080, 43200
   getReadings: protectedProcedure
     .input(z.object({
       equipmentId: z.number().int(),
-      hours: z.number().int().min(1).max(168).default(24),
+      periodMinutes: z.number().int().min(5).max(43200).default(60),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
-      const since = new Date(Date.now() - input.hours * 3600 * 1000);
+      const since = new Date(Date.now() - input.periodMinutes * 60 * 1000);
       return db
         .select()
         .from(networkSnmpReadings)
@@ -157,20 +172,21 @@ export const networkSnmpRouter = router({
             gte(networkSnmpReadings.collectedAt, since)
           )
         )
-        .orderBy(desc(networkSnmpReadings.collectedAt))
-        .limit(500);
+        .orderBy(networkSnmpReadings.collectedAt)
+        .limit(calcLimit(input.periodMinutes));
     }),
 
-  // Histórico de tráfego por porta
+  // Histórico de tráfego e GBIC por porta
+  // periodMinutes: 5, 15, 30, 60, 180, 360, 720, 1440, 2880, 10080, 43200
   getPortReadings: protectedProcedure
     .input(z.object({
       portId: z.number().int(),
-      hours: z.number().int().min(1).max(168).default(24),
+      periodMinutes: z.number().int().min(5).max(43200).default(60),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
-      const since = new Date(Date.now() - input.hours * 3600 * 1000);
+      const since = new Date(Date.now() - input.periodMinutes * 60 * 1000);
       return db
         .select()
         .from(networkPortReadings)
@@ -180,8 +196,65 @@ export const networkSnmpRouter = router({
             gte(networkPortReadings.collectedAt, since)
           )
         )
-        .orderBy(desc(networkPortReadings.collectedAt))
-        .limit(500);
+        .orderBy(networkPortReadings.collectedAt)
+        .limit(calcLimit(input.periodMinutes));
+    }),
+
+  // Detalhe completo de um equipamento monitorado (config + portas + últimas leituras + alertas)
+  getEquipmentDetail: protectedProcedure
+    .input(z.object({ equipmentId: z.number().int() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return null;
+
+      // Equipamento
+      const [equipment] = await db
+        .select()
+        .from(equipments)
+        .where(eq(equipments.id, input.equipmentId));
+      if (!equipment) return null;
+
+      // Configuração SNMP
+      const [config] = await db
+        .select()
+        .from(networkSnmpConfig)
+        .where(eq(networkSnmpConfig.equipmentId, input.equipmentId));
+
+      // Portas
+      const ports = await db
+        .select()
+        .from(networkSnmpPorts)
+        .where(eq(networkSnmpPorts.equipmentId, input.equipmentId))
+        .orderBy(networkSnmpPorts.ifIndex);
+
+      // Última leitura geral
+      const [lastReading] = await db
+        .select()
+        .from(networkSnmpReadings)
+        .where(eq(networkSnmpReadings.equipmentId, input.equipmentId))
+        .orderBy(desc(networkSnmpReadings.collectedAt))
+        .limit(1);
+
+      // Alertas ativos
+      const activeAlerts = await db
+        .select()
+        .from(networkSnmpAlerts)
+        .where(
+          and(
+            eq(networkSnmpAlerts.equipmentId, input.equipmentId),
+            isNull(networkSnmpAlerts.resolvedAt)
+          )
+        )
+        .orderBy(desc(networkSnmpAlerts.createdAt))
+        .limit(20);
+
+      return {
+        equipment,
+        config: config ?? null,
+        ports,
+        lastReading: lastReading ?? null,
+        activeAlerts,
+      };
     }),
 
   // Listar alertas ativos

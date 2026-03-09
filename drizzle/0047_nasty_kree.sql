@@ -1,0 +1,1 @@
+ALTER TABLE `network_snmp_ports` ADD `alertBpsMax` float;

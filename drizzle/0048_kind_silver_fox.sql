@@ -1,0 +1,1 @@
+ALTER TABLE `network_snmp_alerts` MODIFY COLUMN `net_alert_type` enum('cpu_high','mem_high','temp_high','port_down','port_up','rx_power_low','rx_power_high','tx_power_low','tx_power_high','snmp_unreachable','traffic_high') NOT NULL;

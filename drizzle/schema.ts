@@ -1012,6 +1012,8 @@ export const networkSnmpPorts = mysqlTable("network_snmp_ports", {
   // Alertas de sinal óptico
   alertRxMin: float("alertRxMin"),                           // dBm mínimo para RX
   alertRxMax: float("alertRxMax"),                           // dBm máximo para RX
+  // Threshold de tráfego
+  alertBpsMax: float("alertBpsMax"),                         // bps máximo para alerta de tráfego
   lastPollAt: timestamp("net_port_last_poll_at"),
   createdAt: timestamp("net_port_created_at").defaultNow().notNull(),
   updatedAt: timestamp("net_port_updated_at").defaultNow().onUpdateNow().notNull(),
@@ -1063,6 +1065,7 @@ export const networkSnmpAlerts = mysqlTable("network_snmp_alerts", {
     "tx_power_low",
     "tx_power_high",
     "snmp_unreachable",
+    "traffic_high",
   ]).notNull(),
   severity: mysqlEnum("net_alert_severity", ["info", "warning", "critical"]).notNull().default("warning"),
   message: text("message").notNull(),

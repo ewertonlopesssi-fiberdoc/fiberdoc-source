@@ -1405,3 +1405,17 @@
 - [x] Adicionar rota /monitor-rede no App.tsx
 - [x] Adicionar "Monitor de Rede" no menu lateral do DashboardLayout
 - [x] Corrigir erros TypeScript no networkSnmpPoller (versão SNMP, callback)
+
+## Monitor de Rede — Gráficos e Threshold de Tráfego
+- [x] Adicionar campo alertBpsMax (threshold de tráfego em bps) na tabela network_snmp_ports
+- [x] Gerar e aplicar migration SQL para o novo campo
+- [x] Atualizar procedure getPortReadings para aceitar período em minutos (5min a 30 dias)
+- [x] Criar procedure getEquipmentDetail com dados completos do equipamento monitorado
+- [x] Atualizar poller para verificar threshold de tráfego e criar alerta traffic_threshold
+- [x] Criar página NetworkEquipmentDetail.tsx com gráficos de tráfego e GBIC por porta
+- [x] Seletor de período (5min, 15min, 30min, 1h, 3h, 6h, 12h, 24h, 2d, 7d, 30d)
+- [x] Gráfico de tráfego por porta (inBps/outBps) com linha de threshold
+- [x] Gráfico de sinal GBIC (rxPowerDbm/txPowerDbm) com faixas de alerta
+- [x] Campo de configuração de threshold de tráfego por porta (Mbps)
+- [x] Adicionar rota /monitor-rede/:equipmentId no App.tsx
+- [x] Botão "Ver Detalhes" na lista de equipamentos do Monitor de Rede

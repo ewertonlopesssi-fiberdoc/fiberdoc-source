@@ -360,6 +360,19 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
             });
           }
 
+          // Alerta de threshold de tráfego
+          if (existingPort.alertBpsMax !== null && existingPort.alertBpsMax !== undefined) {
+            const maxBps = Math.max(inBps ?? 0, outBps ?? 0);
+            if (maxBps > existingPort.alertBpsMax) {
+              const maxMbps = (maxBps / 1_000_000).toFixed(2);
+              const threshMbps = (existingPort.alertBpsMax / 1_000_000).toFixed(2);
+              await createNetworkAlert(
+                equipmentId, existingPort.id, "traffic_high", "warning",
+                `Tráfego alto em ${ifName}: ${maxMbps} Mbps (limite: ${threshMbps} Mbps)`,
+                maxBps, existingPort.alertBpsMax
+              );
+            }
+          }
           // Alertas de porta down
           if (operStatus === "down" && adminStatus === "up") {
             await createNetworkAlert(equipmentId, existingPort.id, "port_down", "warning",
