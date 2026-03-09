@@ -262,6 +262,12 @@ if [[ -f "${PROJECT_DIR}/deploy.sh" ]]; then
   log_ok "deploy.sh incluído."
 fi
 
+# Copiar pasta patches/ se existir (necessária para pnpm install)
+if [[ -d "${PROJECT_DIR}/patches" ]]; then
+  cp -r "${PROJECT_DIR}/patches" "${STAGE_ROOT}/patches"
+  log_ok "patches/ incluído."
+fi
+
 # Copiar ficheiros de migração SQL incremental (migrate-vN.sql)
 for migrate_file in "${PROJECT_DIR}"/migrate-v*.sql; do
   [[ -f "${migrate_file}" ]] || continue
