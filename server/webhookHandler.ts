@@ -12,6 +12,7 @@
 import crypto from "crypto";
 import { getDb } from "./db";
 import { getSgpConfig, sgpGetOnuBySerial } from "./sgpApi";
+import { genieRequest } from "./genieacsRouter";
 import { systemSettings } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 
@@ -61,7 +62,8 @@ export async function validateWebhookSignature(
       return true; // Permitir se não configurado (para testes)
     }
 
-    const secret = rows[0].value;
+    const secret = rows[0].value ?? "";
+    if (!secret) return true;
     const hash = crypto
       .createHmac("sha256", secret)
       .update(payload)
@@ -114,7 +116,6 @@ export async function syncOnuFromWebhook(
     }
 
     // 4. Buscar ONU no GenieACS
-    const { genieRequest } = await import("./genieacsRouter");
     const devices = await genieRequest(
       `/devices?query=${encodeURIComponent(
         JSON.stringify({ "_id": { "$regex": serial } })

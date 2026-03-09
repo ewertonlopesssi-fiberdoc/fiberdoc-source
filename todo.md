@@ -1387,3 +1387,21 @@
 - [x] Criar testes unitários com Vitest
 - [x] Documentar como configurar webhook no SGP TSMx
 - [ ] Testar com ONU real
+
+## Melhorias v5.89
+
+- [ ] Corrigir erros TypeScript em Users.tsx (role "operator" não aceito)
+- [ ] Vincular traçado arrastando ponto sobre elemento no mapa de infraestrutura
+- [ ] Implementar monitoramento SNMP de equipamentos de rede (NE8000, CCR, switches)
+- [ ] Criar mapa de topologia de rede com tráfego e sinal GBIC ao passar o mouse
+- [ ] Adicionar filtro por sala na página de Equipamentos
+
+## Melhorias v5.90 — Monitor de Rede SNMP
+- [x] Adicionar filtro por sala na página de Equipamentos (já estava implementado)
+- [x] Criar tabelas SNMP: network_snmp_config, network_snmp_ports, network_snmp_readings, network_port_readings, network_snmp_alerts
+- [x] Criar networkSnmpPoller.ts: polling SNMP de CPU, memória, temperatura, uptime, tráfego por porta, GBIC/DOM
+- [x] Criar networkSnmpRouter.ts: endpoints tRPC para configuração, leitura e alertas
+- [x] Criar página NetworkMonitor.tsx: visualização de equipamentos monitorados, portas e alertas
+- [x] Adicionar rota /monitor-rede no App.tsx
+- [x] Adicionar "Monitor de Rede" no menu lateral do DashboardLayout
+- [x] Corrigir erros TypeScript no networkSnmpPoller (versão SNMP, callback)

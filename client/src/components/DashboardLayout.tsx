@@ -91,6 +91,7 @@ const publicMenuItems = [
   { icon: FileBarChart, label: "Relatório de Ocupação", path: "/relatorio-ocupacao" },
   { icon: Zap, label: "Fontes de Energia", path: "/fontes-energia" },
   { icon: Bell, label: "Alertas", path: "/alertas" },
+  { icon: Activity, label: "Monitor de Rede", path: "/monitor-rede" },
 ];
 
 // Menus visíveis apenas para admin (ocultos para operator e user)

@@ -1,0 +1,284 @@
+/**
+ * networkSnmpRouter.ts
+ * tRPC router para configuração e consulta de monitoramento SNMP de equipamentos de rede
+ */
+
+import { z } from "zod";
+import { router, protectedProcedure } from "../_core/trpc";
+import { getDb } from "../db";
+import {
+  networkSnmpConfig,
+  networkSnmpPorts,
+  networkSnmpReadings,
+  networkPortReadings,
+  networkSnmpAlerts,
+  equipments,
+} from "../../drizzle/schema";
+import { eq, and, desc, gte, isNull } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { pollNetworkEquipment } from "../networkSnmpPoller";
+
+// ─── Schemas ─────────────────────────────────────────────────────────────────
+
+const snmpConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  snmpHost: z.string().max(128).optional(),
+  snmpPort: z.number().int().min(1).max(65535).optional(),
+  snmpVersion: z.enum(["v1", "v2c", "v3"]).optional(),
+  snmpCommunity: z.string().max(128).optional(),
+  snmpV3User: z.string().max(128).optional(),
+  snmpV3AuthProto: z.enum(["MD5", "SHA"]).optional(),
+  snmpV3AuthKey: z.string().max(255).optional(),
+  snmpV3PrivProto: z.enum(["DES", "AES"]).optional(),
+  snmpV3PrivKey: z.string().max(255).optional(),
+  pollInterval: z.number().int().min(30).max(86400).optional(),
+  alertsEnabled: z.boolean().optional(),
+  alertCpuMax: z.number().min(0).max(100).optional().nullable(),
+  alertMemMax: z.number().min(0).max(100).optional().nullable(),
+  alertTempMax: z.number().min(0).max(200).optional().nullable(),
+});
+
+// ─── Router ──────────────────────────────────────────────────────────────────
+
+export const networkSnmpRouter = router({
+
+  // Obter configuração SNMP de um equipamento
+  getConfig: protectedProcedure
+    .input(z.object({ equipmentId: z.number().int() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const [cfg] = await db
+        .select()
+        .from(networkSnmpConfig)
+        .where(eq(networkSnmpConfig.equipmentId, input.equipmentId));
+      return cfg ?? null;
+    }),
+
+  // Criar ou atualizar configuração SNMP
+  upsertConfig: protectedProcedure
+    .input(z.object({ equipmentId: z.number().int() }).merge(snmpConfigSchema))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
+      const { equipmentId, ...data } = input;
+
+      // Verificar se equipamento existe
+      const [eq_] = await db
+        .select({ id: equipments.id })
+        .from(equipments)
+        .where(eq(equipments.id, equipmentId));
+      if (!eq_) throw new TRPCError({ code: "NOT_FOUND", message: "Equipamento não encontrado" });
+
+      const [existing] = await db
+        .select({ id: networkSnmpConfig.id })
+        .from(networkSnmpConfig)
+        .where(eq(networkSnmpConfig.equipmentId, equipmentId));
+
+      if (existing) {
+        await db
+          .update(networkSnmpConfig)
+          .set(data as any)
+          .where(eq(networkSnmpConfig.equipmentId, equipmentId));
+      } else {
+        await db.insert(networkSnmpConfig).values({ equipmentId, ...data } as any);
+      }
+
+      const [cfg] = await db
+        .select()
+        .from(networkSnmpConfig)
+        .where(eq(networkSnmpConfig.equipmentId, equipmentId));
+      return cfg;
+    }),
+
+  // Forçar poll imediato
+  pollNow: protectedProcedure
+    .input(z.object({ equipmentId: z.number().int() }))
+    .mutation(async ({ input }) => {
+      await pollNetworkEquipment(input.equipmentId);
+      const db = await getDb();
+      if (!db) return null;
+      const [cfg] = await db
+        .select()
+        .from(networkSnmpConfig)
+        .where(eq(networkSnmpConfig.equipmentId, input.equipmentId));
+      return cfg ?? null;
+    }),
+
+  // Listar portas de um equipamento
+  getPorts: protectedProcedure
+    .input(z.object({ equipmentId: z.number().int() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      return db
+        .select()
+        .from(networkSnmpPorts)
+        .where(eq(networkSnmpPorts.equipmentId, input.equipmentId))
+        .orderBy(networkSnmpPorts.ifIndex);
+    }),
+
+  // Atualizar configuração de alertas de porta (GBIC)
+  updatePortAlerts: protectedProcedure
+    .input(z.object({
+      portId: z.number().int(),
+      alertRxMin: z.number().optional().nullable(),
+      alertRxMax: z.number().optional().nullable(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
+      await db
+        .update(networkSnmpPorts)
+        .set({
+          alertRxMin: input.alertRxMin ?? undefined,
+          alertRxMax: input.alertRxMax ?? undefined,
+        })
+        .where(eq(networkSnmpPorts.id, input.portId));
+      return { ok: true };
+    }),
+
+  // Histórico de leituras gerais (CPU, memória, temperatura)
+  getReadings: protectedProcedure
+    .input(z.object({
+      equipmentId: z.number().int(),
+      hours: z.number().int().min(1).max(168).default(24),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const since = new Date(Date.now() - input.hours * 3600 * 1000);
+      return db
+        .select()
+        .from(networkSnmpReadings)
+        .where(
+          and(
+            eq(networkSnmpReadings.equipmentId, input.equipmentId),
+            gte(networkSnmpReadings.collectedAt, since)
+          )
+        )
+        .orderBy(desc(networkSnmpReadings.collectedAt))
+        .limit(500);
+    }),
+
+  // Histórico de tráfego por porta
+  getPortReadings: protectedProcedure
+    .input(z.object({
+      portId: z.number().int(),
+      hours: z.number().int().min(1).max(168).default(24),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const since = new Date(Date.now() - input.hours * 3600 * 1000);
+      return db
+        .select()
+        .from(networkPortReadings)
+        .where(
+          and(
+            eq(networkPortReadings.portId, input.portId),
+            gte(networkPortReadings.collectedAt, since)
+          )
+        )
+        .orderBy(desc(networkPortReadings.collectedAt))
+        .limit(500);
+    }),
+
+  // Listar alertas ativos
+  getAlerts: protectedProcedure
+    .input(z.object({
+      equipmentId: z.number().int().optional(),
+      onlyActive: z.boolean().default(true),
+      limit: z.number().int().min(1).max(200).default(50),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const conditions = [];
+      if (input.equipmentId) {
+        conditions.push(eq(networkSnmpAlerts.equipmentId, input.equipmentId));
+      }
+      if (input.onlyActive) {
+        conditions.push(isNull(networkSnmpAlerts.resolvedAt));
+      }
+
+      return db
+        .select({
+          alert: networkSnmpAlerts,
+          equipmentName: equipments.name,
+        })
+        .from(networkSnmpAlerts)
+        .leftJoin(equipments, eq(networkSnmpAlerts.equipmentId, equipments.id))
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(networkSnmpAlerts.createdAt))
+        .limit(input.limit);
+    }),
+
+  // Reconhecer alerta
+  acknowledgeAlert: protectedProcedure
+    .input(z.object({
+      alertId: z.number().int(),
+      acknowledgedBy: z.string().max(128).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
+      await db
+        .update(networkSnmpAlerts)
+        .set({
+          acknowledgedAt: new Date(),
+          acknowledgedBy: input.acknowledgedBy ?? ctx.user?.name ?? "sistema",
+        })
+        .where(eq(networkSnmpAlerts.id, input.alertId));
+      return { ok: true };
+    }),
+
+  // Resolver alerta
+  resolveAlert: protectedProcedure
+    .input(z.object({ alertId: z.number().int() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
+      await db
+        .update(networkSnmpAlerts)
+        .set({ resolvedAt: new Date() })
+        .where(eq(networkSnmpAlerts.id, input.alertId));
+      return { ok: true };
+    }),
+
+  // Resumo de todos os equipamentos com SNMP habilitado
+  getSummary: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    const configs = await db
+      .select({
+        config: networkSnmpConfig,
+        equipment: {
+          id: equipments.id,
+          name: equipments.name,
+          type: equipments.type,
+          manufacturer: equipments.manufacturer,
+          ipAddress: equipments.ipAddress,
+        },
+      })
+      .from(networkSnmpConfig)
+      .leftJoin(equipments, eq(networkSnmpConfig.equipmentId, equipments.id))
+      .where(eq(networkSnmpConfig.enabled, true));
+
+    // Contar alertas ativos por equipamento
+    const activeAlerts = await db
+      .select()
+      .from(networkSnmpAlerts)
+      .where(isNull(networkSnmpAlerts.resolvedAt));
+
+    const alertsByEquipment: Record<number, number> = {};
+    for (const alert of activeAlerts) {
+      alertsByEquipment[alert.equipmentId] = (alertsByEquipment[alert.equipmentId] ?? 0) + 1;
+    }
+
+    return configs.map((row) => ({
+      ...row,
+      activeAlertCount: alertsByEquipment[row.config.equipmentId] ?? 0,
+    }));
+  }),
+});

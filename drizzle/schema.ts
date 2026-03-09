@@ -947,3 +947,132 @@ export const sshDeviceCommands = mysqlTable("ssh_device_commands", {
 });
 export type SshDeviceCommand = typeof sshDeviceCommands.$inferSelect;
 export type InsertSshDeviceCommand = typeof sshDeviceCommands.$inferInsert;
+
+// ─── Monitoramento SNMP de Equipamentos de Rede ───────────────────────────────
+// Configuração SNMP por equipamento (switch, roteador, OLT, etc.)
+export const networkSnmpConfig = mysqlTable("network_snmp_config", {
+  id: int("id").autoincrement().primaryKey(),
+  equipmentId: int("equipmentId").notNull().unique().references(() => equipments.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").default(false).notNull(),
+  snmpHost: varchar("snmpHost", { length: 128 }),            // IP ou hostname de gerência
+  snmpPort: int("snmpPort").default(161),
+  snmpVersion: mysqlEnum("net_snmp_version", ["v1", "v2c", "v3"]).default("v2c"),
+  snmpCommunity: varchar("snmpCommunity", { length: 128 }),  // Community string (v1/v2c)
+  // SNMPv3
+  snmpV3User: varchar("snmpV3User", { length: 128 }),
+  snmpV3AuthProto: mysqlEnum("net_snmpv3_auth_proto", ["MD5", "SHA"]),
+  snmpV3AuthKey: varchar("snmpV3AuthKey", { length: 255 }),
+  snmpV3PrivProto: mysqlEnum("net_snmpv3_priv_proto", ["DES", "AES"]),
+  snmpV3PrivKey: varchar("snmpV3PrivKey", { length: 255 }),
+  pollInterval: int("pollInterval").default(300),            // Intervalo em segundos
+  // Alertas
+  alertsEnabled: boolean("alertsEnabled").default(false).notNull(),
+  alertCpuMax: float("alertCpuMax"),                         // % CPU — acima dispara alerta
+  alertMemMax: float("alertMemMax"),                         // % Memória — acima dispara alerta
+  alertTempMax: float("alertTempMax"),                       // °C — acima dispara alerta
+  // Último poll
+  lastPollAt: timestamp("lastPollAt"),
+  lastPollError: text("lastPollError"),
+  // Últimos valores coletados (cache)
+  lastCpuPercent: float("lastCpuPercent"),
+  lastMemPercent: float("lastMemPercent"),
+  lastTemperature: float("lastTemperature"),
+  lastUptimeSeconds: int("lastUptimeSeconds"),
+  lastPortCount: int("lastPortCount"),
+  createdAt: timestamp("net_snmp_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("net_snmp_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type NetworkSnmpConfig = typeof networkSnmpConfig.$inferSelect;
+export type InsertNetworkSnmpConfig = typeof networkSnmpConfig.$inferInsert;
+
+// ─── Portas SNMP de Equipamentos de Rede ─────────────────────────────────────
+// Portas descobertas via SNMP (IF-MIB) — tráfego e estado
+export const networkSnmpPorts = mysqlTable("network_snmp_ports", {
+  id: int("id").autoincrement().primaryKey(),
+  equipmentId: int("equipmentId").notNull().references(() => equipments.id, { onDelete: "cascade" }),
+  ifIndex: int("ifIndex").notNull(),                         // SNMP ifIndex
+  ifName: varchar("ifName", { length: 64 }),                 // ex: GigabitEthernet0/1
+  ifAlias: varchar("ifAlias", { length: 128 }),              // Descrição/alias configurado
+  ifSpeed: int("ifSpeed"),                                   // Velocidade em bps
+  ifType: varchar("ifType", { length: 32 }),                 // ethernetCsmacd, opticalChannel, etc.
+  // Último estado coletado
+  ifOperStatus: mysqlEnum("if_oper_status", ["up", "down", "testing", "unknown", "dormant", "notPresent", "lowerLayerDown"]).default("unknown"),
+  ifAdminStatus: mysqlEnum("if_admin_status", ["up", "down", "testing"]).default("up"),
+  // Tráfego (bytes/s calculado entre polls)
+  lastInBps: float("lastInBps"),                             // bps de entrada
+  lastOutBps: float("lastOutBps"),                           // bps de saída
+  lastInOctets: int("lastInOctets"),                         // contador bruto entrada
+  lastOutOctets: int("lastOutOctets"),                       // contador bruto saída
+  // GBIC / Óptica (DOM — Digital Optical Monitoring)
+  gbicEnabled: boolean("gbicEnabled").default(false).notNull(),
+  lastRxPowerDbm: float("lastRxPowerDbm"),                   // Potência RX em dBm
+  lastTxPowerDbm: float("lastTxPowerDbm"),                   // Potência TX em dBm
+  lastGbicTemp: float("lastGbicTemp"),                       // Temperatura do GBIC em °C
+  lastGbicVoltage: float("lastGbicVoltage"),                 // Tensão do GBIC em V
+  // Alertas de sinal óptico
+  alertRxMin: float("alertRxMin"),                           // dBm mínimo para RX
+  alertRxMax: float("alertRxMax"),                           // dBm máximo para RX
+  lastPollAt: timestamp("net_port_last_poll_at"),
+  createdAt: timestamp("net_port_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("net_port_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type NetworkSnmpPort = typeof networkSnmpPorts.$inferSelect;
+export type InsertNetworkSnmpPort = typeof networkSnmpPorts.$inferInsert;
+
+// ─── Histórico de Leituras SNMP de Equipamentos de Rede ──────────────────────
+export const networkSnmpReadings = mysqlTable("network_snmp_readings", {
+  id: int("id").autoincrement().primaryKey(),
+  equipmentId: int("equipmentId").notNull().references(() => equipments.id, { onDelete: "cascade" }),
+  cpuPercent: float("cpuPercent"),
+  memPercent: float("memPercent"),
+  temperature: float("temperature"),
+  uptimeSeconds: int("uptimeSeconds"),
+  collectedAt: timestamp("net_reading_collected_at").defaultNow().notNull(),
+});
+export type NetworkSnmpReading = typeof networkSnmpReadings.$inferSelect;
+export type InsertNetworkSnmpReading = typeof networkSnmpReadings.$inferInsert;
+
+// ─── Histórico de Tráfego por Porta SNMP ─────────────────────────────────────
+export const networkPortReadings = mysqlTable("network_port_readings", {
+  id: int("id").autoincrement().primaryKey(),
+  portId: int("portId").notNull().references(() => networkSnmpPorts.id, { onDelete: "cascade" }),
+  equipmentId: int("equipmentId").notNull(),
+  inBps: float("inBps"),                                     // bps de entrada
+  outBps: float("outBps"),                                   // bps de saída
+  rxPowerDbm: float("rxPowerDbm"),                           // Potência RX em dBm
+  txPowerDbm: float("txPowerDbm"),                           // Potência TX em dBm
+  gbicTemp: float("gbicTemp"),
+  collectedAt: timestamp("net_port_reading_at").defaultNow().notNull(),
+});
+export type NetworkPortReading = typeof networkPortReadings.$inferSelect;
+export type InsertNetworkPortReading = typeof networkPortReadings.$inferInsert;
+
+// ─── Alertas SNMP de Equipamentos de Rede ────────────────────────────────────
+export const networkSnmpAlerts = mysqlTable("network_snmp_alerts", {
+  id: int("id").autoincrement().primaryKey(),
+  equipmentId: int("equipmentId").notNull().references(() => equipments.id, { onDelete: "cascade" }),
+  portId: int("portId").references(() => networkSnmpPorts.id, { onDelete: "cascade" }),
+  alertType: mysqlEnum("net_alert_type", [
+    "cpu_high",
+    "mem_high",
+    "temp_high",
+    "port_down",
+    "port_up",
+    "rx_power_low",
+    "rx_power_high",
+    "tx_power_low",
+    "tx_power_high",
+    "snmp_unreachable",
+  ]).notNull(),
+  severity: mysqlEnum("net_alert_severity", ["info", "warning", "critical"]).notNull().default("warning"),
+  message: text("message").notNull(),
+  currentValue: float("currentValue"),
+  thresholdValue: float("thresholdValue"),
+  acknowledgedAt: timestamp("net_alert_ack_at"),
+  acknowledgedBy: varchar("acknowledgedBy", { length: 128 }),
+  resolvedAt: timestamp("net_alert_resolved_at"),
+  createdAt: timestamp("net_alert_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("net_alert_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type NetworkSnmpAlert = typeof networkSnmpAlerts.$inferSelect;
+export type InsertNetworkSnmpAlert = typeof networkSnmpAlerts.$inferInsert;

@@ -343,8 +343,8 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
     // Usar allVias se disponível, senão procurar no tubeViasCache
     let fusedVia = allVias.find(v => v.id === via.fusedToViaId);
     if (!fusedVia) {
-      for (const tvias of tubeViasCache.values()) {
-        const found = tvias.find(v => v.id === via.fusedToViaId);
+      for (const tvias of Array.from(tubeViasCache.values())) {
+        const found = tvias.find((v: Via) => v.id === via.fusedToViaId);
         if (found) { fusedVia = found; break; }
       }
     }

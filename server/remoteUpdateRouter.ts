@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { protectedProcedure, publicProcedure, router } from "./trpc";
+import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { exec } from "child_process";
 import { promisify } from "util";
 import path from "path";

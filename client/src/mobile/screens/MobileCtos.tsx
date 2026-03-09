@@ -478,8 +478,8 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed, onGoToMap
                             // Procurar via fusionada em allVias ou no tubeViasCache
                             let fusedVia = isFused ? allVias.find(v => v.id === via.fusedToViaId) : null;
                             if (isFused && !fusedVia) {
-                              for (const tvias of tubeViasCache.values()) {
-                                const found = tvias.find(v => v.id === via.fusedToViaId);
+                              for (const tvias of Array.from(tubeViasCache.values())) {
+                                const found = tvias.find((v: any) => v.id === via.fusedToViaId);
                                 if (found) { fusedVia = found; break; }
                               }
                             }
@@ -768,8 +768,8 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed, onGoToMap
             const isFused = via.fusedToViaId != null;
             let fusedVia = isFused ? allVias.find(v => v.id === via.fusedToViaId) : null;
             if (isFused && !fusedVia) {
-              for (const tvias of tubeViasCache.values()) {
-                const found = tvias.find(v => v.id === via.fusedToViaId);
+              for (const tvias of Array.from(tubeViasCache.values())) {
+                const found = tvias.find((v: any) => v.id === via.fusedToViaId);
                 if (found) { fusedVia = found; break; }
               }
             }
@@ -907,8 +907,8 @@ export default function MobileCtos({ initialCtoId, onDeepLinkConsumed, onGoToMap
     const isFused = selectedVia.fusedToViaId != null;
     let fusedVia = isFused ? allVias.find(v => v.id === selectedVia.fusedToViaId) : null;
     if (isFused && !fusedVia) {
-      for (const tvias of tubeViasCache.values()) {
-        const found = tvias.find(v => v.id === selectedVia.fusedToViaId);
+      for (const tvias of Array.from(tubeViasCache.values())) {
+        const found = tvias.find((v: any) => v.id === selectedVia.fusedToViaId);
         if (found) { fusedVia = found; break; }
       }
     }

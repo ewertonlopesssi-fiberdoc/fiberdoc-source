@@ -177,7 +177,7 @@ async function loadUpdateStatus(): Promise<void> {
       .where(eq(systemSettings.key, "update_status"));
 
     if (rows[0]) {
-      updateStatus = JSON.parse(rows[0].value);
+      updateStatus = JSON.parse(rows[0].value ?? "{}");
     }
   } catch (err) {
     console.error("[UpdateClient] Erro ao carregar status:", err);

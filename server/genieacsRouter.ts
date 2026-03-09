@@ -35,7 +35,7 @@ async function getGenieACSConfig(): Promise<{ url: string; auth: string | null }
   return { url, auth };
 }
 
-async function genieRequest(
+export async function genieRequest(
   path: string,
   method: "GET" | "POST" | "DELETE" = "GET",
   body?: object

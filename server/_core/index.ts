@@ -13,6 +13,7 @@ import { serveStatic } from "./serve-static";
 import { startBackupScheduler, LOCAL_BACKUP_DIR } from "../backupScheduler";
 
 import { startSnmpPoller } from "../snmpPoller";
+import { startNetworkSnmpPoller } from "../networkSnmpPoller";
 import type { WebhookPayload } from "../webhookHandler";
 import { generateIpReportPdf } from "../ipReportPdf";
 import { generateEquipmentReportPdf } from "../equipmentReportPdf";
@@ -447,6 +448,8 @@ async function startServer() {
     startBackupScheduler();
     // Start SNMP poller for power sources
     startSnmpPoller();
+    // Start SNMP poller for network equipment (switches, routers, OLTs)
+    startNetworkSnmpPoller();
     // Seed admin padrão para instalações locais sem OAuth
     seedDefaultAdmin().catch(console.error);
   });

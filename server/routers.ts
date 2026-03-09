@@ -134,6 +134,7 @@ import {
 import { getRacks, getRackById, createRack, updateRack, deleteRack } from "./db";
 import { sshCommanderRouter } from "./sshCommanderRouter";
 import { genieacsRouter } from "./genieacsRouter";
+import { networkSnmpRouter } from "./routers/networkSnmpRouter";
 import {
   getMapGroups, createMapGroup, updateMapGroup, deleteMapGroup,
   getGroupMembers, addElementToGroup, removeElementFromGroup,
@@ -3167,6 +3168,7 @@ ${fiberFolder}
   }),
   sshCommander: sshCommanderRouter,
   genieacs: genieacsRouter,
+  networkSnmp: networkSnmpRouter,
 });
 export type AppRouter = typeof appRouter;
 

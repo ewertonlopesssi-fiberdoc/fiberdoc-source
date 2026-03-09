@@ -38,6 +38,7 @@ import InfrastructureMap from "./pages/InfrastructureMap";
 import SgpConfig from "./pages/SgpConfig";
 import SshCommander from "./pages/SshCommander";
 import CpeManager from "./pages/CpeManager";
+import NetworkMonitor from "./pages/NetworkMonitor";
 import DashboardLayout from "./components/DashboardLayout";
 
 function Router() {
@@ -102,6 +103,7 @@ function Router() {
         <Route path={"/sgp"} component={SgpConfig} />
         <Route path={"/ssh-commander"} component={SshCommander} />
         <Route path={"/cpe-manager"} component={CpeManager} />
+        <Route path={"/monitor-rede"} component={NetworkMonitor} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />
       </Switch>

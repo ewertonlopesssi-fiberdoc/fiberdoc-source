@@ -284,6 +284,7 @@ export default function Equipments() {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterRoomId, setFilterRoomId] = useState("all");
   const [ipSearch, setIpSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
@@ -300,6 +301,7 @@ export default function Equipments() {
     search: search || undefined,
     type: filterType !== "all" ? filterType : undefined,
     status: filterStatus !== "all" ? filterStatus : undefined,
+    roomId: filterRoomId !== "all" ? Number(filterRoomId) : undefined,
     ipSearch: ipSearch || undefined,
   });
 
@@ -511,6 +513,18 @@ export default function Equipments() {
             <SelectItem value="all">Todos os status</SelectItem>
             {STATUS_OPTIONS.map((s) => (
               <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterRoomId} onValueChange={setFilterRoomId}>
+          <SelectTrigger className="w-44 bg-card border-border/50">
+            <MapPin className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+            <SelectValue placeholder="Sala" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas as salas</SelectItem>
+            {(rooms ?? []).map((r: any) => (
+              <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
