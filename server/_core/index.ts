@@ -13,6 +13,7 @@ import { serveStatic } from "./serve-static";
 import { startBackupScheduler, LOCAL_BACKUP_DIR } from "../backupScheduler";
 
 import { startSnmpPoller } from "../snmpPoller";
+import type { WebhookPayload } from "../webhookHandler";
 import { generateIpReportPdf } from "../ipReportPdf";
 import { generateEquipmentReportPdf } from "../equipmentReportPdf";
 import { generateFusionReportPdf } from "../fusionReportPdf";
@@ -57,6 +58,43 @@ async function startServer() {
 
   // Local login (for standalone installations without OAuth)
   registerLocalAuthRoutes(app);
+
+  // Webhook do SGP TSMx para sincronização automática
+  app.post("/api/webhooks/sgp", async (req, res) => {
+    try {
+      const { handleSgpWebhook, validateWebhookSignature } = await import(
+        "../webhookHandler"
+      );
+
+      // Validar assinatura do webhook
+      const payload = JSON.stringify(req.body);
+      const signature = req.headers["x-webhook-signature"] as string;
+
+      if (signature) {
+        const isValid = await validateWebhookSignature(payload, signature);
+        if (!isValid) {
+          console.warn("[Webhook] Assinatura inválida");
+          return res.status(401).json({ error: "Assinatura inválida" });
+        }
+      }
+
+      // Processar webhook
+      const result = await handleSgpWebhook(req.body);
+
+      if (result) {
+        res.json({
+          success: result.success,
+          serial: result.serial,
+          message: result.message,
+        });
+      } else {
+        res.status(400).json({ error: "Falha ao processar webhook" });
+      }
+    } catch (err: any) {
+      console.error("[Webhook] Erro:", err.message);
+      res.status(500).json({ error: err.message || "Erro ao processar webhook" });
+    }
+  });
   // Relatório de IPs em PDF
   app.get("/api/ip-report-pdf", async (req, res) => {
     try {

@@ -1375,3 +1375,15 @@
 ## Mobile — Botão "Ver no Mapa"
 - [ ] Botão "Ver no Mapa" no detalhe de CEO mobile (navega para aba Mapa centrando no CEO)
 - [ ] Botão "Ver no Mapa" no detalhe de CTO mobile (navega para aba Mapa centrando na CTO)
+
+
+## Webhook SGP TSMx → GenieACS (Nova Integração)
+
+- [x] Criar endpoint `/api/webhooks/sgp` para receber notificações do SGP
+- [x] Implementar validação de assinatura do webhook (HMAC-SHA256)
+- [x] Implementar lógica de sincronização: buscar ONU no SGP, atualizar via GenieACS
+- [x] Adicionar retry com backoff exponencial para falhas
+- [x] Adicionar logging de todas as sincronizações
+- [x] Criar testes unitários com Vitest
+- [x] Documentar como configurar webhook no SGP TSMx
+- [ ] Testar com ONU real
