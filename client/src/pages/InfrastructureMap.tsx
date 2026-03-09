@@ -641,6 +641,7 @@ export default function InfrastructureMap() {
   const [fusionSourceVia, setFusionSourceVia] = useState<{ id: number; viaNumber: number; tubeId: number; isCto: boolean; isFused: boolean; label?: string | null } | null>(null);
   const [fusionTargetTubeId, setFusionTargetTubeId] = useState<string>("");
   const [fusionTargetViaId, setFusionTargetViaId] = useState<string>("");
+  const [clearFusionConfirm, setClearFusionConfirm] = useState<{ id: number; viaNumber: number; isCto: boolean } | null>(null);
   const mapUtils = trpc.useUtils();
   const setCtoFusionMut = trpc.ctoVias.setFusion.useMutation({
     onSuccess: () => {
@@ -2322,8 +2323,7 @@ export default function InfrastructureMap() {
                                   title={isFused ? "Clique para remover fusão" : "Clique para registrar fusão"}
                                   onClick={() => {
                                     if (isFused) {
-                                      if (isCto) clearCtoFusionMut.mutate({ viaId: via.id });
-                                      else clearCeoFusionMut.mutate({ viaId: via.id });
+                                      setClearFusionConfirm({ id: via.id, viaNumber: via.viaNumber, isCto });
                                     } else {
                                       setFusionSourceVia({ id: via.id, viaNumber: via.viaNumber, tubeId: tube.id, isCto, isFused: false, label: via.label });
                                       setFusionTargetTubeId("");
@@ -3731,6 +3731,33 @@ export default function InfrastructureMap() {
               }}
             >
               {deleteCtoTubeMut.isPending || deleteCeoTubeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Excluir"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo Confirmar Desfazer Fusão */}
+      <Dialog open={clearFusionConfirm !== null} onOpenChange={() => setClearFusionConfirm(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Confirmar Desfazer Fusão</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-foreground mb-2">
+              Tem certeza que deseja remover a fusão da <span className="font-semibold">VIA {clearFusionConfirm?.viaNumber}</span>?
+            </p>
+            <p className="text-xs text-muted-foreground">Esta ação não pode ser desfeita.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearFusionConfirm(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={() => {
+              if (clearFusionConfirm) {
+                if (clearFusionConfirm.isCto) clearCtoFusionMut.mutate({ viaId: clearFusionConfirm.id });
+                else clearCeoFusionMut.mutate({ viaId: clearFusionConfirm.id });
+                setClearFusionConfirm(null);
+              }
+            }} disabled={clearCtoFusionMut.isPending || clearCeoFusionMut.isPending}>
+              {(clearCtoFusionMut.isPending || clearCeoFusionMut.isPending) ? "Removendo..." : "Remover Fusão"}
             </Button>
           </DialogFooter>
         </DialogContent>

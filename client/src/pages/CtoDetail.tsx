@@ -67,7 +67,7 @@ function ViaCard({
   allVias: Via[];
   fibers: Fiber[];
   onSetFusion: (via: Via) => void;
-  onClearFusion: (viaId: number) => void;
+  onClearFusion: (via: Via) => void;
   onEditLabel: (via: Via) => void;
   onSetFiber: (via: Via) => void;
   onClearFiber: (viaId: number) => void;
@@ -136,7 +136,7 @@ function ViaCard({
           {/* Fusão */}
           {fused ? (
             <button
-              onClick={() => onClearFusion(via.id)}
+              onClick={() => onClearFusion(via)}
               className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
               title="Remover fusão"
             >
@@ -198,6 +198,7 @@ function TubePanel({
 }) {
   const utils = trpc.useUtils();
   const [fusionDialog, setFusionDialog] = useState<Via | null>(null);
+  const [clearFusionConfirmDialog, setClearFusionConfirmDialog] = useState<Via | null>(null);
   const [labelDialog, setLabelDialog] = useState<Via | null>(null);
   const [fiberDialog, setFiberDialog] = useState<Via | null>(null);
   const [fusionTubeId, setFusionTubeId] = useState<string>("");
@@ -464,7 +465,7 @@ function TubePanel({
                   allVias={allVias as Via[]}
                   fibers={fibers}
                   onSetFusion={v => { setFusionDialog(v); setFusionTubeId(""); setFusionViaNumber(""); }}
-                  onClearFusion={id => clearFusionMutation.mutate({ viaId: id })}
+                  onClearFusion={via => setClearFusionConfirmDialog(via)}
                   onEditLabel={openLabelDialog}
                   onSetFiber={openFiberDialog}
                   onClearFiber={id => clearFiberMutation.mutate({ viaId: id })}
@@ -474,6 +475,36 @@ function TubePanel({
           </>
         );
       })()}
+
+      {/* Dialog: Confirmação de Desfazer Fusão */}
+      <Dialog open={clearFusionConfirmDialog !== null} onOpenChange={() => setClearFusionConfirmDialog(null)}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader>
+            <DialogTitle>Confirmar Desfazer Fusão</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-foreground mb-2">
+              Tem certeza que deseja remover a fusão da <span className="font-semibold">VIA {clearFusionConfirmDialog?.viaNumber}</span>?
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Esta ação não pode ser desfeita.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearFusionConfirmDialog(null)} className="border-border/50">
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={() => {
+              if (clearFusionConfirmDialog) {
+                clearFusionMutation.mutate({ viaId: clearFusionConfirmDialog.id });
+                setClearFusionConfirmDialog(null);
+              }
+            }} disabled={clearFusionMutation.isPending}>
+              {clearFusionMutation.isPending ? "Removendo..." : "Remover Fusão"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog: Identificar Fusão */}
       <Dialog open={fusionDialog !== null} onOpenChange={() => setFusionDialog(null)}>
