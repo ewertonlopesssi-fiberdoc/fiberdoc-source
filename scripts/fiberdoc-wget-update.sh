@@ -97,7 +97,7 @@ log_step "[2/7] A validar o pacote..."
 if ! unzip -t "${ZIP_FILE}" >/dev/null 2>&1; then
   log_error "Ficheiro nao e um ZIP valido."; exit 1
 fi
-if ! unzip -l "${ZIP_FILE}" 2>/dev/null | grep -q "dist/index.js"; then
+if ! unzip -l "${ZIP_FILE}" 2>/dev/null | grep -qE "dist/index\.js$"; then
   log_warn "dist/index.js nao encontrado no ZIP."
   log_warn "Continuar? Digite s para continuar:"
   read -r CONFIRM
@@ -245,6 +245,39 @@ for candidate in \
   "${FIBERDOC_DIR}/migrate.sql" "${FIBERDOC_DIR}/migrate-latest.sql" \
   "${SOURCE_DIR}/migrate.sql" "${SOURCE_DIR}/migrate-latest.sql"; do
   if [ -f "${candidate}" ]; then MIGRATE_SQL="${candidate}"; break; fi
+done
+# Aplicar também migrate-v*.sql incrementais (em ordem numérica)
+for migrate_inc in $(ls "${SOURCE_DIR}"/migrate-v*.sql 2>/dev/null | sort -V); do
+  if [ -f "${migrate_inc}" ]; then
+    log_info "Migracao incremental: $(basename ${migrate_inc})"
+    DB_URL="${DB_URL_SAVED:-}"
+    if [ -z "${DB_URL}" ] && [ -f "${ENV_DEST}" ]; then
+      DB_URL=$(grep '^DATABASE_URL=' "${ENV_DEST}" 2>/dev/null | head -1 | sed 's/^DATABASE_URL=//' | tr -d '"' || true)
+    fi
+    if [ -z "${DB_URL}" ]; then
+      log_warn "DATABASE_URL nao configurada -- migracao incremental ignorada."
+    elif command -v mysql >/dev/null 2>&1; then
+      DB_CLEAN=$(echo "${DB_URL}" | sed 's|mysql://||' | sed 's|?.*||')
+      DB_USER=$(echo "${DB_CLEAN}" | sed 's|:.*||')
+      DB_REST=$(echo "${DB_CLEAN}" | sed "s|${DB_USER}:||")
+      DB_PASS=$(echo "${DB_REST}" | sed 's|@.*||')
+      DB_HOSTPORT=$(echo "${DB_REST}" | sed "s|${DB_PASS}@||" | sed 's|/.*||')
+      DB_NAME=$(echo "${DB_REST}" | sed "s|${DB_PASS}@${DB_HOSTPORT}/||")
+      DB_HOST=$(echo "${DB_HOSTPORT}" | cut -d: -f1)
+      DB_PORT=$(echo "${DB_HOSTPORT}" | cut -d: -f2)
+      DB_PORT="${DB_PORT:-3306}"
+      SSL_OPT=""
+      if [ "${DB_PORT}" = "4000" ] || echo "${DB_HOST}" | grep -qi "tidb\|cloud\|aws\|azure\|gcp"; then
+        SSL_OPT="--ssl-mode=REQUIRED"
+      fi
+      if mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" "-p${DB_PASS}" \
+               ${SSL_OPT} "${DB_NAME}" < "${migrate_inc}" 2>&1; then
+        log_ok "Migracao $(basename ${migrate_inc}) aplicada."
+      else
+        log_warn "Falha em $(basename ${migrate_inc}). Execute manualmente se necessario."
+      fi
+    fi
+  fi
 done
 
 if [ -n "${MIGRATE_SQL}" ]; then
