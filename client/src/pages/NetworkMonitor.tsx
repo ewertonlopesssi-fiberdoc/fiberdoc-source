@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,20 +22,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -53,13 +39,18 @@ import {
   CheckCircle,
   RefreshCw,
   Settings,
-  ChevronDown,
-  ChevronRight,
   Signal,
   Network,
   Clock,
   Bell,
   BellOff,
+  Plus,
+  Server,
+  Router,
+  MonitorSpeaker,
+  Layers,
+  ChevronRight,
+  Search,
 } from "lucide-react";
 import { useRole } from "@/hooks/useRole";
 import { useLocation } from "wouter";
@@ -84,19 +75,6 @@ function formatUptime(seconds: number | null | undefined): string {
   return `${m}m`;
 }
 
-function getStatusColor(status: string | null | undefined): string {
-  if (status === "up") return "text-green-500";
-  if (status === "down") return "text-red-500";
-  return "text-yellow-500";
-}
-
-function getMetricColor(value: number | null | undefined, max: number | null | undefined): string {
-  if (value === null || value === undefined) return "text-muted-foreground";
-  if (max && value > max) return "text-red-500";
-  if (max && value > max * 0.8) return "text-yellow-500";
-  return "text-green-500";
-}
-
 function alertTypeLabel(type: string): string {
   const map: Record<string, string> = {
     cpu_high: "CPU Alta",
@@ -114,7 +92,16 @@ function alertTypeLabel(type: string): string {
   return map[type] ?? type;
 }
 
-// ─── Componente de configuração SNMP ─────────────────────────────────────────
+// Grupos de tipos de equipamento para organização visual
+const EQUIPMENT_GROUPS: { label: string; types: string[]; icon: React.ReactNode; color: string }[] = [
+  { label: "Switches", types: ["switch"], icon: <Layers className="h-4 w-4" />, color: "text-blue-400 border-blue-500/30 bg-blue-500/5" },
+  { label: "OLTs / GPON", types: ["olt"], icon: <Signal className="h-4 w-4" />, color: "text-green-400 border-green-500/30 bg-green-500/5" },
+  { label: "Roteadores", types: ["router"], icon: <Router className="h-4 w-4" />, color: "text-purple-400 border-purple-500/30 bg-purple-500/5" },
+  { label: "Servidores", types: ["server"], icon: <Server className="h-4 w-4" />, color: "text-orange-400 border-orange-500/30 bg-orange-500/5" },
+  { label: "Outros", types: ["dgo", "splitter", "patch_panel", "amplifier", "other"], icon: <MonitorSpeaker className="h-4 w-4" />, color: "text-gray-400 border-gray-500/30 bg-gray-500/5" },
+];
+
+// ─── Configuração SNMP ────────────────────────────────────────────────────────
 
 function SnmpConfigDialog({
   equipmentId,
@@ -161,7 +148,6 @@ function SnmpConfigDialog({
     alertTempMax: 70,
   });
 
-  // Preencher form quando config carregar
   const [formLoaded, setFormLoaded] = useState(false);
   if (config && !formLoaded) {
     setFormLoaded(true);
@@ -208,7 +194,6 @@ function SnmpConfigDialog({
                 onCheckedChange={(v) => setForm((f) => ({ ...f, enabled: v }))}
               />
             </div>
-
             <div className="space-y-1.5">
               <Label>Host / IP de gerência</Label>
               <Input
@@ -217,7 +202,6 @@ function SnmpConfigDialog({
                 placeholder="192.168.1.1"
               />
             </div>
-
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Porta SNMP</Label>
@@ -233,9 +217,7 @@ function SnmpConfigDialog({
                   value={form.snmpVersion}
                   onValueChange={(v) => setForm((f) => ({ ...f, snmpVersion: v as any }))}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="v1">SNMPv1</SelectItem>
                     <SelectItem value="v2c">SNMPv2c</SelectItem>
@@ -244,7 +226,6 @@ function SnmpConfigDialog({
                 </Select>
               </div>
             </div>
-
             {form.snmpVersion !== "v3" ? (
               <div className="space-y-1.5">
                 <Label>Community String</Label>
@@ -268,10 +249,7 @@ function SnmpConfigDialog({
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>Auth Protocol</Label>
-                    <Select
-                      value={form.snmpV3AuthProto}
-                      onValueChange={(v) => setForm((f) => ({ ...f, snmpV3AuthProto: v as any }))}
-                    >
+                    <Select value={form.snmpV3AuthProto} onValueChange={(v) => setForm((f) => ({ ...f, snmpV3AuthProto: v as any }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="MD5">MD5</SelectItem>
@@ -281,20 +259,13 @@ function SnmpConfigDialog({
                   </div>
                   <div className="space-y-1.5">
                     <Label>Auth Key</Label>
-                    <Input
-                      type="password"
-                      value={form.snmpV3AuthKey}
-                      onChange={(e) => setForm((f) => ({ ...f, snmpV3AuthKey: e.target.value }))}
-                    />
+                    <Input type="password" value={form.snmpV3AuthKey} onChange={(e) => setForm((f) => ({ ...f, snmpV3AuthKey: e.target.value }))} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>Priv Protocol</Label>
-                    <Select
-                      value={form.snmpV3PrivProto}
-                      onValueChange={(v) => setForm((f) => ({ ...f, snmpV3PrivProto: v as any }))}
-                    >
+                    <Select value={form.snmpV3PrivProto} onValueChange={(v) => setForm((f) => ({ ...f, snmpV3PrivProto: v as any }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="DES">DES</SelectItem>
@@ -304,16 +275,11 @@ function SnmpConfigDialog({
                   </div>
                   <div className="space-y-1.5">
                     <Label>Priv Key</Label>
-                    <Input
-                      type="password"
-                      value={form.snmpV3PrivKey}
-                      onChange={(e) => setForm((f) => ({ ...f, snmpV3PrivKey: e.target.value }))}
-                    />
+                    <Input type="password" value={form.snmpV3PrivKey} onChange={(e) => setForm((f) => ({ ...f, snmpV3PrivKey: e.target.value }))} />
                   </div>
                 </div>
               </div>
             )}
-
             <div className="space-y-1.5">
               <Label>Intervalo de polling (segundos)</Label>
               <Input
@@ -324,10 +290,9 @@ function SnmpConfigDialog({
                 max={86400}
               />
             </div>
-
             <div className="border rounded-lg p-3 space-y-3">
               <div className="flex items-center justify-between">
-                <Label>Alertas habilitados</Label>
+                <Label>Alertas automáticos</Label>
                 <Switch
                   checked={form.alertsEnabled}
                   onCheckedChange={(v) => setForm((f) => ({ ...f, alertsEnabled: v }))}
@@ -336,28 +301,16 @@ function SnmpConfigDialog({
               {form.alertsEnabled && (
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1.5">
-                    <Label className="text-xs">CPU máx (%)</Label>
-                    <Input
-                      type="number"
-                      value={form.alertCpuMax}
-                      onChange={(e) => setForm((f) => ({ ...f, alertCpuMax: parseFloat(e.target.value) || 90 }))}
-                    />
+                    <Label className="text-xs">CPU máx. (%)</Label>
+                    <Input type="number" value={form.alertCpuMax} onChange={(e) => setForm((f) => ({ ...f, alertCpuMax: parseInt(e.target.value) || 90 }))} min={0} max={100} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Memória máx (%)</Label>
-                    <Input
-                      type="number"
-                      value={form.alertMemMax}
-                      onChange={(e) => setForm((f) => ({ ...f, alertMemMax: parseFloat(e.target.value) || 90 }))}
-                    />
+                    <Label className="text-xs">Memória máx. (%)</Label>
+                    <Input type="number" value={form.alertMemMax} onChange={(e) => setForm((f) => ({ ...f, alertMemMax: parseInt(e.target.value) || 90 }))} min={0} max={100} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Temp. máx (°C)</Label>
-                    <Input
-                      type="number"
-                      value={form.alertTempMax}
-                      onChange={(e) => setForm((f) => ({ ...f, alertTempMax: parseFloat(e.target.value) || 70 }))}
-                    />
+                    <Label className="text-xs">Temp. máx. (°C)</Label>
+                    <Input type="number" value={form.alertTempMax} onChange={(e) => setForm((f) => ({ ...f, alertTempMax: parseInt(e.target.value) || 70 }))} min={0} max={200} />
                   </div>
                 </div>
               )}
@@ -378,367 +331,60 @@ function SnmpConfigDialog({
   );
 }
 
-// ─── Painel de portas de um equipamento ──────────────────────────────────────
+// ─── Adicionar equipamento ao monitoramento ───────────────────────────────────
 
-function PortsPanel({ equipmentId }: { equipmentId: number }) {
-  const { data: ports, isLoading } = trpc.networkSnmp.getPorts.useQuery({ equipmentId });
-
-  if (isLoading) return <Skeleton className="h-32" />;
-  if (!ports || ports.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground text-center py-4">
-        Nenhuma porta descoberta. Execute um poll para descobrir as interfaces.
-      </p>
-    );
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Interface</TableHead>
-            <TableHead>Alias</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Velocidade</TableHead>
-            <TableHead>RX</TableHead>
-            <TableHead>TX</TableHead>
-            <TableHead>GBIC RX</TableHead>
-            <TableHead>GBIC TX</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {ports.map((port) => (
-            <TableRow key={port.id}>
-              <TableCell className="font-mono text-sm">{port.ifName ?? `if${port.ifIndex}`}</TableCell>
-              <TableCell className="text-xs text-muted-foreground">{port.ifAlias ?? "—"}</TableCell>
-              <TableCell>
-                <span className={`flex items-center gap-1 text-xs font-medium ${getStatusColor(port.ifOperStatus)}`}>
-                  {port.ifOperStatus === "up" ? (
-                    <Wifi className="h-3 w-3" />
-                  ) : (
-                    <WifiOff className="h-3 w-3" />
-                  )}
-                  {port.ifOperStatus ?? "—"}
-                </span>
-              </TableCell>
-              <TableCell className="text-xs">
-                {port.ifSpeed ? formatBps(port.ifSpeed) : "—"}
-              </TableCell>
-              <TableCell className="text-xs font-mono text-blue-400">
-                {formatBps(port.lastInBps)}
-              </TableCell>
-              <TableCell className="text-xs font-mono text-green-400">
-                {formatBps(port.lastOutBps)}
-              </TableCell>
-              <TableCell className="text-xs font-mono">
-                {port.gbicEnabled && port.lastRxPowerDbm !== null
-                  ? <span className={port.lastRxPowerDbm < -25 ? "text-red-400" : "text-cyan-400"}>
-                      {port.lastRxPowerDbm?.toFixed(2)} dBm
-                    </span>
-                  : "—"}
-              </TableCell>
-              <TableCell className="text-xs font-mono">
-                {port.gbicEnabled && port.lastTxPowerDbm !== null
-                  ? <span className="text-purple-400">{port.lastTxPowerDbm?.toFixed(2)} dBm</span>
-                  : "—"}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+function AddMonitoringDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [selectedId, setSelectedId] = useState<string>("");
+  const { data: allEquipments } = trpc.equipments.list.useQuery(
+    {},
+    { enabled: open }
   );
-}
-
-// ─── Card de equipamento monitorado ──────────────────────────────────────────
-
-function EquipmentMonitorCard({ row }: { row: any }) {
-  const [expanded, setExpanded] = useState(false);
+  const { data: monitored } = trpc.networkSnmp.getSummary.useQuery(undefined, { enabled: open });
+  const monitoredIds = new Set(monitored?.map((r) => r.config.equipmentId) ?? []);
+  const available = (Array.isArray(allEquipments) ? allEquipments : []).filter((e: any) => !monitoredIds.has(e.id));
   const utils = trpc.useUtils();
-  const [, setLocation] = useLocation();
 
-  const pollNow = trpc.networkSnmp.pollNow.useMutation({
+  const upsert = trpc.networkSnmp.upsertConfig.useMutation({
     onSuccess: () => {
-      toast.success("Poll executado!");
+      toast.success("Equipamento adicionado ao monitoramento!");
       utils.networkSnmp.getSummary.invalidate();
-      utils.networkSnmp.getPorts.invalidate({ equipmentId: row.config.equipmentId });
+      onClose();
+      setSelectedId("");
     },
     onError: (e) => toast.error("Erro: " + e.message),
   });
-
-  const cfg = row.config;
-  const eq = row.equipment;
-  const hasError = !!cfg.lastPollError;
-  const lastPoll = cfg.lastPollAt ? new Date(cfg.lastPollAt) : null;
-
-  return (
-    <Card className={`border-border/50 ${hasError ? "border-red-500/30" : ""}`}>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="flex items-center gap-1.5 text-left"
-            >
-              {expanded ? (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              )}
-              <div>
-                <p className="font-semibold text-sm">{eq?.name ?? `Equipamento #${cfg.equipmentId}`}</p>
-                <p className="text-xs text-muted-foreground">
-                  {eq?.manufacturer} {eq?.type} · {cfg.snmpHost}
-                </p>
-              </div>
-            </button>
-          </div>
-          <div className="flex items-center gap-2">
-            {row.activeAlertCount > 0 && (
-              <Badge variant="destructive" className="text-xs">
-                {row.activeAlertCount} alerta{row.activeAlertCount > 1 ? "s" : ""}
-              </Badge>
-            )}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs gap-1 text-primary"
-                    onClick={() => setLocation(`/monitor-rede/${cfg.equipmentId}`)}
-                  >
-                    <Activity className="h-3.5 w-3.5" />
-                    Gráficos
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Ver gráficos e histórico</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => pollNow.mutate({ equipmentId: cfg.equipmentId })}
-                    disabled={pollNow.isPending}
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${pollNow.isPending ? "animate-spin" : ""}`} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Forçar poll agora</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        {/* Métricas principais */}
-        <div className="grid grid-cols-4 gap-3 mb-3">
-          <div className="flex flex-col items-center p-2 rounded-lg bg-muted/30">
-            <Cpu className="h-4 w-4 text-muted-foreground mb-1" />
-            <span className={`text-lg font-bold ${getMetricColor(cfg.lastCpuPercent, cfg.alertCpuMax)}`}>
-              {cfg.lastCpuPercent !== null ? `${cfg.lastCpuPercent}%` : "—"}
-            </span>
-            <span className="text-xs text-muted-foreground">CPU</span>
-          </div>
-          <div className="flex flex-col items-center p-2 rounded-lg bg-muted/30">
-            <MemoryStick className="h-4 w-4 text-muted-foreground mb-1" />
-            <span className={`text-lg font-bold ${getMetricColor(cfg.lastMemPercent, cfg.alertMemMax)}`}>
-              {cfg.lastMemPercent !== null ? `${cfg.lastMemPercent}%` : "—"}
-            </span>
-            <span className="text-xs text-muted-foreground">Memória</span>
-          </div>
-          <div className="flex flex-col items-center p-2 rounded-lg bg-muted/30">
-            <Thermometer className="h-4 w-4 text-muted-foreground mb-1" />
-            <span className={`text-lg font-bold ${getMetricColor(cfg.lastTemperature, cfg.alertTempMax)}`}>
-              {cfg.lastTemperature !== null ? `${cfg.lastTemperature}°C` : "—"}
-            </span>
-            <span className="text-xs text-muted-foreground">Temp.</span>
-          </div>
-          <div className="flex flex-col items-center p-2 rounded-lg bg-muted/30">
-            <Clock className="h-4 w-4 text-muted-foreground mb-1" />
-            <span className="text-sm font-bold text-foreground">
-              {formatUptime(cfg.lastUptimeSeconds)}
-            </span>
-            <span className="text-xs text-muted-foreground">Uptime</span>
-          </div>
-        </div>
-
-        {/* Status e último poll */}
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          {hasError ? (
-            <span className="text-red-400 flex items-center gap-1">
-              <AlertTriangle className="h-3 w-3" />
-              {cfg.lastPollError?.slice(0, 60)}
-            </span>
-          ) : (
-            <span className="text-green-500 flex items-center gap-1">
-              <CheckCircle className="h-3 w-3" />
-              OK
-            </span>
-          )}
-          <span>
-            {lastPoll ? `Último poll: ${lastPoll.toLocaleTimeString()}` : "Nunca coletado"}
-          </span>
-        </div>
-
-        {/* Portas expandidas */}
-        {expanded && (
-          <div className="mt-3 border-t pt-3">
-            <p className="text-xs font-medium text-muted-foreground mb-2">Interfaces SNMP</p>
-            <PortsPanel equipmentId={cfg.equipmentId} />
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─── Painel de alertas ────────────────────────────────────────────────────────
-
-function AlertsPanel() {
-  const utils = trpc.useUtils();
-  const { data: alerts, isLoading } = trpc.networkSnmp.getAlerts.useQuery({
-    onlyActive: true,
-    limit: 100,
-  });
-
-  const ack = trpc.networkSnmp.acknowledgeAlert.useMutation({
-    onSuccess: () => { utils.networkSnmp.getAlerts.invalidate(); toast.success("Alerta reconhecido"); },
-  });
-  const resolve = trpc.networkSnmp.resolveAlert.useMutation({
-    onSuccess: () => { utils.networkSnmp.getAlerts.invalidate(); utils.networkSnmp.getSummary.invalidate(); toast.success("Alerta resolvido"); },
-  });
-
-  if (isLoading) return <Skeleton className="h-48" />;
-  if (!alerts || alerts.length === 0) {
-    return (
-      <div className="text-center py-12 text-muted-foreground">
-        <CheckCircle className="h-10 w-10 mx-auto mb-3 text-green-500/50" />
-        <p className="font-medium">Nenhum alerta ativo</p>
-        <p className="text-sm">Todos os equipamentos estão a funcionar normalmente.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {alerts.map((row) => (
-        <div
-          key={row.alert.id}
-          className={`flex items-start justify-between p-3 rounded-lg border ${
-            row.alert.severity === "critical"
-              ? "border-red-500/30 bg-red-500/5"
-              : "border-yellow-500/30 bg-yellow-500/5"
-          }`}
-        >
-          <div className="flex items-start gap-2">
-            <AlertTriangle
-              className={`h-4 w-4 mt-0.5 ${
-                row.alert.severity === "critical" ? "text-red-500" : "text-yellow-500"
-              }`}
-            />
-            <div>
-              <p className="text-sm font-medium">
-                {alertTypeLabel(row.alert.alertType)} — {row.equipmentName}
-              </p>
-              <p className="text-xs text-muted-foreground">{row.alert.message}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {new Date(row.alert.createdAt).toLocaleString()}
-                {row.alert.acknowledgedAt && (
-                  <span className="ml-2 text-blue-400">
-                    · Reconhecido por {row.alert.acknowledgedBy}
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-1">
-            {!row.alert.acknowledgedAt && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => ack.mutate({ alertId: row.alert.id })}
-              >
-                Reconhecer
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs text-green-500"
-              onClick={() => resolve.mutate({ alertId: row.alert.id })}
-            >
-              Resolver
-            </Button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Seletor de equipamento para adicionar monitoramento ──────────────────────
-
-function AddMonitoringDialog({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [configOpen, setConfigOpen] = useState(false);
-
-  const { data: equipments } = trpc.equipments.list.useQuery({ status: "active" });
-
-  if (configOpen && selectedId) {
-    return (
-      <SnmpConfigDialog
-        equipmentId={selectedId}
-        equipmentName={equipments?.find((e) => e.id === selectedId)?.name ?? ""}
-        open={configOpen}
-        onClose={() => { setConfigOpen(false); onClose(); }}
-      />
-    );
-  }
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Adicionar Monitoramento SNMP</DialogTitle>
+          <DialogTitle>Adicionar ao Monitor de Rede</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <Label>Selecionar equipamento</Label>
-          <Select
-            value={selectedId?.toString() ?? ""}
-            onValueChange={(v) => setSelectedId(parseInt(v))}
-          >
+          <Select value={selectedId} onValueChange={setSelectedId}>
             <SelectTrigger>
-              <SelectValue placeholder="Escolher equipamento..." />
+              <SelectValue placeholder="Escolha um equipamento..." />
             </SelectTrigger>
             <SelectContent>
-              {(equipments ?? []).map((eq) => (
-                <SelectItem key={eq.id} value={eq.id.toString()}>
-                  {eq.name} {eq.ipAddress ? `(${eq.ipAddress})` : ""}
+              {available.map((e) => (
+                <SelectItem key={e.id} value={String(e.id)}>
+                  {e.name} ({e.type})
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">
+            Após adicionar, configure o IP e credenciais SNMP clicando no ícone de configuração.
+          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button
-            disabled={!selectedId}
-            onClick={() => { if (selectedId) setConfigOpen(true); }}
+            disabled={!selectedId || upsert.isPending}
+            onClick={() => upsert.mutate({ equipmentId: parseInt(selectedId), enabled: false })}
           >
-            Configurar SNMP
+            Adicionar
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -746,131 +392,355 @@ function AddMonitoringDialog({
   );
 }
 
+// ─── Card compacto de equipamento ────────────────────────────────────────────
+
+function EquipmentRow({ row }: { row: any }) {
+  const [, setLocation] = useLocation();
+  const [configOpen, setConfigOpen] = useState(false);
+  const utils = trpc.useUtils();
+
+  const pollNow = trpc.networkSnmp.pollNow.useMutation({
+    onSuccess: () => {
+      toast.success("Poll executado!");
+      utils.networkSnmp.getSummary.invalidate();
+    },
+    onError: (e) => toast.error("Erro: " + e.message),
+  });
+
+  const cfg = row.config;
+  const eq = row.equipment;
+  const hasError = !!cfg.lastPollError;
+  const isUp = !hasError && cfg.lastPollAt;
+  const lastPoll = cfg.lastPollAt ? new Date(cfg.lastPollAt) : null;
+  const minutesAgo = lastPoll ? Math.floor((Date.now() - lastPoll.getTime()) / 60000) : null;
+
+  return (
+    <>
+      <SnmpConfigDialog
+        equipmentId={cfg.equipmentId}
+        equipmentName={eq?.name ?? `Equipamento #${cfg.equipmentId}`}
+        open={configOpen}
+        onClose={() => setConfigOpen(false)}
+      />
+      <div
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors cursor-pointer hover:bg-muted/40 ${hasError ? "border-red-500/30 bg-red-500/5" : "border-border/40"}`}
+        onClick={() => setLocation(`/monitor-rede/${cfg.equipmentId}`)}
+      >
+        {/* Status dot */}
+        <div className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${isUp ? "bg-green-500" : hasError ? "bg-red-500" : "bg-yellow-500"}`} />
+
+        {/* Nome e IP */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{eq?.name ?? `Equipamento #${cfg.equipmentId}`}</p>
+          <p className="text-xs text-muted-foreground truncate">{cfg.snmpHost ?? "IP não configurado"}</p>
+        </div>
+
+        {/* Métricas inline */}
+        <div className="hidden sm:flex items-center gap-4 text-xs text-muted-foreground">
+          {cfg.lastCpuPercent !== null && cfg.lastCpuPercent !== undefined && (
+            <span className={cfg.lastCpuPercent > (cfg.alertCpuMax ?? 90) ? "text-red-400" : ""}>
+              CPU {cfg.lastCpuPercent}%
+            </span>
+          )}
+          {cfg.lastMemPercent !== null && cfg.lastMemPercent !== undefined && (
+            <span className={cfg.lastMemPercent > (cfg.alertMemMax ?? 90) ? "text-red-400" : ""}>
+              RAM {cfg.lastMemPercent}%
+            </span>
+          )}
+          {cfg.lastTempCelsius !== null && cfg.lastTempCelsius !== undefined && (
+            <span className={cfg.lastTempCelsius > (cfg.alertTempMax ?? 70) ? "text-red-400" : ""}>
+              {cfg.lastTempCelsius}°C
+            </span>
+          )}
+          {minutesAgo !== null && (
+            <span className="hidden md:inline">{minutesAgo < 2 ? "agora" : `${minutesAgo}m atrás`}</span>
+          )}
+        </div>
+
+        {/* Alertas */}
+        {row.activeAlertCount > 0 && (
+          <Badge variant="destructive" className="text-xs flex-shrink-0">
+            {row.activeAlertCount}
+          </Badge>
+        )}
+
+        {/* Ações */}
+        <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setConfigOpen(true)}>
+                  <Settings className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Configurar SNMP</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => pollNow.mutate({ equipmentId: cfg.equipmentId })}
+                  disabled={pollNow.isPending}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${pollNow.isPending ? "animate-spin" : ""}`} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Forçar poll</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Grupo de equipamentos ────────────────────────────────────────────────────
+
+function EquipmentGroup({
+  label,
+  icon,
+  color,
+  rows,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  color: string;
+  rows: any[];
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const alertCount = rows.reduce((acc, r) => acc + (r.activeAlertCount ?? 0), 0);
+  const upCount = rows.filter((r) => !r.config.lastPollError && r.config.lastPollAt).length;
+
+  return (
+    <Card className={`border ${color}`}>
+      <CardHeader className="pb-2 pt-3 px-4">
+        <button
+          className="flex items-center justify-between w-full"
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          <div className="flex items-center gap-2">
+            <span className={color.split(" ")[0]}>{icon}</span>
+            <CardTitle className="text-sm font-semibold">{label}</CardTitle>
+            <Badge variant="outline" className="text-xs font-normal">
+              {rows.length} equip.
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {upCount}/{rows.length} UP
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {alertCount > 0 && (
+              <Badge variant="destructive" className="text-xs">{alertCount} alerta{alertCount > 1 ? "s" : ""}</Badge>
+            )}
+            <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${collapsed ? "" : "rotate-90"}`} />
+          </div>
+        </button>
+      </CardHeader>
+      {!collapsed && (
+        <CardContent className="px-4 pb-3 pt-0 space-y-1.5">
+          {rows.map((row) => (
+            <EquipmentRow key={row.config.equipmentId} row={row} />
+          ))}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+// ─── Painel de alertas globais ────────────────────────────────────────────────
+
+function AlertsPanel() {
+  const { data: alerts, isLoading } = trpc.networkSnmp.getAlerts.useQuery({ onlyActive: true, limit: 30 });
+  const utils = trpc.useUtils();
+
+  const resolve = trpc.networkSnmp.resolveAlert.useMutation({
+    onSuccess: () => { utils.networkSnmp.getAlerts.invalidate(); utils.networkSnmp.getSummary.invalidate(); toast.success("Alerta resolvido"); },
+    onError: (e) => toast.error("Erro: " + e.message),
+  });
+
+  if (isLoading) return <Skeleton className="h-32" />;
+  if (!alerts?.length) return (
+    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+      <CheckCircle className="h-8 w-8 text-green-500" />
+      <p className="text-sm">Nenhum alerta ativo</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-1.5">
+      {alerts.map((row) => (
+        <div key={row.alert.id} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-red-500/20 bg-red-500/5">
+          <AlertTriangle className={`h-4 w-4 flex-shrink-0 ${row.alert.severity === "critical" ? "text-red-500" : "text-yellow-500"}`} />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium truncate">{alertTypeLabel(row.alert.alertType)} — {row.equipmentName}</p>
+            <p className="text-xs text-muted-foreground truncate">{row.alert.message}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs flex-shrink-0"
+            onClick={() => resolve.mutate({ alertId: row.alert.id })}
+            disabled={resolve.isPending}
+          >
+            Resolver
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function NetworkMonitor() {
-  const [addOpen, setAddOpen] = useState(false);
-  const [configEquipmentId, setConfigEquipmentId] = useState<number | null>(null);
-  const [configEquipmentName, setConfigEquipmentName] = useState("");
   const { isAdmin } = useRole();
+  const [addOpen, setAddOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const { data: summary, isLoading } = trpc.networkSnmp.getSummary.useQuery();
 
-  const { data: summary, isLoading, refetch } = trpc.networkSnmp.getSummary.useQuery(undefined, {
-    refetchInterval: 30_000, // atualizar a cada 30s
-  });
+  // Filtrar por busca
+  const filtered = useMemo(() => {
+    if (!summary) return [];
+    if (!search.trim()) return summary;
+    const q = search.toLowerCase();
+    return summary.filter((r) =>
+      r.equipment?.name?.toLowerCase().includes(q) ||
+      r.config.snmpHost?.toLowerCase().includes(q)
+    );
+  }, [summary, search]);
 
-  const totalAlerts = (summary ?? []).reduce((acc, r) => acc + r.activeAlertCount, 0);
+  // Agrupar por tipo de equipamento
+  const groups = useMemo(() => {
+    return EQUIPMENT_GROUPS
+      .map((g) => ({
+        ...g,
+        rows: filtered.filter((r) => g.types.includes(r.equipment?.type ?? "other")),
+      }))
+      .filter((g) => g.rows.length > 0);
+  }, [filtered]);
+
+  const totalAlerts = summary?.reduce((acc, r) => acc + (r.activeAlertCount ?? 0), 0) ?? 0;
+  const totalUp = summary?.filter((r) => !r.config.lastPollError && r.config.lastPollAt).length ?? 0;
 
   return (
-    <div className="space-y-6 max-w-7xl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="p-4 md:p-6 space-y-4">
+      {/* Cabeçalho */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Monitor de Rede</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Monitoramento SNMP de switches, roteadores, OLTs e outros equipamentos
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <Network className="h-5 w-5 text-primary" />
+            Monitor de Rede
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {summary?.length ?? 0} equipamentos monitorados · {totalUp} UP · {totalAlerts > 0 ? `${totalAlerts} alertas ativos` : "sem alertas"}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {totalAlerts > 0 && (
-            <Badge variant="destructive" className="gap-1">
-              <Bell className="h-3 w-3" />
-              {totalAlerts} alerta{totalAlerts > 1 ? "s" : ""}
-            </Badge>
-          )}
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5">
-            <RefreshCw className="h-3.5 w-3.5" />
-            Atualizar
-          </Button>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-8 h-8 w-48 text-sm"
+              placeholder="Buscar equipamento..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
           {isAdmin && (
-            <Button onClick={() => setAddOpen(true)} className="gap-1.5">
-              <Network className="h-4 w-4" />
-              Adicionar Monitoramento
+            <Button size="sm" onClick={() => setAddOpen(true)} className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              Adicionar
             </Button>
           )}
         </div>
       </div>
 
-      <Tabs defaultValue="equipment">
-        <TabsList>
-          <TabsTrigger value="equipment" className="gap-1.5">
-            <Activity className="h-3.5 w-3.5" />
-            Equipamentos
-            {(summary?.length ?? 0) > 0 && (
-              <Badge variant="secondary" className="ml-1 text-xs">
-                {summary?.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="alerts" className="gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            Alertas
-            {totalAlerts > 0 && (
-              <Badge variant="destructive" className="ml-1 text-xs">
-                {totalAlerts}
-              </Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
+      <AddMonitoringDialog open={addOpen} onClose={() => setAddOpen(false)} />
 
-        <TabsContent value="equipment" className="mt-4">
-          {isLoading ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-48" />)}
-            </div>
-          ) : !summary || summary.length === 0 ? (
-            <Card className="border-border/50 border-dashed">
-              <CardContent className="py-16 text-center">
-                <Network className="h-12 w-12 mx-auto mb-4 text-muted-foreground/30" />
-                <p className="font-medium text-muted-foreground mb-1">Nenhum equipamento monitorado</p>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Adicione equipamentos para monitorar CPU, memória, temperatura e tráfego de portas via SNMP.
-                </p>
-                {isAdmin && (
-                  <Button onClick={() => setAddOpen(true)} variant="outline" className="gap-1.5">
-                    <Network className="h-4 w-4" />
-                    Adicionar Monitoramento
-                  </Button>
-                )}
+      {isLoading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-40" />)}
+        </div>
+      ) : !summary?.length ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+            <Network className="h-10 w-10" />
+            <p className="font-medium">Nenhum equipamento monitorado</p>
+            <p className="text-sm text-center max-w-sm">
+              Adicione equipamentos ao monitoramento SNMP para visualizar métricas de CPU, memória, temperatura e tráfego.
+            </p>
+            {isAdmin && (
+              <Button onClick={() => setAddOpen(true)} className="mt-2 gap-1.5">
+                <Plus className="h-4 w-4" />
+                Adicionar equipamento
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          {/* Coluna principal: grupos de equipamentos */}
+          <div className="xl:col-span-2 space-y-3">
+            {groups.length === 0 && search && (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                Nenhum equipamento encontrado para "{search}"
+              </div>
+            )}
+            {groups.map((g) => (
+              <EquipmentGroup
+                key={g.label}
+                label={g.label}
+                icon={g.icon}
+                color={g.color}
+                rows={g.rows}
+              />
+            ))}
+          </div>
+
+          {/* Coluna lateral: alertas */}
+          <div className="space-y-3">
+            <Card>
+              <CardHeader className="pb-2 pt-3 px-4">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-red-400" />
+                  Alertas Ativos
+                  {totalAlerts > 0 && (
+                    <Badge variant="destructive" className="text-xs">{totalAlerts}</Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-3 pt-0">
+                <AlertsPanel />
               </CardContent>
             </Card>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {summary.map((row) => (
-                <div key={row.config.equipmentId} className="relative group">
-                  <EquipmentMonitorCard row={row} />
-                  {isAdmin && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="absolute top-2 right-10 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => {
-                        setConfigEquipmentId(row.config.equipmentId);
-                        setConfigEquipmentName(row.equipment?.name ?? "");
-                      }}
-                    >
-                      <Settings className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </TabsContent>
 
-        <TabsContent value="alerts" className="mt-4">
-          <AlertsPanel />
-        </TabsContent>
-      </Tabs>
-
-      {/* Dialogs */}
-      <AddMonitoringDialog open={addOpen} onClose={() => setAddOpen(false)} />
-      {configEquipmentId && (
-        <SnmpConfigDialog
-          equipmentId={configEquipmentId}
-          equipmentName={configEquipmentName}
-          open={!!configEquipmentId}
-          onClose={() => setConfigEquipmentId(null)}
-        />
+            {/* Resumo rápido */}
+            <Card>
+              <CardHeader className="pb-2 pt-3 px-4">
+                <CardTitle className="text-sm font-semibold">Resumo</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-3 pt-0 space-y-2">
+                {EQUIPMENT_GROUPS.map((g) => {
+                  const count = summary?.filter((r) => g.types.includes(r.equipment?.type ?? "other")).length ?? 0;
+                  if (!count) return null;
+                  return (
+                    <div key={g.label} className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <span className={g.color.split(" ")[0]}>{g.icon}</span>
+                        {g.label}
+                      </span>
+                      <Badge variant="outline" className="text-xs">{count}</Badge>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       )}
     </div>
   );

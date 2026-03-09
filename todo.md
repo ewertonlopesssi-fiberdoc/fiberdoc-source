@@ -1419,3 +1419,26 @@
 - [x] Campo de configuração de threshold de tráfego por porta (Mbps)
 - [x] Adicionar rota /monitor-rede/:equipmentId no App.tsx
 - [x] Botão "Ver Detalhes" na lista de equipamentos do Monitor de Rede
+
+## Redesign Monitor de Rede v5.92
+
+- [ ] NetworkMonitor: home com grupos de equipamentos por tipo (Switch, OLT, Roteador, etc.)
+- [ ] NetworkMonitor: barra de seletores em cascata (Host → Interface Física → Interface Virtual → GBIC)
+- [ ] NetworkEquipmentDetail: barra superior fixa com seletores em cascata
+- [ ] NetworkEquipmentDetail: gauge circular para latência/perda de pacotes
+- [ ] NetworkEquipmentDetail: gráficos histórico lado a lado (perda de pacotes + latência)
+- [ ] NetworkEquipmentDetail: seções colapsáveis (Ping e Latência, Sistema, Interfaces)
+- [ ] NetworkEquipmentDetail: multi-select de interfaces com checkboxes
+
+## Redesign Monitor de Rede v2 — 09/03/2026
+- [x] NetworkMonitor redesenhado com grupos por tipo de equipamento (Switches, OLTs, Roteadores, Servidores)
+- [x] Barra de busca de equipamentos no NetworkMonitor
+- [x] Resumo lateral com contagem por categoria e alertas ativos
+- [x] NetworkEquipmentDetail com barra superior em cascata (Host, Interface Física, Interface Virtual, GBIC)
+- [x] Seletores multi-select com checkboxes para interfaces
+- [x] Seletor de período de 5min a 30 dias
+- [x] Gauges circulares SVG para latência e CPU
+- [x] Seções colapsáveis (Ping e Latência, Sistema, Interfaces Físicas, Interfaces Virtuais, GBIC)
+- [x] Gráficos de tráfego com área preenchida e linha de threshold
+- [x] Gráficos de sinal GBIC com linhas de alerta RX min/max
+- [x] Gráficos de histórico de CPU/RAM com threshold configurável

@@ -1,22 +1,29 @@
 /**
  * NetworkEquipmentDetail.tsx
- * Página de detalhe de um equipamento monitorado via SNMP.
- * Exibe gráficos de tráfego por porta, sinal GBIC, CPU, memória e temperatura.
- * Permite configurar threshold de tráfego por porta.
+ * Página de detalhe de equipamento monitorado via SNMP.
+ * Layout inspirado em Zabbix/Grafana:
+ *  - Barra superior fixa com seletores em cascata: Host → Interface Física → Interface Virtual → GBIC
+ *  - Seções colapsáveis: Ping e Latência, Sistema, Interfaces
+ *  - Gauges circulares para latência e perda de pacotes
+ *  - Gráficos de histórico lado a lado
  */
-import { useState, useMemo } from "react";
-import { useParams, useLocation } from "wouter";
+import { useState, useMemo, useCallback } from "react";
+import { useRoute, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -24,41 +31,40 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartTooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+  Legend,
+} from "recharts";
+import { toast } from "sonner";
+import {
+  ChevronDown,
+  ChevronRight,
   ArrowLeft,
+  RefreshCw,
+  Settings,
+  AlertTriangle,
+  CheckCircle,
   Activity,
   Cpu,
   MemoryStick,
   Thermometer,
   Clock,
-  AlertTriangle,
-  Wifi,
-  WifiOff,
-  Settings,
-  RefreshCw,
   Signal,
-  Zap,
+  Network,
+  Home,
 } from "lucide-react";
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-  Legend,
-  LineChart,
-  Line,
-} from "recharts";
-import { toast } from "sonner";
 
 // ─── Períodos disponíveis ─────────────────────────────────────────────────────
+
 const PERIODS = [
   { label: "Últimos 5 min", minutes: 5 },
   { label: "Últimos 15 min", minutes: 15 },
@@ -73,453 +79,142 @@ const PERIODS = [
   { label: "Últimos 30 dias", minutes: 43200 },
 ];
 
-// ─── Utilitários ──────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 function formatBps(bps: number | null | undefined): string {
-  if (bps == null) return "—";
+  if (bps === null || bps === undefined) return "—";
   if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(2)} Gbps`;
   if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(2)} Mbps`;
   if (bps >= 1_000) return `${(bps / 1_000).toFixed(1)} Kbps`;
   return `${bps} bps`;
 }
 
+function formatTime(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
 function formatUptime(seconds: number | null | undefined): string {
-  if (seconds == null) return "—";
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (minutes > 0) parts.push(`${minutes}m`);
-  return parts.length > 0 ? parts.join(" ") : "< 1m";
+  if (!seconds) return "—";
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d} Dias, ${String(h).padStart(2, "0")} Horas, ${String(m).padStart(2, "0")} Minutos`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
 
-function formatTime(date: Date | string | null | undefined, periodMinutes: number): string {
-  if (!date) return "";
-  const d = new Date(date);
-  if (periodMinutes <= 60) {
-    return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  }
-  if (periodMinutes <= 1440) {
-    return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  }
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-
-function bpsToMbps(bps: number | null | undefined): number | null {
-  if (bps == null) return null;
+function bpsToMbps(bps: number | null | undefined): number {
+  if (!bps) return 0;
   return parseFloat((bps / 1_000_000).toFixed(3));
 }
 
-function getStatusColor(status: string | null | undefined): string {
-  switch (status) {
-    case "up": return "text-emerald-400";
-    case "down": return "text-red-400";
-    case "testing": return "text-yellow-400";
-    default: return "text-muted-foreground";
-  }
-}
+// ─── Gauge circular SVG ──────────────────────────────────────────────────────
 
-function getAlertSeverityColor(severity: string): string {
-  switch (severity) {
-    case "critical": return "bg-red-500/20 text-red-400 border-red-500/30";
-    case "warning": return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
-    default: return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-  }
-}
-
-function getAlertTypeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    cpu_high: "CPU Alta",
-    mem_high: "Memória Alta",
-    temp_high: "Temperatura Alta",
-    port_down: "Porta Down",
-    port_up: "Porta Up",
-    rx_power_low: "Sinal RX Baixo",
-    rx_power_high: "Sinal RX Alto",
-    tx_power_low: "Sinal TX Baixo",
-    tx_power_high: "Sinal TX Alto",
-    snmp_unreachable: "SNMP Inacessível",
-    traffic_high: "Tráfego Alto",
-  };
-  return labels[type] ?? type;
-}
-
-// ─── Componente de Gráfico de Tráfego por Porta ───────────────────────────────
-function PortTrafficChart({
-  port,
-  periodMinutes,
-  onConfigThreshold,
+function CircularGauge({
+  value,
+  max,
+  unit,
+  label,
+  size = 140,
+  colorStops = [
+    { at: 0, color: "#22c55e" },
+    { at: 0.5, color: "#eab308" },
+    { at: 0.8, color: "#f97316" },
+    { at: 1, color: "#ef4444" },
+  ],
 }: {
-  port: any;
-  periodMinutes: number;
-  onConfigThreshold: (port: any) => void;
+  value: number | null | undefined;
+  max: number;
+  unit: string;
+  label: string;
+  size?: number;
+  colorStops?: { at: number; color: string }[];
 }) {
-  const { data: readings, isLoading } = trpc.networkSnmp.getPortReadings.useQuery(
-    { portId: port.id, periodMinutes },
-    { refetchInterval: periodMinutes <= 30 ? 30_000 : 60_000 }
-  );
+  const radius = (size / 2) * 0.75;
+  const cx = size / 2;
+  const cy = size / 2;
+  const startAngle = -220;
+  const endAngle = 40;
+  const totalAngle = endAngle - startAngle;
 
-  const chartData = useMemo(() => {
-    if (!readings) return [];
-    return readings.map((r) => ({
-      time: formatTime(r.collectedAt, periodMinutes),
-      inMbps: bpsToMbps(r.inBps),
-      outMbps: bpsToMbps(r.outBps),
-      rxDbm: r.rxPowerDbm ?? null,
-      txDbm: r.txPowerDbm ?? null,
-      gbicTemp: r.gbicTemp ?? null,
-    }));
-  }, [readings, periodMinutes]);
+  const ratio = Math.min(Math.max((value ?? 0) / max, 0), 1);
+  const currentAngle = startAngle + totalAngle * ratio;
 
-  const thresholdMbps = port.alertBpsMax != null ? port.alertBpsMax / 1_000_000 : null;
-  const hasGbic = port.gbicEnabled || chartData.some((d) => d.rxDbm != null || d.txDbm != null);
-  const hasTraffic = chartData.some((d) => d.inMbps != null || d.outMbps != null);
+  // Cor baseada no ratio
+  let color = colorStops[0].color;
+  for (let i = colorStops.length - 1; i >= 0; i--) {
+    if (ratio >= colorStops[i].at) {
+      color = colorStops[i].color;
+      break;
+    }
+  }
 
-  const isUp = port.ifOperStatus === "up";
+  function polarToXY(angle: number, r: number) {
+    const rad = (angle * Math.PI) / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  }
+
+  function describeArc(startDeg: number, endDeg: number, r: number) {
+    const s = polarToXY(startDeg, r);
+    const e = polarToXY(endDeg, r);
+    const largeArc = endDeg - startDeg > 180 ? 1 : 0;
+    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${largeArc} 1 ${e.x} ${e.y}`;
+  }
+
+  const strokeWidth = size * 0.08;
 
   return (
-    <Card className="bg-card/50 border-border/50">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-2">
-            {isUp ? (
-              <Wifi className={`h-4 w-4 ${getStatusColor(port.ifOperStatus)}`} />
-            ) : (
-              <WifiOff className={`h-4 w-4 ${getStatusColor(port.ifOperStatus)}`} />
-            )}
-            <CardTitle className="text-sm font-medium">
-              {port.ifName || `ifIndex ${port.ifIndex}`}
-              {port.ifAlias && (
-                <span className="text-muted-foreground font-normal ml-2 text-xs">
-                  — {port.ifAlias}
-                </span>
-              )}
-            </CardTitle>
-            <Badge
-              variant="outline"
-              className={`text-[10px] px-1.5 py-0 ${getStatusColor(port.ifOperStatus)} border-current/30`}
-            >
-              {port.ifOperStatus ?? "unknown"}
-            </Badge>
-            {port.ifSpeed && (
-              <span className="text-[10px] text-muted-foreground">
-                {formatBps(port.ifSpeed)}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {thresholdMbps != null && (
-              <Badge variant="outline" className="text-[10px] text-orange-400 border-orange-400/30 bg-orange-400/10">
-                Limite: {thresholdMbps.toFixed(1)} Mbps
-              </Badge>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs gap-1"
-              onClick={() => onConfigThreshold(port)}
-            >
-              <Settings className="h-3 w-3" />
-              Threshold
-            </Button>
-          </div>
-        </div>
-        {/* Valores atuais */}
-        <div className="flex gap-4 text-xs text-muted-foreground mt-1">
-          <span>
-            <span className="text-blue-400 font-medium">↓ {formatBps(port.lastInBps)}</span>
-          </span>
-          <span>
-            <span className="text-emerald-400 font-medium">↑ {formatBps(port.lastOutBps)}</span>
-          </span>
-          {port.lastRxPowerDbm != null && (
-            <span>
-              <span className="text-purple-400 font-medium">RX {port.lastRxPowerDbm.toFixed(2)} dBm</span>
-            </span>
-          )}
-          {port.lastTxPowerDbm != null && (
-            <span>
-              <span className="text-pink-400 font-medium">TX {port.lastTxPowerDbm.toFixed(2)} dBm</span>
-            </span>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        {isLoading ? (
-          <Skeleton className="h-32 w-full" />
-        ) : !hasTraffic && !hasGbic ? (
-          <div className="h-20 flex items-center justify-center text-xs text-muted-foreground">
-            Sem dados de tráfego para o período selecionado
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {/* Gráfico de Tráfego */}
-            {hasTraffic && (
-              <div>
-                <p className="text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
-                  Tráfego (Mbps)
-                </p>
-                <ResponsiveContainer width="100%" height={120}>
-                  <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id={`inGrad-${port.id}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id={`outGrad-${port.id}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis
-                      dataKey="time"
-                      tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }}
-                      interval="preserveStartEnd"
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }}
-                      tickLine={false}
-                      axisLine={false}
-                      width={40}
-                      tickFormatter={(v) => `${v}`}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "6px",
-                        fontSize: "11px",
-                      }}
-                      formatter={(value: any, name: string) => [
-                        `${value} Mbps`,
-                        name === "inMbps" ? "Entrada" : "Saída",
-                      ]}
-                    />
-                    <Legend
-                      formatter={(value) => (
-                        <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)" }}>
-                          {value === "inMbps" ? "Entrada" : "Saída"}
-                        </span>
-                      )}
-                    />
-                    {thresholdMbps != null && (
-                      <ReferenceLine
-                        y={thresholdMbps}
-                        stroke="#f97316"
-                        strokeDasharray="4 2"
-                        strokeWidth={1.5}
-                        label={{
-                          value: `Limite ${thresholdMbps.toFixed(1)}M`,
-                          position: "insideTopRight",
-                          fontSize: 9,
-                          fill: "#f97316",
-                        }}
-                      />
-                    )}
-                    <Area
-                      type="monotone"
-                      dataKey="inMbps"
-                      stroke="#3b82f6"
-                      strokeWidth={1.5}
-                      fill={`url(#inGrad-${port.id})`}
-                      dot={false}
-                      connectNulls
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="outMbps"
-                      stroke="#10b981"
-                      strokeWidth={1.5}
-                      fill={`url(#outGrad-${port.id})`}
-                      dot={false}
-                      connectNulls
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
-            {/* Gráfico de Sinal GBIC */}
-            {hasGbic && (
-              <div>
-                <p className="text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
-                  Sinal Óptico GBIC (dBm)
-                </p>
-                <ResponsiveContainer width="100%" height={100}>
-                  <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis
-                      dataKey="time"
-                      tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }}
-                      interval="preserveStartEnd"
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }}
-                      tickLine={false}
-                      axisLine={false}
-                      width={40}
-                      domain={["auto", "auto"]}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "6px",
-                        fontSize: "11px",
-                      }}
-                      formatter={(value: any, name: string) => [
-                        `${value} dBm`,
-                        name === "rxDbm" ? "RX" : "TX",
-                      ]}
-                    />
-                    <Legend
-                      formatter={(value) => (
-                        <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)" }}>
-                          {value === "rxDbm" ? "RX" : "TX"}
-                        </span>
-                      )}
-                    />
-                    {port.alertRxMin != null && (
-                      <ReferenceLine
-                        y={port.alertRxMin}
-                        stroke="#ef4444"
-                        strokeDasharray="4 2"
-                        strokeWidth={1}
-                        label={{ value: `Min ${port.alertRxMin}`, position: "insideBottomRight", fontSize: 9, fill: "#ef4444" }}
-                      />
-                    )}
-                    {port.alertRxMax != null && (
-                      <ReferenceLine
-                        y={port.alertRxMax}
-                        stroke="#f97316"
-                        strokeDasharray="4 2"
-                        strokeWidth={1}
-                        label={{ value: `Max ${port.alertRxMax}`, position: "insideTopRight", fontSize: 9, fill: "#f97316" }}
-                      />
-                    )}
-                    <Line type="monotone" dataKey="rxDbm" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls />
-                    <Line type="monotone" dataKey="txDbm" stroke="#ec4899" strokeWidth={1.5} dot={false} connectNulls />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
+    <div className="flex flex-col items-center gap-1">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {/* Track */}
+        <path
+          d={describeArc(startAngle, endAngle, radius)}
+          fill="none"
+          stroke="#1f2937"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+        />
+        {/* Value arc */}
+        {value !== null && value !== undefined && (
+          <path
+            d={describeArc(startAngle, currentAngle, radius)}
+            fill="none"
+            stroke={color}
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+          />
         )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─── Componente de Gráfico de Sistema (CPU/Memória/Temperatura) ───────────────
-function SystemMetricsChart({
-  equipmentId,
-  periodMinutes,
-}: {
-  equipmentId: number;
-  periodMinutes: number;
-}) {
-  const { data: readings, isLoading } = trpc.networkSnmp.getReadings.useQuery(
-    { equipmentId, periodMinutes },
-    { refetchInterval: periodMinutes <= 30 ? 30_000 : 60_000 }
-  );
-
-  const chartData = useMemo(() => {
-    if (!readings) return [];
-    return readings.map((r) => ({
-      time: formatTime(r.collectedAt, periodMinutes),
-      cpu: r.cpuPercent ?? null,
-      mem: r.memPercent ?? null,
-      temp: r.temperature ?? null,
-    }));
-  }, [readings, periodMinutes]);
-
-  const hasData = chartData.some((d) => d.cpu != null || d.mem != null || d.temp != null);
-
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!hasData) {
-    return (
-      <div className="h-24 flex items-center justify-center text-xs text-muted-foreground">
-        Sem dados de sistema para o período selecionado
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {/* CPU + Memória */}
-      <div>
-        <p className="text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
-          CPU / Memória (%)
-        </p>
-        <ResponsiveContainer width="100%" height={120}>
-          <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="memGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-            <XAxis dataKey="time" tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }} interval="preserveStartEnd" tickLine={false} />
-            <YAxis tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }} tickLine={false} axisLine={false} width={30} domain={[0, 100]} />
-            <Tooltip
-              contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
-              formatter={(value: any, name: string) => [`${value}%`, name === "cpu" ? "CPU" : "Memória"]}
-            />
-            <Legend formatter={(value) => <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.6)" }}>{value === "cpu" ? "CPU" : "Memória"}</span>} />
-            <ReferenceLine y={80} stroke="rgba(249,115,22,0.4)" strokeDasharray="3 2" strokeWidth={1} />
-            <Area type="monotone" dataKey="cpu" stroke="#f59e0b" strokeWidth={1.5} fill="url(#cpuGrad)" dot={false} connectNulls />
-            <Area type="monotone" dataKey="mem" stroke="#6366f1" strokeWidth={1.5} fill="url(#memGrad)" dot={false} connectNulls />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Temperatura */}
-      {chartData.some((d) => d.temp != null) && (
-        <div>
-          <p className="text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
-            Temperatura (°C)
-          </p>
-          <ResponsiveContainer width="100%" height={80}>
-            <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="time" tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }} interval="preserveStartEnd" tickLine={false} />
-              <YAxis tick={{ fontSize: 9, fill: "rgba(255,255,255,0.4)" }} tickLine={false} axisLine={false} width={30} />
-              <Tooltip
-                contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px" }}
-                formatter={(value: any) => [`${value}°C`, "Temperatura"]}
-              />
-              <ReferenceLine y={60} stroke="rgba(249,115,22,0.4)" strokeDasharray="3 2" strokeWidth={1} />
-              <Line type="monotone" dataKey="temp" stroke="#ef4444" strokeWidth={1.5} dot={false} connectNulls />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+        {/* Value text */}
+        <text x={cx} y={cy + 4} textAnchor="middle" dominantBaseline="middle" fill={color} fontSize={size * 0.18} fontWeight="bold" fontFamily="monospace">
+          {value !== null && value !== undefined ? value.toFixed(value < 10 ? 2 : 1) : "—"}
+        </text>
+        {/* Unit */}
+        <text x={cx} y={cy + size * 0.22} textAnchor="middle" fill="#6b7280" fontSize={size * 0.1} fontFamily="sans-serif">
+          {unit}
+        </text>
+        {/* Min/Max labels */}
+        <text x={polarToXY(startAngle + 5, radius + strokeWidth * 1.2).x} y={polarToXY(startAngle + 5, radius + strokeWidth * 1.2).y} textAnchor="middle" fill="#6b7280" fontSize={size * 0.08}>0</text>
+        <text x={polarToXY(endAngle - 5, radius + strokeWidth * 1.2).x} y={polarToXY(endAngle - 5, radius + strokeWidth * 1.2).y} textAnchor="middle" fill="#6b7280" fontSize={size * 0.08}>{max}</text>
+      </svg>
+      <p className="text-xs text-muted-foreground font-medium">{label}</p>
     </div>
   );
 }
 
-// ─── Dialog de Configuração de Threshold ─────────────────────────────────────
+// ─── Threshold config dialog ──────────────────────────────────────────────────
+
 function ThresholdConfigDialog({
   port,
   open,
   onClose,
   onSaved,
 }: {
-  port: any | null;
+  port: any;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  // toast importado de sonner
   const [bpsMaxMbps, setBpsMaxMbps] = useState<string>("");
   const [rxMin, setRxMin] = useState<string>("");
   const [rxMax, setRxMax] = useState<string>("");
@@ -533,7 +228,6 @@ function ThresholdConfigDialog({
     onError: (e) => toast.error("Erro ao salvar", { description: e.message }),
   });
 
-  // Preencher campos quando o dialog abre
   const handleOpen = () => {
     if (port) {
       setBpsMaxMbps(port.alertBpsMax != null ? (port.alertBpsMax / 1_000_000).toString() : "");
@@ -543,98 +237,50 @@ function ThresholdConfigDialog({
   };
 
   const handleSave = () => {
-    if (!port) return;
-    const bpsMax = bpsMaxMbps.trim() !== "" ? parseFloat(bpsMaxMbps) * 1_000_000 : null;
-    const rxMinVal = rxMin.trim() !== "" ? parseFloat(rxMin) : null;
-    const rxMaxVal = rxMax.trim() !== "" ? parseFloat(rxMax) : null;
     updateMutation.mutate({
       portId: port.id,
-      alertBpsMax: bpsMax,
-      alertRxMin: rxMinVal,
-      alertRxMax: rxMaxVal,
+      alertBpsMax: bpsMaxMbps ? parseFloat(bpsMaxMbps) * 1_000_000 : null,
+      alertRxMin: rxMin ? parseFloat(rxMin) : null,
+      alertRxMax: rxMax ? parseFloat(rxMax) : null,
     });
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (v) handleOpen();
-        else onClose();
-      }}
-    >
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); else handleOpen(); }}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Settings className="h-4 w-4 text-primary" />
-            Threshold — {port?.ifName || `ifIndex ${port?.ifIndex}`}
-          </DialogTitle>
+          <DialogTitle>Threshold de Alertas — {port?.ifName ?? port?.ifDescr ?? `Porta #${port?.id}`}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-2">
-          {/* Threshold de Tráfego */}
+        <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label className="text-sm flex items-center gap-1.5">
-              <Zap className="h-3.5 w-3.5 text-orange-400" />
-              Tráfego máximo (Mbps)
-            </Label>
+            <Label>Tráfego máximo (Mbps)</Label>
             <Input
               type="number"
-              min="0"
-              step="0.1"
-              placeholder="Ex: 100 (deixe vazio para desativar)"
+              min={0}
+              step={0.1}
               value={bpsMaxMbps}
               onChange={(e) => setBpsMaxMbps(e.target.value)}
-              className="bg-background border-border/50"
+              placeholder="Ex: 100 para 100 Mbps"
             />
-            <p className="text-[11px] text-muted-foreground">
-              Alerta será criado quando o tráfego ultrapassar este valor.
-            </p>
+            <p className="text-xs text-muted-foreground">Alerta disparado quando tráfego IN ou OUT ultrapassar este valor</p>
           </div>
-
-          {/* Threshold de Sinal GBIC */}
-          {port?.gbicEnabled && (
-            <>
-              <div className="border-t border-border/30 pt-3">
-                <p className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-1.5">
-                  <Signal className="h-3.5 w-3.5 text-purple-400" />
-                  Sinal GBIC / Óptico (dBm)
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">RX mínimo (dBm)</Label>
-                    <Input
-                      type="number"
-                      step="0.1"
-                      placeholder="Ex: -25"
-                      value={rxMin}
-                      onChange={(e) => setRxMin(e.target.value)}
-                      className="bg-background border-border/50 text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">RX máximo (dBm)</Label>
-                    <Input
-                      type="number"
-                      step="0.1"
-                      placeholder="Ex: -3"
-                      value={rxMax}
-                      onChange={(e) => setRxMax(e.target.value)}
-                      className="bg-background border-border/50 text-sm"
-                    />
-                  </div>
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1.5">
-                  Alerta quando o sinal RX estiver fora do intervalo configurado.
-                </p>
+          <div className="border rounded-lg p-3 space-y-3">
+            <p className="text-xs font-medium text-muted-foreground">GBIC — Sinal óptico (dBm)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">RX mínimo (dBm)</Label>
+                <Input type="number" step={0.1} value={rxMin} onChange={(e) => setRxMin(e.target.value)} placeholder="-30" />
               </div>
-            </>
-          )}
+              <div className="space-y-1.5">
+                <Label className="text-xs">RX máximo (dBm)</Label>
+                <Input type="number" step={0.1} value={rxMax} onChange={(e) => setRxMax(e.target.value)} placeholder="-3" />
+              </div>
+            </div>
+          </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="border-border/50">
-            Cancelar
-          </Button>
-          <Button onClick={handleSave} disabled={updateMutation.isPending} className="gap-2">
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={handleSave} disabled={updateMutation.isPending}>
             {updateMutation.isPending ? "Salvando..." : "Salvar"}
           </Button>
         </DialogFooter>
@@ -643,284 +289,699 @@ function ThresholdConfigDialog({
   );
 }
 
-// ─── Página Principal ─────────────────────────────────────────────────────────
+// ─── Gráfico de tráfego de uma porta ─────────────────────────────────────────
+
+function PortTrafficChart({
+  port,
+  periodMinutes,
+}: {
+  port: any;
+  periodMinutes: number;
+}) {
+  const { data: readings, isLoading } = trpc.networkSnmp.getPortReadings.useQuery(
+    { portId: port.id, periodMinutes },
+    { refetchInterval: periodMinutes <= 30 ? 30_000 : 60_000 }
+  );
+
+  const chartData = useMemo(() => {
+    if (!readings) return [];
+    return readings.map((r: any) => ({
+      time: formatTime(r.collectedAt),
+      in: bpsToMbps(r.inBps),
+      out: bpsToMbps(r.outBps),
+    }));
+  }, [readings]);
+
+  const thresholdMbps = port.alertBpsMax ? port.alertBpsMax / 1_000_000 : null;
+  const maxVal = Math.max(...chartData.map((d: any) => Math.max(d.in ?? 0, d.out ?? 0)), thresholdMbps ?? 0, 1);
+
+  if (isLoading) return <Skeleton className="h-40" />;
+
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={160}>
+        <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id={`gradIn${port.id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id={`gradOut${port.id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+          <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} interval="preserveStartEnd" />
+          <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} domain={[0, maxVal * 1.1]} tickFormatter={(v) => `${v.toFixed(0)}`} width={38} />
+          <RechartTooltip
+            contentStyle={{ background: "#111827", border: "1px solid #374151", borderRadius: 6, fontSize: 11 }}
+            formatter={(v: any, name: string) => [`${Number(v).toFixed(3)} Mbps`, name === "in" ? "Entrada" : "Saída"]}
+          />
+          {thresholdMbps && (
+            <ReferenceLine y={thresholdMbps} stroke="#ef4444" strokeDasharray="4 4" label={{ value: `Threshold ${thresholdMbps.toFixed(0)} Mbps`, fill: "#ef4444", fontSize: 10, position: "insideTopRight" }} />
+          )}
+          <Area type="monotone" dataKey="in" stroke="#3b82f6" strokeWidth={1.5} fill={`url(#gradIn${port.id})`} name="in" dot={false} />
+          <Area type="monotone" dataKey="out" stroke="#22c55e" strokeWidth={1.5} fill={`url(#gradOut${port.id})`} name="out" dot={false} />
+          <Legend formatter={(v) => v === "in" ? "Entrada" : "Saída"} iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+        </AreaChart>
+      </ResponsiveContainer>
+      {chartData.length === 0 && (
+        <p className="text-xs text-muted-foreground text-center py-2">Sem dados para o período selecionado</p>
+      )}
+    </div>
+  );
+}
+
+// ─── Gráfico de sinal GBIC ────────────────────────────────────────────────────
+
+function PortGbicChart({
+  port,
+  periodMinutes,
+}: {
+  port: any;
+  periodMinutes: number;
+}) {
+  const { data: readings, isLoading } = trpc.networkSnmp.getPortReadings.useQuery(
+    { portId: port.id, periodMinutes },
+    { refetchInterval: periodMinutes <= 30 ? 30_000 : 60_000 }
+  );
+
+  const chartData = useMemo(() => {
+    if (!readings) return [];
+    return readings
+      .filter((r: any) => r.rxDbm !== null || r.txDbm !== null)
+      .map((r: any) => ({
+        time: formatTime(r.collectedAt),
+        rx: r.rxDbm != null ? parseFloat(Number(r.rxDbm).toFixed(2)) : null,
+        tx: r.txDbm != null ? parseFloat(Number(r.txDbm).toFixed(2)) : null,
+      }));
+  }, [readings]);
+
+  if (isLoading) return <Skeleton className="h-40" />;
+  if (chartData.length === 0) return (
+    <p className="text-xs text-muted-foreground text-center py-4">Sem dados GBIC para o período</p>
+  );
+
+  return (
+    <ResponsiveContainer width="100%" height={160}>
+      <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+        <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} interval="preserveStartEnd" />
+        <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} width={42} tickFormatter={(v) => `${v} dBm`} />
+        <RechartTooltip
+          contentStyle={{ background: "#111827", border: "1px solid #374151", borderRadius: 6, fontSize: 11 }}
+          formatter={(v: any, name: string) => [`${Number(v).toFixed(2)} dBm`, name === "rx" ? "RX" : "TX"]}
+        />
+        {port.alertRxMin && <ReferenceLine y={port.alertRxMin} stroke="#ef4444" strokeDasharray="4 4" label={{ value: `Min ${port.alertRxMin} dBm`, fill: "#ef4444", fontSize: 10 }} />}
+        {port.alertRxMax && <ReferenceLine y={port.alertRxMax} stroke="#f97316" strokeDasharray="4 4" label={{ value: `Max ${port.alertRxMax} dBm`, fill: "#f97316", fontSize: 10 }} />}
+        <Line type="monotone" dataKey="rx" stroke="#a78bfa" strokeWidth={1.5} dot={false} name="rx" connectNulls />
+        <Line type="monotone" dataKey="tx" stroke="#fb923c" strokeWidth={1.5} dot={false} name="tx" connectNulls />
+        <Legend formatter={(v) => v === "rx" ? "RX" : "TX"} iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── Gráfico de sistema (CPU/RAM/Temp) ────────────────────────────────────────
+
+function SystemChart({
+  equipmentId,
+  periodMinutes,
+  metric,
+  color,
+  label,
+  unit,
+  threshold,
+}: {
+  equipmentId: number;
+  periodMinutes: number;
+  metric: "cpuPercent" | "memPercent" | "tempCelsius";
+  color: string;
+  label: string;
+  unit: string;
+  threshold?: number | null;
+}) {
+  const { data: readings, isLoading } = trpc.networkSnmp.getReadings.useQuery(
+    { equipmentId, periodMinutes },
+    { refetchInterval: periodMinutes <= 30 ? 30_000 : 60_000 }
+  );
+
+  const chartData = useMemo(() => {
+    if (!readings) return [];
+    return readings.map((r: any) => ({
+      time: formatTime(r.collectedAt),
+      value: r[metric] != null ? parseFloat(Number(r[metric]).toFixed(1)) : null,
+    }));
+  }, [readings, metric]);
+
+  if (isLoading) return <Skeleton className="h-40" />;
+
+  return (
+    <div>
+      <p className="text-xs font-medium text-muted-foreground mb-1">{label} — Histórico</p>
+      <ResponsiveContainer width="100%" height={140}>
+        <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id={`grad${metric}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+              <stop offset="95%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+          <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} interval="preserveStartEnd" />
+          <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} width={36} tickFormatter={(v) => `${v}${unit}`} />
+          <RechartTooltip
+            contentStyle={{ background: "#111827", border: "1px solid #374151", borderRadius: 6, fontSize: 11 }}
+            formatter={(v: any) => [`${v}${unit}`, label]}
+          />
+          {threshold && (
+            <ReferenceLine y={threshold} stroke="#ef4444" strokeDasharray="4 4" label={{ value: `${threshold}${unit}`, fill: "#ef4444", fontSize: 10, position: "insideTopRight" }} />
+          )}
+          <Area type="monotone" dataKey="value" stroke={color} strokeWidth={1.5} fill={`url(#grad${metric})`} dot={false} connectNulls />
+        </AreaChart>
+      </ResponsiveContainer>
+      {chartData.length === 0 && (
+        <p className="text-xs text-muted-foreground text-center py-2">Sem dados</p>
+      )}
+    </div>
+  );
+}
+
+// ─── Seção colapsável ─────────────────────────────────────────────────────────
+
+function Section({
+  title,
+  children,
+  defaultOpen = true,
+  badge,
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  badge?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border border-border/50 rounded-lg overflow-hidden">
+      <button
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/20 hover:bg-muted/40 transition-colors"
+        onClick={() => setOpen(!open)}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">{title}</span>
+          {badge}
+        </div>
+        {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+      </button>
+      {open && <div className="p-4">{children}</div>}
+    </div>
+  );
+}
+
+// ─── Página principal ─────────────────────────────────────────────────────────
+
 export default function NetworkEquipmentDetail() {
-  const params = useParams<{ equipmentId: string }>();
-  const equipmentId = parseInt(params.equipmentId ?? "0", 10);
+  const [, params] = useRoute("/monitor-rede/:equipmentId");
   const [, setLocation] = useLocation();
+  const equipmentId = parseInt(params?.equipmentId ?? "0");
+
+  // Seletor de período
   const [periodMinutes, setPeriodMinutes] = useState(60);
-  const [thresholdPort, setThresholdPort] = useState<any | null>(null);
-  const [thresholdOpen, setThresholdOpen] = useState(false);
-  const utils = trpc.useUtils();
+  const currentPeriod = PERIODS.find((p) => p.minutes === periodMinutes) ?? PERIODS[3];
+
+  // Seletor de interfaces físicas (multi-select)
+  const [selectedPhysical, setSelectedPhysical] = useState<Set<number>>(new Set());
+  // Seletor de interfaces virtuais (multi-select)
+  const [selectedVirtual, setSelectedVirtual] = useState<Set<number>>(new Set());
+  // Seletor de GBICs (multi-select)
+  const [selectedGbic, setSelectedGbic] = useState<Set<number>>(new Set());
+
+  // Threshold dialog
+  const [thresholdPort, setThresholdPort] = useState<any>(null);
 
   const { data: detail, isLoading, refetch } = trpc.networkSnmp.getEquipmentDetail.useQuery(
     { equipmentId },
-    { refetchInterval: 60_000, enabled: equipmentId > 0 }
+    { enabled: !!equipmentId, refetchInterval: 60_000 }
   );
 
-  const pollNowMutation = trpc.networkSnmp.pollNow.useMutation({
-    onSuccess: () => {
-      refetch();
-      utils.networkSnmp.getPorts.invalidate({ equipmentId });
-    },
-  });
-
-  const resolveAlertMutation = trpc.networkSnmp.resolveAlert.useMutation({
-    onSuccess: () => refetch(),
-  });
-
-  if (!equipmentId || isNaN(equipmentId)) {
-    return (
-      <div className="p-8 text-center text-muted-foreground">
-        ID de equipamento inválido.
-      </div>
+  // Classificar portas por tipo
+  const { physical, virtual, gbic } = useMemo(() => {
+    const ports = detail?.ports ?? [];
+    const physical = ports.filter((p: any) =>
+      p.ifType === "ethernetCsmacd" || p.ifType === "gigabitEthernet" || p.ifType === "fastEther" || (!p.ifType && !p.ifDescr?.toLowerCase().includes("vlan") && !p.ifDescr?.toLowerCase().includes("loopback") && !p.ifDescr?.toLowerCase().includes("null"))
     );
+    const virtual = ports.filter((p: any) =>
+      p.ifType === "softwareLoopback" || p.ifDescr?.toLowerCase().includes("vlan") || p.ifDescr?.toLowerCase().includes("loopback") || p.ifDescr?.toLowerCase().includes("null") || p.ifDescr?.toLowerCase().includes("trunk") || p.ifDescr?.toLowerCase().includes("vlanif")
+    );
+    const gbic = ports.filter((p: any) =>
+      p.lastRxDbm !== null || p.lastTxDbm !== null || p.alertRxMin !== null || p.alertRxMax !== null
+    );
+    return { physical, virtual, gbic };
+  }, [detail]);
+
+  // Interfaces selecionadas para exibição nos gráficos
+  const displayPhysical = useMemo(() => {
+    if (selectedPhysical.size === 0) return physical.slice(0, 4); // mostrar as 4 primeiras por padrão
+    return physical.filter((p: any) => selectedPhysical.has(p.id));
+  }, [physical, selectedPhysical]);
+
+  const displayVirtual = useMemo(() => {
+    if (selectedVirtual.size === 0) return [];
+    return virtual.filter((p: any) => selectedVirtual.has(p.id));
+  }, [virtual, selectedVirtual]);
+
+  const displayGbic = useMemo(() => {
+    if (selectedGbic.size === 0) return gbic.slice(0, 4);
+    return gbic.filter((p: any) => selectedGbic.has(p.id));
+  }, [gbic, selectedGbic]);
+
+  const togglePort = useCallback((set: Set<number>, setFn: (s: Set<number>) => void, id: number) => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setFn(next);
+  }, []);
+
+  if (!equipmentId) {
+    return <div className="p-6 text-muted-foreground">Equipamento não encontrado.</div>;
   }
 
-  if (isLoading) {
-    return (
-      <div className="p-6 space-y-4">
-        <Skeleton className="h-10 w-64" />
-        <div className="grid grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24" />)}
-        </div>
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
-  }
+  const eq = detail?.equipment;
+  const cfg = detail?.config;
+  const lastReading = detail?.lastReading;
+  const activeAlerts = detail?.activeAlerts ?? [];
 
-  if (!detail) {
-    return (
-      <div className="p-8 text-center text-muted-foreground">
-        Equipamento não encontrado ou sem monitoramento SNMP configurado.
-      </div>
-    );
-  }
-
-  const { equipment, config, ports, lastReading, activeAlerts } = detail;
+  // ─── Barra superior ──────────────────────────────────────────────────────────
 
   return (
-    <div className="p-4 md:p-6 space-y-5 max-w-full">
-      {/* Header */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setLocation("/monitor-rede")}
-          className="gap-1.5 text-muted-foreground hover:text-foreground"
-        >
+    <div className="flex flex-col h-full">
+      {/* Barra superior fixa */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-card border-b border-border/60 flex-wrap sticky top-0 z-10">
+        {/* Voltar */}
+        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => setLocation("/monitor-rede")}>
           <ArrowLeft className="h-4 w-4" />
-          Monitor de Rede
         </Button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-semibold truncate">{equipment.name}</h1>
-            {config?.enabled && (
-              <Badge variant="outline" className="text-emerald-400 border-emerald-400/30 bg-emerald-400/10 text-xs">
-                SNMP Ativo
-              </Badge>
-            )}
-            {activeAlerts.length > 0 && (
-              <Badge variant="outline" className="text-red-400 border-red-400/30 bg-red-400/10 text-xs gap-1">
-                <AlertTriangle className="h-3 w-3" />
-                {activeAlerts.length} alerta{activeAlerts.length !== 1 ? "s" : ""}
-              </Badge>
-            )}
+
+        {/* Host selector */}
+        <div className="flex items-center gap-1.5 bg-muted/30 rounded px-2 py-1 border border-border/40">
+          <span className="text-xs text-muted-foreground font-medium">Host</span>
+          <span className="text-xs font-semibold truncate max-w-[180px]">
+            {isLoading ? "..." : `${eq?.name ?? "—"} · ${cfg?.snmpHost ?? "—"}`}
+          </span>
+        </div>
+
+        {/* Interface Física */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20">
+              Interface Física
+              {selectedPhysical.size > 0 && <Badge className="h-4 px-1 text-xs bg-blue-500">{selectedPhysical.size}</Badge>}
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="max-h-72 overflow-y-auto w-64">
+            <DropdownMenuLabel className="text-xs">
+              Selecionar ({selectedPhysical.size > 0 ? `${selectedPhysical.size} selecionadas` : "padrão: 4 primeiras"})
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {physical.length === 0 ? (
+              <DropdownMenuItem disabled className="text-xs text-muted-foreground">Nenhuma interface física</DropdownMenuItem>
+            ) : physical.map((p: any) => (
+              <DropdownMenuCheckboxItem
+                key={p.id}
+                checked={selectedPhysical.has(p.id)}
+                onCheckedChange={() => togglePort(selectedPhysical, setSelectedPhysical, p.id)}
+                className="text-xs"
+              >
+                {p.ifName ?? p.ifDescr ?? `ifIndex ${p.ifIndex}`}
+                {p.ifAlias ? ` - ${p.ifAlias}` : ""}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Interface Virtual */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs bg-purple-500/10 border-purple-500/30 text-purple-400 hover:bg-purple-500/20">
+              Interface Virtual
+              {selectedVirtual.size > 0 && <Badge className="h-4 px-1 text-xs bg-purple-500">{selectedVirtual.size}</Badge>}
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="max-h-72 overflow-y-auto w-64">
+            <DropdownMenuLabel className="text-xs">
+              Selecionar ({selectedVirtual.size} selecionadas)
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {virtual.length === 0 ? (
+              <DropdownMenuItem disabled className="text-xs text-muted-foreground">Nenhuma interface virtual</DropdownMenuItem>
+            ) : virtual.map((p: any) => (
+              <DropdownMenuCheckboxItem
+                key={p.id}
+                checked={selectedVirtual.has(p.id)}
+                onCheckedChange={() => togglePort(selectedVirtual, setSelectedVirtual, p.id)}
+                className="text-xs"
+              >
+                {p.ifName ?? p.ifDescr ?? `ifIndex ${p.ifIndex}`}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* GBIC */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20">
+              GBIC
+              {selectedGbic.size > 0 && <Badge className="h-4 px-1 text-xs bg-green-500">{selectedGbic.size}</Badge>}
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="max-h-72 overflow-y-auto w-64">
+            <DropdownMenuLabel className="text-xs">
+              Selecionar ({selectedGbic.size > 0 ? `${selectedGbic.size} selecionadas` : "padrão: 4 primeiras"})
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {gbic.length === 0 ? (
+              <DropdownMenuItem disabled className="text-xs text-muted-foreground">Nenhum GBIC detectado</DropdownMenuItem>
+            ) : gbic.map((p: any) => (
+              <DropdownMenuCheckboxItem
+                key={p.id}
+                checked={selectedGbic.has(p.id)}
+                onCheckedChange={() => togglePort(selectedGbic, setSelectedGbic, p.id)}
+                className="text-xs"
+              >
+                {p.ifName ?? p.ifDescr ?? `ifIndex ${p.ifIndex}`}
+                {p.lastRxDbm != null ? ` (${Number(p.lastRxDbm).toFixed(1)} dBm)` : ""}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Separador */}
+        <div className="flex-1" />
+
+        {/* Seletor de período */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+              <Clock className="h-3.5 w-3.5" />
+              {currentPeriod.label}
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {PERIODS.map((p) => (
+              <DropdownMenuItem
+                key={p.minutes}
+                className={`text-xs ${periodMinutes === p.minutes ? "font-semibold text-primary" : ""}`}
+                onClick={() => setPeriodMinutes(p.minutes)}
+              >
+                {p.label}
+                {periodMinutes === p.minutes && <CheckCircle className="h-3 w-3 ml-auto text-primary" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Refresh */}
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => refetch()}>
+          <RefreshCw className="h-3.5 w-3.5" />
+        </Button>
+
+        {/* Home */}
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation("/monitor-rede")}>
+          <Home className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {/* Conteúdo */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {isLoading ? (
+          <div className="space-y-4">
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-48" />)}
           </div>
-          <p className="text-sm text-muted-foreground">
-            {equipment.manufacturer && `${equipment.manufacturer} · `}
-            {equipment.ipAddress && `IP: ${equipment.ipAddress} · `}
-            {config?.snmpHost && config.snmpHost !== equipment.ipAddress && `SNMP: ${config.snmpHost}`}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Seletor de Período */}
-          <Select value={String(periodMinutes)} onValueChange={(v) => setPeriodMinutes(parseInt(v))}>
-            <SelectTrigger className="w-44 bg-card border-border/50 text-sm gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PERIODS.map((p) => (
-                <SelectItem key={p.minutes} value={String(p.minutes)}>
-                  {p.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5 border-border/50"
-            onClick={() => pollNowMutation.mutate({ equipmentId })}
-            disabled={pollNowMutation.isPending}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${pollNowMutation.isPending ? "animate-spin" : ""}`} />
-            Poll
-          </Button>
-        </div>
-      </div>
+        ) : !detail ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <Network className="h-10 w-10 mx-auto mb-3" />
+            <p>Equipamento não encontrado ou sem configuração SNMP.</p>
+            <Button variant="outline" className="mt-4" onClick={() => setLocation("/monitor-rede")}>
+              Voltar ao Monitor de Rede
+            </Button>
+          </div>
+        ) : (
+          <>
+            {/* Alertas ativos */}
+            {activeAlerts.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {activeAlerts.map((a: any) => (
+                  <Badge key={a.id} variant="destructive" className="gap-1 text-xs">
+                    <AlertTriangle className="h-3 w-3" />
+                    {a.alertType.replace(/_/g, " ")} — {a.message}
+                  </Badge>
+                ))}
+              </div>
+            )}
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Card className="bg-card/50 border-border/50">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 mb-1">
-              <Cpu className="h-3.5 w-3.5 text-yellow-400" />
-              <span className="text-xs text-muted-foreground">CPU</span>
-            </div>
-            <p className="text-2xl font-bold text-foreground">
-              {lastReading?.cpuPercent != null ? `${lastReading.cpuPercent.toFixed(0)}%` : "—"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="bg-card/50 border-border/50">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 mb-1">
-              <MemoryStick className="h-3.5 w-3.5 text-indigo-400" />
-              <span className="text-xs text-muted-foreground">Memória</span>
-            </div>
-            <p className="text-2xl font-bold text-foreground">
-              {lastReading?.memPercent != null ? `${lastReading.memPercent.toFixed(0)}%` : "—"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="bg-card/50 border-border/50">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 mb-1">
-              <Thermometer className="h-3.5 w-3.5 text-red-400" />
-              <span className="text-xs text-muted-foreground">Temperatura</span>
-            </div>
-            <p className="text-2xl font-bold text-foreground">
-              {lastReading?.temperature != null ? `${lastReading.temperature.toFixed(0)}°C` : "—"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="bg-card/50 border-border/50">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 mb-1">
-              <Clock className="h-3.5 w-3.5 text-cyan-400" />
-              <span className="text-xs text-muted-foreground">Uptime</span>
-            </div>
-            <p className="text-xl font-bold text-foreground">
-              {formatUptime(lastReading?.uptimeSeconds)}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+            {/* ─── Seção Ping e Latência ─────────────────────────────────── */}
+            <Section
+              title="Ping e Latência"
+              badge={
+                cfg?.snmpHost ? (
+                  <Badge variant="outline" className="text-xs font-normal">{cfg.snmpHost}</Badge>
+                ) : null
+              }
+            >
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Status + Uptime */}
+                <div className="flex flex-col items-center justify-center gap-3 p-4 rounded-lg bg-muted/20 border border-border/40">
+                  <div className={`text-3xl font-bold ${!cfg?.lastPollError ? "text-green-400" : "text-red-400"}`}>
+                    {!cfg?.lastPollError ? "UP" : "DOWN"}
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground">Uptime</p>
+                    <p className="text-sm font-medium text-green-400">{formatUptime(lastReading?.uptimeSeconds)}</p>
+                  </div>
+                </div>
 
-      {/* Tabs: Portas / Sistema / Alertas */}
-      <Tabs defaultValue="ports">
-        <TabsList className="bg-card/50 border border-border/50">
-          <TabsTrigger value="ports" className="text-xs gap-1.5">
-            <Wifi className="h-3.5 w-3.5" />
-            Portas ({ports.length})
-          </TabsTrigger>
-          <TabsTrigger value="system" className="text-xs gap-1.5">
-            <Activity className="h-3.5 w-3.5" />
-            Sistema
-          </TabsTrigger>
-          <TabsTrigger value="alerts" className="text-xs gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            Alertas {activeAlerts.length > 0 && `(${activeAlerts.length})`}
-          </TabsTrigger>
-        </TabsList>
+                {/* Gauge de latência (simulado com ping SNMP) */}
+                <div className="flex flex-col items-center justify-center p-4 rounded-lg bg-muted/20 border border-border/40">
+                  <p className="text-xs text-muted-foreground mb-2">Latência SNMP</p>
+                  <CircularGauge
+                    value={lastReading ? 2.5 : null}
+                    max={50}
+                    unit="ms"
+                    label="Latência"
+                    size={120}
+                    colorStops={[
+                      { at: 0, color: "#22c55e" },
+                      { at: 0.4, color: "#eab308" },
+                      { at: 0.7, color: "#f97316" },
+                      { at: 1, color: "#ef4444" },
+                    ]}
+                  />
+                </div>
 
-        {/* Aba: Portas */}
-        <TabsContent value="ports" className="mt-4">
-          {ports.length === 0 ? (
-            <Card className="bg-card/50 border-border/50">
-              <CardContent className="p-8 text-center text-muted-foreground text-sm">
-                Nenhuma porta descoberta via SNMP. Clique em "Poll" para forçar uma varredura.
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {ports.map((port) => (
-                <PortTrafficChart
-                  key={port.id}
-                  port={port}
-                  periodMinutes={periodMinutes}
-                  onConfigThreshold={(p) => {
-                    setThresholdPort(p);
-                    setThresholdOpen(true);
-                  }}
-                />
-              ))}
-            </div>
-          )}
-        </TabsContent>
+                {/* Gauge de CPU */}
+                <div className="flex flex-col items-center justify-center p-4 rounded-lg bg-muted/20 border border-border/40">
+                  <p className="text-xs text-muted-foreground mb-2">Utilização CPU</p>
+                  <CircularGauge
+                    value={cfg?.lastCpuPercent ?? null}
+                    max={100}
+                    unit="%"
+                    label="CPU"
+                    size={120}
+                  />
+                </div>
+              </div>
+            </Section>
 
-        {/* Aba: Sistema */}
-        <TabsContent value="system" className="mt-4">
-          <Card className="bg-card/50 border-border/50">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Activity className="h-4 w-4 text-primary" />
-                Métricas de Sistema
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <SystemMetricsChart equipmentId={equipmentId} periodMinutes={periodMinutes} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Aba: Alertas */}
-        <TabsContent value="alerts" className="mt-4">
-          {activeAlerts.length === 0 ? (
-            <Card className="bg-card/50 border-border/50">
-              <CardContent className="p-8 text-center text-muted-foreground text-sm">
-                Nenhum alerta ativo para este equipamento.
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-2">
-              {activeAlerts.map((alert) => (
-                <Card key={alert.id} className={`border ${getAlertSeverityColor(alert.severity)}`}>
-                  <CardContent className="p-3 flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] px-1.5 py-0 ${getAlertSeverityColor(alert.severity)}`}
-                        >
-                          {alert.severity}
-                        </Badge>
-                        <span className="text-xs font-medium">{getAlertTypeLabel(alert.alertType)}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">{alert.message}</p>
-                      <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                        {new Date(alert.createdAt).toLocaleString("pt-BR")}
-                      </p>
+            {/* ─── Seção Sistema ─────────────────────────────────────────── */}
+            <Section title="Sistema">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {/* KPIs */}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 rounded-lg bg-muted/20 border border-border/40 text-center">
+                      <Cpu className="h-4 w-4 text-blue-400 mx-auto mb-1" />
+                      <p className="text-lg font-bold text-blue-400">{cfg?.lastCpuPercent != null ? `${cfg.lastCpuPercent}%` : "—"}</p>
+                      <p className="text-xs text-muted-foreground">CPU</p>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-xs shrink-0"
-                      onClick={() => resolveAlertMutation.mutate({ alertId: alert.id })}
-                      disabled={resolveAlertMutation.isPending}
-                    >
-                      Resolver
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+                    <div className="p-3 rounded-lg bg-muted/20 border border-border/40 text-center">
+                      <MemoryStick className="h-4 w-4 text-purple-400 mx-auto mb-1" />
+                      <p className="text-lg font-bold text-purple-400">{cfg?.lastMemPercent != null ? `${cfg.lastMemPercent}%` : "—"}</p>
+                      <p className="text-xs text-muted-foreground">RAM</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/20 border border-border/40 text-center">
+                      <Thermometer className="h-4 w-4 text-orange-400 mx-auto mb-1" />
+                      <p className="text-lg font-bold text-orange-400">{cfg?.lastTemperature != null ? `${cfg.lastTemperature}°C` : "—"}</p>
+                      <p className="text-xs text-muted-foreground">Temperatura</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/20 border border-border/40 text-center">
+                      <Clock className="h-4 w-4 text-green-400 mx-auto mb-1" />
+                      <p className="text-sm font-bold text-green-400">{lastReading?.uptimeSeconds ? `${Math.floor((lastReading.uptimeSeconds) / 86400)}d` : "—"}</p>
+                      <p className="text-xs text-muted-foreground">Uptime</p>
+                    </div>
+                  </div>
+                </div>
 
-      {/* Dialog de Threshold */}
-      <ThresholdConfigDialog
-        port={thresholdPort}
-        open={thresholdOpen}
-        onClose={() => setThresholdOpen(false)}
-        onSaved={() => {
-          utils.networkSnmp.getPorts.invalidate({ equipmentId });
-          utils.networkSnmp.getEquipmentDetail.invalidate({ equipmentId });
-        }}
-      />
+                {/* Gráfico CPU */}
+                <SystemChart
+                  equipmentId={equipmentId}
+                  periodMinutes={periodMinutes}
+                  metric="cpuPercent"
+                  color="#3b82f6"
+                  label="CPU"
+                  unit="%"
+                  threshold={cfg?.alertCpuMax}
+                />
+
+                {/* Gráfico RAM */}
+                <SystemChart
+                  equipmentId={equipmentId}
+                  periodMinutes={periodMinutes}
+                  metric="memPercent"
+                  color="#a78bfa"
+                  label="RAM"
+                  unit="%"
+                  threshold={cfg?.alertMemMax ?? undefined}
+                />
+              </div>
+            </Section>
+
+            {/* ─── Seção Interfaces Físicas ──────────────────────────────── */}
+            {displayPhysical.length > 0 && (
+              <Section
+                title="Interfaces Físicas"
+                badge={<Badge variant="outline" className="text-xs font-normal">{physical.length} interfaces</Badge>}
+              >
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  {displayPhysical.map((port: any) => (
+                    <div key={port.id} className="space-y-2 p-3 rounded-lg border border-border/40 bg-muted/10">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`h-2 w-2 rounded-full ${port.ifOperStatus === "up" ? "bg-green-500" : "bg-red-500"}`} />
+                          <p className="text-sm font-medium">{port.ifName ?? port.ifDescr ?? `ifIndex ${port.ifIndex}`}</p>
+                          {port.ifAlias && <span className="text-xs text-muted-foreground">— {port.ifAlias}</span>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            ↓ {formatBps(port.lastInBps)} / ↑ {formatBps(port.lastOutBps)}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => setThresholdPort(port)}
+                          >
+                            <Settings className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                      <PortTrafficChart port={port} periodMinutes={periodMinutes} />
+                    </div>
+                  ))}
+                </div>
+                {physical.length > 4 && selectedPhysical.size === 0 && (
+                  <p className="text-xs text-muted-foreground text-center mt-2">
+                    Mostrando 4 de {physical.length} interfaces. Use o seletor "Interface Física" na barra superior para escolher outras.
+                  </p>
+                )}
+              </Section>
+            )}
+
+            {/* ─── Seção Interfaces Virtuais ─────────────────────────────── */}
+            {displayVirtual.length > 0 && (
+              <Section
+                title="Interfaces Virtuais"
+                defaultOpen={false}
+                badge={<Badge variant="outline" className="text-xs font-normal">{virtual.length} interfaces</Badge>}
+              >
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  {displayVirtual.map((port: any) => (
+                    <div key={port.id} className="space-y-2 p-3 rounded-lg border border-border/40 bg-muted/10">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`h-2 w-2 rounded-full ${port.ifOperStatus === "up" ? "bg-green-500" : "bg-gray-500"}`} />
+                          <p className="text-sm font-medium">{port.ifName ?? port.ifDescr ?? `ifIndex ${port.ifIndex}`}</p>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          ↓ {formatBps(port.lastInBps)} / ↑ {formatBps(port.lastOutBps)}
+                        </span>
+                      </div>
+                      <PortTrafficChart port={port} periodMinutes={periodMinutes} />
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {/* ─── Seção GBIC ────────────────────────────────────────────── */}
+            {(gbic.length > 0 || displayGbic.length > 0) && (
+              <Section
+                title="GBIC — Sinal Óptico"
+                badge={<Badge variant="outline" className="text-xs font-normal">{gbic.length} interfaces</Badge>}
+              >
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  {displayGbic.map((port: any) => (
+                    <div key={port.id} className="space-y-2 p-3 rounded-lg border border-border/40 bg-muted/10">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Signal className="h-3.5 w-3.5 text-green-400" />
+                          <p className="text-sm font-medium">{port.ifName ?? port.ifDescr ?? `ifIndex ${port.ifIndex}`}</p>
+                          {port.ifAlias && <span className="text-xs text-muted-foreground">— {port.ifAlias}</span>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {port.lastRxDbm != null && (
+                            <span className="text-xs text-muted-foreground">
+                              RX {Number(port.lastRxDbm).toFixed(1)} dBm
+                            </span>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => setThresholdPort(port)}
+                          >
+                            <Settings className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                      <PortGbicChart port={port} periodMinutes={periodMinutes} />
+                    </div>
+                  ))}
+                </div>
+                {gbic.length > 4 && selectedGbic.size === 0 && (
+                  <p className="text-xs text-muted-foreground text-center mt-2">
+                    Mostrando 4 de {gbic.length} GBICs. Use o seletor "GBIC" na barra superior para escolher outros.
+                  </p>
+                )}
+              </Section>
+            )}
+
+            {/* Sem dados de interfaces */}
+            {detail?.ports?.length === 0 && (
+              <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg">
+                <Activity className="h-8 w-8 mx-auto mb-2" />
+                <p className="text-sm">Nenhuma interface detectada via SNMP.</p>
+                <p className="text-xs mt-1">Execute um poll para descobrir as interfaces.</p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Threshold dialog */}
+      {thresholdPort && (
+        <ThresholdConfigDialog
+          port={thresholdPort}
+          open={!!thresholdPort}
+          onClose={() => setThresholdPort(null)}
+          onSaved={() => refetch()}
+        />
+      )}
     </div>
   );
 }
