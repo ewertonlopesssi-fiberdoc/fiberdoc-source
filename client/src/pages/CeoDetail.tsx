@@ -272,6 +272,7 @@ function TubePanel({
   const [labelDialog, setLabelDialog] = useState<Via | null>(null);
   const [labelValue, setLabelValue] = useState("");
   const [labelNotes, setLabelNotes] = useState("");
+  const [fiberDialog, setFiberDialog] = useState<Via | null>(null);
   const [fiberSearch, setFiberSearch] = useState("");
   const [selectedFiberId, setSelectedFiberId] = useState("");
   const [viaStatusFilter, setViaStatusFilter] = useState<"all" | "fused" | "free">("all");
