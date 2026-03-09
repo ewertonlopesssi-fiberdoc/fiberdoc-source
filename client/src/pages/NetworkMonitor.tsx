@@ -382,7 +382,7 @@ function AddMonitoringDialog({ open, onClose }: { open: boolean; onClose: () => 
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button
             disabled={!selectedId || upsert.isPending}
-            onClick={() => upsert.mutate({ equipmentId: parseInt(selectedId), enabled: false })}
+            onClick={() => upsert.mutate({ equipmentId: parseInt(selectedId), enabled: true })}
           >
             Adicionar
           </Button>
