@@ -63,6 +63,41 @@ import {
   Home,
 } from "lucide-react";
 
+// ─── Mapeamento IANAifType (número → nome) ───────────────────────────────────
+// RFC 2863 / IANAifType-MIB — os mais comuns em switches/roteadores
+const IANA_IF_TYPE: Record<number, string> = {
+  1:   "other",
+  6:   "ethernetcsmacd",
+  7:   "iso88023csmacd",
+  9:   "iso88025tokenring",
+  15:  "fddi",
+  24:  "softwareloopback",
+  53:  "propvirtual",
+  131: "tunnel",
+  161: "ieee8023adlag",
+  166: "mpls",
+  167: "mplsTunnel",
+  188: "atmSubInterface",
+  23:  "ppp",
+  32:  "frameRelay",
+  33:  "rs232",
+  37:  "atm",
+  49:  "aal5",
+  54:  "propMultiplexor",
+  55:  "ieee80212",
+  56:  "fibreChannel",
+  62:  "fastEther",
+  69:  "fastEtherFX",
+  117: "gigabitEthernet",
+};
+
+function resolveIfType(raw: string | number | null | undefined): string {
+  if (raw === null || raw === undefined) return "";
+  const n = typeof raw === "number" ? raw : parseInt(String(raw));
+  if (!isNaN(n) && IANA_IF_TYPE[n]) return IANA_IF_TYPE[n].toLowerCase();
+  return String(raw).toLowerCase();
+}
+
 // ─── Períodos disponíveis ─────────────────────────────────────────────────────
 
 const PERIODS = [
@@ -529,18 +564,19 @@ export default function NetworkEquipmentDetail() {
   const { physical, virtual, gbic } = useMemo(() => {
     const ports = detail?.ports ?? [];
     // ifName é o campo real no schema (o poller guarda ifDescr SNMP em ifName)
+    // ifType pode ser número (IANAifType) ou string — usar resolveIfType para normalizar
     const physical = ports.filter((p: any) => {
       const name = (p.ifName ?? "").toLowerCase();
-      const type = (p.ifType ?? "").toLowerCase();
-      if (type === "ethernetcsmacd" || type === "gigabitethernet" || type === "fastether" || type === "ieee8023adlag") return true;
-      if (type === "softwareloopback" || type === "propvirtual" || type === "tunnel" || type === "ppp") return false;
-      if (name.includes("vlan") || name.includes("loopback") || name.includes("lo") || name.includes("null") || name.includes("trunk") || name.includes("vlanif") || name.includes("bridge") || name.includes("bonding")) return false;
+      const type = resolveIfType(p.ifType);
+      if (type === "ethernetcsmacd" || type === "gigabitethernet" || type === "fastether" || type === "fastetherfx" || type === "ieee8023adlag" || type === "fibreChannel") return true;
+      if (type === "softwareloopback" || type === "propvirtual" || type === "tunnel" || type === "ppp" || type === "mpls") return false;
+      if (name.includes("vlan") || name.includes("loopback") || name === "lo" || name.startsWith("lo.") || name.includes("null") || name.includes("trunk") || name.includes("vlanif") || name.includes("bridge") || name.includes("bonding")) return false;
       return true; // sem tipo definido e nome não virtual → considerar física
     });
     const virtual = ports.filter((p: any) => {
       const name = (p.ifName ?? "").toLowerCase();
-      const type = (p.ifType ?? "").toLowerCase();
-      if (type === "softwareloopback" || type === "propvirtual" || type === "tunnel" || type === "ppp") return true;
+      const type = resolveIfType(p.ifType);
+      if (type === "softwareloopback" || type === "propvirtual" || type === "tunnel" || type === "ppp" || type === "mpls") return true;
       if (name.includes("vlan") || name.includes("loopback") || name === "lo" || name.startsWith("lo.") || name.includes("null") || name.includes("trunk") || name.includes("vlanif") || name.includes("bridge") || name.includes("bonding")) return true;
       return false;
     });
