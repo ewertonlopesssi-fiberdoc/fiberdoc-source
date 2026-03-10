@@ -34,6 +34,10 @@ const OID = {
   ifAdminStatus:"1.3.6.1.2.1.2.2.1.7",
   ifInOctets:   "1.3.6.1.2.1.2.2.1.10",
   ifOutOctets:  "1.3.6.1.2.1.2.2.1.16",
+  // IF-MIB HC (64-bit) — obrigatório para portas 10G/100G (RFC 2863)
+  ifHCInOctets:  "1.3.6.1.2.1.31.1.1.1.6",   // ifHCInOctets  (64-bit)
+  ifHCOutOctets: "1.3.6.1.2.1.31.1.1.1.10",  // ifHCOutOctets (64-bit)
+  ifHighSpeed:   "1.3.6.1.2.1.31.1.1.1.15",  // ifHighSpeed em Mbps (para portas >1G)
   ifAlias:      "1.3.6.1.2.1.31.1.1.1.18",   // IF-MIB ifAlias
 
   // HOST-RESOURCES-MIB (CPU e memória)
@@ -332,10 +336,13 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
           `${OID.ifDescr}.${ifIndex}`,
           `${OID.ifType}.${ifIndex}`,
           `${OID.ifSpeed}.${ifIndex}`,
+          `${OID.ifHighSpeed}.${ifIndex}`,   // Mbps para portas >1G
           `${OID.ifOperStatus}.${ifIndex}`,
           `${OID.ifAdminStatus}.${ifIndex}`,
           `${OID.ifInOctets}.${ifIndex}`,
           `${OID.ifOutOctets}.${ifIndex}`,
+          `${OID.ifHCInOctets}.${ifIndex}`,  // 64-bit (10G/100G)
+          `${OID.ifHCOutOctets}.${ifIndex}`, // 64-bit (10G/100G)
           `${OID.ifAlias}.${ifIndex}`,
         ];
 
@@ -346,18 +353,29 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
 
         const ifName = String(varbindValue(ifVbs[`${OID.ifDescr}.${ifIndex}`]) ?? "");
         const ifAlias = String(varbindValue(ifVbs[`${OID.ifAlias}.${ifIndex}`]) ?? "");
+        // ifHighSpeed (Mbps) tem prioridade para portas >1G; ifSpeed (bps) para portas lentas
         // 4294967295 (0xFFFFFFFF) = velocidade desconhecida no SNMP, guardar como null
         const rawSpeed = toNumber(varbindValue(ifVbs[`${OID.ifSpeed}.${ifIndex}`]));
-        const ifSpeed = (rawSpeed === null || rawSpeed >= 4294967295) ? null : rawSpeed;
+        const rawHighSpeed = toNumber(varbindValue(ifVbs[`${OID.ifHighSpeed}.${ifIndex}`]));
+        // ifHighSpeed em Mbps → converter para bps; usar quando ifSpeed = 0xFFFFFFFF ou porta >1G
+        const ifSpeed = rawHighSpeed !== null && rawHighSpeed > 0
+          ? rawHighSpeed * 1_000_000  // Mbps → bps
+          : (rawSpeed === null || rawSpeed >= 4294967295) ? null : rawSpeed;
         const ifType = String(varbindValue(ifVbs[`${OID.ifType}.${ifIndex}`]) ?? "");
         const operStatusRaw = toNumber(varbindValue(ifVbs[`${OID.ifOperStatus}.${ifIndex}`]));
         const adminStatusRaw = toNumber(varbindValue(ifVbs[`${OID.ifAdminStatus}.${ifIndex}`]));
-        // Truncar para evitar overflow no MySQL bigint (max 9223372036854775807)
+        // Usar contadores HC (64-bit) se disponíveis — obrigatório para portas 10G/100G
+        // Fallback para contadores de 32-bit se HC não suportado pelo equipamento
         const MAX_SAFE_BIGINT = 9007199254740991; // Number.MAX_SAFE_INTEGER
-        const rawIn = toNumber(varbindValue(ifVbs[`${OID.ifInOctets}.${ifIndex}`]));
-        const rawOut = toNumber(varbindValue(ifVbs[`${OID.ifOutOctets}.${ifIndex}`]));
-        const inOctets = rawIn !== null ? Math.min(rawIn, MAX_SAFE_BIGINT) : null;
-        const outOctets = rawOut !== null ? Math.min(rawOut, MAX_SAFE_BIGINT) : null;
+        const rawHCIn  = toNumber(varbindValue(ifVbs[`${OID.ifHCInOctets}.${ifIndex}`]));
+        const rawHCOut = toNumber(varbindValue(ifVbs[`${OID.ifHCOutOctets}.${ifIndex}`]));
+        const rawIn    = toNumber(varbindValue(ifVbs[`${OID.ifInOctets}.${ifIndex}`]));
+        const rawOut   = toNumber(varbindValue(ifVbs[`${OID.ifOutOctets}.${ifIndex}`]));
+        // Preferir HC (64-bit); fallback para 32-bit
+        const bestIn  = rawHCIn  !== null ? rawHCIn  : rawIn;
+        const bestOut = rawHCOut !== null ? rawHCOut : rawOut;
+        const inOctets  = bestIn  !== null ? Math.min(bestIn,  MAX_SAFE_BIGINT) : null;
+        const outOctets = bestOut !== null ? Math.min(bestOut, MAX_SAFE_BIGINT) : null;
 
         const operStatusMap: Record<number, string> = {
           1: "up", 2: "down", 3: "testing", 4: "unknown",
