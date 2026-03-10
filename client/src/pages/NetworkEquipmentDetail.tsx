@@ -61,6 +61,8 @@ import {
   Signal,
   Network,
   Home,
+  Trash2,
+  RotateCcw,
 } from "lucide-react";
 
 // ─── Mapeamento IANAifType (número → nome) ───────────────────────────────────
@@ -554,11 +556,29 @@ export default function NetworkEquipmentDetail() {
 
   // Threshold dialog
   const [thresholdPort, setThresholdPort] = useState<any>(null);
+  const [showCleanupDialog, setShowCleanupDialog] = useState(false);
+  const [cleanupDays, setCleanupDays] = useState("30");
 
   const { data: detail, isLoading, refetch } = trpc.networkSnmp.getEquipmentDetail.useQuery(
     { equipmentId },
     { enabled: !!equipmentId, refetchInterval: 60_000 }
   );
+
+  const rediscoverMutation = trpc.networkSnmp.rediscoverPorts.useMutation({
+    onSuccess: (res) => {
+      toast.success("Redescoberta iniciada", { description: res.message });
+      setTimeout(() => refetch(), 35_000);
+    },
+    onError: (e) => toast.error("Erro ao redescobrir", { description: e.message }),
+  });
+
+  const cleanupMutation = trpc.networkSnmp.cleanupHistory.useMutation({
+    onSuccess: (res) => {
+      toast.success("Histórico limpo", { description: res.message });
+      setShowCleanupDialog(false);
+    },
+    onError: (e) => toast.error("Erro ao limpar histórico", { description: e.message }),
+  });
 
   // Classificar portas por tipo
   const { physical, virtual, gbic } = useMemo(() => {
@@ -756,6 +776,33 @@ export default function NetworkEquipmentDetail() {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* Redescobrir Interfaces */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 text-xs bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
+          disabled={rediscoverMutation.isPending}
+          onClick={() => {
+            if (confirm("Apagar todas as interfaces e redescobrir via SNMP? O histórico de tráfego será mantido.")) {
+              rediscoverMutation.mutate({ equipmentId });
+            }
+          }}
+        >
+          <RotateCcw className={`h-3.5 w-3.5 ${rediscoverMutation.isPending ? "animate-spin" : ""}`} />
+          {rediscoverMutation.isPending ? "Aguardando..." : "Redescobrir"}
+        </Button>
+
+        {/* Limpar Histórico */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 text-xs bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
+          onClick={() => setShowCleanupDialog(true)}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Limpar Histórico
+        </Button>
 
         {/* Refresh */}
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => refetch()}>
@@ -1033,6 +1080,42 @@ export default function NetworkEquipmentDetail() {
           onSaved={() => refetch()}
         />
       )}
+
+      {/* Cleanup History Dialog */}
+      <Dialog open={showCleanupDialog} onOpenChange={setShowCleanupDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Limpar Histórico Antigo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Remove leituras de tráfego, GBIC e sistema mais antigas que o período especificado.
+              Os dados recentes e as configurações de alertas são preservados.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Apagar histórico com mais de (dias)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={365}
+                value={cleanupDays}
+                onChange={(e) => setCleanupDays(e.target.value)}
+                placeholder="30"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCleanupDialog(false)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              disabled={cleanupMutation.isPending}
+              onClick={() => cleanupMutation.mutate({ equipmentId, olderThanDays: parseInt(cleanupDays) || 30 })}
+            >
+              {cleanupMutation.isPending ? "A limpar..." : "Confirmar Limpeza"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -14,7 +14,7 @@ import {
   networkSnmpAlerts,
   equipments,
 } from "../../drizzle/schema";
-import { eq, and, desc, gte, isNull } from "drizzle-orm";
+import { eq, and, desc, gte, isNull, lt } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import {
   pollNetworkEquipment,
@@ -408,6 +408,70 @@ export const networkSnmpRouter = router({
           },
         };
       }
+    }),
+
+  // Redescobrir interfaces: apaga portas existentes e força novo poll
+  rediscoverPorts: protectedProcedure
+    .input(z.object({ equipmentId: z.number().int() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
+
+      // Apagar histórico de leituras de portas
+      const ports = await db
+        .select({ id: networkSnmpPorts.id })
+        .from(networkSnmpPorts)
+        .where(eq(networkSnmpPorts.equipmentId, input.equipmentId));
+
+      for (const port of ports) {
+        await db.delete(networkPortReadings).where(eq(networkPortReadings.portId, port.id));
+      }
+
+      // Apagar portas existentes
+      await db.delete(networkSnmpPorts).where(eq(networkSnmpPorts.equipmentId, input.equipmentId));
+
+      // Forçar novo poll imediatamente
+      pollNetworkEquipment(input.equipmentId).catch((e) =>
+        console.error(`[NetworkSNMP] Erro ao redescobrir portas do equipamento ${input.equipmentId}:`, e)
+      );
+
+      return { ok: true, message: "Interfaces apagadas. Novo poll iniciado — aguarde 30 segundos." };
+    }),
+
+  // Limpar histórico antigo (network_port_readings e network_snmp_readings)
+  cleanupHistory: protectedProcedure
+    .input(z.object({
+      equipmentId: z.number().int(),
+      olderThanDays: z.number().int().min(1).max(365).default(30),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
+
+      const cutoff = new Date(Date.now() - input.olderThanDays * 86400 * 1000);
+
+      // Apagar leituras gerais antigas
+      await db.delete(networkSnmpReadings)
+        .where(and(
+          eq(networkSnmpReadings.equipmentId, input.equipmentId),
+          lt(networkSnmpReadings.collectedAt, cutoff)
+        ));
+
+      // Apagar leituras de portas antigas
+      const ports = await db
+        .select({ id: networkSnmpPorts.id })
+        .from(networkSnmpPorts)
+        .where(eq(networkSnmpPorts.equipmentId, input.equipmentId));
+
+      for (const port of ports) {
+        await db.delete(networkPortReadings)
+          .where(and(
+            eq(networkPortReadings.portId, port.id),
+            lt(networkPortReadings.collectedAt, cutoff)
+          ));
+      }
+
+      return { ok: true, message: `Histórico com mais de ${input.olderThanDays} dias apagado.` };
     }),
 
   // Resumo de todos os equipamentos com SNMP habilitado
