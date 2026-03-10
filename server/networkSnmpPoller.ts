@@ -174,6 +174,11 @@ function snmpGetSubtree(session: snmp.Session, rootOid: string, debug = false): 
           let lastOid = currentOid;
           let outOfTree = false;
           for (const vb of varbinds) {
+            // Proteger contra varbinds undefined/null retornados pelo net-snmp
+            if (!vb || !vb.oid) {
+              if (debug) console.log(`[snmpGetSubtree] Varbind undefined/null ignorado`);
+              continue;
+            }
             if (!vb.oid.startsWith(rootOid + ".") && vb.oid !== rootOid) {
               if (debug) console.log(`[snmpGetSubtree] Saiu da árvore em ${vb.oid} (raiz=${rootOid}), parando`);
               outOfTree = true;
