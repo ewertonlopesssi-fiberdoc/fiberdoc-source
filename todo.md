@@ -1451,3 +1451,9 @@
 - [x] GBIC Huawei: adicionados logs de diagnóstico para verificar coleta de sinal óptico
 - [x] Users.tsx: corrigido erro de tipo TypeScript (operator role) com asserções de tipo
 - [x] getAllUsers: tipo de retorno explícito incluindo "operator" no enum de role
+
+## GBIC Temperatura e Diagnóstico — 10/03/2026
+- [x] Verificar logs GBIC Huawei em produção — logs de diagnóstico adicionados (v5.93.16), aguardar deploy para confirmar OIDs
+- [x] Adicionar gráfico de temperatura GBIC no NetworkEquipmentDetail (AreaChart âmbar com linha de alerta 70°C)
+- [x] Temperatura actual exibida no cabeçalho do card GBIC com código de cores (verde/amarelo/laranja/vermelho)
+- [x] Tooltip do gráfico de temperatura mostra valor em °C

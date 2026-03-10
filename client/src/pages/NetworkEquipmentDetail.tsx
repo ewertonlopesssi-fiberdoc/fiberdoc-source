@@ -404,7 +404,8 @@ function PortGbicChart({
     { refetchInterval: periodMinutes <= 30 ? 30_000 : 60_000 }
   );
 
-  const chartData = useMemo(() => {
+  // Dados do gráfico de sinal óptico (RX/TX dBm)
+  const signalData = useMemo(() => {
     if (!readings) return [];
     return readings
       .filter((r: any) => r.rxPowerDbm !== null || r.txPowerDbm !== null)
@@ -415,28 +416,98 @@ function PortGbicChart({
       }));
   }, [readings]);
 
+  // Dados do gráfico de temperatura GBIC (°C)
+  const tempData = useMemo(() => {
+    if (!readings) return [];
+    return readings
+      .filter((r: any) => r.gbicTemp !== null && r.gbicTemp !== undefined)
+      .map((r: any) => ({
+        time: formatTime(r.collectedAt),
+        temp: r.gbicTemp != null ? parseFloat(Number(r.gbicTemp).toFixed(1)) : null,
+      }));
+  }, [readings]);
+
+  // Valor actual de temperatura (last reading)
+  const currentTemp = useMemo(() => {
+    if (!readings) return null;
+    const last = [...readings].reverse().find((r: any) => r.gbicTemp != null);
+    return last ? parseFloat(Number(last.gbicTemp).toFixed(1)) : null;
+  }, [readings]);
+
   if (isLoading) return <Skeleton className="h-40" />;
-  if (chartData.length === 0) return (
+  if (signalData.length === 0 && tempData.length === 0) return (
     <p className="text-xs text-muted-foreground text-center py-4">Sem dados GBIC para o período</p>
   );
 
   return (
-    <ResponsiveContainer width="100%" height={160}>
-      <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-        <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} interval="preserveStartEnd" />
-        <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} width={42} tickFormatter={(v) => `${v} dBm`} />
-        <RechartTooltip
-          contentStyle={{ background: "#111827", border: "1px solid #374151", borderRadius: 6, fontSize: 11 }}
-          formatter={(v: any, name: string) => [`${Number(v).toFixed(2)} dBm`, name === "rx" ? "RX" : "TX"]}
-        />
-        {port.alertRxMin && <ReferenceLine y={port.alertRxMin} stroke="#ef4444" strokeDasharray="4 4" label={{ value: `Min ${port.alertRxMin} dBm`, fill: "#ef4444", fontSize: 10 }} />}
-        {port.alertRxMax && <ReferenceLine y={port.alertRxMax} stroke="#f97316" strokeDasharray="4 4" label={{ value: `Max ${port.alertRxMax} dBm`, fill: "#f97316", fontSize: 10 }} />}
-        <Line type="monotone" dataKey="rx" stroke="#a78bfa" strokeWidth={1.5} dot={false} name="rx" connectNulls />
-        <Line type="monotone" dataKey="tx" stroke="#fb923c" strokeWidth={1.5} dot={false} name="tx" connectNulls />
-        <Legend formatter={(v) => v === "rx" ? "RX" : "TX"} iconSize={10} wrapperStyle={{ fontSize: 11 }} />
-      </LineChart>
-    </ResponsiveContainer>
+    <div className="space-y-3">
+      {/* Gráfico de sinal óptico RX/TX */}
+      {signalData.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-1">Sinal Óptico (dBm)</p>
+          <ResponsiveContainer width="100%" height={150}>
+            <LineChart data={signalData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} width={42} tickFormatter={(v) => `${v}`} />
+              <RechartTooltip
+                contentStyle={{ background: "#111827", border: "1px solid #374151", borderRadius: 6, fontSize: 11 }}
+                formatter={(v: any, name: string) => [`${Number(v).toFixed(2)} dBm`, name === "rx" ? "RX Power" : "TX Power"]}
+              />
+              {port.alertRxMin && <ReferenceLine y={port.alertRxMin} stroke="#ef4444" strokeDasharray="4 4" label={{ value: `Min ${port.alertRxMin}`, fill: "#ef4444", fontSize: 9, position: "insideTopLeft" }} />}
+              {port.alertRxMax && <ReferenceLine y={port.alertRxMax} stroke="#f97316" strokeDasharray="4 4" label={{ value: `Max ${port.alertRxMax}`, fill: "#f97316", fontSize: 9, position: "insideTopLeft" }} />}
+              <Line type="linear" dataKey="rx" stroke="#a78bfa" strokeWidth={1.5} dot={false} name="rx" connectNulls />
+              <Line type="linear" dataKey="tx" stroke="#fb923c" strokeWidth={1.5} dot={false} name="tx" connectNulls />
+              <Legend formatter={(v) => v === "rx" ? "RX (dBm)" : "TX (dBm)"} iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Gráfico de temperatura GBIC */}
+      {tempData.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-medium text-muted-foreground">Temperatura GBIC (°C)</p>
+            {currentTemp !== null && (
+              <span className={`text-xs font-mono font-bold ${
+                currentTemp > 70 ? "text-red-400" :
+                currentTemp > 55 ? "text-orange-400" :
+                currentTemp > 40 ? "text-yellow-400" : "text-emerald-400"
+              }`}>
+                {currentTemp}°C
+              </span>
+            )}
+          </div>
+          <ResponsiveContainer width="100%" height={120}>
+            <AreaChart data={tempData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id={`gradGbicTemp${port.id}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} interval="preserveStartEnd" />
+              <YAxis
+                tick={{ fontSize: 10, fill: "#6b7280" }}
+                tickLine={false}
+                width={36}
+                tickFormatter={(v) => `${v}°`}
+                domain={["auto", "auto"]}
+              />
+              <RechartTooltip
+                contentStyle={{ background: "#111827", border: "1px solid #374151", borderRadius: 6, fontSize: 11 }}
+                formatter={(v: any) => [`${Number(v).toFixed(1)}°C`, "Temperatura"]}
+              />
+              {/* Linha de alerta: 70°C (limite crítico típico para GBICs) */}
+              <ReferenceLine y={70} stroke="#ef4444" strokeDasharray="4 4" label={{ value: "70°C", fill: "#ef4444", fontSize: 9, position: "insideTopRight" }} />
+              <Area type="linear" dataKey="temp" stroke="#f59e0b" strokeWidth={1.5} fill={`url(#gradGbicTemp${port.id})`} dot={false} connectNulls />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1019,7 +1090,7 @@ export default function NetworkEquipmentDetail() {
             {/* ─── Seção GBIC ────────────────────────────────────────────── */}
             {(gbic.length > 0 || displayGbic.length > 0) && (
               <Section
-                title="GBIC — Sinal Óptico"
+                title="GBIC — Sinal Óptico e Temperatura"
                 badge={<Badge variant="outline" className="text-xs font-normal">{gbic.length} interfaces</Badge>}
               >
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -1032,6 +1103,15 @@ export default function NetworkEquipmentDetail() {
                           {port.ifAlias && <span className="text-xs text-muted-foreground">— {port.ifAlias}</span>}
                         </div>
                         <div className="flex items-center gap-2">
+                          {port.lastGbicTemp != null && (
+                            <span className={`text-xs font-mono ${
+                              Number(port.lastGbicTemp) > 70 ? "text-red-400" :
+                              Number(port.lastGbicTemp) > 55 ? "text-orange-400" :
+                              Number(port.lastGbicTemp) > 40 ? "text-yellow-400" : "text-emerald-400"
+                            }`}>
+                              {Number(port.lastGbicTemp).toFixed(1)}°C
+                            </span>
+                          )}
                           {port.lastRxPowerDbm != null && (
                             <span className="text-xs text-muted-foreground">
                               RX {Number(port.lastRxPowerDbm).toFixed(1)} dBm
