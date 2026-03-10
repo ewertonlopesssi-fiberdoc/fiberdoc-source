@@ -1483,3 +1483,7 @@
 
 ## Bug — ReferenceError elementsRef antes de useRef — 10/03/2026
 - [x] Corrigir atribuição elementsRef.current antes da declaração useRef — movida para depois do useRef (linha 438)
+
+## Bugs — Edição de traçado — 10/03/2026
+- [x] Dificuldade ao arrastar extremidades do traçado — reescrito com Pointer Events (unifica mouse+touch, setPointerCapture garante drag mesmo saindo do marcador)
+- [x] Truncagem incorrecta ao vincular ponto do meio a elemento — corrigida lógica de slice e actualização de snapFromId/snapToId

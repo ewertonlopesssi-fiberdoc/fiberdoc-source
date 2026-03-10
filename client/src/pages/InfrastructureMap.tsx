@@ -1181,50 +1181,50 @@ export default function InfrastructureMap() {
         bubblingMouseEvents: false,
       }).addTo(mapRef.current!);
 
-      // Arrastar vértice (com snap ao CEO/CTO mais próximo para endpoints)
-      // Suporta mouse E touch events
+      // Arrastar vértice — usa Pointer Events para suporte unificado mouse + touch
+      // Snap activo para TODOS os pontos (não apenas endpoints)
       const SNAP_THRESHOLD_DEG = 0.008; // ~800m em graus
       let dragging = false;
+      let pointerId: number | null = null;
 
       // Helper: converter clientX/Y para LatLng do mapa
       const clientToLatLng = (clientX: number, clientY: number): { lat: number; lng: number } | null => {
         if (!mapRef.current) return null;
         const rect = mapRef.current.getContainer().getBoundingClientRect();
-        const pt = L.point(clientX - rect.left, clientY - rect.top);
-        const ll = mapRef.current.containerPointToLatLng(pt);
+        const p = L.point(clientX - rect.left, clientY - rect.top);
+        const ll = mapRef.current.containerPointToLatLng(p);
         return { lat: ll.lat, lng: ll.lng };
       };
 
-      // Lógica comum de movimento (mouse ou touch)
-      const handleDragMove = (rawLat: number, rawLng: number) => {
-        let moveLat = rawLat;
-        let moveLng = rawLng;
-        let snappedEl: any = null;
-        // Snap activo para TODOS os pontos (não apenas endpoints)
-        // Usar elementsRef.current para evitar closure stale (elements pode estar vazio no closure)
-        {
-          let bestDist = SNAP_THRESHOLD_DEG;
-          elementsRef.current.forEach((el: any) => {
-            const d = Math.hypot(moveLat - Number(el.lat), moveLng - Number(el.lng));
-            if (d < bestDist) { bestDist = d; snappedEl = el; }
-          });
-          if (snappedEl) { moveLat = Number(snappedEl.lat); moveLng = Number(snappedEl.lng); }
-        }
+      // Snap: encontrar elemento mais próximo dentro do threshold
+      const findSnap = (lat: number, lng: number): { id: number; lat: number; lng: number; name: string } | null => {
+        let best: any = null;
+        let bestDist = SNAP_THRESHOLD_DEG;
+        elementsRef.current.forEach((el: any) => {
+          const d = Math.hypot(lat - Number(el.lat), lng - Number(el.lng));
+          if (d < bestDist) { bestDist = d; best = el; }
+        });
+        return best ? { id: best.id, lat: Number(best.lat), lng: Number(best.lng), name: best.name ?? `El. ${best.id}` } : null;
+      };
+
+      // Movimento: actualizar posição do marcador e polilinha
+      const handleDragMove = (clientX: number, clientY: number) => {
+        if (!dragging) return;
+        const ll = clientToLatLng(clientX, clientY);
+        if (!ll) return;
+        const snap = findSnap(ll.lat, ll.lng);
+        const moveLat = snap ? snap.lat : ll.lat;
+        const moveLng = snap ? snap.lng : ll.lng;
         cm.setLatLng([moveLat, moveLng]);
-        // Usar índice dinâmico: encontrar o ponto mais próximo da posição ANTERIOR do marcador
-        // para evitar problema com idx estático do closure
-        const prevLatLng = cm.getLatLng(); // já actualizado acima, usar a posição anterior guardada
         const newPath = [...editingRoutePathRef.current];
-        // Encontrar o índice actual deste marcador no array pelo idx original (ainda válido durante drag contínuo)
-        // O idx só fica inválido após renderEditRouteMarkers ser chamado, o que não acontece durante o drag
         newPath[idx] = { lat: moveLat, lng: moveLng };
         editingRoutePathRef.current = newPath;
         if (editRoutePolylineRef.current) {
           editRoutePolylineRef.current.setLatLngs(newPath.map(p => [p.lat, p.lng] as L.LatLngExpression));
         }
+        // Indicador de snap
         if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
-        if (snappedEl && mapRef.current) {
-          // Indicador: verde para endpoints, âmbar para pontos do meio
+        if (snap && mapRef.current) {
           const snapColor = isEndpoint ? "#22c55e" : "#f59e0b";
           snapIndicatorRef.current = L.circleMarker([moveLat, moveLng], {
             radius: 14, color: snapColor, fillColor: snapColor, fillOpacity: 0.25, weight: 3,
@@ -1235,95 +1235,78 @@ export default function InfrastructureMap() {
         renderMidpoints(newPath, routeColor);
       };
 
-      // Lógica comum de fim de drag
+      // Fim de drag: aplicar snap definitivo
       const handleDragEnd = () => {
         if (!dragging) return;
         dragging = false;
+        pointerId = null;
         mapRef.current!.dragging.enable();
         if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
-        // Usar a posição actual do marcador (não o idx que pode estar desactualizado)
         const cmLatLng = cm.getLatLng();
-        const finalLat = cmLatLng.lat;
-        const finalLng = cmLatLng.lng;
-        // Detectar snap com a mesma tolerância usada no handleDragMove
-        // Usar elementsRef.current para evitar closure stale
-        let snappedId: number | null = null;
-        let snappedEl: any = null;
-        {
-          let bestDist = SNAP_THRESHOLD_DEG;
-          elementsRef.current.forEach((el: any) => {
-            const d = Math.hypot(finalLat - Number(el.lat), finalLng - Number(el.lng));
-            if (d < bestDist) { bestDist = d; snappedEl = el; snappedId = el.id; }
-          });
-        }
-        // Encontrar o índice actual do ponto no array (pode ter mudado)
-        let currentIdx = idx;
+        const snap = findSnap(cmLatLng.lat, cmLatLng.lng);
+        // Determinar índice actual do ponto (idx é válido durante drag contínuo sem re-render)
         const pts = editingRoutePathRef.current;
-        // Procurar o índice do ponto mais próximo da posição actual do marcador
-        let minDist = Infinity;
-        pts.forEach((p, i) => {
-          const d = Math.hypot(p.lat - finalLat, p.lng - finalLng);
-          if (d < minDist) { minDist = d; currentIdx = i; }
-        });
-        const isCurrentEndpoint = currentIdx === 0 || currentIdx === pts.length - 1;
+        const isCurrentEndpoint = idx === 0 || idx === pts.length - 1;
         if (isCurrentEndpoint) {
-          // Endpoints: actualizar snap normal
-          if (currentIdx === 0) snapFromIdRef.current = snappedId;
-          else snapToIdRef.current = snappedId;
-        } else if (snappedId !== null && snappedEl !== null) {
-          // Ponto do meio arrastado para cima de um elemento:
-          // Mostrar dialog de confirmação antes de truncar
-          const isCloserToStart = currentIdx < pts.length / 2;
+          // Extremidade: actualizar vinculação ao elemento
+          if (idx === 0) snapFromIdRef.current = snap ? snap.id : null;
+          else snapToIdRef.current = snap ? snap.id : null;
+          setEditingRoutePath([...pts]);
+        } else if (snap) {
+          // Ponto do meio arrastado para elemento: pedir confirmação de truncagem
+          // isCloserToStart = true → o ponto arrastado fica mais perto do início → truncar início
+          // Novo traçado: se isCloserToStart → pts[idx..fim] (elemento vira nova origem)
+          //               se !isCloserToStart → pts[0..idx] (elemento vira novo destino)
+          const isCloserToStart = idx <= pts.length / 2;
           const newPath = isCloserToStart
-            ? pts.slice(currentIdx)      // manter do ponto arrastado até ao fim
-            : pts.slice(0, currentIdx + 1); // manter do início até ao ponto arrastado
+            ? pts.slice(idx)           // eliminar pontos ANTES do ponto arrastado
+            : pts.slice(0, idx + 1);   // eliminar pontos DEPOIS do ponto arrastado
           setTruncateConfirm({
-            snappedId,
-            snappedName: snappedEl.name ?? `El. ${snappedId}`,
+            snappedId: snap.id,
+            snappedName: snap.name,
             isCloserToStart,
             newPath,
             routeColor,
           });
           return;
+        } else {
+          setEditingRoutePath([...pts]);
         }
-        setEditingRoutePath([...editingRoutePathRef.current]);
       };
 
-      // ── Mouse events ──────────────────────────────────────────────────────
-      cm.on("mousedown", (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e);
-        dragging = true;
-        mapRef.current!.dragging.disable();
-        const onMove = (ev: L.LeafletMouseEvent) => { if (dragging) handleDragMove(ev.latlng.lat, ev.latlng.lng); };
-        const onUp = () => {
-          mapRef.current!.off("mousemove", onMove);
-          mapRef.current!.off("mouseup", onUp);
-          handleDragEnd();
-        };
-        mapRef.current!.on("mousemove", onMove);
-        mapRef.current!.on("mouseup", onUp);
-      });
-
-      // ── Touch events ──────────────────────────────────────────────────────
+      // ── Pointer Events (unifica mouse + touch) ────────────────────────────
       const cmEl = (cm as any).getElement?.();
       if (cmEl) {
-        cmEl.addEventListener("touchstart", (e: TouchEvent) => {
+        cmEl.style.cursor = "grab";
+        cmEl.style.touchAction = "none"; // impede scroll durante drag em touch
+        cmEl.addEventListener("pointerdown", (e: PointerEvent) => {
           e.stopPropagation();
           e.preventDefault();
+          cmEl.setPointerCapture(e.pointerId);
+          pointerId = e.pointerId;
           dragging = true;
+          cmEl.style.cursor = "grabbing";
           mapRef.current!.dragging.disable();
         }, { passive: false });
-        cmEl.addEventListener("touchmove", (e: TouchEvent) => {
-          if (!dragging) return;
+        cmEl.addEventListener("pointermove", (e: PointerEvent) => {
+          if (!dragging || e.pointerId !== pointerId) return;
           e.stopPropagation();
           e.preventDefault();
-          const touch = e.touches[0];
-          const ll = clientToLatLng(touch.clientX, touch.clientY);
-          if (ll) handleDragMove(ll.lat, ll.lng);
+          handleDragMove(e.clientX, e.clientY);
         }, { passive: false });
-        cmEl.addEventListener("touchend", (e: TouchEvent) => {
+        cmEl.addEventListener("pointerup", (e: PointerEvent) => {
+          if (e.pointerId !== pointerId) return;
           e.stopPropagation();
+          cmEl.style.cursor = "grab";
           handleDragEnd();
+        }, { passive: false });
+        cmEl.addEventListener("pointercancel", (e: PointerEvent) => {
+          if (e.pointerId !== pointerId) return;
+          dragging = false;
+          pointerId = null;
+          cmEl.style.cursor = "grab";
+          mapRef.current?.dragging.enable();
+          if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
         }, { passive: false });
       }
 
