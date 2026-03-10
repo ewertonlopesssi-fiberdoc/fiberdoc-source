@@ -290,8 +290,6 @@ export default function InfrastructureMap() {
 
   const utils = trpc.useUtils();
   const { data: elements = [], refetch: refetchElements } = trpc.infraMap.elements.useQuery();
-  // Manter elementsRef sempre actualizado para evitar closure stale no renderEditRouteMarkers
-  elementsRef.current = elements as any[];
   const { data: routes = [], refetch: refetchRoutes } = trpc.infraMap.routes.useQuery();
   const { data: routesOccupancy = [] } = trpc.infraMap.routesOccupancy.useQuery();
   const { data: ctos = [], refetch: refetchCtos } = trpc.ctos.list.useQuery();
@@ -436,6 +434,8 @@ export default function InfrastructureMap() {
   const snapIndicatorRef = useRef<L.CircleMarker | null>(null);
   // Ref para elements sempre actualizada (evita closure stale no renderEditRouteMarkers)
   const elementsRef = useRef<any[]>([]);
+  // Actualizar a ref sempre que elements muda (deve estar DEPOIS do useRef)
+  elementsRef.current = elements as any[];
 
   // Edição inline de CEO/CTO/Cabo pelo painel lateral
   const [editElementDialogOpen, setEditElementDialogOpen] = useState(false);

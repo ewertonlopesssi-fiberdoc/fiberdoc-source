@@ -1480,3 +1480,6 @@
 
 ## Bug — Snap traçado ao elemento (ainda não funciona) — 10/03/2026
 - [x] Investigar e corrigir definitivamente o snap ao arrastar ponto do traçado para CEO/CTO — causa raiz: closure stale de `elements` no useCallback (dependencia ausente). Corrigido com `elementsRef.current` sempre actualizado.
+
+## Bug — ReferenceError elementsRef antes de useRef — 10/03/2026
+- [x] Corrigir atribuição elementsRef.current antes da declaração useRef — movida para depois do useRef (linha 438)
