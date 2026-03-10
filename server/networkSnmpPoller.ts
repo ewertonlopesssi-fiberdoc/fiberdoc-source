@@ -133,12 +133,16 @@ function snmpGet(session: snmp.Session, oids: string[]): Promise<Record<string, 
   });
 }
 
-// snmpwalk manual via getBulk (v2c/v3) com fallback para getNext (v1)
+// snmpwalk manual via getNext em loop — simples, robusto, funciona em v1/v2c/v3
+// Não usa getBulk para evitar problemas com equipamentos que retornam arrays malformados
 function snmpGetSubtree(session: snmp.Session, rootOid: string, debug = false): Promise<snmp.Varbind[]> {
   return new Promise((resolve) => {
     const results: snmp.Varbind[] = [];
-    const MAX_ITER = 1000; // limite de segurança
+    const MAX_ITER = 2000; // limite de segurança (switches grandes podem ter 500+ interfaces)
     let iterations = 0;
+
+    // Normalizar rootOid: remover ponto final se existir
+    const root = rootOid.endsWith(".") ? rootOid.slice(0, -1) : rootOid;
 
     function step(currentOid: string) {
       if (iterations++ > MAX_ITER) {
@@ -146,59 +150,50 @@ function snmpGetSubtree(session: snmp.Session, rootOid: string, debug = false): 
         return resolve(results);
       }
 
-      // Usar getBulk para eficiência (funciona em v2c e v3)
-      // maxRepetitions=20 para não sobrecarregar o equipamento
-      (session as any).getBulk(
-        [currentOid],
-        0, // nonRepeaters
-        20, // maxRepetitions
-        (error: Error | null, varbinds?: snmp.Varbind[]) => {
-          if (error) {
-            if (debug) console.log(`[snmpGetSubtree] getBulk erro em ${currentOid}: ${error.message}, tentando getNext`);
-            // Fallback para getNext
-            session.getNext([currentOid], (err2: Error | null, vbs2?: snmp.Varbind[]) => {
-              if (err2 || !vbs2 || vbs2.length === 0) {
-                if (debug) console.log(`[snmpGetSubtree] getNext também falhou: ${err2?.message}`);
-                return resolve(results);
-              }
-              const vb = vbs2[0];
-              if (!vb.oid.startsWith(rootOid + ".") && vb.oid !== rootOid) return resolve(results);
-              if (snmp.isVarbindError(vb)) return resolve(results);
-              results.push(vb);
-              step(vb.oid);
-            });
-            return;
-          }
-          if (!varbinds || varbinds.length === 0) return resolve(results);
-
-          let lastOid = currentOid;
-          let outOfTree = false;
-          for (const vb of varbinds) {
-            // Proteger contra varbinds undefined/null retornados pelo net-snmp
-            if (!vb || !vb.oid) {
-              if (debug) console.log(`[snmpGetSubtree] Varbind undefined/null ignorado`);
-              continue;
-            }
-            if (!vb.oid.startsWith(rootOid + ".") && vb.oid !== rootOid) {
-              if (debug) console.log(`[snmpGetSubtree] Saiu da árvore em ${vb.oid} (raiz=${rootOid}), parando`);
-              outOfTree = true;
-              break;
-            }
-            if (snmp.isVarbindError(vb)) {
-              if (debug) console.log(`[snmpGetSubtree] Erro no varbind ${vb.oid}: ${(vb as any).type}`);
-              outOfTree = true;
-              break;
-            }
-            results.push(vb);
-            lastOid = vb.oid;
-          }
-          if (outOfTree) return resolve(results);
-          step(lastOid);
+      session.getNext([currentOid], (error: Error | null, varbinds?: snmp.Varbind[]) => {
+        if (error) {
+          if (debug) console.log(`[snmpGetSubtree] getNext erro em ${currentOid}: ${error.message}`);
+          return resolve(results);
         }
-      );
+
+        if (!varbinds || varbinds.length === 0) {
+          if (debug) console.log(`[snmpGetSubtree] getNext retornou array vazio em ${currentOid}`);
+          return resolve(results);
+        }
+
+        const vb = varbinds[0];
+
+        // Proteger contra varbind undefined/null
+        if (!vb || !vb.oid) {
+          if (debug) console.log(`[snmpGetSubtree] Varbind undefined/null em ${currentOid}`);
+          return resolve(results);
+        }
+
+        // Verificar se ainda estamos dentro da sub-árvore
+        if (!vb.oid.startsWith(root + ".") && vb.oid !== root) {
+          if (debug) console.log(`[snmpGetSubtree] Saiu da árvore: ${vb.oid} (raiz=${root}), total=${results.length}`);
+          return resolve(results);
+        }
+
+        // Verificar se é um erro SNMP (noSuchObject, noSuchInstance, endOfMibView)
+        if (snmp.isVarbindError(vb)) {
+          if (debug) console.log(`[snmpGetSubtree] Erro SNMP no varbind ${vb.oid}: type=${(vb as any).type}`);
+          return resolve(results);
+        }
+
+        // OID igual ao anterior — loop infinito, parar
+        if (results.length > 0 && results[results.length - 1].oid === vb.oid) {
+          if (debug) console.log(`[snmpGetSubtree] OID repetido ${vb.oid}, parando`);
+          return resolve(results);
+        }
+
+        if (debug) console.log(`[snmpGetSubtree] [${iterations}] ${vb.oid} = ${JSON.stringify(vb.value)}`);
+        results.push(vb);
+        step(vb.oid);
+      });
     }
 
-    step(rootOid);
+    step(root);
   });
 }
 
