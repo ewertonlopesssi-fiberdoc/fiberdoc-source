@@ -129,22 +129,25 @@ function snmpGet(session: snmp.Session, oids: string[]): Promise<Record<string, 
   });
 }
 
-function snmpGetSubtree(session: snmp.Session, oid: string): Promise<snmp.Varbind[]> {
+// snmpwalk manual via getNext — compatível com todos os equipamentos (v1/v2c/v3)
+function snmpGetSubtree(session: snmp.Session, rootOid: string): Promise<snmp.Varbind[]> {
   return new Promise((resolve) => {
     const results: snmp.Varbind[] = [];
-    session.subtree(
-      oid,
-      100,
-      (varbinds: snmp.Varbind[]) => {
-        for (const vb of varbinds) {
-          if (!snmp.isVarbindError(vb)) results.push(vb);
-        }
-      },
-      (error: Error | null) => {
-        if (error) resolve([]); // tolerante a erros
-        else resolve(results);
-      }
-    );
+    const MAX_ITER = 500; // limite de segurança
+    let iterations = 0;
+    function step(currentOid: string) {
+      if (iterations++ > MAX_ITER) return resolve(results);
+      session.getNext([currentOid], (error: Error | null, varbinds?: snmp.Varbind[]) => {
+        if (error || !varbinds || varbinds.length === 0) return resolve(results);
+        const vb = varbinds[0];
+        // Parar se saiu da sub-árvore ou fim do MIB
+        if (!vb.oid.startsWith(rootOid + ".") && vb.oid !== rootOid) return resolve(results);
+        if (snmp.isVarbindError(vb)) return resolve(results);
+        results.push(vb);
+        step(vb.oid);
+      });
+    }
+    step(rootOid);
   });
 }
 
