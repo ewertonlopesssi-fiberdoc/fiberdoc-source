@@ -325,7 +325,7 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
     });
     // ── 3. Interfaces (IF-MIB) ──────────────────────────────────────────────────────
     try {
-      const ifDescrVbs = await snmpGetSubtree(session, OID.ifDescr, true);
+      const ifDescrVbs = await snmpGetSubtree(session, OID.ifDescr);
       console.log(`[NetworkSNMP] poll(${equipmentId}): ifDescr subtree retornou ${ifDescrVbs.length} entradas`);
       const ifIndexes = ifDescrVbs.map((v) => {  const parts = v.oid.split(".");
         return parseInt(parts[parts.length - 1]);
@@ -397,15 +397,35 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
             )
           );
 
-        // Calcular bps (diferença de octets / intervalo)
+        // Calcular bps usando tempo REAL entre polls (não o intervalo configurado)
+        // Tratar wrap-around de contadores 32-bit (max ~4.29 GB) e 64-bit
         let inBps: number | null = null;
         let outBps: number | null = null;
         if (existingPort && existingPort.lastInOctets !== null && inOctets !== null) {
-          const elapsed = cfg.pollInterval ?? 300;
-          const inDiff = inOctets - existingPort.lastInOctets;
-          const outDiff = (outOctets ?? 0) - (existingPort.lastOutOctets ?? 0);
-          if (inDiff >= 0 && elapsed > 0) inBps = Math.round((inDiff * 8) / elapsed);
-          if (outDiff >= 0 && elapsed > 0) outBps = Math.round((outDiff * 8) / elapsed);
+          // Usar tempo real desde o último poll; fallback para intervalo configurado
+          const lastPollMs = existingPort.lastPollAt ? new Date(existingPort.lastPollAt).getTime() : 0;
+          const elapsedMs = lastPollMs > 0 ? (now.getTime() - lastPollMs) : (cfg.pollInterval ?? 300) * 1000;
+          const elapsed = elapsedMs / 1000; // converter para segundos
+
+          // Calcular diferença com tratamento de wrap-around
+          // Contadores 32-bit fazem wrap em 2^32 = 4294967296
+          // Contadores 64-bit (HC) raramente fazem wrap, mas tratar igualmente
+          const WRAP32 = 4294967296;
+          let inDiff = inOctets - existingPort.lastInOctets;
+          let outDiff = (outOctets ?? 0) - (existingPort.lastOutOctets ?? 0);
+
+          // Se a diferença for negativa e pequena (< 2^32), provavelmente é wrap-around 32-bit
+          if (inDiff < 0 && inDiff > -WRAP32) inDiff += WRAP32;
+          if (outDiff < 0 && outDiff > -WRAP32) outDiff += WRAP32;
+
+          // Sanidade: ignorar valores impossíveis (> 10 Gbps * elapsed)
+          const MAX_BPS = 100_000_000_000; // 100 Gbps máximo razoável
+          const maxOctets = (MAX_BPS / 8) * elapsed;
+
+          if (inDiff >= 0 && inDiff <= maxOctets && elapsed > 0)
+            inBps = Math.round((inDiff * 8) / elapsed);
+          if (outDiff >= 0 && outDiff <= maxOctets && elapsed > 0)
+            outBps = Math.round((outDiff * 8) / elapsed);
         }
 
         if (existingPort) {

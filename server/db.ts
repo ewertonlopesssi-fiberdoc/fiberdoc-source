@@ -72,6 +72,7 @@ function createPool(): mysql.Pool {
     enableKeepAlive: true,
     keepAliveInitialDelay: 30000,
     connectTimeout: 10000,
+    timezone: "+00:00", // Forçar UTC para alinhar com Date.now() do Node.js
   });
   // Reconectar automaticamente em caso de ECONNRESET ou PROTOCOL_CONNECTION_LOST
   pool.on('connection', (conn: any) => {
