@@ -67,6 +67,9 @@ interface BgpPeer {
   localAs: number | null;
   activateScript: string | null;
   deactivateScript: string | null;
+  peerIpv6: string | null;
+  activateScriptV6: string | null;
+  deactivateScriptV6: string | null;
   notes: string | null;
 }
 interface TerminalLine {
@@ -615,6 +618,17 @@ function BgpPeerForm({
     peer?.deactivateScript ??
     "system-view\nbgp {LOCAL_AS}\n peer {PEER_IP} ignore\ncommit\nquit\nquit"
   );
+  // IPv6
+  const [peerIpv6, setPeerIpv6] = useState(peer?.peerIpv6 ?? "");
+  const [activateScriptV6, setActivateScriptV6] = useState(
+    peer?.activateScriptV6 ??
+    "system-view\nbgp {LOCAL_AS}\n ipv6-family unicast\n  undo peer {PEER_IP} ignore\n  commit\n quit\nquit\nquit"
+  );
+  const [deactivateScriptV6, setDeactivateScriptV6] = useState(
+    peer?.deactivateScriptV6 ??
+    "system-view\nbgp {LOCAL_AS}\n ipv6-family unicast\n  peer {PEER_IP} ignore\n  commit\n quit\nquit\nquit"
+  );
+  const [showV6, setShowV6] = useState(!!(peer?.peerIpv6));
 
   const create = trpc.sshCommander.createBgpPeer.useMutation({
     onSuccess: () => { toast.success("BGP peer adicionado"); onSaved(); onClose(); },
@@ -636,6 +650,9 @@ function BgpPeerForm({
       peerType: peerType as "ebgp" | "ibgp",
       activateScript: activateScript || undefined,
       deactivateScript: deactivateScript || undefined,
+      peerIpv6: showV6 && peerIpv6.trim() ? peerIpv6.trim() : null,
+      activateScriptV6: showV6 && activateScriptV6 ? activateScriptV6 : null,
+      deactivateScriptV6: showV6 && deactivateScriptV6 ? deactivateScriptV6 : null,
     };
     if (peer) {
       update.mutate({ id: peer.id, ...payload });
@@ -698,6 +715,57 @@ function BgpPeerForm({
         <Textarea value={deactivateScript} onChange={e => setDeactivateScript(e.target.value)}
           className="text-xs bg-zinc-950 border-zinc-700 font-mono h-28 resize-none" />
       </div>
+
+      {/* ── Secção IPv6 ── */}
+      <div className="border border-zinc-700 rounded-lg overflow-hidden">
+        <button
+          type="button"
+          className="w-full flex items-center justify-between px-3 py-2 bg-zinc-800/60 hover:bg-zinc-800 text-xs font-semibold text-blue-300 transition-colors"
+          onClick={() => setShowV6(v => !v)}
+        >
+          <span className="flex items-center gap-2">
+            <span className="text-base">🌐</span> Configuração IPv6 (opcional)
+            {peer?.peerIpv6 && <span className="text-[10px] bg-blue-900/50 text-blue-300 border border-blue-700 px-1.5 rounded">Configurado: {peer.peerIpv6}</span>}
+          </span>
+          <span className="text-zinc-400">{showV6 ? "▲" : "▼"}</span>
+        </button>
+        {showV6 && (
+          <div className="p-3 space-y-3 bg-zinc-900/30">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Endereço IPv6 do Peer</Label>
+              <Input
+                value={peerIpv6}
+                onChange={e => setPeerIpv6(e.target.value)}
+                placeholder="2001:db8::1"
+                className="h-8 text-sm bg-zinc-950 border-zinc-700 font-mono"
+              />
+              <p className="text-[10px] text-zinc-500">Deixe em branco para desativar IPv6 neste peer.</p>
+            </div>
+            <div className="p-2.5 bg-zinc-900/50 rounded border border-zinc-700 text-xs text-zinc-400 space-y-1">
+              <p className="font-semibold text-zinc-300">Variáveis nos scripts IPv6:</p>
+              <p><code className="text-cyan-400">{"{{PEER_IP}}"}</code> — será substituído pelo IPv6 ({peerIpv6 || "ex: 2001:db8::1"})</p>
+              <p><code className="text-cyan-400">{"{{LOCAL_AS}}"}</code> — AS local &nbsp;<code className="text-cyan-400">{"{{REMOTE_AS}}"}</code> — AS remoto</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-green-400">Script Activar IPv6 (undo peer ignore — ipv6-family)</Label>
+              <Textarea
+                value={activateScriptV6}
+                onChange={e => setActivateScriptV6(e.target.value)}
+                className="text-xs bg-zinc-950 border-zinc-700 font-mono h-28 resize-none"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-orange-400">Script Desactivar IPv6 (peer ignore — ipv6-family)</Label>
+              <Textarea
+                value={deactivateScriptV6}
+                onChange={e => setDeactivateScriptV6(e.target.value)}
+                className="text-xs bg-zinc-950 border-zinc-700 font-mono h-28 resize-none"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="flex gap-2 justify-end pt-2">
         <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onClose}>Cancelar</Button>
         <Button size="sm" className="h-8 text-xs bg-purple-700 hover:bg-purple-600" onClick={handleSave}
@@ -727,7 +795,7 @@ export default function SshCommander() {
   const [editDeviceCmd, setEditDeviceCmd] = useState<SshDeviceCommand | undefined>();
   const [showBgpForm, setShowBgpForm] = useState(false);
   const [editBgpPeer, setEditBgpPeer] = useState<BgpPeer | undefined>();
-  const [bgpConfirm, setBgpConfirm] = useState<{ peer: BgpPeer; action: "activate" | "deactivate" } | null>(null);
+  const [bgpConfirm, setBgpConfirm] = useState<{ peer: BgpPeer; action: "activate" | "deactivate" | "activate_v6" | "deactivate_v6" } | null>(null);
   const [showSeedDialog, setShowSeedDialog] = useState(false);
   const [seedDeviceType, setSeedDeviceType] = useState<"all" | "switch" | "ne8000">("all");
   const [seedOverwrite, setSeedOverwrite] = useState(false);
@@ -812,7 +880,11 @@ export default function SshCommander() {
       // Preservar todas as linhas incluindo as em branco (importantes para o alinhamento de colunas do VRP)
       const lines: TerminalLine[] = r.output.split("\n")
         .map((l: string) => ({ type: (r.success ? "output" : "error") as TerminalLine["type"], text: l }));
-      const actionLabel = pendingAction === "activate" ? "Activado" : "Desactivado";
+      const actionLabel = pendingAction === "activate" ? "Activado (IPv4)"
+        : pendingAction === "deactivate" ? "Desactivado (IPv4)"
+        : pendingAction === "activate_v6" ? "Activado (IPv6)"
+        : pendingAction === "deactivate_v6" ? "Desactivado (IPv6)"
+        : "Executado";
       setTerminalLines(prev => [
         ...prev,
         { type: "info", text: `── BGP Peer — ${actionLabel} ──` },
@@ -1216,6 +1288,11 @@ export default function SshCommander() {
                             }`}>
                               {peer.peerType?.toUpperCase()}
                             </Badge>
+                            {peer.peerIpv6 && (
+                              <Badge className="text-[10px] h-4 px-1.5 border-0 bg-cyan-900/40 text-cyan-300">
+                                🌐 IPv6
+                              </Badge>
+                            )}
                           </div>
                           {peer.description && (
                             <p className="text-xs text-zinc-400 mt-1">{peer.description}</p>
@@ -1224,42 +1301,80 @@ export default function SshCommander() {
                             <p className="text-xs text-zinc-600 mt-0.5">AS Local: {peer.localAs}</p>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <button className="p-1.5 text-zinc-500 hover:text-yellow-400 transition-colors"
-                            onClick={() => { setEditBgpPeer(peer as BgpPeer); setShowBgpForm(true); }}>
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button className="p-1.5 text-zinc-500 hover:text-red-400 transition-colors"
-                            onClick={() => { if (confirm(`Remover peer ${peer.peerIp}?`)) deleteBgpPeer.mutate({ id: peer.id }); }}>
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                          <Button size="sm"
-                            className="h-8 text-xs bg-orange-900/50 hover:bg-orange-800 text-orange-300 border border-orange-700"
-                            disabled={executeBgp.isPending || !selectedDevice}
-                            onClick={() => setBgpConfirm({ peer: peer as BgpPeer, action: "deactivate" })}>
-                            <WifiOff className="w-3 h-3 mr-1" /> Desactivar
-                          </Button>
-                          <Button size="sm"
-                            className="h-8 text-xs bg-green-900/50 hover:bg-green-800 text-green-300 border border-green-700"
-                            disabled={executeBgp.isPending || !selectedDevice}
-                            onClick={() => setBgpConfirm({ peer: peer as BgpPeer, action: "activate" })}>
-                            <Wifi className="w-3 h-3 mr-1" /> Activar
-                          </Button>
+                        <div className="flex flex-col gap-1.5 flex-shrink-0 items-end">
+                          <div className="flex items-center gap-1.5">
+                            <button className="p-1.5 text-zinc-500 hover:text-yellow-400 transition-colors"
+                              onClick={() => { setEditBgpPeer(peer as BgpPeer); setShowBgpForm(true); }}>
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button className="p-1.5 text-zinc-500 hover:text-red-400 transition-colors"
+                              onClick={() => { if (confirm(`Remover peer ${peer.peerIp}?`)) deleteBgpPeer.mutate({ id: peer.id }); }}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                            <Button size="sm"
+                              className="h-7 text-xs bg-orange-900/50 hover:bg-orange-800 text-orange-300 border border-orange-700"
+                              disabled={executeBgp.isPending || !selectedDevice}
+                              onClick={() => setBgpConfirm({ peer: peer as BgpPeer, action: "deactivate" })}>
+                              <WifiOff className="w-3 h-3 mr-1" /> Desactivar
+                            </Button>
+                            <Button size="sm"
+                              className="h-7 text-xs bg-green-900/50 hover:bg-green-800 text-green-300 border border-green-700"
+                              disabled={executeBgp.isPending || !selectedDevice}
+                              onClick={() => setBgpConfirm({ peer: peer as BgpPeer, action: "activate" })}>
+                              <Wifi className="w-3 h-3 mr-1" /> Activar
+                            </Button>
+                          </div>
+                          {/* Botões IPv6 — apenas se o peer tiver IPv6 configurado */}
+                          {peer.peerIpv6 && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] text-blue-400 font-mono">{peer.peerIpv6}</span>
+                              <Button size="sm"
+                                className="h-7 text-xs bg-blue-900/30 hover:bg-blue-900/60 text-blue-300 border border-blue-700"
+                                disabled={executeBgp.isPending || !selectedDevice}
+                                onClick={() => setBgpConfirm({ peer: peer as BgpPeer, action: "deactivate_v6" })}>
+                                <WifiOff className="w-3 h-3 mr-1" /> IPv6 Off
+                              </Button>
+                              <Button size="sm"
+                                className="h-7 text-xs bg-cyan-900/30 hover:bg-cyan-900/60 text-cyan-300 border border-cyan-700"
+                                disabled={executeBgp.isPending || !selectedDevice}
+                                onClick={() => setBgpConfirm({ peer: peer as BgpPeer, action: "activate_v6" })}>
+                                <Wifi className="w-3 h-3 mr-1" /> IPv6 On
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <div className="p-2 bg-zinc-950 rounded border border-zinc-800">
-                          <p className="text-[10px] text-green-400 font-semibold mb-1">Script Activar:</p>
-                          <pre className="text-[10px] text-zinc-500 font-mono overflow-hidden whitespace-pre-wrap line-clamp-3">
-                            {peer.activateScript || "Não configurado"}
-                          </pre>
+                      <div className="mt-3 space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="p-2 bg-zinc-950 rounded border border-zinc-800">
+                            <p className="text-[10px] text-green-400 font-semibold mb-1">Script Activar (IPv4):</p>
+                            <pre className="text-[10px] text-zinc-500 font-mono overflow-hidden whitespace-pre-wrap line-clamp-3">
+                              {peer.activateScript || "Não configurado"}
+                            </pre>
+                          </div>
+                          <div className="p-2 bg-zinc-950 rounded border border-zinc-800">
+                            <p className="text-[10px] text-orange-400 font-semibold mb-1">Script Desactivar (IPv4):</p>
+                            <pre className="text-[10px] text-zinc-500 font-mono overflow-hidden whitespace-pre-wrap line-clamp-3">
+                              {peer.deactivateScript || "Não configurado"}
+                            </pre>
+                          </div>
                         </div>
-                        <div className="p-2 bg-zinc-950 rounded border border-zinc-800">
-                          <p className="text-[10px] text-orange-400 font-semibold mb-1">Script Desactivar:</p>
-                          <pre className="text-[10px] text-zinc-500 font-mono overflow-hidden whitespace-pre-wrap line-clamp-3">
-                            {peer.deactivateScript || "Não configurado"}
-                          </pre>
-                        </div>
+                        {peer.peerIpv6 && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="p-2 bg-zinc-950 rounded border border-blue-900/40">
+                              <p className="text-[10px] text-cyan-400 font-semibold mb-1">🌐 Script Activar IPv6:</p>
+                              <pre className="text-[10px] text-zinc-500 font-mono overflow-hidden whitespace-pre-wrap line-clamp-3">
+                                {peer.activateScriptV6 || "Não configurado"}
+                              </pre>
+                            </div>
+                            <div className="p-2 bg-zinc-950 rounded border border-blue-900/40">
+                              <p className="text-[10px] text-blue-400 font-semibold mb-1">🌐 Script Desactivar IPv6:</p>
+                              <pre className="text-[10px] text-zinc-500 font-mono overflow-hidden whitespace-pre-wrap line-clamp-3">
+                                {peer.deactivateScriptV6 || "Não configurado"}
+                              </pre>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -1395,64 +1510,72 @@ export default function SshCommander() {
         <DialogContent className="bg-zinc-900 border-zinc-700 max-w-md">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center gap-2">
-              {bgpConfirm?.action === "activate"
-                ? <><Wifi className="w-4 h-4 text-green-400" /> Activar BGP Peer</>
-                : <><WifiOff className="w-4 h-4 text-orange-400" /> Desactivar BGP Peer</>}
+              {(bgpConfirm?.action === "activate" || bgpConfirm?.action === "activate_v6")
+                ? <><Wifi className={`w-4 h-4 ${bgpConfirm?.action === "activate_v6" ? "text-cyan-400" : "text-green-400"}`} />
+                    {bgpConfirm?.action === "activate_v6" ? "Activar BGP Peer (IPv6)" : "Activar BGP Peer"}</>
+                : <><WifiOff className={`w-4 h-4 ${bgpConfirm?.action === "deactivate_v6" ? "text-blue-400" : "text-orange-400"}`} />
+                    {bgpConfirm?.action === "deactivate_v6" ? "Desactivar BGP Peer (IPv6)" : "Desactivar BGP Peer"}</>}
             </DialogTitle>
           </DialogHeader>
-          {bgpConfirm && (
-            <div className="space-y-4">
-              <div className="p-3 bg-zinc-950 rounded border border-zinc-800">
-                <p className="text-sm text-zinc-300">
-                  <span className="text-zinc-500">Peer:</span>{" "}
-                  <span className="font-mono text-white">{bgpConfirm.peer.peerIp}</span>
-                </p>
-                {bgpConfirm.peer.description && (
-                  <p className="text-xs text-zinc-500 mt-1">{bgpConfirm.peer.description}</p>
-                )}
-                <p className="text-sm text-zinc-300 mt-2">
-                  <span className="text-zinc-500">Dispositivo:</span>{" "}
-                  <span className="text-white">{selectedDevice?.name}</span>
-                </p>
-              </div>
-              <div className="p-3 bg-zinc-950 rounded border border-zinc-800">
-                <p className="text-xs text-zinc-500 mb-2 font-semibold">Script que será executado:</p>
-                <pre className="text-xs text-zinc-300 font-mono whitespace-pre-wrap">
-                  {(bgpConfirm.action === "activate"
-                    ? bgpConfirm.peer.activateScript
-                    : bgpConfirm.peer.deactivateScript
-                  )?.replace(/\{PEER_IP\}/g, bgpConfirm.peer.peerIp)
-                    .replace(/\{REMOTE_AS\}/g, String(bgpConfirm.peer.remoteAs))
-                    .replace(/\{LOCAL_AS\}/g, String(bgpConfirm.peer.localAs || "")) || "Script não configurado"}
-                </pre>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" className="border-zinc-700 text-xs"
-                  onClick={() => setBgpConfirm(null)}>
-                  Cancelar
-                </Button>
-                <Button
-                  className={`text-xs ${
-                    bgpConfirm.action === "activate"
-                      ? "bg-green-700 hover:bg-green-600"
+          {bgpConfirm && (() => {
+            const isV6 = bgpConfirm.action === "activate_v6" || bgpConfirm.action === "deactivate_v6";
+            const isActivate = bgpConfirm.action === "activate" || bgpConfirm.action === "activate_v6";
+            const peerAddr = isV6 ? (bgpConfirm.peer.peerIpv6 || "") : bgpConfirm.peer.peerIp;
+            const script = isV6
+              ? (isActivate ? bgpConfirm.peer.activateScriptV6 : bgpConfirm.peer.deactivateScriptV6)
+              : (isActivate ? bgpConfirm.peer.activateScript : bgpConfirm.peer.deactivateScript);
+            const scriptPreview = script
+              ?.replace(/\{PEER_IP\}/g, peerAddr)
+              .replace(/\{REMOTE_AS\}/g, String(bgpConfirm.peer.remoteAs))
+              .replace(/\{LOCAL_AS\}/g, String(bgpConfirm.peer.localAs || "")) || "Script não configurado";
+            return (
+              <div className="space-y-4">
+                <div className="p-3 bg-zinc-950 rounded border border-zinc-800">
+                  <p className="text-sm text-zinc-300">
+                    <span className="text-zinc-500">Peer:</span>{" "}
+                    <span className="font-mono text-white">{bgpConfirm.peer.peerIp}</span>
+                    {isV6 && bgpConfirm.peer.peerIpv6 && (
+                      <span className="ml-2 text-xs text-blue-400 font-mono">({bgpConfirm.peer.peerIpv6})</span>
+                    )}
+                  </p>
+                  {bgpConfirm.peer.description && (
+                    <p className="text-xs text-zinc-500 mt-1">{bgpConfirm.peer.description}</p>
+                  )}
+                  <p className="text-sm text-zinc-300 mt-2">
+                    <span className="text-zinc-500">Dispositivo:</span>{" "}
+                    <span className="text-white">{selectedDevice?.name}</span>
+                  </p>
+                </div>
+                <div className={`p-3 bg-zinc-950 rounded border ${isV6 ? "border-blue-900/40" : "border-zinc-800"}`}>
+                  <p className="text-xs text-zinc-500 mb-2 font-semibold">
+                    {isV6 ? "🌐 Script IPv6 que será executado:" : "Script que será executado:"}
+                  </p>
+                  <pre className="text-xs text-zinc-300 font-mono whitespace-pre-wrap">{scriptPreview}</pre>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" className="border-zinc-700 text-xs" onClick={() => setBgpConfirm(null)}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    className={`text-xs ${
+                      isActivate && !isV6 ? "bg-green-700 hover:bg-green-600"
+                      : isActivate && isV6 ? "bg-cyan-700 hover:bg-cyan-600"
+                      : isV6 ? "bg-blue-700 hover:bg-blue-600"
                       : "bg-orange-700 hover:bg-orange-600"
-                  }`}
-                  disabled={executeBgp.isPending}
-                  onClick={() => {
-                    if (!selectedDevice) return;
-                    executeBgp.mutate({
-                      deviceId: selectedDevice.id,
-                      peerId: bgpConfirm.peer.id,
-                      action: bgpConfirm.action,
-                    });
-                  }}>
-                  {executeBgp.isPending
-                    ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Executando...</>
-                    : bgpConfirm.action === "activate" ? "Activar Peer" : "Desactivar Peer"}
-                </Button>
-              </DialogFooter>
-            </div>
-          )}
+                    }`}
+                    disabled={executeBgp.isPending}
+                    onClick={() => {
+                      if (!selectedDevice) return;
+                      executeBgp.mutate({ deviceId: selectedDevice.id, peerId: bgpConfirm.peer.id, action: bgpConfirm.action });
+                    }}>
+                    {executeBgp.isPending
+                      ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Executando...</>
+                      : isActivate ? (isV6 ? "Activar IPv6" : "Activar Peer") : (isV6 ? "Desactivar IPv6" : "Desactivar Peer")}
+                  </Button>
+                </DialogFooter>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

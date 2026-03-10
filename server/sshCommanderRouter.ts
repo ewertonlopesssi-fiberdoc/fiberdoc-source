@@ -279,6 +279,9 @@ export const sshCommanderRouter = router({
       localAs: z.number().optional(),
       activateScript: z.string().optional(),
       deactivateScript: z.string().optional(),
+      peerIpv6: z.string().optional(),
+      activateScriptV6: z.string().optional(),
+      deactivateScriptV6: z.string().optional(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
@@ -298,6 +301,9 @@ export const sshCommanderRouter = router({
       localAs: z.number().optional(),
       activateScript: z.string().optional(),
       deactivateScript: z.string().optional(),
+      peerIpv6: z.string().optional().nullable(),
+      activateScriptV6: z.string().optional().nullable(),
+      deactivateScriptV6: z.string().optional().nullable(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
@@ -321,7 +327,7 @@ export const sshCommanderRouter = router({
     .input(z.object({
       deviceId: z.number(),
       peerId: z.number(),
-      action: z.enum(["activate", "deactivate", "status"]),
+      action: z.enum(["activate", "deactivate", "status", "activate_v6", "deactivate_v6"]),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -330,13 +336,25 @@ export const sshCommanderRouter = router({
       if (!device) throw new TRPCError({ code: "NOT_FOUND", message: "Dispositivo não encontrado" });
       const [peer] = await db.select().from(bgpPeers).where(eq(bgpPeers.id, input.peerId));
       if (!peer) throw new TRPCError({ code: "NOT_FOUND", message: "BGP Peer não encontrado" });
+      // Substituir variáveis nos scripts
+      const replacePeerVars = (script: string, ip: string) =>
+        script
+          .replace(/\{PEER_IP\}/g, ip)
+          .replace(/\{LOCAL_AS\}/g, String(peer.localAs ?? ""))
+          .replace(/\{REMOTE_AS\}/g, String(peer.remoteAs ?? ""));
+
       let commands: string[] = [];
       if (input.action === "status") {
-        commands = [`display bgp peer ${peer.peerIp} verbose`];
+        const ipv6Part = peer.peerIpv6 ? `\ndisplay bgp ipv6 peer ${peer.peerIpv6} verbose` : "";
+        commands = [`display bgp peer ${peer.peerIp} verbose${ipv6Part}`].flatMap(s => s.split("\n"));
       } else if (input.action === "activate" && peer.activateScript) {
-        commands = peer.activateScript.split("\n").filter(Boolean);
+        commands = replacePeerVars(peer.activateScript, peer.peerIp).split("\n").filter(Boolean);
       } else if (input.action === "deactivate" && peer.deactivateScript) {
-        commands = peer.deactivateScript.split("\n").filter(Boolean);
+        commands = replacePeerVars(peer.deactivateScript, peer.peerIp).split("\n").filter(Boolean);
+      } else if (input.action === "activate_v6" && peer.activateScriptV6 && peer.peerIpv6) {
+        commands = replacePeerVars(peer.activateScriptV6, peer.peerIpv6).split("\n").filter(Boolean);
+      } else if (input.action === "deactivate_v6" && peer.deactivateScriptV6 && peer.peerIpv6) {
+        commands = replacePeerVars(peer.deactivateScriptV6, peer.peerIpv6).split("\n").filter(Boolean);
       } else {
         commands = [`display bgp peer ${peer.peerIp}`];
       }

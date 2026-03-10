@@ -924,6 +924,10 @@ export const bgpPeers = mysqlTable("bgp_peers", {
   localAs: int("local_as"),
   activateScript: text("activate_script"),
   deactivateScript: text("deactivate_script"),
+  // IPv6 — campos independentes dos scripts IPv4
+  peerIpv6: varchar("peer_ipv6", { length: 64 }),              // Endereço IPv6 do peer
+  activateScriptV6: text("activate_script_v6"),                // Script de activação IPv6
+  deactivateScriptV6: text("deactivate_script_v6"),            // Script de desactivação IPv6
   notes: text("notes"),
   createdAt: timestamp("bgp_peer_created_at").defaultNow().notNull(),
   updatedAt: timestamp("bgp_peer_updated_at").defaultNow().onUpdateNow().notNull(),
