@@ -2784,3 +2784,305 @@ export async function deleteViaAssociationByVias(ceoId: number, viaId1: number, 
     )
   );
 }
+
+// ─── OTDR Virtual — Travessia de Fibra por Fusões ─────────────────────────────
+
+export type OtdrTraceResult = {
+  found: boolean;
+  lat: number | null;
+  lng: number | null;
+  distanceTraveled: number;         // metros percorridos até ao ponto
+  totalLength: number;              // comprimento total da cadeia percorrida
+  segmentName: string | null;       // nome da rota onde o ponto foi encontrado
+  segmentRouteId: number | null;    // id da rota onde o ponto foi encontrado
+  elementReached: { id: number; name: string; type: string } | null; // se terminou num elemento
+  tracedPath: { lat: number; lng: number }[]; // traçado percorrido (para desenhar no mapa)
+  warnings: string[];
+};
+
+/** Função haversine interna para calcular distância entre dois pontos em metros */
+function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000;
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+/** Interpola um ponto entre A e B a uma distância `d` de A */
+function interpolatePoint(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+  d: number,
+  segLen: number
+): { lat: number; lng: number } {
+  const t = segLen > 0 ? Math.min(1, d / segLen) : 0;
+  return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t };
+}
+
+/**
+ * Percorre o traçado de fibra a partir de um elemento/tubo/via, seguindo fusões
+ * registadas, até atingir a distância alvo ou o fim da cadeia.
+ */
+export async function traceOtdrPath(
+  startElementId: number,
+  startTubeId: number,
+  startViaNumber: number,
+  targetDistanceMeters: number
+): Promise<OtdrTraceResult> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  const warnings: string[] = [];
+  const tracedPath: { lat: number; lng: number }[] = [];
+  let distanceTraveled = 0;
+  let totalLength = 0;
+
+  // Carregar todos os dados necessários de uma vez para evitar N+1 queries
+  const allElements = await db.select().from(mapElements);
+  const allRoutes = await db.select().from(mapRoutes);
+  const allCeoTubes = await db.select().from(ceoTubes);
+  const allCtoTubes = await db.select().from(ctoTubes);
+  const allCeoVias = await db.select().from(ceoVias);
+  const allCtoVias = await db.select().from(ctoVias);
+  const allCeos = await db.select({ id: ceos.id, name: ceos.name }).from(ceos);
+  const allCtos = await db.select({ id: ctos.id, name: ctos.name }).from(ctos);
+
+  // Índices para acesso rápido
+  const elementById = new Map(allElements.map(e => [e.id, e]));
+  const ceoTubeById = new Map(allCeoTubes.map(t => [t.id, t]));
+  const ctoTubeById = new Map(allCtoTubes.map(t => [t.id, t]));
+  const ceoViaById = new Map(allCeoVias.map(v => [v.id, v]));
+  const ctoViaById = new Map(allCtoVias.map(v => [v.id, v]));
+  const ceoById = new Map(allCeos.map(c => [c.id, c]));
+  const ctoById = new Map(allCtos.map(c => [c.id, c]));
+
+  // Função para obter o nome de um elemento
+  function getElementName(el: { type: string; referenceId: number }): string {
+    if (el.type === "ceo") return ceoById.get(el.referenceId)?.name ?? `CEO #${el.referenceId}`;
+    return ctoById.get(el.referenceId)?.name ?? `CTO #${el.referenceId}`;
+  }
+
+  // Função para encontrar a rota que sai de um elemento via um tubo específico
+  function findRouteFromTube(elementId: number, tubeId: number): typeof allRoutes[0] | null {
+    // Rota onde fromElementId=elementId e fromTubeId=tubeId
+    let r = allRoutes.find(r => r.fromElementId === elementId && r.fromTubeId === tubeId);
+    if (r) return r;
+    // Rota onde toElementId=elementId e toTubeId=tubeId (percorrer no sentido inverso)
+    r = allRoutes.find(r => r.toElementId === elementId && r.toTubeId === tubeId);
+    return r ?? null;
+  }
+
+  // Função para obter a via de um tubo por número de via
+  function getViaByNumber(elementType: string, tubeId: number, viaNumber: number) {
+    if (elementType === "ceo") {
+      return allCeoVias.find(v => v.tubeId === tubeId && v.viaNumber === viaNumber) ?? null;
+    }
+    return allCtoVias.find(v => v.tubeId === tubeId && v.viaNumber === viaNumber) ?? null;
+  }
+
+  // Estado de travessia
+  let currentElementId = startElementId;
+  let currentTubeId = startTubeId;
+  let currentViaNumber = startViaNumber;
+  const visitedElements = new Set<string>(); // evitar loops infinitos
+
+  for (let iteration = 0; iteration < 50; iteration++) {
+    const currentElement = elementById.get(currentElementId);
+    if (!currentElement) {
+      warnings.push(`Elemento #${currentElementId} não encontrado no mapa`);
+      break;
+    }
+
+    const loopKey = `${currentElementId}:${currentTubeId}:${currentViaNumber}`;
+    if (visitedElements.has(loopKey)) {
+      warnings.push("Loop detectado na cadeia de fusões — travessia interrompida");
+      break;
+    }
+    visitedElements.add(loopKey);
+
+    // Encontrar a rota que sai deste elemento via este tubo
+    const route = findRouteFromTube(currentElementId, currentTubeId);
+    if (!route) {
+      // Não há rota vinculada a este tubo — verificar se há rota sem tubo vinculado
+      const routeNoTube = allRoutes.find(r =>
+        (r.fromElementId === currentElementId && !r.fromTubeId) ||
+        (r.toElementId === currentElementId && !r.toTubeId)
+      );
+      if (!routeNoTube) {
+        warnings.push(`Nenhuma rota encontrada saindo do elemento "${getElementName(currentElement)}" pelo tubo #${currentTubeId}. Verifique se o cabo está vinculado ao tubo correcto.`);
+        return {
+          found: false, lat: null, lng: null,
+          distanceTraveled, totalLength,
+          segmentName: null, segmentRouteId: null,
+          elementReached: { id: currentElementId, name: getElementName(currentElement), type: currentElement.type },
+          tracedPath, warnings
+        };
+      }
+      warnings.push(`Rota "${routeNoTube.name ?? `#${routeNoTube.id}`}" não tem tubo vinculado — usando rota sem vínculo de tubo`);
+    }
+
+    const activeRoute = route ?? allRoutes.find(r =>
+      (r.fromElementId === currentElementId && !r.fromTubeId) ||
+      (r.toElementId === currentElementId && !r.toTubeId)
+    )!;
+
+    // Verificar se o splitter está no caminho
+    const tubeInfo = currentElement.type === "ceo"
+      ? ceoTubeById.get(currentTubeId)
+      : ctoTubeById.get(currentTubeId);
+    if (tubeInfo && (tubeInfo as any).type === "splitter") {
+      warnings.push(`Atenção: a fibra passa por um splitter em "${getElementName(currentElement)}" — o sinal é dividido`);
+    }
+
+    // Determinar a direcção da rota (from→to ou to→from)
+    const isForward = activeRoute.fromElementId === currentElementId;
+    const nextElementId = isForward ? activeRoute.toElementId : activeRoute.fromElementId;
+
+    // Obter os pontos do traçado
+    let pathPoints: { lat: number; lng: number }[] = [];
+    try {
+      pathPoints = activeRoute.path ? JSON.parse(activeRoute.path) : [];
+    } catch {
+      warnings.push(`Traçado da rota "${activeRoute.name ?? `#${activeRoute.id}`}" é inválido`);
+    }
+
+    if (pathPoints.length < 2) {
+      // Sem traçado — usar linha recta entre os dois elementos
+      const fromEl = elementById.get(activeRoute.fromElementId ?? 0);
+      const toEl = elementById.get(activeRoute.toElementId ?? 0);
+      if (fromEl && toEl) {
+        pathPoints = [
+          { lat: fromEl.lat, lng: fromEl.lng },
+          { lat: toEl.lat, lng: toEl.lng }
+        ];
+        warnings.push(`Rota "${activeRoute.name ?? `#${activeRoute.id}`}" sem traçado desenhado — usando linha recta (aproximação)`);
+      } else {
+        warnings.push(`Rota "${activeRoute.name ?? `#${activeRoute.id}`}" sem traçado e sem elementos vinculados`);
+        break;
+      }
+    }
+
+    // Percorrer no sentido correcto
+    const pts = isForward ? pathPoints : [...pathPoints].reverse();
+
+    // Adicionar ponto de partida ao traçado se for o primeiro segmento
+    if (tracedPath.length === 0 && pts.length > 0) {
+      tracedPath.push(pts[0]);
+    }
+
+    // Percorrer ponto a ponto acumulando distância
+    for (let i = 1; i < pts.length; i++) {
+      const segLen = haversineMeters(pts[i - 1], pts[i]);
+      totalLength += segLen;
+
+      if (distanceTraveled + segLen >= targetDistanceMeters) {
+        // O ponto alvo está neste segmento — interpolar
+        const remaining = targetDistanceMeters - distanceTraveled;
+        const pt = interpolatePoint(pts[i - 1], pts[i], remaining, segLen);
+        tracedPath.push(pt);
+        distanceTraveled = targetDistanceMeters;
+        return {
+          found: true,
+          lat: pt.lat, lng: pt.lng,
+          distanceTraveled,
+          totalLength: totalLength + (segLen - remaining), // aproximação
+          segmentName: activeRoute.name ?? null,
+          segmentRouteId: activeRoute.id,
+          elementReached: null,
+          tracedPath, warnings
+        };
+      }
+
+      distanceTraveled += segLen;
+      tracedPath.push(pts[i]);
+    }
+
+    // Chegou ao elemento destino — verificar se há fusão que continua
+    if (!nextElementId) {
+      const elName = getElementName(currentElement);
+      return {
+        found: false, lat: null, lng: null,
+        distanceTraveled, totalLength,
+        segmentName: activeRoute.name ?? null, segmentRouteId: activeRoute.id,
+        elementReached: { id: currentElementId, name: elName, type: currentElement.type },
+        tracedPath, warnings: [...warnings, `A fibra termina no elemento "${getElementName(elementById.get(nextElementId ?? 0) ?? currentElement)}" após ${Math.round(distanceTraveled)} m (distância alvo: ${targetDistanceMeters} m)`]
+      };
+    }
+
+    const nextElement = elementById.get(nextElementId);
+    if (!nextElement) {
+      warnings.push(`Elemento destino #${nextElementId} não encontrado`);
+      break;
+    }
+
+    // Determinar o tubo de chegada no elemento destino
+    const arrivalTubeId = isForward ? (activeRoute.toTubeId ?? null) : (activeRoute.fromTubeId ?? null);
+    if (!arrivalTubeId) {
+      // Sem tubo vinculado no destino — não conseguimos seguir a fusão
+      return {
+        found: false, lat: null, lng: null,
+        distanceTraveled, totalLength,
+        segmentName: activeRoute.name ?? null, segmentRouteId: activeRoute.id,
+        elementReached: { id: nextElementId, name: getElementName(nextElement), type: nextElement.type },
+        tracedPath,
+        warnings: [...warnings, `Cabo chega ao elemento "${getElementName(nextElement)}" mas não tem tubo de chegada vinculado — não é possível seguir a fusão. Configure o tubo de chegada na rota.`]
+      };
+    }
+
+    // Procurar a via de chegada no tubo de chegada
+    const arrivalVia = getViaByNumber(nextElement.type, arrivalTubeId, currentViaNumber);
+    if (!arrivalVia) {
+      return {
+        found: false, lat: null, lng: null,
+        distanceTraveled, totalLength,
+        segmentName: activeRoute.name ?? null, segmentRouteId: activeRoute.id,
+        elementReached: { id: nextElementId, name: getElementName(nextElement), type: nextElement.type },
+        tracedPath,
+        warnings: [...warnings, `Via ${currentViaNumber} não encontrada no tubo de chegada em "${getElementName(nextElement)}" — verifique se as vias foram criadas`]
+      };
+    }
+
+    // Verificar se há fusão de saída
+    if (!arrivalVia.fusedToViaId || !arrivalVia.fusedToTubeId) {
+      return {
+        found: false, lat: null, lng: null,
+        distanceTraveled, totalLength,
+        segmentName: activeRoute.name ?? null, segmentRouteId: activeRoute.id,
+        elementReached: { id: nextElementId, name: getElementName(nextElement), type: nextElement.type },
+        tracedPath,
+        warnings: [...warnings, `A fibra chega ao elemento "${getElementName(nextElement)}" mas a via ${currentViaNumber} não tem fusão de saída registada — a fibra termina aqui`]
+      };
+    }
+
+    // Seguir a fusão para o tubo de saída
+    const exitTubeId = arrivalVia.fusedToTubeId;
+    const exitViaId = arrivalVia.fusedToViaId;
+
+    // Obter o número da via de saída
+    let exitViaNumber = currentViaNumber;
+    if (nextElement.type === "ceo") {
+      const exitVia = ceoViaById.get(exitViaId);
+      if (exitVia) exitViaNumber = exitVia.viaNumber;
+    } else {
+      const exitVia = ctoViaById.get(exitViaId);
+      if (exitVia) exitViaNumber = exitVia.viaNumber;
+    }
+
+    // Continuar a travessia a partir do elemento destino, tubo de saída
+    currentElementId = nextElementId;
+    currentTubeId = exitTubeId;
+    currentViaNumber = exitViaNumber;
+  }
+
+  // Chegou ao limite de iterações
+  return {
+    found: false, lat: null, lng: null,
+    distanceTraveled, totalLength,
+    segmentName: null, segmentRouteId: null,
+    elementReached: null,
+    tracedPath,
+    warnings: [...warnings, `Distância alvo (${targetDistanceMeters} m) excede o comprimento total da cadeia de fibra percorrida (${Math.round(distanceTraveled)} m)`]
+  };
+}

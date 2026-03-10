@@ -112,7 +112,8 @@ import {
   FileDown, MousePointer2, Search, Layers, Upload,
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
   Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw,
-  Lock, Unlock, ExternalLink, Move, CheckCircle2
+  Lock, Unlock, ExternalLink, Move, CheckCircle2,
+  Zap, Crosshair, MapPin, Copy
 } from "lucide-react";
 import L from "leaflet";
 import { unzipSync, strFromU8 } from "fflate";
@@ -791,6 +792,86 @@ export default function InfrastructureMap() {
   const sidePanelRefId = sidePanel?.kind === "element" ? sidePanel.element.referenceId : 0;
   const sidePanelType = sidePanel?.kind === "element" ? sidePanel.element.type : null;
   const [expandedTubeIds, setExpandedTubeIds] = useState<Set<number>>(new Set());
+
+  // ─── Estados OTDR Virtual ──────────────────────────────────────────────────
+  const [otdrMode, setOtdrMode] = useState(false);           // modo OTDR activo
+  const [otdrPanelOpen, setOtdrPanelOpen] = useState(false); // painel de input aberto
+  const [otdrElementId, setOtdrElementId] = useState<number | null>(null); // elemento de partida
+  const [otdrTubeId, setOtdrTubeId] = useState<string>("");  // tubo seleccionado
+  const [otdrViaNumber, setOtdrViaNumber] = useState<string>(""); // via seleccionada
+  const [otdrDistance, setOtdrDistance] = useState<string>(""); // distância em metros
+  const [otdrRunning, setOtdrRunning] = useState(false);
+  const [otdrResult, setOtdrResult] = useState<{
+    found: boolean; lat: number | null; lng: number | null;
+    distanceTraveled: number; totalLength: number;
+    segmentName: string | null; segmentRouteId: number | null;
+    elementReached: { id: number; name: string; type: string } | null;
+    tracedPath: { lat: number; lng: number }[];
+    warnings: string[];
+  } | null>(null);
+  const otdrPolylineRef = useRef<L.Polyline | null>(null);
+  const otdrMarkerRef = useRef<L.Marker | null>(null);
+
+  // Query de tubos para o painel OTDR (carrega quando um elemento é seleccionado no modo OTDR)
+  const otdrElement = otdrElementId != null ? (elements as any[]).find((e: any) => e.id === otdrElementId) : null;
+  const otdrTubesQuery = trpc.infraMap.tubesByElement.useQuery(
+    { elementId: otdrElementId ?? 0 },
+    { enabled: otdrElementId != null && otdrPanelOpen }
+  );
+  const otdrTubes = (otdrTubesQuery.data ?? []) as { id: number; identifier: string; totalVias: number; type: string }[];
+  const otdrSelectedTube = otdrTubes.find(t => String(t.id) === otdrTubeId);
+
+  // Limpar polilinha e marcador OTDR quando o modo é desactivado
+  useEffect(() => {
+    if (!otdrMode) {
+      otdrPolylineRef.current?.remove();
+      otdrPolylineRef.current = null;
+      otdrMarkerRef.current?.remove();
+      otdrMarkerRef.current = null;
+      setOtdrResult(null);
+      setOtdrElementId(null);
+      setOtdrTubeId("");
+      setOtdrViaNumber("");
+      setOtdrDistance("");
+    }
+  }, [otdrMode]);
+
+  // Desenhar resultado OTDR no mapa quando disponível
+  useEffect(() => {
+    if (!mapRef.current || !otdrResult) return;
+    // Limpar traçado anterior
+    otdrPolylineRef.current?.remove();
+    otdrMarkerRef.current?.remove();
+    otdrPolylineRef.current = null;
+    otdrMarkerRef.current = null;
+    if (otdrResult.tracedPath.length >= 2) {
+      const latlngs = otdrResult.tracedPath.map(p => [p.lat, p.lng] as [number, number]);
+      otdrPolylineRef.current = L.polyline(latlngs, {
+        color: "#f59e0b", weight: 5, opacity: 0.9, dashArray: "10, 5"
+      }).addTo(mapRef.current!);
+    }
+    if (otdrResult.found && otdrResult.lat != null && otdrResult.lng != null) {
+      const iconHtml = `<div style="width:28px;height:28px;background:#f59e0b;border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 3px #f59e0b,0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      </div>`;
+      const icon = L.divIcon({ html: iconHtml, className: "", iconSize: [28, 28], iconAnchor: [14, 14] });
+      otdrMarkerRef.current = L.marker([otdrResult.lat, otdrResult.lng], { icon })
+        .bindPopup(`<div style="font-size:12px;min-width:180px">
+          <b style="color:#f59e0b">⚡ Ponto OTDR</b><br/>
+          <b>Distância:</b> ${Math.round(otdrResult.distanceTraveled)} m<br/>
+          ${otdrResult.segmentName ? `<b>Cabo:</b> ${otdrResult.segmentName}<br/>` : ""}
+          <b>GPS:</b> ${otdrResult.lat.toFixed(6)}, ${otdrResult.lng.toFixed(6)}<br/>
+          <button onclick="navigator.clipboard.writeText('${otdrResult.lat.toFixed(6)},${otdrResult.lng.toFixed(6)}').then(()=>alert('Copiado!'))"
+            style="margin-top:6px;background:#f59e0b;color:white;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">
+            Copiar GPS
+          </button>
+        </div>`, { maxWidth: 240 })
+        .addTo(mapRef.current!)
+        .openPopup();
+      mapRef.current!.flyTo([otdrResult.lat, otdrResult.lng], Math.max(mapRef.current!.getZoom(), 16), { duration: 1 });
+    }
+  }, [otdrResult]);
+
   const ctoTubesQuery = trpc.ctoTubes.byCto.useQuery(
     { ctoId: sidePanelRefId },
     { enabled: sidePanelType === "cto" && sidePanelRefId > 0 }
@@ -888,11 +969,21 @@ export default function InfrastructureMap() {
           toast.info(`Ponto adicionado: ${name}`);
           return;
         }
+        // Modo OTDR: seleccionar elemento de partida
+        if (otdrMode) {
+          setOtdrElementId(el.id);
+          setOtdrTubeId("");
+          setOtdrViaNumber("");
+          setOtdrResult(null);
+          setOtdrPanelOpen(true);
+          toast.info(`OTDR: ${name} seleccionado como ponto de partida`);
+          return;
+        }
         setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts, sgpId: ref?.sgpId ?? null, color: el.color ?? null } });
       });
       markersRef.current[el.id] = marker;
     });
-  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, movingElementId, onuCountMap]);
+  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, movingElementId, onuCountMap, otdrMode]);
 
   // Renderizar rotas
   const renderRoutes = useCallback(() => {
@@ -2554,6 +2645,15 @@ export default function InfrastructureMap() {
           <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setCablesReportOpen(true)}>
             <FileText className="w-3 h-3" />Rel. Cabos
           </Button>
+          <Button
+            size="sm"
+            variant={otdrMode ? "default" : "outline"}
+            className={`h-7 gap-1 text-xs ${otdrMode ? "bg-amber-600 hover:bg-amber-700 border-amber-500 text-white" : ""}`}
+            onClick={() => { setOtdrMode(v => !v); if (!otdrMode) { setOtdrPanelOpen(true); } }}
+            title="OTDR Virtual — calcular posição de falha por distância"
+          >
+            <Zap className="w-3 h-3" />OTDR Virtual
+          </Button>
         </div>
       </div>
 
@@ -2571,6 +2671,25 @@ export default function InfrastructureMap() {
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
           <Navigation className="w-3.5 h-3.5" />Clique no mapa para posicionar um {addingMode.toUpperCase()}
           <button onClick={() => setAddingMode(null)} className="ml-auto text-amber-300 hover:text-amber-200 underline">Cancelar</button>
+        </div>
+      )}
+      {otdrMode && (
+        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
+          <Zap className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="flex-1">
+            {otdrElementId == null
+              ? "Modo OTDR Virtual ativo — clique num CEO ou CTO no mapa para seleccioná-lo como ponto de partida"
+              : `Elemento selecionado: ${(elements as any[]).find((e: any) => e.id === otdrElementId)?.name ?? `#${otdrElementId}`} — configure o tubo, via e distância no painel`}
+          </span>
+          {otdrResult && (
+            <span className="text-amber-300 font-medium">
+              {otdrResult.found ? `✓ Ponto a ${Math.round(otdrResult.distanceTraveled)} m` : `⚠ Fim da cadeia a ${Math.round(otdrResult.distanceTraveled)} m`}
+            </span>
+          )}
+          <button onClick={() => setOtdrPanelOpen(v => !v)} className="text-amber-300 hover:text-amber-200 underline text-xs flex-shrink-0">
+            {otdrPanelOpen ? "Fechar painel" : "Abrir painel"}
+          </button>
+          <button onClick={() => setOtdrMode(false)} className="text-amber-300 hover:text-amber-200 underline text-xs flex-shrink-0">Sair</button>
         </div>
       )}
       {addingRouteMode && (
@@ -2626,6 +2745,175 @@ export default function InfrastructureMap() {
           <div className="absolute top-4 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-xs" style={{ zIndex: 1000 }}>
             <span className="text-muted-foreground">{(elements as any[]).length} elementos · {(routes as any[]).length} cabos</span>
           </div>
+
+          {/* Painel OTDR Virtual flutuante */}
+          {otdrMode && otdrPanelOpen && (
+            <div className="absolute top-4 right-4 w-80 bg-card border border-amber-500/40 rounded-xl shadow-2xl overflow-hidden" style={{ zIndex: 1100 }}>
+              <div className="flex items-center gap-2 px-4 py-3 bg-amber-500/10 border-b border-amber-500/30">
+                <Zap className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                <span className="font-semibold text-amber-400 text-sm flex-1">OTDR Virtual</span>
+                <button onClick={() => setOtdrPanelOpen(false)} className="text-muted-foreground hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                {/* Elemento de partida */}
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Elemento de partida</Label>
+                  {otdrElementId == null ? (
+                    <div className="text-xs text-amber-400/80 bg-amber-500/10 rounded-lg p-2.5 border border-amber-500/20">
+                      Clique num CEO ou CTO no mapa para seleccioná-lo
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 text-xs bg-muted rounded-lg px-3 py-2 text-foreground font-medium">
+                        {(elements as any[]).find((e: any) => e.id === otdrElementId)?.name ?? `Elemento #${otdrElementId}`}
+                      </div>
+                      <button onClick={() => { setOtdrElementId(null); setOtdrTubeId(""); setOtdrViaNumber(""); setOtdrResult(null); }}
+                        className="text-muted-foreground hover:text-foreground">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tubo */}
+                {otdrElementId != null && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Tubo / cabo de saída</Label>
+                    {otdrTubesQuery.isLoading ? (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" />Carregando tubos...</div>
+                    ) : otdrTubes.length === 0 ? (
+                      <div className="text-xs text-destructive bg-destructive/10 rounded-lg p-2 border border-destructive/20">Nenhum tubo cadastrado neste elemento</div>
+                    ) : (
+                      <Select value={otdrTubeId} onValueChange={v => { setOtdrTubeId(v); setOtdrViaNumber(""); setOtdrResult(null); }}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Selecione o tubo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {otdrTubes.map(t => (
+                            <SelectItem key={t.id} value={String(t.id)}>
+                              {t.identifier} ({t.totalVias} vias)
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                )}
+
+                {/* Via */}
+                {otdrTubeId && otdrSelectedTube && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Número da via (fibra)</Label>
+                    <Select value={otdrViaNumber} onValueChange={v => { setOtdrViaNumber(v); setOtdrResult(null); }}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Selecione a via" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: otdrSelectedTube.totalVias }, (_, i) => i + 1).map(n => (
+                          <SelectItem key={n} value={String(n)}>Via {n}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Distância */}
+                {otdrViaNumber && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Distância do OTDR (metros)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1}
+                      placeholder="Ex: 650"
+                      value={otdrDistance}
+                      onChange={e => { setOtdrDistance(e.target.value); setOtdrResult(null); }}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                )}
+
+                {/* Botão executar */}
+                {otdrElementId && otdrTubeId && otdrViaNumber && otdrDistance && (
+                  <Button
+                    size="sm"
+                    className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                    disabled={otdrRunning}
+                    onClick={async () => {
+                      setOtdrRunning(true);
+                      setOtdrResult(null);
+                      try {
+                        const utils = trpc.useUtils();
+                        const result = await utils.infraMap.traceOtdr.fetch({
+                          elementId: otdrElementId,
+                          tubeId: Number(otdrTubeId),
+                          viaNumber: Number(otdrViaNumber),
+                          distanceMeters: Number(otdrDistance),
+                        });
+                        setOtdrResult(result);
+                        if (!result.found) {
+                          toast.warning(result.warnings[result.warnings.length - 1] ?? "Ponto não encontrado na cadeia de fibra");
+                        }
+                      } catch (e: any) {
+                        toast.error(e.message ?? "Erro ao calcular posição OTDR");
+                      } finally {
+                        setOtdrRunning(false);
+                      }
+                    }}
+                  >
+                    {otdrRunning ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />Calculando...</> : <><Zap className="w-3.5 h-3.5 mr-1" />Calcular posição</>}
+                  </Button>
+                )}
+
+                {/* Resultado */}
+                {otdrResult && (
+                  <div className={`rounded-lg p-3 border text-xs space-y-1.5 ${
+                    otdrResult.found
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                      : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                  }`}>
+                    {otdrResult.found ? (
+                      <>
+                        <div className="font-semibold flex items-center gap-1.5">
+                          <Crosshair className="w-3.5 h-3.5" />
+                          Ponto encontrado a {Math.round(otdrResult.distanceTraveled)} m
+                        </div>
+                        {otdrResult.segmentName && <div><span className="opacity-70">Cabo:</span> {otdrResult.segmentName}</div>}
+                        <div className="font-mono text-xs">
+                          {otdrResult.lat?.toFixed(6)}, {otdrResult.lng?.toFixed(6)}
+                        </div>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${otdrResult.lat?.toFixed(6)},${otdrResult.lng?.toFixed(6)}`);
+                            toast.success("Coordenadas copiadas!");
+                          }}
+                          className="flex items-center gap-1 text-emerald-300 hover:text-emerald-200 underline"
+                        >
+                          <Copy className="w-3 h-3" />Copiar GPS
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="font-semibold">Fim da cadeia a {Math.round(otdrResult.distanceTraveled)} m</div>
+                        {otdrResult.elementReached && <div><span className="opacity-70">Termina em:</span> {otdrResult.elementReached.name}</div>}
+                      </>
+                    )}
+                    {otdrResult.warnings.length > 0 && (
+                      <div className="border-t border-current/20 pt-1.5 mt-1 space-y-0.5">
+                        {otdrResult.warnings.map((w, i) => (
+                          <div key={i} className="flex items-start gap-1 opacity-80">
+                            <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />{w}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
         {groupsPanelOpen && (
           <div className="w-72 border-l border-border bg-card/50 flex flex-col overflow-hidden flex-shrink-0">

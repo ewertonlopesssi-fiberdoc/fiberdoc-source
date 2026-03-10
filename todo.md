@@ -1457,3 +1457,13 @@
 - [x] Adicionar gráfico de temperatura GBIC no NetworkEquipmentDetail (AreaChart âmbar com linha de alerta 70°C)
 - [x] Temperatura actual exibida no cabeçalho do card GBIC com código de cores (verde/amarelo/laranja/vermelho)
 - [x] Tooltip do gráfico de temperatura mostra valor em °C
+
+## OTDR Virtual — Mapa de Infraestrutura — 10/03/2026
+- [x] Backend: helper db.ts traceOtdrPath para percorrer grafo de fibras seguindo fusões
+- [x] Backend: endpoint infraMap.traceOtdr (input: elementId, tubeId, viaNumber, distanceMeters)
+- [x] Frontend: botão "OTDR Virtual" na barra de ferramentas do mapa
+- [x] Frontend: painel lateral flutuante de input (selecção tubo/via + distância em metros)
+- [x] Frontend: polilinha âmbar tracejada sobre o traçado percorrido
+- [x] Frontend: marcador especial no ponto calculado com popup GPS + botão copiar
+- [x] Frontend: avisos de dados incompletos (sem fusão, sem path, splitter)
+- [x] Frontend: modo OTDR activa clique em CEO/CTO para selecção de ponto de partida

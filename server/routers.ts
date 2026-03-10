@@ -2393,6 +2393,22 @@ ${fiberFolder}
         const dbMod = await import("./db");
         return dbMod.getTubesByMapElement(input.elementId);
       }),
+    traceOtdr: protectedProcedure
+      .input(z.object({
+        elementId: z.number(),          // map_elements.id do ponto de partida
+        tubeId: z.number(),             // id do tubo de saída no elemento
+        viaNumber: z.number().int().min(1), // número da via dentro do tubo
+        distanceMeters: z.number().positive(), // distância alvo em metros
+      }))
+      .query(async ({ input }) => {
+        const dbMod = await import("./db");
+        return dbMod.traceOtdrPath(
+          input.elementId,
+          input.tubeId,
+          input.viaNumber,
+          input.distanceMeters
+        );
+      }),
   }),
   // ─── SGP Config ───────────────────────────────────────────────────────────────
   sgp: router({
