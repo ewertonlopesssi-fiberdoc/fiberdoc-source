@@ -817,6 +817,15 @@ export default function InfrastructureMap() {
   const [inlineTubeToId, setInlineTubeToId] = useState<number | null>(null);
   const [inlineTubeSaving, setInlineTubeSaving] = useState(false);
 
+  // Estado para confirmação de truncagem do traçado
+  const [truncateConfirm, setTruncateConfirm] = useState<{
+    snappedId: number;
+    snappedName: string;
+    isCloserToStart: boolean;
+    newPath: { lat: number; lng: number }[];
+    routeColor: string;
+  } | null>(null);
+
   // Query de tubos para o painel OTDR (carrega quando um elemento é seleccionado no modo OTDR)
   const otdrElement = otdrElementId != null ? (elements as any[]).find((e: any) => e.id === otdrElementId) : null;
   const otdrTubesQuery = trpc.infraMap.tubesByElement.useQuery(
@@ -1252,23 +1261,18 @@ export default function InfrastructureMap() {
           else snapToIdRef.current = snappedId;
         } else if (snappedId !== null && snappedEl !== null) {
           // Ponto do meio arrastado para cima de um elemento:
-          // Tornar este ponto uma nova extremidade
+          // Mostrar dialog de confirmação antes de truncar
           const isCloserToStart = currentIdx < pts.length / 2;
-          if (isCloserToStart) {
-            // Truncar: manter apenas do ponto arrastado até ao fim
-            const newPath = pts.slice(currentIdx);
-            editingRoutePathRef.current = newPath;
-            snapFromIdRef.current = snappedId;
-            toast.success(`Origem vinculada a "${snappedEl.name ?? `El. ${snappedId}`}"`);
-          } else {
-            // Truncar: manter apenas do início até ao ponto arrastado
-            const newPath = pts.slice(0, currentIdx + 1);
-            editingRoutePathRef.current = newPath;
-            snapToIdRef.current = snappedId;
-            toast.success(`Destino vinculado a "${snappedEl.name ?? `El. ${snappedId}`}"`);
-          }
-          setEditingRoutePath([...editingRoutePathRef.current]);
-          renderEditRouteMarkers([...editingRoutePathRef.current], routeColor);
+          const newPath = isCloserToStart
+            ? pts.slice(currentIdx)      // manter do ponto arrastado até ao fim
+            : pts.slice(0, currentIdx + 1); // manter do início até ao ponto arrastado
+          setTruncateConfirm({
+            snappedId,
+            snappedName: snappedEl.name ?? `El. ${snappedId}`,
+            isCloserToStart,
+            newPath,
+            routeColor,
+          });
           return;
         }
         setEditingRoutePath([...editingRoutePathRef.current]);
@@ -3300,6 +3304,54 @@ export default function InfrastructureMap() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteRouteId(null)}>Cancelar</Button>
             <Button variant="destructive" onClick={() => deleteRouteId && deleteRouteMut.mutate({ id: deleteRouteId })} disabled={deleteRouteMut.isPending}>{deleteRouteMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Excluir"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de confirmação de truncagem do traçado */}
+      <Dialog open={truncateConfirm !== null} onOpenChange={(open) => { if (!open) setTruncateConfirm(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Cable className="w-4 h-4 text-amber-400" />
+              Vincular extremidade ao elemento
+            </DialogTitle>
+          </DialogHeader>
+          {truncateConfirm && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Deseja vincular o traçado ao elemento <span className="font-semibold text-foreground">"{truncateConfirm.snappedName}"</span> como nova <span className="font-semibold text-amber-400">{truncateConfirm.isCloserToStart ? "origem" : "destino"}</span>?
+              </p>
+              <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-300 space-y-1">
+                <p className="font-medium">Os seguintes pontos serão removidos do traçado:</p>
+                <p>{truncateConfirm.isCloserToStart
+                  ? `${editingRoutePath.length - truncateConfirm.newPath.length} ponto(s) antes da nova origem`
+                  : `${editingRoutePath.length - truncateConfirm.newPath.length} ponto(s) após o novo destino`
+                }</p>
+                <p className="text-muted-foreground">O traçado passará de {editingRoutePath.length} para {truncateConfirm.newPath.length} ponto(s).</p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTruncateConfirm(null)}>Cancelar</Button>
+            <Button
+              className="bg-amber-500 hover:bg-amber-600 text-white"
+              onClick={() => {
+                if (!truncateConfirm) return;
+                editingRoutePathRef.current = truncateConfirm.newPath;
+                if (truncateConfirm.isCloserToStart) {
+                  snapFromIdRef.current = truncateConfirm.snappedId;
+                } else {
+                  snapToIdRef.current = truncateConfirm.snappedId;
+                }
+                setEditingRoutePath([...truncateConfirm.newPath]);
+                renderEditRouteMarkers([...truncateConfirm.newPath], truncateConfirm.routeColor);
+                toast.success(`${truncateConfirm.isCloserToStart ? "Origem" : "Destino"} vinculado a "${truncateConfirm.snappedName}"`);
+                setTruncateConfirm(null);
+              }}
+            >
+              Confirmar vinculação
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

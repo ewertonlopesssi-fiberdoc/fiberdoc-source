@@ -1474,3 +1474,6 @@
 
 ## Bug — Vinculação traçado ao elemento — 10/03/2026
 - [x] Corrigir snap/vinculação ao arrastar ponto do traçado para CEO/CTO — corrigido uso de índice desactualizado e tolerância inconsistente
+
+## Confirmação truncagem traçado — 10/03/2026
+- [x] Mostrar dialog de confirmação antes de truncar traçado ao vincular ponto do meio a CEO/CTO
