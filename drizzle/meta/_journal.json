@@ -337,6 +337,13 @@
       "when": 1773106470682,
       "tag": "0047_illegal_madame_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "5",
+      "when": 1773136133265,
+      "tag": "0048_bent_sentry",
+      "breakpoints": true
     }
   ]
 }

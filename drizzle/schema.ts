@@ -994,7 +994,7 @@ export const networkSnmpPorts = mysqlTable("network_snmp_ports", {
   ifIndex: int("ifIndex").notNull(),                         // SNMP ifIndex
   ifName: varchar("ifName", { length: 64 }),                 // ex: GigabitEthernet0/1
   ifAlias: varchar("ifAlias", { length: 128 }),              // Descrição/alias configurado
-  ifSpeed: int("ifSpeed"),                                   // Velocidade em bps
+  ifSpeed: bigint("ifSpeed", { mode: "number" }),             // Velocidade em bps (0xFFFFFFFF = desconhecido)
   ifType: varchar("ifType", { length: 32 }),                 // ethernetCsmacd, opticalChannel, etc.
   // Último estado coletado
   ifOperStatus: mysqlEnum("if_oper_status", ["up", "down", "testing", "unknown", "dormant", "notPresent", "lowerLayerDown"]).default("unknown"),

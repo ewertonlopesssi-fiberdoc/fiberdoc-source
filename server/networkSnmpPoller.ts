@@ -304,7 +304,9 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
 
         const ifName = String(varbindValue(ifVbs[`${OID.ifDescr}.${ifIndex}`]) ?? "");
         const ifAlias = String(varbindValue(ifVbs[`${OID.ifAlias}.${ifIndex}`]) ?? "");
-        const ifSpeed = toNumber(varbindValue(ifVbs[`${OID.ifSpeed}.${ifIndex}`]));
+        // 4294967295 (0xFFFFFFFF) = velocidade desconhecida no SNMP, guardar como null
+        const rawSpeed = toNumber(varbindValue(ifVbs[`${OID.ifSpeed}.${ifIndex}`]));
+        const ifSpeed = (rawSpeed === null || rawSpeed >= 4294967295) ? null : rawSpeed;
         const ifType = String(varbindValue(ifVbs[`${OID.ifType}.${ifIndex}`]) ?? "");
         const operStatusRaw = toNumber(varbindValue(ifVbs[`${OID.ifOperStatus}.${ifIndex}`]));
         const adminStatusRaw = toNumber(varbindValue(ifVbs[`${OID.ifAdminStatus}.${ifIndex}`]));
