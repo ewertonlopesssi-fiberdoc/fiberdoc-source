@@ -16,7 +16,14 @@ import {
 } from "../../drizzle/schema";
 import { eq, and, desc, gte, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { pollNetworkEquipment } from "../networkSnmpPoller";
+import {
+  pollNetworkEquipment,
+  createSession,
+  snmpGet,
+  varbindValue,
+  ticksToSeconds,
+  SNMP_OID,
+} from "../networkSnmpPoller";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
@@ -317,6 +324,90 @@ export const networkSnmpRouter = router({
         .set({ resolvedAt: new Date() })
         .where(eq(networkSnmpAlerts.id, input.alertId));
       return { ok: true };
+    }),
+
+  // Testar conexão SNMP em tempo real
+  testConnection: protectedProcedure
+    .input(z.object({ equipmentId: z.number().int() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
+
+      const [cfg] = await db
+        .select()
+        .from(networkSnmpConfig)
+        .where(eq(networkSnmpConfig.equipmentId, input.equipmentId));
+
+      if (!cfg || !cfg.snmpHost) {
+        return {
+          ok: false,
+          error: "Equipamento sem configuração SNMP. Configure o host e community primeiro.",
+          details: null,
+        };
+      }
+
+      const session = createSession(cfg as any);
+      const startMs = Date.now();
+
+      try {
+        // Consultar OIDs básicos: sysDescr, sysName, sysUpTime
+        const vbs = await snmpGet(session, [
+          SNMP_OID.sysDescr,
+          SNMP_OID.sysName,
+          SNMP_OID.sysUpTime,
+        ]);
+
+        const rttMs = Date.now() - startMs;
+        const sysDescr = String(varbindValue(vbs[SNMP_OID.sysDescr]) ?? "");
+        const sysName  = String(varbindValue(vbs[SNMP_OID.sysName])  ?? "");
+        const uptimeTicks = varbindValue(vbs[SNMP_OID.sysUpTime]);
+        const uptimeSec = uptimeTicks !== null ? ticksToSeconds(Number(uptimeTicks)) : null;
+
+        // Formatar uptime legível
+        let uptimeStr: string | null = null;
+        if (uptimeSec !== null) {
+          const d = Math.floor(uptimeSec / 86400);
+          const h = Math.floor((uptimeSec % 86400) / 3600);
+          const m = Math.floor((uptimeSec % 3600) / 60);
+          const s = uptimeSec % 60;
+          uptimeStr = `${d}d ${h}h ${m}m ${s}s`;
+        }
+
+        session.close();
+        return {
+          ok: true,
+          error: null,
+          details: {
+            host: cfg.snmpHost,
+            port: cfg.snmpPort ?? 161,
+            version: cfg.snmpVersion ?? "v2c",
+            rttMs,
+            sysDescr: sysDescr || null,
+            sysName: sysName || null,
+            uptimeStr,
+            uptimeSec,
+            respondedAt: new Date().toISOString(),
+          },
+        };
+      } catch (err: any) {
+        session.close();
+        const rttMs = Date.now() - startMs;
+        return {
+          ok: false,
+          error: err?.message ?? "Timeout ou equipamento inacessível",
+          details: {
+            host: cfg.snmpHost,
+            port: cfg.snmpPort ?? 161,
+            version: cfg.snmpVersion ?? "v2c",
+            rttMs,
+            sysDescr: null,
+            sysName: null,
+            uptimeStr: null,
+            uptimeSec: null,
+            respondedAt: null,
+          },
+        };
+      }
     }),
 
   // Resumo de todos os equipamentos com SNMP habilitado

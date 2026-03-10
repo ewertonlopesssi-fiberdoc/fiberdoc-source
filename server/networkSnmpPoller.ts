@@ -168,6 +168,10 @@ function ticksToSeconds(ticks: number): number {
   return Math.floor(ticks / 100);
 }
 
+// ─── Exportar funções auxiliares para uso no router ───────────────────────────
+export { createSession, snmpGet, varbindValue, ticksToSeconds };
+export const SNMP_OID = OID;
+
 // ─── Coleta principal por equipamento ────────────────────────────────────────
 
 export async function pollNetworkEquipment(equipmentId: number): Promise<void> {

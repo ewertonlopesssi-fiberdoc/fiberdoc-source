@@ -51,6 +51,10 @@ import {
   Layers,
   ChevronRight,
   Search,
+  FlaskConical,
+  CheckCircle2,
+  XCircle,
+  Loader2,
 } from "lucide-react";
 import { useRole } from "@/hooks/useRole";
 import { useLocation } from "wouter";
@@ -101,7 +105,135 @@ const EQUIPMENT_GROUPS: { label: string; types: string[]; icon: React.ReactNode;
   { label: "Outros", types: ["dgo", "splitter", "patch_panel", "amplifier", "other"], icon: <MonitorSpeaker className="h-4 w-4" />, color: "text-gray-400 border-gray-500/30 bg-gray-500/5" },
 ];
 
-// ─── Configuração SNMP ────────────────────────────────────────────────────────
+// ─── Teste de Conexão SNMP ──────────────────────────────────────────────────
+
+function SnmpTestDialog({
+  equipmentId,
+  equipmentName,
+  open,
+  onClose,
+}: {
+  equipmentId: number;
+  equipmentName: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const testConn = trpc.networkSnmp.testConnection.useMutation();
+
+  function handleTest() {
+    testConn.mutate({ equipmentId });
+  }
+
+  const result = testConn.data;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FlaskConical className="h-4 w-4 text-cyan-400" />
+            Teste SNMP — {equipmentName}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Botão de teste */}
+          <Button
+            onClick={handleTest}
+            disabled={testConn.isPending}
+            className="w-full"
+            variant="outline"
+          >
+            {testConn.isPending ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> A testar conexão...</>
+            ) : (
+              <><FlaskConical className="h-4 w-4 mr-2" /> Testar Conexão SNMP</>
+            )}
+          </Button>
+
+          {/* Resultado */}
+          {result && (
+            <div className={`rounded-lg border p-4 space-y-3 ${
+              result.ok
+                ? "border-green-500/40 bg-green-500/5"
+                : "border-red-500/40 bg-red-500/5"
+            }`}>
+              {/* Status */}
+              <div className="flex items-center gap-2">
+                {result.ok ? (
+                  <CheckCircle2 className="h-5 w-5 text-green-400 flex-shrink-0" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-red-400 flex-shrink-0" />
+                )}
+                <span className={`font-semibold ${
+                  result.ok ? "text-green-400" : "text-red-400"
+                }`}>
+                  {result.ok ? "Conexão bem-sucedida" : "Falha na conexão"}
+                </span>
+                {result.details?.rttMs !== undefined && (
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {result.details.rttMs}ms
+                  </span>
+                )}
+              </div>
+
+              {/* Erro */}
+              {!result.ok && result.error && (
+                <p className="text-sm text-red-300 font-mono bg-red-950/30 rounded p-2">
+                  {result.error}
+                </p>
+              )}
+
+              {/* Detalhes do equipamento */}
+              {result.details && (
+                <div className="space-y-1.5 text-sm">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                    <span className="text-muted-foreground">Host</span>
+                    <span className="font-mono text-xs">{result.details.host}:{result.details.port}</span>
+                    <span className="text-muted-foreground">Versão SNMP</span>
+                    <span className="font-mono text-xs uppercase">{result.details.version}</span>
+                    {result.details.sysName && (
+                      <>
+                        <span className="text-muted-foreground">sysName</span>
+                        <span className="font-mono text-xs truncate">{result.details.sysName}</span>
+                      </>
+                    )}
+                    {result.details.uptimeStr && (
+                      <>
+                        <span className="text-muted-foreground">Uptime</span>
+                        <span className="font-mono text-xs">{result.details.uptimeStr}</span>
+                      </>
+                    )}
+                    {result.details.respondedAt && (
+                      <>
+                        <span className="text-muted-foreground">Testado em</span>
+                        <span className="text-xs">{new Date(result.details.respondedAt).toLocaleTimeString()}</span>
+                      </>
+                    )}
+                  </div>
+                  {result.details.sysDescr && (
+                    <div className="mt-2">
+                      <p className="text-muted-foreground text-xs mb-1">sysDescr</p>
+                      <p className="font-mono text-xs bg-muted/30 rounded p-2 break-all leading-relaxed">
+                        {result.details.sysDescr}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Fechar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Configuração SNMP ────────────────────────────────────────────
 
 function SnmpConfigDialog({
   equipmentId,
@@ -397,6 +529,7 @@ function AddMonitoringDialog({ open, onClose }: { open: boolean; onClose: () => 
 function EquipmentRow({ row }: { row: any }) {
   const [, setLocation] = useLocation();
   const [configOpen, setConfigOpen] = useState(false);
+  const [testOpen, setTestOpen] = useState(false);
   const utils = trpc.useUtils();
 
   const pollNow = trpc.networkSnmp.pollNow.useMutation({
@@ -421,6 +554,12 @@ function EquipmentRow({ row }: { row: any }) {
         equipmentName={eq?.name ?? `Equipamento #${cfg.equipmentId}`}
         open={configOpen}
         onClose={() => setConfigOpen(false)}
+      />
+      <SnmpTestDialog
+        equipmentId={cfg.equipmentId}
+        equipmentName={eq?.name ?? `Equipamento #${cfg.equipmentId}`}
+        open={testOpen}
+        onClose={() => setTestOpen(false)}
       />
       <div
         className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors cursor-pointer hover:bg-muted/40 ${hasError ? "border-red-500/30 bg-red-500/5" : "border-border/40"}`}
@@ -466,6 +605,16 @@ function EquipmentRow({ row }: { row: any }) {
 
         {/* Ações */}
         <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setTestOpen(true)}>
+                  <FlaskConical className="h-3.5 w-3.5 text-cyan-500" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Testar Conexão SNMP</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
