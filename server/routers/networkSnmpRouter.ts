@@ -14,7 +14,7 @@ import {
   networkSnmpAlerts,
   equipments,
 } from "../../drizzle/schema";
-import { eq, and, desc, gte, isNull, lt } from "drizzle-orm";
+import { eq, and, desc, gte, isNull, lt, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import {
   pollNetworkEquipment,
@@ -169,14 +169,14 @@ export const networkSnmpRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
-      const since = new Date(Date.now() - input.periodMinutes * 60 * 1000);
+      // Usar NOW() do MySQL para respeitar o timezone do servidor (evita desfasamento UTC vs UTC-3)
       return db
         .select()
         .from(networkSnmpReadings)
         .where(
           and(
             eq(networkSnmpReadings.equipmentId, input.equipmentId),
-            gte(networkSnmpReadings.collectedAt, since)
+            sql`${networkSnmpReadings.collectedAt} >= NOW() - INTERVAL ${input.periodMinutes} MINUTE`
           )
         )
         .orderBy(networkSnmpReadings.collectedAt)
@@ -193,14 +193,14 @@ export const networkSnmpRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
-      const since = new Date(Date.now() - input.periodMinutes * 60 * 1000);
+      // Usar NOW() do MySQL para respeitar o timezone do servidor (evita desfasamento UTC vs UTC-3)
       return db
         .select()
         .from(networkPortReadings)
         .where(
           and(
             eq(networkPortReadings.portId, input.portId),
-            gte(networkPortReadings.collectedAt, since)
+            sql`${networkPortReadings.collectedAt} >= NOW() - INTERVAL ${input.periodMinutes} MINUTE`
           )
         )
         .orderBy(networkPortReadings.collectedAt)
@@ -448,13 +448,12 @@ export const networkSnmpRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
 
-      const cutoff = new Date(Date.now() - input.olderThanDays * 86400 * 1000);
-
+      // Usar NOW() do MySQL para respeitar o timezone do servidor
       // Apagar leituras gerais antigas
       await db.delete(networkSnmpReadings)
         .where(and(
           eq(networkSnmpReadings.equipmentId, input.equipmentId),
-          lt(networkSnmpReadings.collectedAt, cutoff)
+          sql`${networkSnmpReadings.collectedAt} < NOW() - INTERVAL ${input.olderThanDays} DAY`
         ));
 
       // Apagar leituras de portas antigas
@@ -467,7 +466,7 @@ export const networkSnmpRouter = router({
         await db.delete(networkPortReadings)
           .where(and(
             eq(networkPortReadings.portId, port.id),
-            lt(networkPortReadings.collectedAt, cutoff)
+            sql`${networkPortReadings.collectedAt} < NOW() - INTERVAL ${input.olderThanDays} DAY`
           ));
       }
 
