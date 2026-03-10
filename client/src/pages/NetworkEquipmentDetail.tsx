@@ -378,8 +378,8 @@ function PortTrafficChart({
           {thresholdMbps && (
             <ReferenceLine y={thresholdMbps} stroke="#ef4444" strokeDasharray="4 4" label={{ value: `Threshold ${thresholdMbps.toFixed(0)} Mbps`, fill: "#ef4444", fontSize: 10, position: "insideTopRight" }} />
           )}
-          <Area type="monotone" dataKey="in" stroke="#3b82f6" strokeWidth={1.5} fill={`url(#gradIn${port.id})`} name="in" dot={false} />
-          <Area type="monotone" dataKey="out" stroke="#22c55e" strokeWidth={1.5} fill={`url(#gradOut${port.id})`} name="out" dot={false} />
+          <Area type="linear" dataKey="in" stroke="#3b82f6" strokeWidth={1.5} fill={`url(#gradIn${port.id})`} name="in" dot={false} connectNulls />
+          <Area type="linear" dataKey="out" stroke="#22c55e" strokeWidth={1.5} fill={`url(#gradOut${port.id})`} name="out" dot={false} connectNulls />
           <Legend formatter={(v) => v === "in" ? "Entrada" : "Saída"} iconSize={10} wrapperStyle={{ fontSize: 11 }} />
         </AreaChart>
       </ResponsiveContainer>

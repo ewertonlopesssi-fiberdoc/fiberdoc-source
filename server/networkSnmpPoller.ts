@@ -403,32 +403,34 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
           );
 
         // Calcular bps usando tempo REAL entre polls (não o intervalo configurado)
-        // Tratar wrap-around de contadores 32-bit (max ~4.29 GB) e 64-bit
+        // IMPORTANTE: só calcular se AMBOS os contadores anteriores existirem
+        // (evita TX/RX fictícios quando lastOutOctets é null na 1ª leitura)
         let inBps: number | null = null;
         let outBps: number | null = null;
-        if (existingPort && existingPort.lastInOctets !== null && inOctets !== null) {
+        if (
+          existingPort &&
+          existingPort.lastInOctets  !== null && inOctets  !== null &&
+          existingPort.lastOutOctets !== null && outOctets !== null
+        ) {
           // Usar tempo real desde o último poll; fallback para intervalo configurado
           const lastPollMs = existingPort.lastPollAt ? new Date(existingPort.lastPollAt).getTime() : 0;
           const elapsedMs = lastPollMs > 0 ? (now.getTime() - lastPollMs) : (cfg.pollInterval ?? 300) * 1000;
           const elapsed = elapsedMs / 1000; // converter para segundos
 
-          // Calcular diferença com tratamento de wrap-around
-          // Contadores 32-bit fazem wrap em 2^32 = 4294967296
-          // Contadores 64-bit (HC) raramente fazem wrap, mas tratar igualmente
+          // Calcular diferença com tratamento de wrap-around 32-bit
           const WRAP32 = 4294967296;
-          let inDiff = inOctets - existingPort.lastInOctets;
-          let outDiff = (outOctets ?? 0) - (existingPort.lastOutOctets ?? 0);
+          let inDiff  = inOctets  - existingPort.lastInOctets;
+          let outDiff = outOctets - existingPort.lastOutOctets;
 
-          // Se a diferença for negativa e pequena (< 2^32), provavelmente é wrap-around 32-bit
-          if (inDiff < 0 && inDiff > -WRAP32) inDiff += WRAP32;
+          if (inDiff  < 0 && inDiff  > -WRAP32) inDiff  += WRAP32;
           if (outDiff < 0 && outDiff > -WRAP32) outDiff += WRAP32;
 
-          // Sanidade: ignorar valores impossíveis (> 10 Gbps * elapsed)
-          const MAX_BPS = 100_000_000_000; // 100 Gbps máximo razoável
+          // Sanidade: ignorar valores impossíveis (> 100 Gbps * elapsed)
+          const MAX_BPS   = 100_000_000_000;
           const maxOctets = (MAX_BPS / 8) * elapsed;
 
-          if (inDiff >= 0 && inDiff <= maxOctets && elapsed > 0)
-            inBps = Math.round((inDiff * 8) / elapsed);
+          if (inDiff  >= 0 && inDiff  <= maxOctets && elapsed > 0)
+            inBps  = Math.round((inDiff  * 8) / elapsed);
           if (outDiff >= 0 && outDiff <= maxOctets && elapsed > 0)
             outBps = Math.round((outDiff * 8) / elapsed);
         }
@@ -571,10 +573,12 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
       try {
         // Obter mapeamento entPhysicalIndex → ifIndex
         const ifIndexVbs = await snmpGetSubtree(session, OID.hwOptIfIndex);
+        console.log(`[NetworkSNMP] GBIC Huawei(${equipmentId}): hwOptIfIndex retornou ${ifIndexVbs.length} entradas`);
         if (ifIndexVbs.length > 0) {
           const rxVbs  = await snmpGetSubtree(session, OID.hwOptRxPower);
           const txVbs  = await snmpGetSubtree(session, OID.hwOptTxPower);
           const tmpVbs = await snmpGetSubtree(session, OID.hwOptTemp);
+          console.log(`[NetworkSNMP] GBIC Huawei(${equipmentId}): rxVbs=${rxVbs.length} txVbs=${txVbs.length} tmpVbs=${tmpVbs.length}`);
 
           for (const ifIdxVb of ifIndexVbs) {
             const parts = ifIdxVb.oid.split(".");
@@ -595,9 +599,14 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
             const txDbm    = txRaw !== null ? txRaw / 100 : null;
             const gbicTemp = tRaw  !== null ? tRaw  / 100 : null;
 
+            console.log(`[NetworkSNMP] GBIC Huawei(${equipmentId}): physIdx=${physIdx} ifIdx=${ifIdxVal} rxRaw=${rxRaw} txRaw=${txRaw} rxDbm=${rxDbm} txDbm=${txDbm}`);
+
             // Ignorar valores claramente inválidos (sem módulo inserido)
             if (rxDbm === null && txDbm === null) continue;
-            if (rxDbm !== null && (rxDbm < -50 || rxDbm > 10)) continue;
+            if (rxDbm !== null && (rxDbm < -50 || rxDbm > 10)) {
+              console.log(`[NetworkSNMP] GBIC Huawei(${equipmentId}): physIdx=${physIdx} IGNORADO rxDbm=${rxDbm} fora do range [-50,10]`);
+              continue;
+            }
 
             const [port] = await db
               .select()

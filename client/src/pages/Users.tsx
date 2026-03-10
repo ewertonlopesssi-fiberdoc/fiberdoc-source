@@ -448,7 +448,7 @@ export default function Users() {
               Cancelar
             </Button>
             <Button
-              onClick={() => roleDialog && updateRoleMutation.mutate({ userId: roleDialog.id, role: newRole })}
+              onClick={() => roleDialog && updateRoleMutation.mutate({ userId: roleDialog.id, role: newRole as "admin" | "user" })}
               disabled={updateRoleMutation.isPending || newRole === roleDialog?.role}
             >
               {updateRoleMutation.isPending ? "Salvando..." : "Salvar"}
@@ -665,7 +665,7 @@ export default function Users() {
                 name: newUserName,
                 email: newUserEmail,
                 password: newUserPassword,
-                role: newUserRole,
+                role: newUserRole as "admin" | "user",
               })}
               disabled={createLocalMutation.isPending || !newUserName || !newUserEmail || newUserPassword.length < 6}
               className="gap-2"

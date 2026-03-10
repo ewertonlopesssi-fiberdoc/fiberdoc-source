@@ -1442,3 +1442,12 @@
 - [x] Gráficos de tráfego com área preenchida e linha de threshold
 - [x] Gráficos de sinal GBIC com linhas de alerta RX min/max
 - [x] Gráficos de histórico de CPU/RAM com threshold configurável
+
+## Correcções v5.93.16 — 10/03/2026
+- [x] Remover timezone: '+00:00' da pool MySQL — usar timezone do servidor (UTC-3) para timestamps correctos nos gráficos
+- [x] Gráficos de tráfego: alterar type="monotone" para type="linear" (linhas rectas como CPU/RAM)
+- [x] Gráficos de tráfego: gradiente mais suave (stopOpacity 0.3→0.15) para visual mais limpo
+- [x] Cálculo TX (outBps): já estava correctamente protegido com verificação de null (implementado em v5.93.12)
+- [x] GBIC Huawei: adicionados logs de diagnóstico para verificar coleta de sinal óptico
+- [x] Users.tsx: corrigido erro de tipo TypeScript (operator role) com asserções de tipo
+- [x] getAllUsers: tipo de retorno explícito incluindo "operator" no enum de role

@@ -72,7 +72,7 @@ function createPool(): mysql.Pool {
     enableKeepAlive: true,
     keepAliveInitialDelay: 30000,
     connectTimeout: 10000,
-    timezone: "+00:00", // Forçar UTC para alinhar com Date.now() do Node.js
+    // Sem timezone forçado — usar timezone do servidor MySQL (consistente com timestamps guardados)
   });
   // Reconectar automaticamente em caso de ECONNRESET ou PROTOCOL_CONNECTION_LOST
   pool.on('connection', (conn: any) => {
@@ -1106,10 +1106,19 @@ export async function setCtoViaFiber(viaId: number, fiberId: number | null) {
   await db.update(ctoVias).set({ fiberId }).where(eq(ctoVias.id, viaId));
 }
 // ─── Gerenciamento de Usuários ────────────────────────────────────────────────
-export async function getAllUsers() {
+export async function getAllUsers(): Promise<Array<{
+  id: number;
+  openId: string;
+  name: string | null;
+  email: string | null;
+  role: "admin" | "user" | "operator";
+  loginMethod: string | null;
+  createdAt: Date;
+  lastSignedIn: Date;
+}>> {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  return db.select({
+  const rows = await db.select({
     id: users.id,
     openId: users.openId,
     name: users.name,
@@ -1119,6 +1128,16 @@ export async function getAllUsers() {
     createdAt: users.createdAt,
     lastSignedIn: users.lastSignedIn,
   }).from(users).orderBy(desc(users.createdAt));
+  return rows as Array<{
+    id: number;
+    openId: string;
+    name: string | null;
+    email: string | null;
+    role: "admin" | "user" | "operator";
+    loginMethod: string | null;
+    createdAt: Date;
+    lastSignedIn: Date;
+  }>;
 }
 
 export async function updateUserRole(userId: number, role: "admin" | "operator" | "user") {
