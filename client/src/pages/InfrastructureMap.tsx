@@ -812,6 +812,11 @@ export default function InfrastructureMap() {
   const otdrPolylineRef = useRef<L.Polyline | null>(null);
   const otdrMarkerRef = useRef<L.Marker | null>(null);
 
+  // Estados para selecção de tubo inline no painel lateral da rota
+  const [inlineTubeFromId, setInlineTubeFromId] = useState<number | null>(null);
+  const [inlineTubeToId, setInlineTubeToId] = useState<number | null>(null);
+  const [inlineTubeSaving, setInlineTubeSaving] = useState(false);
+
   // Query de tubos para o painel OTDR (carrega quando um elemento é seleccionado no modo OTDR)
   const otdrElement = otdrElementId != null ? (elements as any[]).find((e: any) => e.id === otdrElementId) : null;
   const otdrTubesQuery = trpc.infraMap.tubesByElement.useQuery(
@@ -820,6 +825,14 @@ export default function InfrastructureMap() {
   );
   const otdrTubes = (otdrTubesQuery.data ?? []) as { id: number; identifier: string; totalVias: number; type: string }[];
   const otdrSelectedTube = otdrTubes.find(t => String(t.id) === otdrTubeId);
+
+  // Sincronizar tubos inline quando o painel lateral muda para uma rota
+  useEffect(() => {
+    if (sidePanel?.kind === "route") {
+      setInlineTubeFromId((sidePanel.route as any).fromTubeId ?? null);
+      setInlineTubeToId((sidePanel.route as any).toTubeId ?? null);
+    }
+  }, [sidePanel?.kind === "route" ? sidePanel.route.id : null]);
 
   // Limpar polilinha e marcador OTDR quando o modo é desactivado
   useEffect(() => {
@@ -1174,7 +1187,8 @@ export default function InfrastructureMap() {
         let moveLat = rawLat;
         let moveLng = rawLng;
         let snappedEl: any = null;
-        if (isEndpoint) {
+        // Snap activo para TODOS os pontos (não apenas endpoints)
+        {
           let bestDist = SNAP_THRESHOLD_DEG;
           (elements as any[]).forEach((el: any) => {
             const d = Math.hypot(moveLat - Number(el.lat), moveLng - Number(el.lng));
@@ -1191,8 +1205,10 @@ export default function InfrastructureMap() {
         }
         if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
         if (snappedEl && mapRef.current) {
+          // Indicador verde para snap em elemento
+          const snapColor = isEndpoint ? "#22c55e" : "#f59e0b"; // verde para endpoints, âmbar para pontos do meio
           snapIndicatorRef.current = L.circleMarker([moveLat, moveLng], {
-            radius: 14, color: "#22c55e", fillColor: "#22c55e", fillOpacity: 0.25, weight: 3,
+            radius: 14, color: snapColor, fillColor: snapColor, fillOpacity: 0.25, weight: 3,
           }).addTo(mapRef.current);
         }
         editRouteMidMarkersRef.current.forEach(m => m.remove());
@@ -1206,16 +1222,38 @@ export default function InfrastructureMap() {
         dragging = false;
         mapRef.current!.dragging.enable();
         if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
+        const finalPt = editingRoutePathRef.current[idx];
+        let snappedId: number | null = null;
+        (elements as any[]).forEach((el: any) => {
+          if (Math.abs(finalPt.lat - Number(el.lat)) < 0.0001 && Math.abs(finalPt.lng - Number(el.lng)) < 0.0001) {
+            snappedId = el.id;
+          }
+        });
         if (isEndpoint) {
-          const finalPt = editingRoutePathRef.current[idx];
-          let snappedId: number | null = null;
-          (elements as any[]).forEach((el: any) => {
-            if (Math.abs(finalPt.lat - Number(el.lat)) < 0.0001 && Math.abs(finalPt.lng - Number(el.lng)) < 0.0001) {
-              snappedId = el.id;
-            }
-          });
+          // Endpoints: actualizar snap normal
           if (idx === 0) snapFromIdRef.current = snappedId;
           else snapToIdRef.current = snappedId;
+        } else if (snappedId !== null) {
+          // Ponto do meio arrastado para cima de um elemento:
+          // Tornar este ponto uma nova extremidade
+          const totalPts = editingRoutePathRef.current.length;
+          const isCloserToStart = idx < totalPts / 2;
+          if (isCloserToStart) {
+            // Truncar o traçado: manter apenas do ponto arrastado até ao fim
+            const newPath = editingRoutePathRef.current.slice(idx);
+            editingRoutePathRef.current = newPath;
+            snapFromIdRef.current = snappedId;
+            toast.info(`Origem vinculada a ${(elements as any[]).find((e: any) => e.id === snappedId)?.name ?? `El. ${snappedId}`}`);
+          } else {
+            // Truncar o traçado: manter apenas do início até ao ponto arrastado
+            const newPath = editingRoutePathRef.current.slice(0, idx + 1);
+            editingRoutePathRef.current = newPath;
+            snapToIdRef.current = snappedId;
+            toast.info(`Destino vinculado a ${(elements as any[]).find((e: any) => e.id === snappedId)?.name ?? `El. ${snappedId}`}`);
+          }
+          setEditingRoutePath([...editingRoutePathRef.current]);
+          renderEditRouteMarkers([...editingRoutePathRef.current], routeColor);
+          return;
         }
         setEditingRoutePath([...editingRoutePathRef.current]);
       };
@@ -1864,6 +1902,52 @@ export default function InfrastructureMap() {
               </div>
             );
           })()}
+          {/* Selecção de tubo inline */}
+          {(fromEl || toEl) && (
+            <div className="border border-border rounded-lg p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Cable className="w-3 h-3" /> Tubos vinculados
+                </span>
+                {isAdmin && (
+                  <button
+                    className="text-[10px] text-primary hover:underline"
+                    disabled={inlineTubeSaving}
+                    onClick={async () => {
+                      setInlineTubeSaving(true);
+                      try {
+                        await updateRouteMut.mutateAsync({
+                          id: r.id,
+                          fromTubeId: inlineTubeFromId,
+                          toTubeId: inlineTubeToId,
+                        });
+                        setSidePanel({ kind: "route", route: { ...r, fromTubeId: inlineTubeFromId, toTubeId: inlineTubeToId } as any });
+                        toast.success("Tubos actualizados");
+                      } catch (e: any) {
+                        toast.error(e.message ?? "Erro ao salvar tubos");
+                      } finally {
+                        setInlineTubeSaving(false);
+                      }
+                    }}
+                  >
+                    {inlineTubeSaving ? "Salvando..." : "Salvar"}
+                  </button>
+                )}
+              </div>
+              <TubeSelectors
+                fromElId={r.fromElementId ?? null}
+                toElId={r.toElementId ?? null}
+                fromTubeId={inlineTubeFromId}
+                toTubeId={inlineTubeToId}
+                onChange={(field, value) => {
+                  if (!isAdmin) return;
+                  if (field === "fromTubeId") setInlineTubeFromId(value);
+                  else setInlineTubeToId(value);
+                }}
+              />
+            </div>
+          )}
+
           {isAdmin && (
             <div className="flex gap-2 flex-wrap">
               <Button variant="outline" size="sm" className="flex-1 gap-2" onClick={() => {
@@ -2705,7 +2789,7 @@ export default function InfrastructureMap() {
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
           <Cable className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="flex-1">
-            <span className="font-semibold">Editando traçado</span> — Arraste os pontos para mover. <span className="text-amber-300 font-medium">Pontos laranja (extremidades) encaixam em CTOs/CEOs próximos.</span> Clique no ponto semitransparente para inserir. Duplo clique num vértice intermediário para remover.
+            <span className="font-semibold">Editando traçado</span> — Arraste os pontos para mover. <span className="text-amber-300 font-medium">Pontos laranja (extremidades) encaixam em CTOs/CEOs próximos.</span> <span className="text-cyan-300">Arraste qualquer ponto do meio para cima de um CEO/CTO para vinculá-lo como nova extremidade.</span> Clique no ponto semitransparente para inserir. Duplo clique num vértice intermediário para remover.
             <span className="ml-2 text-amber-300">{editingRoutePath.length} pontos</span>
           </span>
           <button

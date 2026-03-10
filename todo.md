@@ -1467,3 +1467,7 @@
 - [x] Frontend: marcador especial no ponto calculado com popup GPS + botão copiar
 - [x] Frontend: avisos de dados incompletos (sem fusão, sem path, splitter)
 - [x] Frontend: modo OTDR activa clique em CEO/CTO para selecção de ponto de partida
+
+## Melhorias Mapa — Tubos e Traçado — 10/03/2026
+- [x] Opção A: selecção de tubo inline no painel lateral da rota (sem abrir dialog)
+- [x] Opção B: arrastar ponto do traçado (início, meio ou fim) para elemento para vincular como origem/destino
