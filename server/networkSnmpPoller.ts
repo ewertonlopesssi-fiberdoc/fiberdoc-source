@@ -453,12 +453,17 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
 
           // Salvar histórico de tráfego
           if (inBps !== null || outBps !== null) {
-            await db.insert(networkPortReadings).values({
-              portId: existingPort.id,
-              equipmentId,
-              inBps: inBps ?? undefined,
-              outBps: outBps ?? undefined,
-            });
+            try {
+              await db.insert(networkPortReadings).values({
+                portId: existingPort.id,
+                equipmentId,
+                inBps: inBps ?? undefined,
+                outBps: outBps ?? undefined,
+              });
+              console.log(`[NetworkSNMP] poll(${equipmentId}): INSERT portReadings portId=${existingPort.id} inBps=${inBps} outBps=${outBps}`);
+            } catch (insertErr: any) {
+              console.error(`[NetworkSNMP] poll(${equipmentId}): ERRO INSERT portReadings portId=${existingPort.id}:`, insertErr?.message ?? insertErr);
+            }
           }
 
           // Alerta de threshold de tráfego
