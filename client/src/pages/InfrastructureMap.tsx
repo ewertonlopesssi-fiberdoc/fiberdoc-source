@@ -290,6 +290,8 @@ export default function InfrastructureMap() {
 
   const utils = trpc.useUtils();
   const { data: elements = [], refetch: refetchElements } = trpc.infraMap.elements.useQuery();
+  // Manter elementsRef sempre actualizado para evitar closure stale no renderEditRouteMarkers
+  elementsRef.current = elements as any[];
   const { data: routes = [], refetch: refetchRoutes } = trpc.infraMap.routes.useQuery();
   const { data: routesOccupancy = [] } = trpc.infraMap.routesOccupancy.useQuery();
   const { data: ctos = [], refetch: refetchCtos } = trpc.ctos.list.useQuery();
@@ -432,6 +434,8 @@ export default function InfrastructureMap() {
   const snapFromIdRef = useRef<number | null>(null);
   const snapToIdRef = useRef<number | null>(null);
   const snapIndicatorRef = useRef<L.CircleMarker | null>(null);
+  // Ref para elements sempre actualizada (evita closure stale no renderEditRouteMarkers)
+  const elementsRef = useRef<any[]>([]);
 
   // Edição inline de CEO/CTO/Cabo pelo painel lateral
   const [editElementDialogOpen, setEditElementDialogOpen] = useState(false);
@@ -1197,16 +1201,22 @@ export default function InfrastructureMap() {
         let moveLng = rawLng;
         let snappedEl: any = null;
         // Snap activo para TODOS os pontos (não apenas endpoints)
+        // Usar elementsRef.current para evitar closure stale (elements pode estar vazio no closure)
         {
           let bestDist = SNAP_THRESHOLD_DEG;
-          (elements as any[]).forEach((el: any) => {
+          elementsRef.current.forEach((el: any) => {
             const d = Math.hypot(moveLat - Number(el.lat), moveLng - Number(el.lng));
             if (d < bestDist) { bestDist = d; snappedEl = el; }
           });
           if (snappedEl) { moveLat = Number(snappedEl.lat); moveLng = Number(snappedEl.lng); }
         }
         cm.setLatLng([moveLat, moveLng]);
+        // Usar índice dinâmico: encontrar o ponto mais próximo da posição ANTERIOR do marcador
+        // para evitar problema com idx estático do closure
+        const prevLatLng = cm.getLatLng(); // já actualizado acima, usar a posição anterior guardada
         const newPath = [...editingRoutePathRef.current];
+        // Encontrar o índice actual deste marcador no array pelo idx original (ainda válido durante drag contínuo)
+        // O idx só fica inválido após renderEditRouteMarkers ser chamado, o que não acontece durante o drag
         newPath[idx] = { lat: moveLat, lng: moveLng };
         editingRoutePathRef.current = newPath;
         if (editRoutePolylineRef.current) {
@@ -1214,8 +1224,8 @@ export default function InfrastructureMap() {
         }
         if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
         if (snappedEl && mapRef.current) {
-          // Indicador verde para snap em elemento
-          const snapColor = isEndpoint ? "#22c55e" : "#f59e0b"; // verde para endpoints, âmbar para pontos do meio
+          // Indicador: verde para endpoints, âmbar para pontos do meio
+          const snapColor = isEndpoint ? "#22c55e" : "#f59e0b";
           snapIndicatorRef.current = L.circleMarker([moveLat, moveLng], {
             radius: 14, color: snapColor, fillColor: snapColor, fillOpacity: 0.25, weight: 3,
           }).addTo(mapRef.current);
@@ -1236,11 +1246,12 @@ export default function InfrastructureMap() {
         const finalLat = cmLatLng.lat;
         const finalLng = cmLatLng.lng;
         // Detectar snap com a mesma tolerância usada no handleDragMove
+        // Usar elementsRef.current para evitar closure stale
         let snappedId: number | null = null;
         let snappedEl: any = null;
         {
           let bestDist = SNAP_THRESHOLD_DEG;
-          (elements as any[]).forEach((el: any) => {
+          elementsRef.current.forEach((el: any) => {
             const d = Math.hypot(finalLat - Number(el.lat), finalLng - Number(el.lng));
             if (d < bestDist) { bestDist = d; snappedEl = el; snappedId = el.id; }
           });

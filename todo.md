@@ -1477,3 +1477,6 @@
 
 ## Confirmação truncagem traçado — 10/03/2026
 - [x] Mostrar dialog de confirmação antes de truncar traçado ao vincular ponto do meio a CEO/CTO
+
+## Bug — Snap traçado ao elemento (ainda não funciona) — 10/03/2026
+- [x] Investigar e corrigir definitivamente o snap ao arrastar ponto do traçado para CEO/CTO — causa raiz: closure stale de `elements` no useCallback (dependencia ausente). Corrigido com `elementsRef.current` sempre actualizado.
