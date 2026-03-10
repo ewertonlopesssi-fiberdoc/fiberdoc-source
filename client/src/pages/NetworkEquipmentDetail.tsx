@@ -249,7 +249,7 @@ function ThresholdConfigDialog({
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); else handleOpen(); }}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Threshold de Alertas — {port?.ifName ?? port?.ifDescr ?? `Porta #${port?.id}`}</DialogTitle>
+          <DialogTitle>Threshold de Alertas — {port?.ifName ?? `Porta #${port?.id}`}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
@@ -370,11 +370,11 @@ function PortGbicChart({
   const chartData = useMemo(() => {
     if (!readings) return [];
     return readings
-      .filter((r: any) => r.rxDbm !== null || r.txDbm !== null)
+      .filter((r: any) => r.rxPowerDbm !== null || r.txPowerDbm !== null)
       .map((r: any) => ({
         time: formatTime(r.collectedAt),
-        rx: r.rxDbm != null ? parseFloat(Number(r.rxDbm).toFixed(2)) : null,
-        tx: r.txDbm != null ? parseFloat(Number(r.txDbm).toFixed(2)) : null,
+        rx: r.rxPowerDbm != null ? parseFloat(Number(r.rxPowerDbm).toFixed(2)) : null,
+        tx: r.txPowerDbm != null ? parseFloat(Number(r.txPowerDbm).toFixed(2)) : null,
       }));
   }, [readings]);
 
@@ -528,14 +528,29 @@ export default function NetworkEquipmentDetail() {
   // Classificar portas por tipo
   const { physical, virtual, gbic } = useMemo(() => {
     const ports = detail?.ports ?? [];
-    const physical = ports.filter((p: any) =>
-      p.ifType === "ethernetCsmacd" || p.ifType === "gigabitEthernet" || p.ifType === "fastEther" || (!p.ifType && !p.ifDescr?.toLowerCase().includes("vlan") && !p.ifDescr?.toLowerCase().includes("loopback") && !p.ifDescr?.toLowerCase().includes("null"))
-    );
-    const virtual = ports.filter((p: any) =>
-      p.ifType === "softwareLoopback" || p.ifDescr?.toLowerCase().includes("vlan") || p.ifDescr?.toLowerCase().includes("loopback") || p.ifDescr?.toLowerCase().includes("null") || p.ifDescr?.toLowerCase().includes("trunk") || p.ifDescr?.toLowerCase().includes("vlanif")
-    );
+    // ifName é o campo real no schema (o poller guarda ifDescr SNMP em ifName)
+    const physical = ports.filter((p: any) => {
+      const name = (p.ifName ?? "").toLowerCase();
+      const type = (p.ifType ?? "").toLowerCase();
+      if (type === "ethernetcsmacd" || type === "gigabitethernet" || type === "fastether" || type === "ieee8023adlag") return true;
+      if (type === "softwareloopback" || type === "propvirtual" || type === "tunnel" || type === "ppp") return false;
+      if (name.includes("vlan") || name.includes("loopback") || name.includes("lo") || name.includes("null") || name.includes("trunk") || name.includes("vlanif") || name.includes("bridge") || name.includes("bonding")) return false;
+      return true; // sem tipo definido e nome não virtual → considerar física
+    });
+    const virtual = ports.filter((p: any) => {
+      const name = (p.ifName ?? "").toLowerCase();
+      const type = (p.ifType ?? "").toLowerCase();
+      if (type === "softwareloopback" || type === "propvirtual" || type === "tunnel" || type === "ppp") return true;
+      if (name.includes("vlan") || name.includes("loopback") || name === "lo" || name.startsWith("lo.") || name.includes("null") || name.includes("trunk") || name.includes("vlanif") || name.includes("bridge") || name.includes("bonding")) return true;
+      return false;
+    });
+    // GBIC: porta com dados de potência óptica (campos reais do schema)
     const gbic = ports.filter((p: any) =>
-      p.lastRxDbm !== null || p.lastTxDbm !== null || p.alertRxMin !== null || p.alertRxMax !== null
+      p.lastRxPowerDbm !== null && p.lastRxPowerDbm !== undefined ||
+      p.lastTxPowerDbm !== null && p.lastTxPowerDbm !== undefined ||
+      p.alertRxMin !== null && p.alertRxMin !== undefined ||
+      p.alertRxMax !== null && p.alertRxMax !== undefined ||
+      p.gbicEnabled === true
     );
     return { physical, virtual, gbic };
   }, [detail]);
@@ -614,7 +629,7 @@ export default function NetworkEquipmentDetail() {
                 onCheckedChange={() => togglePort(selectedPhysical, setSelectedPhysical, p.id)}
                 className="text-xs"
               >
-                {p.ifName ?? p.ifDescr ?? `ifIndex ${p.ifIndex}`}
+                {p.ifName ?? `ifIndex ${p.ifIndex}`}
                 {p.ifAlias ? ` - ${p.ifAlias}` : ""}
               </DropdownMenuCheckboxItem>
             ))}
@@ -644,7 +659,7 @@ export default function NetworkEquipmentDetail() {
                 onCheckedChange={() => togglePort(selectedVirtual, setSelectedVirtual, p.id)}
                 className="text-xs"
               >
-                {p.ifName ?? p.ifDescr ?? `ifIndex ${p.ifIndex}`}
+                {p.ifName ?? `ifIndex ${p.ifIndex}`}
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuContent>
@@ -673,8 +688,8 @@ export default function NetworkEquipmentDetail() {
                 onCheckedChange={() => togglePort(selectedGbic, setSelectedGbic, p.id)}
                 className="text-xs"
               >
-                {p.ifName ?? p.ifDescr ?? `ifIndex ${p.ifIndex}`}
-                {p.lastRxDbm != null ? ` (${Number(p.lastRxDbm).toFixed(1)} dBm)` : ""}
+                {p.ifName ?? `ifIndex ${p.ifIndex}`}
+                {p.lastRxPowerDbm != null ? ` (${Number(p.lastRxPowerDbm).toFixed(1)} dBm)` : ""}
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuContent>
@@ -863,7 +878,7 @@ export default function NetworkEquipmentDetail() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className={`h-2 w-2 rounded-full ${port.ifOperStatus === "up" ? "bg-green-500" : "bg-red-500"}`} />
-                          <p className="text-sm font-medium">{port.ifName ?? port.ifDescr ?? `ifIndex ${port.ifIndex}`}</p>
+                          <p className="text-sm font-medium">{port.ifName ?? `ifIndex ${port.ifIndex}`}</p>
                           {port.ifAlias && <span className="text-xs text-muted-foreground">— {port.ifAlias}</span>}
                         </div>
                         <div className="flex items-center gap-2">
@@ -905,7 +920,7 @@ export default function NetworkEquipmentDetail() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className={`h-2 w-2 rounded-full ${port.ifOperStatus === "up" ? "bg-green-500" : "bg-gray-500"}`} />
-                          <p className="text-sm font-medium">{port.ifName ?? port.ifDescr ?? `ifIndex ${port.ifIndex}`}</p>
+                          <p className="text-sm font-medium">{port.ifName ?? `ifIndex ${port.ifIndex}`}</p>
                         </div>
                         <span className="text-xs text-muted-foreground">
                           ↓ {formatBps(port.lastInBps)} / ↑ {formatBps(port.lastOutBps)}
@@ -930,13 +945,13 @@ export default function NetworkEquipmentDetail() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Signal className="h-3.5 w-3.5 text-green-400" />
-                          <p className="text-sm font-medium">{port.ifName ?? port.ifDescr ?? `ifIndex ${port.ifIndex}`}</p>
+                          <p className="text-sm font-medium">{port.ifName ?? `ifIndex ${port.ifIndex}`}</p>
                           {port.ifAlias && <span className="text-xs text-muted-foreground">— {port.ifAlias}</span>}
                         </div>
                         <div className="flex items-center gap-2">
-                          {port.lastRxDbm != null && (
+                          {port.lastRxPowerDbm != null && (
                             <span className="text-xs text-muted-foreground">
-                              RX {Number(port.lastRxDbm).toFixed(1)} dBm
+                              RX {Number(port.lastRxPowerDbm).toFixed(1)} dBm
                             </span>
                           )}
                           <Button

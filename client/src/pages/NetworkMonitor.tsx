@@ -570,7 +570,12 @@ function EquipmentRow({ row }: { row: any }) {
 
         {/* Nome e IP */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{eq?.name ?? `Equipamento #${cfg.equipmentId}`}</p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="text-sm font-medium truncate">{eq?.name ?? `Equipamento #${cfg.equipmentId}`}</p>
+            {eq?.manufacturer && (
+              <span className="hidden sm:inline-block text-xs px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground font-normal flex-shrink-0">{eq.manufacturer}</span>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground truncate">{cfg.snmpHost ?? "IP não configurado"}</p>
         </div>
 
@@ -750,18 +755,33 @@ export default function NetworkMonitor() {
   const { isAdmin } = useRole();
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [brandFilter, setBrandFilter] = useState(""); // "" = todas as marcas
   const { data: summary, isLoading } = trpc.networkSnmp.getSummary.useQuery();
 
-  // Filtrar por busca
+  // Lista de marcas únicas disponíveis
+  const availableBrands = useMemo(() => {
+    if (!summary) return [];
+    const brands = new Set<string>();
+    for (const r of summary) {
+      if (r.equipment?.manufacturer) brands.add(r.equipment.manufacturer);
+    }
+    return Array.from(brands).sort();
+  }, [summary]);
+
+  // Filtrar por busca e marca
   const filtered = useMemo(() => {
     if (!summary) return [];
-    if (!search.trim()) return summary;
-    const q = search.toLowerCase();
-    return summary.filter((r) =>
-      r.equipment?.name?.toLowerCase().includes(q) ||
-      r.config.snmpHost?.toLowerCase().includes(q)
-    );
-  }, [summary, search]);
+    return summary.filter((r) => {
+      const q = search.toLowerCase().trim();
+      const matchSearch = !q ||
+        r.equipment?.name?.toLowerCase().includes(q) ||
+        r.config.snmpHost?.toLowerCase().includes(q) ||
+        r.equipment?.manufacturer?.toLowerCase().includes(q);
+      const matchBrand = !brandFilter ||
+        (r.equipment?.manufacturer ?? "").toLowerCase() === brandFilter.toLowerCase();
+      return matchSearch && matchBrand;
+    });
+  }, [summary, search, brandFilter]);
 
   // Agrupar por tipo de equipamento
   const groups = useMemo(() => {
@@ -790,6 +810,20 @@ export default function NetworkMonitor() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Filtro por marca */}
+          {availableBrands.length > 0 && (
+            <Select value={brandFilter || "__all__"} onValueChange={(v) => setBrandFilter(v === "__all__" ? "" : v)}>
+              <SelectTrigger className="h-8 w-40 text-xs">
+                <SelectValue placeholder="Todas as marcas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todas as marcas</SelectItem>
+                {availableBrands.map((b) => (
+                  <SelectItem key={b} value={b}>{b}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
