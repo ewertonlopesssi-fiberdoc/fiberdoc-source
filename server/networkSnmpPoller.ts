@@ -134,7 +134,7 @@ function snmpGetSubtree(session: snmp.Session, oid: string): Promise<snmp.Varbin
     const results: snmp.Varbind[] = [];
     session.subtree(
       oid,
-      20,
+      100,
       (varbinds: snmp.Varbind[]) => {
         for (const vb of varbinds) {
           if (!snmp.isVarbindError(vb)) results.push(vb);
@@ -183,7 +183,11 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
     .from(networkSnmpConfig)
     .where(eq(networkSnmpConfig.equipmentId, equipmentId));
 
-  if (!cfg || !cfg.enabled || !cfg.snmpHost) return;
+  if (!cfg || !cfg.enabled || !cfg.snmpHost) {
+    console.log(`[NetworkSNMP] poll(${equipmentId}): cfg ausente/disabled/sem host. cfg=${JSON.stringify(cfg ? { enabled: cfg.enabled, host: cfg.snmpHost } : null)}`);
+    return;
+  }
+  console.log(`[NetworkSNMP] Iniciando poll equipmentId=${equipmentId} host=${cfg.snmpHost}:${cfg.snmpPort} version=${cfg.snmpVersion}`);
 
   const [eq_] = await db
     .select({ name: equipments.name, manufacturer: equipments.manufacturer })
@@ -270,12 +274,11 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
       temperature: temperature ?? undefined,
       uptimeSeconds: uptimeSeconds ?? undefined,
     });
-
-    // ── 3. Interfaces (IF-MIB) ──────────────────────────────────────────────
+    // ── 3. Interfaces (IF-MIB) ──────────────────────────────────────────────────────
     try {
       const ifDescrVbs = await snmpGetSubtree(session, OID.ifDescr);
-      const ifIndexes = ifDescrVbs.map((v) => {
-        const parts = v.oid.split(".");
+      console.log(`[NetworkSNMP] poll(${equipmentId}): ifDescr subtree retornou ${ifDescrVbs.length} entradas`);
+      const ifIndexes = ifDescrVbs.map((v) => {  const parts = v.oid.split(".");
         return parseInt(parts[parts.length - 1]);
       });
 
@@ -302,8 +305,12 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
         const ifType = String(varbindValue(ifVbs[`${OID.ifType}.${ifIndex}`]) ?? "");
         const operStatusRaw = toNumber(varbindValue(ifVbs[`${OID.ifOperStatus}.${ifIndex}`]));
         const adminStatusRaw = toNumber(varbindValue(ifVbs[`${OID.ifAdminStatus}.${ifIndex}`]));
-        const inOctets = toNumber(varbindValue(ifVbs[`${OID.ifInOctets}.${ifIndex}`]));
-        const outOctets = toNumber(varbindValue(ifVbs[`${OID.ifOutOctets}.${ifIndex}`]));
+        // Truncar para evitar overflow no MySQL bigint (max 9223372036854775807)
+        const MAX_SAFE_BIGINT = 9007199254740991; // Number.MAX_SAFE_INTEGER
+        const rawIn = toNumber(varbindValue(ifVbs[`${OID.ifInOctets}.${ifIndex}`]));
+        const rawOut = toNumber(varbindValue(ifVbs[`${OID.ifOutOctets}.${ifIndex}`]));
+        const inOctets = rawIn !== null ? Math.min(rawIn, MAX_SAFE_BIGINT) : null;
+        const outOctets = rawOut !== null ? Math.min(rawOut, MAX_SAFE_BIGINT) : null;
 
         const operStatusMap: Record<number, string> = {
           1: "up", 2: "down", 3: "testing", 4: "unknown",
@@ -399,7 +406,7 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
           });
         }
       }
-    } catch (_) { /* ignorar erros de interface */ }
+    } catch (ifErr) { console.error(`[NetworkSNMP] poll(${equipmentId}): erro na seção de interfaces:`, ifErr); }
 
     // ── 4. GBIC / DOM (MikroTik) ───────────────────────────────────────────
     if (manufacturer.includes("mikrotik")) {

@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "aac17c6e-46fd-4a74-b047-ac6bdcb7ca1e",
-  "prevId": "02fa2aa7-8597-4040-af24-ee74b3d9199d",
+  "id": "c52a9b21-4918-4940-aa37-26fe44ac7731",
+  "prevId": "e8372f9f-1864-4cec-aacc-545ec5c24dbe",
   "tables": {
     "app_settings": {
       "name": "app_settings",
@@ -3056,7 +3056,7 @@
         },
         "net_alert_type": {
           "name": "net_alert_type",
-          "type": "enum('cpu_high','mem_high','temp_high','port_down','port_up','rx_power_low','rx_power_high','tx_power_low','tx_power_high','snmp_unreachable')",
+          "type": "enum('cpu_high','mem_high','temp_high','port_down','port_up','rx_power_low','rx_power_high','tx_power_low','tx_power_high','snmp_unreachable','traffic_high')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -3481,14 +3481,14 @@
         },
         "lastInOctets": {
           "name": "lastInOctets",
-          "type": "int",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "lastOutOctets": {
           "name": "lastOutOctets",
-          "type": "int",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

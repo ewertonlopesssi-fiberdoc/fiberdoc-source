@@ -1,5 +1,6 @@
 import {
   int,
+  bigint,
   mysqlEnum,
   mysqlTable,
   text,
@@ -1001,8 +1002,8 @@ export const networkSnmpPorts = mysqlTable("network_snmp_ports", {
   // Tráfego (bytes/s calculado entre polls)
   lastInBps: float("lastInBps"),                             // bps de entrada
   lastOutBps: float("lastOutBps"),                           // bps de saída
-  lastInOctets: int("lastInOctets"),                         // contador bruto entrada
-  lastOutOctets: int("lastOutOctets"),                       // contador bruto saída
+  lastInOctets: bigint("lastInOctets", { mode: "number" }),   // contador bruto entrada (32/64-bit)
+  lastOutOctets: bigint("lastOutOctets", { mode: "number" }), // contador bruto saída (32/64-bit)
   // GBIC / Óptica (DOM — Digital Optical Monitoring)
   gbicEnabled: boolean("gbicEnabled").default(false).notNull(),
   lastRxPowerDbm: float("lastRxPowerDbm"),                   // Potência RX em dBm

@@ -1,6 +1,6 @@
 {
   "name": "fiber_doc_system",
-  "version": "5.93.1",
+  "version": "5.93.2",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -129,5 +129,5 @@
     }
   },
   "buildDate": "2026-02-27",
-  "description": "FiberDoc — Sistema de Documentação de Fibras e Equipamentos — build 2026-02-27"
+  "description": "FiberDoc \u2014 Sistema de Documenta\u00e7\u00e3o de Fibras e Equipamentos \u2014 build 2026-02-27"
 }

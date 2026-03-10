@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "02fa2aa7-8597-4040-af24-ee74b3d9199d",
+  "id": "e8372f9f-1864-4cec-aacc-545ec5c24dbe",
   "prevId": "5663c261-0234-41e5-90bf-fbdade3390f3",
   "tables": {
     "app_settings": {
@@ -3056,7 +3056,7 @@
         },
         "net_alert_type": {
           "name": "net_alert_type",
-          "type": "enum('cpu_high','mem_high','temp_high','port_down','port_up','rx_power_low','rx_power_high','tx_power_low','tx_power_high','snmp_unreachable')",
+          "type": "enum('cpu_high','mem_high','temp_high','port_down','port_up','rx_power_low','rx_power_high','tx_power_low','tx_power_high','snmp_unreachable','traffic_high')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -3538,6 +3538,13 @@
         },
         "alertRxMax": {
           "name": "alertRxMax",
+          "type": "float",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "alertBpsMax": {
+          "name": "alertBpsMax",
           "type": "float",
           "primaryKey": false,
           "notNull": false,
