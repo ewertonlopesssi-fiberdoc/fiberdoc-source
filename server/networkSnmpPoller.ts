@@ -57,12 +57,17 @@ const OID = {
   tempMikrotik: "1.3.6.1.4.1.14988.1.1.3.10.0",
 
   // GBIC / DOM (Digital Optical Monitoring) — ENTITY-SENSOR-MIB ou vendor-specific
-  // Cisco SFP DOM: 1.3.6.1.4.1.9.9.91.1.1.1.1
-  // Huawei: 1.3.6.1.4.1.2011.5.25.31.1.1.3.1
   // MikroTik: 1.3.6.1.4.1.14988.1.1.19.1.1 (sfp table)
   sfpRxPowerMikrotik: "1.3.6.1.4.1.14988.1.1.19.1.1.4",
   sfpTxPowerMikrotik: "1.3.6.1.4.1.14988.1.1.19.1.1.5",
   sfpTempMikrotik:    "1.3.6.1.4.1.14988.1.1.19.1.1.2",
+
+  // Huawei DOM — hwEntityOpticalInfoTable (1.3.6.1.4.1.2011.5.25.31.1.1.3.1)
+  // Índice = entPhysicalIndex do módulo óptico (obtido via hwEntityOpticalIfIndex)
+  hwOptRxPower:   "1.3.6.1.4.1.2011.5.25.31.1.1.3.1.4",  // RX em 0.01 dBm
+  hwOptTxPower:   "1.3.6.1.4.1.2011.5.25.31.1.1.3.1.6",  // TX em 0.01 dBm
+  hwOptTemp:      "1.3.6.1.4.1.2011.5.25.31.1.1.3.1.2",  // Temperatura em 0.01 °C
+  hwOptIfIndex:   "1.3.6.1.4.1.2011.5.25.31.1.1.3.1.13", // ifIndex da porta associada
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -554,6 +559,81 @@ export async function pollNetworkEquipment(equipmentId: number): Promise<void> {
       } catch (_) { /* ignorar */ }
     }
 
+    // ── 4b. GBIC / DOM (Huawei) ────────────────────────────────────────────
+    // hwEntityOpticalInfoTable: índice = entPhysicalIndex do módulo óptico
+    // hwOptIfIndex mapeia entPhysicalIndex → ifIndex da porta
+    if (manufacturer.includes("huawei")) {
+      try {
+        // Obter mapeamento entPhysicalIndex → ifIndex
+        const ifIndexVbs = await snmpGetSubtree(session, OID.hwOptIfIndex);
+        if (ifIndexVbs.length > 0) {
+          const rxVbs  = await snmpGetSubtree(session, OID.hwOptRxPower);
+          const txVbs  = await snmpGetSubtree(session, OID.hwOptTxPower);
+          const tmpVbs = await snmpGetSubtree(session, OID.hwOptTemp);
+
+          for (const ifIdxVb of ifIndexVbs) {
+            const parts = ifIdxVb.oid.split(".");
+            const physIdx = parts[parts.length - 1];
+            const ifIdxVal = toNumber(varbindValue(ifIdxVb));
+            if (ifIdxVal === null || ifIdxVal === 0) continue;
+
+            const rxVb  = rxVbs.find((v) => v.oid.endsWith(`.${physIdx}`));
+            const txVb  = txVbs.find((v) => v.oid.endsWith(`.${physIdx}`));
+            const tmpVb = tmpVbs.find((v) => v.oid.endsWith(`.${physIdx}`));
+
+            // Huawei retorna valores em 0.01 dBm e 0.01 °C
+            const rxRaw = rxVb  ? toNumber(varbindValue(rxVb))  : null;
+            const txRaw = txVb  ? toNumber(varbindValue(txVb))  : null;
+            const tRaw  = tmpVb ? toNumber(varbindValue(tmpVb)) : null;
+
+            const rxDbm    = rxRaw !== null ? rxRaw / 100 : null;
+            const txDbm    = txRaw !== null ? txRaw / 100 : null;
+            const gbicTemp = tRaw  !== null ? tRaw  / 100 : null;
+
+            // Ignorar valores claramente inválidos (sem módulo inserido)
+            if (rxDbm === null && txDbm === null) continue;
+            if (rxDbm !== null && (rxDbm < -50 || rxDbm > 10)) continue;
+
+            const [port] = await db
+              .select()
+              .from(networkSnmpPorts)
+              .where(
+                and(
+                  eq(networkSnmpPorts.equipmentId, equipmentId),
+                  eq(networkSnmpPorts.ifIndex, ifIdxVal)
+                )
+              );
+
+            if (port) {
+              await db
+                .update(networkSnmpPorts)
+                .set({
+                  gbicEnabled: true,
+                  lastRxPowerDbm: rxDbm ?? undefined,
+                  lastTxPowerDbm: txDbm ?? undefined,
+                  lastGbicTemp: gbicTemp ?? undefined,
+                })
+                .where(eq(networkSnmpPorts.id, port.id));
+
+              await db.insert(networkPortReadings).values({
+                portId: port.id,
+                equipmentId,
+                rxPowerDbm: rxDbm ?? undefined,
+                txPowerDbm: txDbm ?? undefined,
+                gbicTemp: gbicTemp ?? undefined,
+              });
+
+              if (rxDbm !== null && port.alertRxMin !== null && rxDbm < port.alertRxMin) {
+                await createNetworkAlert(equipmentId, port.id, "rx_power_low", "warning",
+                  `Sinal RX baixo em ${port.ifName}: ${rxDbm.toFixed(2)} dBm (mín: ${port.alertRxMin} dBm)`,
+                  rxDbm, port.alertRxMin);
+              }
+            }
+          }
+        }
+      } catch (_) { /* ignorar — equipamento pode não suportar hwEntityOpticalInfoTable */ }
+    }
+
     // ── 5. Alertas de CPU/Memória/Temperatura ──────────────────────────────
     if (cfg.alertsEnabled) {
       if (cpuPercent !== null && cfg.alertCpuMax !== null && cpuPercent > cfg.alertCpuMax) {
@@ -645,9 +725,11 @@ async function createNetworkAlert(
   }
 }
 
-// ─── Scheduler: verificar todos os equipamentos habilitados ──────────────────
+// ─── Scheduler: verificar todos os equipamentos habilitados ──────────────────────────────
 
 let pollerTimer: ReturnType<typeof setInterval> | null = null;
+// Rastreia equipamentos com poll em curso para evitar polls concorrentes
+const activePolls = new Set<number>();
 
 export function startNetworkSnmpPoller() {
   if (pollerTimer) return;
@@ -666,12 +748,18 @@ export function startNetworkSnmpPoller() {
       const now = Date.now();
       for (const cfg of configs) {
         if (!cfg.snmpHost) continue;
+        // Ignorar se já há um poll em curso para este equipamento
+        if (activePolls.has(cfg.equipmentId)) {
+          console.log(`[NetworkSNMP] poll(${cfg.equipmentId}): já em curso, a saltar`);
+          continue;
+        }
         const pollIntervalMs = (cfg.pollInterval ?? 300) * 1000;
         const lastPoll = cfg.lastPollAt ? new Date(cfg.lastPollAt).getTime() : 0;
         if (now - lastPoll >= pollIntervalMs) {
-          pollNetworkEquipment(cfg.equipmentId).catch((e) =>
-            console.error(`[NetworkSNMP] Erro ao fazer poll do equipamento ${cfg.equipmentId}:`, e)
-          );
+          activePolls.add(cfg.equipmentId);
+          pollNetworkEquipment(cfg.equipmentId)
+            .catch((e) => console.error(`[NetworkSNMP] Erro ao fazer poll do equipamento ${cfg.equipmentId}:`, e))
+            .finally(() => activePolls.delete(cfg.equipmentId));
         }
       }
     } catch (e) {

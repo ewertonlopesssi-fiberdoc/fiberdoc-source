@@ -344,6 +344,13 @@
       "when": 1773136133265,
       "tag": "0048_bent_sentry",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "5",
+      "when": 1773148707559,
+      "tag": "0049_lovely_wasp",
+      "breakpoints": true
     }
   ]
 }
