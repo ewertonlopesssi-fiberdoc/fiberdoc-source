@@ -1471,3 +1471,6 @@
 ## Melhorias Mapa — Tubos e Traçado — 10/03/2026
 - [x] Opção A: selecção de tubo inline no painel lateral da rota (sem abrir dialog)
 - [x] Opção B: arrastar ponto do traçado (início, meio ou fim) para elemento para vincular como origem/destino
+
+## Bug — Vinculação traçado ao elemento — 10/03/2026
+- [x] Corrigir snap/vinculação ao arrastar ponto do traçado para CEO/CTO — corrigido uso de índice desactualizado e tolerância inconsistente

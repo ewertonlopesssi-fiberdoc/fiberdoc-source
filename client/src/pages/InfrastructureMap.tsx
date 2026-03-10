@@ -1222,34 +1222,50 @@ export default function InfrastructureMap() {
         dragging = false;
         mapRef.current!.dragging.enable();
         if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
-        const finalPt = editingRoutePathRef.current[idx];
+        // Usar a posição actual do marcador (não o idx que pode estar desactualizado)
+        const cmLatLng = cm.getLatLng();
+        const finalLat = cmLatLng.lat;
+        const finalLng = cmLatLng.lng;
+        // Detectar snap com a mesma tolerância usada no handleDragMove
         let snappedId: number | null = null;
-        (elements as any[]).forEach((el: any) => {
-          if (Math.abs(finalPt.lat - Number(el.lat)) < 0.0001 && Math.abs(finalPt.lng - Number(el.lng)) < 0.0001) {
-            snappedId = el.id;
-          }
+        let snappedEl: any = null;
+        {
+          let bestDist = SNAP_THRESHOLD_DEG;
+          (elements as any[]).forEach((el: any) => {
+            const d = Math.hypot(finalLat - Number(el.lat), finalLng - Number(el.lng));
+            if (d < bestDist) { bestDist = d; snappedEl = el; snappedId = el.id; }
+          });
+        }
+        // Encontrar o índice actual do ponto no array (pode ter mudado)
+        let currentIdx = idx;
+        const pts = editingRoutePathRef.current;
+        // Procurar o índice do ponto mais próximo da posição actual do marcador
+        let minDist = Infinity;
+        pts.forEach((p, i) => {
+          const d = Math.hypot(p.lat - finalLat, p.lng - finalLng);
+          if (d < minDist) { minDist = d; currentIdx = i; }
         });
-        if (isEndpoint) {
+        const isCurrentEndpoint = currentIdx === 0 || currentIdx === pts.length - 1;
+        if (isCurrentEndpoint) {
           // Endpoints: actualizar snap normal
-          if (idx === 0) snapFromIdRef.current = snappedId;
+          if (currentIdx === 0) snapFromIdRef.current = snappedId;
           else snapToIdRef.current = snappedId;
-        } else if (snappedId !== null) {
+        } else if (snappedId !== null && snappedEl !== null) {
           // Ponto do meio arrastado para cima de um elemento:
           // Tornar este ponto uma nova extremidade
-          const totalPts = editingRoutePathRef.current.length;
-          const isCloserToStart = idx < totalPts / 2;
+          const isCloserToStart = currentIdx < pts.length / 2;
           if (isCloserToStart) {
-            // Truncar o traçado: manter apenas do ponto arrastado até ao fim
-            const newPath = editingRoutePathRef.current.slice(idx);
+            // Truncar: manter apenas do ponto arrastado até ao fim
+            const newPath = pts.slice(currentIdx);
             editingRoutePathRef.current = newPath;
             snapFromIdRef.current = snappedId;
-            toast.info(`Origem vinculada a ${(elements as any[]).find((e: any) => e.id === snappedId)?.name ?? `El. ${snappedId}`}`);
+            toast.success(`Origem vinculada a "${snappedEl.name ?? `El. ${snappedId}`}"`);
           } else {
-            // Truncar o traçado: manter apenas do início até ao ponto arrastado
-            const newPath = editingRoutePathRef.current.slice(0, idx + 1);
+            // Truncar: manter apenas do início até ao ponto arrastado
+            const newPath = pts.slice(0, currentIdx + 1);
             editingRoutePathRef.current = newPath;
             snapToIdRef.current = snappedId;
-            toast.info(`Destino vinculado a ${(elements as any[]).find((e: any) => e.id === snappedId)?.name ?? `El. ${snappedId}`}`);
+            toast.success(`Destino vinculado a "${snappedEl.name ?? `El. ${snappedId}`}"`);
           }
           setEditingRoutePath([...editingRoutePathRef.current]);
           renderEditRouteMarkers([...editingRoutePathRef.current], routeColor);
