@@ -3410,6 +3410,7 @@ export async function calculateOpticalBalance(
   const allSplitters = await db.select().from(ceoSplitters);
   const allSplitterVias = await db.select().from(ceoSplitterVias);
   const allViaAssocs = await db.select().from(ceoViaAssociations);
+  const allCtoViaAssocs = await db.select().from(ctoViaAssociations);
   const allOltElements = await db.select().from(mapOltElements);
   const allOltLinks = await db.select().from(oltPortFiberLinks);
   const allPorts = await db.select({ id: ports.id, label: ports.label, portNumber: ports.portNumber }).from(ports);
@@ -3490,6 +3491,94 @@ export async function calculateOpticalBalance(
   let currentElementId = ctoElementId;
   let currentTubeId = entryTubeId;
   let currentViaNumber: number | null = null;
+  // ─── Processar splitter interno da CTO alvo ──────────────────────────────────
+  // A CTO pode ter um splitter interno onde a fibra chega ao tubo de entrada,
+  // é fusionada para a via ENT do splitter, e o sinal é distribuído pelas saídas.
+  // O rastreio deve detectar este splitter e adicionar a sua perda.
+  if (entryTubeId !== null) {
+    const ctoRefId = ctoElement.referenceId;
+    // Verificar se o tubo de entrada é do tipo 'splitter'
+    const entryTubeObj = ctoTubeById.get(entryTubeId);
+    if (entryTubeObj?.type === "splitter") {
+      // O tubo de entrada é o próprio splitter — adicionar perda
+      const splitterRatio = entryTubeObj.identifier ?? "1:8";
+      const loss = getSplitterLoss(splitterRatio);
+      totalSplitterLoss += loss;
+      reversePath.push({ type: "splitter", label: `${entryTubeObj.identifier} (splitter interno)`, lossDb: loss });
+      // Encontrar a via ENT do splitter (viaNumber = 0 ou 1) que tem fusão com um tubo
+      const splitterVias = allCtoVias.filter(v => v.tubeId === entryTubeId);
+      // Procurar via ENT com fusão directa (fusedToTubeId)
+      const entViaWithFusion = splitterVias.find(v => v.fusedToTubeId !== null && v.fusedToTubeId !== undefined);
+      if (entViaWithFusion?.fusedToTubeId) {
+        totalFusionCount++;
+        currentTubeId = entViaWithFusion.fusedToTubeId;
+        currentViaNumber = entViaWithFusion.fusedToViaId ? (ctoViaById.get(entViaWithFusion.fusedToViaId)?.viaNumber ?? null) : null;
+      } else {
+        // Procurar via ENT via ctoViaAssociations (splitter → tube)
+        const assocForSplitter = allCtoViaAssocs.find(a =>
+          a.ctoId === ctoRefId &&
+          ((a.sourceType === "splitter" && splitterVias.some(v => v.id === a.sourceViaId)) ||
+           (a.targetType === "splitter" && splitterVias.some(v => v.id === a.targetViaId)))
+        );
+        if (assocForSplitter) {
+          const tubeSideViaId = assocForSplitter.sourceType === "splitter"
+            ? assocForSplitter.targetViaId
+            : assocForSplitter.sourceViaId;
+          const tubeSideVia = ctoViaById.get(tubeSideViaId);
+          if (tubeSideVia) {
+            totalFusionCount++;
+            currentTubeId = tubeSideVia.tubeId;
+            currentViaNumber = tubeSideVia.viaNumber;
+          }
+        }
+      }
+    } else {
+      // Tubo de entrada não é splitter — verificar se alguma via deste tubo está
+      // associada a um splitter via ctoViaAssociations
+      const ctoRefId2 = ctoElement.referenceId;
+      const tubeVias = allCtoVias.filter(v => v.tubeId === entryTubeId);
+      // Procurar via do tubo que tem fusão directa com um tubo splitter
+      const viaWithSplitterFusion = tubeVias.find(v =>
+        v.fusedToTubeId !== null && v.fusedToTubeId !== undefined &&
+        ctoTubeById.get(v.fusedToTubeId!)?.type === "splitter"
+      );
+      if (viaWithSplitterFusion?.fusedToTubeId) {
+        const splitterTube = ctoTubeById.get(viaWithSplitterFusion.fusedToTubeId!);
+        if (splitterTube) {
+          const loss = getSplitterLoss(splitterTube.identifier ?? "1:8");
+          totalSplitterLoss += loss;
+          totalFusionCount++;
+          reversePath.push({ type: "splitter", label: `${splitterTube.identifier} (splitter interno)`, lossDb: loss });
+          // O tubo de entrada real é o tubo de entrada do splitter — mas como o splitter
+          // é interno à CTO, o cabo chega ao tubo de entrada (entryTubeId) directamente.
+          // Manter currentTubeId = entryTubeId para continuar rastreando.
+        }
+      } else {
+        // Procurar via ctoViaAssociations: via do tubo associada a via de splitter
+        const assocForTube = allCtoViaAssocs.find(a =>
+          a.ctoId === ctoRefId2 &&
+          ((a.sourceType === "tube" && tubeVias.some(v => v.id === a.sourceViaId) && a.targetType === "splitter") ||
+           (a.targetType === "tube" && tubeVias.some(v => v.id === a.targetViaId) && a.sourceType === "splitter"))
+        );
+        if (assocForTube) {
+          const splitterSideViaId = assocForTube.sourceType === "splitter"
+            ? assocForTube.sourceViaId
+            : assocForTube.targetViaId;
+          const splitterSideVia = ctoViaById.get(splitterSideViaId);
+          if (splitterSideVia) {
+            const splitterTube = ctoTubeById.get(splitterSideVia.tubeId);
+            if (splitterTube?.type === "splitter") {
+              const loss = getSplitterLoss(splitterTube.identifier ?? "1:8");
+              totalSplitterLoss += loss;
+              totalFusionCount++;
+              reversePath.push({ type: "splitter", label: `${splitterTube.identifier} (splitter interno)`, lossDb: loss });
+              // currentTubeId permanece = entryTubeId (o cabo chega a este tubo)
+            }
+          }
+        }
+      }
+    }
+  }
   // Conjunto de estados visitados para detectar loops reais
   // Chave inclui viaNumber para evitar falsos positivos quando o mesmo elemento
   // aparece com tubos/vias diferentes (passagem legítima de cabo)
