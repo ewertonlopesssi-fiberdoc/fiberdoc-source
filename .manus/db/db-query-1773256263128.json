@@ -1,0 +1,9 @@
+{
+  "query": "SELECT ct.id, ct.identifier, ct.totalVias, ct.ctoId,\n  COUNT(cv.id) as via_count,\n  MIN(cv.viaNumber) as min_via_number,\n  MAX(cv.viaNumber) as max_via_number\nFROM cto_tubes ct\nLEFT JOIN cto_vias cv ON cv.tubeId = ct.id\nWHERE ct.cto_tube_type = 'splitter'\nGROUP BY ct.id, ct.identifier, ct.totalVias, ct.ctoId\nORDER BY ct.id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SELECT ct.id, ct.identifier, ct.totalVias, ct.ctoId,\n  COUNT(cv.id) as via_count,\n  MIN(cv.viaNumber) as min_via_number,\n  MAX(cv.viaNumber) as max_via_number\nFROM cto_tubes ct\nLEFT JOIN cto_vias cv ON cv.tubeId = ct.id\nWHERE ct.cto_tube_type = 'splitter'\nGROUP BY ct.id, ct.identifier, ct.totalVias, ct.ctoId\nORDER BY ct.id;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 61
+}

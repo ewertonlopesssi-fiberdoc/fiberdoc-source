@@ -59,13 +59,14 @@ const FIBER_VIA_COLORS: Record<number, { bg: string; text: string; border: strin
 
 // ─── Componente: Card de Via ────────────────────────────────────────────────
 function ViaCard({
-  via, tubes, allVias, fibers,
+  via, tubes, allVias, fibers, tubeType,
   onSetFusion, onClearFusion, onEditLabel, onSetFiber, onClearFiber,
 }: {
   via: Via;
   tubes: Tube[];
   allVias: Via[];
   fibers: Fiber[];
+  tubeType?: "tube" | "splitter";
   onSetFusion: (via: Via) => void;
   onClearFusion: (via: Via) => void;
   onEditLabel: (via: Via) => void;
@@ -76,7 +77,9 @@ function ViaCard({
   const fusedTube = fused ? tubes.find(t => t.id === via.fusedToTubeId) : null;
   const fusedVia = fused ? allVias.find(v => v.id === via.fusedToViaId) : null;
   const fiber = via.fiberId ? (fibers as Fiber[]).find(f => f.id === via.fiberId) : null;
-  const fiberColor = FIBER_VIA_COLORS[via.viaNumber] ?? null;
+  const isEntryVia = tubeType === "splitter" && via.viaNumber === 0;
+  const fiberColor = isEntryVia ? null : (FIBER_VIA_COLORS[via.viaNumber] ?? null);
+  const viaLabel = isEntryVia ? "ENT" : String(via.viaNumber).padStart(2, "0");
 
   return (
     <div
@@ -99,9 +102,9 @@ function ViaCard({
                   ? cn(fiberColor.bg, fiberColor.text, fiberColor.border)
                   : "bg-muted text-muted-foreground border-border/40"
             )}
-            title={fiberColor ? fiberColor.label : undefined}
+            title={isEntryVia ? "Entrada" : (fiberColor ? fiberColor.label : undefined)}
           >
-            {via.viaNumber}
+            {viaLabel}
           </span>
           {via.label && (
             <span className="text-xs text-muted-foreground truncate max-w-[80px]">{via.label}</span>
@@ -168,7 +171,7 @@ function ViaCard({
         <div className="text-[10px] text-cyan-300 bg-cyan-500/10 rounded px-2 py-1 border border-cyan-500/20">
           <span className="font-medium">IDENT. FUSÃO</span>
           <span className="text-cyan-200/70 mx-1">→</span>
-          <span>VIA {fusedVia.viaNumber} do {fusedTube.identifier}</span>
+          <span>VIA {fusedVia.viaNumber === 0 ? "ENT" : String(fusedVia.viaNumber).padStart(2, "0")} do {fusedTube.identifier}</span>
         </div>
       ) : (
         <div className="text-[10px] text-muted-foreground/40 italic">
@@ -464,6 +467,7 @@ function TubePanel({
                   tubes={tubes}
                   allVias={allVias as Via[]}
                   fibers={fibers}
+                  tubeType={tube.type}
                   onSetFusion={v => { setFusionDialog(v); setFusionTubeId(""); setFusionViaNumber(""); }}
                   onClearFusion={via => setClearFusionConfirmDialog(via)}
                   onEditLabel={openLabelDialog}
@@ -866,6 +870,11 @@ export default function CtoDetail() {
   const { data: allVias = [] } = trpc.ctoVias.byCto.useQuery({ ctoId }, { enabled: ctoId > 0 });
   const { data: fibers = [] } = trpc.fibers.list.useQuery({});
   const { data: ctoMapEl } = trpc.ctos.mapElement.useQuery({ ctoId }, { enabled: ctoId > 0 });
+  // Balanço óptico: buscar estimativa de sinal a partir da OLT
+  const { data: opticalBalance } = trpc.infraMap.opticalBalance.useQuery(
+    { ctoElementId: ctoMapEl?.id ?? 0 },
+    { enabled: (ctoMapEl?.id ?? 0) > 0 }
+  );
 
   const updateCtoMutation = trpc.ctos.update.useMutation({
     onSuccess: () => {
@@ -1250,6 +1259,84 @@ export default function CtoDetail() {
           </Card>
         ))}
       </div>
+
+      {/* Painel de Balanço Óptico */}
+      {opticalBalance && (opticalBalance as any).found && (
+        <Card className="border-border/50 bg-card">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <div className="h-9 w-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
+                <Zap className="h-4 w-4 text-amber-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-sm font-semibold text-foreground">Estimativa de Sinal Óptico</h3>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-xs",
+                      (opticalBalance as any).signalQuality === "optimal" && "border-emerald-500/50 text-emerald-400 bg-emerald-500/10",
+                      (opticalBalance as any).signalQuality === "good" && "border-cyan-500/50 text-cyan-400 bg-cyan-500/10",
+                      (opticalBalance as any).signalQuality === "marginal" && "border-amber-500/50 text-amber-400 bg-amber-500/10",
+                      (opticalBalance as any).signalQuality === "weak" && "border-red-500/50 text-red-400 bg-red-500/10",
+                    )}
+                  >
+                    {(opticalBalance as any).signalQuality === "optimal" && "★ Ótimo"}
+                    {(opticalBalance as any).signalQuality === "good" && "● Bom"}
+                    {(opticalBalance as any).signalQuality === "marginal" && "▲ Marginal"}
+                    {(opticalBalance as any).signalQuality === "weak" && "⚠ Fraco"}
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                  <div className="bg-background/50 rounded-lg p-3 border border-border/30">
+                    <p className="text-xs text-muted-foreground">Potência Estimada</p>
+                    <p className="text-lg font-bold text-amber-400">{((opticalBalance as any).estimatedPowerDbm ?? 0).toFixed(1)} dBm</p>
+                  </div>
+                  <div className="bg-background/50 rounded-lg p-3 border border-border/30">
+                    <p className="text-xs text-muted-foreground">OLT / Porta</p>
+                    <p className="text-sm font-semibold text-foreground truncate">{(opticalBalance as any).oltName ?? "-"}</p>
+                    <p className="text-xs text-muted-foreground">{(opticalBalance as any).portName ?? "-"}</p>
+                  </div>
+                  <div className="bg-background/50 rounded-lg p-3 border border-border/30">
+                    <p className="text-xs text-muted-foreground">Distância Total</p>
+                    <p className="text-sm font-semibold text-foreground">{(((opticalBalance as any).totalDistanceM ?? 0) / 1000).toFixed(2)} km</p>
+                  </div>
+                  <div className="bg-background/50 rounded-lg p-3 border border-border/30">
+                    <p className="text-xs text-muted-foreground">Perda Total</p>
+                    <p className="text-sm font-semibold text-red-400">-{((opticalBalance as any).totalLossDb ?? 0).toFixed(1)} dB</p>
+                  </div>
+                </div>
+                {/* Percurso detalhado */}
+                {(opticalBalance as any).path && (opticalBalance as any).path.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Percurso</p>
+                    <div className="flex flex-wrap items-center gap-1">
+                      {((opticalBalance as any).path as any[]).map((step: any, i: number) => (
+                        <span key={i} className="flex items-center gap-1">
+                          {i > 0 && <span className="text-muted-foreground text-xs">→</span>}
+                          <span className={cn(
+                            "text-xs px-2 py-0.5 rounded-full border",
+                            step.type === "olt" && "bg-amber-500/10 border-amber-500/30 text-amber-300",
+                            step.type === "ceo" && "bg-blue-500/10 border-blue-500/30 text-blue-300",
+                            step.type === "cto" && "bg-emerald-500/10 border-emerald-500/30 text-emerald-300",
+                            step.type === "splitter" && "bg-violet-500/10 border-violet-500/30 text-violet-300",
+                            step.type === "cable" && "bg-muted/50 border-border/30 text-muted-foreground",
+                          )}>
+                            {step.label}
+                            {step.lossDb != null && step.lossDb !== 0 && (
+                              <span className="ml-1 opacity-70">(-{Math.abs(step.lossDb).toFixed(1)} dB)</span>
+                            )}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Painel SGP — ONUs */}
       {cto.sgpId && (

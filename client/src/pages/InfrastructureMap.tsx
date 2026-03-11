@@ -113,10 +113,11 @@ import {
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
   Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw,
   Lock, Unlock, ExternalLink, Move, CheckCircle2,
-  Zap, Crosshair, MapPin, Copy
+  Zap, Crosshair, MapPin, Copy, Signal, Wifi
 } from "lucide-react";
 import L from "leaflet";
 import { unzipSync, strFromU8 } from "fflate";
+import { OltCreateDialog, OltDetailPanel } from "./OltMapComponents";
 
 // Cores padrão de fibras ópticas (norma ABNT NBR 14772)
 const FIBER_VIA_COLORS: Record<number, string> = {
@@ -296,6 +297,21 @@ export default function InfrastructureMap() {
   const { data: ceosRaw = [], refetch: refetchCeos } = trpc.ceos.list.useQuery({});
   const ceos = ceosRaw as any[];
   const { data: sysConfig } = trpc.systemConfig.get.useQuery();
+  // OLT elements no mapa
+  const { data: oltElements = [], refetch: refetchOltElements } = trpc.infraMap.oltElements.useQuery();
+  const [showOlts, setShowOlts] = useState(true);
+  const [addingOltMode, setAddingOltMode] = useState(false);
+  const [oltAddDialogOpen, setOltAddDialogOpen] = useState(false);
+  const [oltAddLat, setOltAddLat] = useState(0);
+  const [oltAddLng, setOltAddLng] = useState(0);
+  const [oltAddEquipmentId, setOltAddEquipmentId] = useState<number | null>(null);
+  const [oltAddTxPower, setOltAddTxPower] = useState("5.0");
+  const [oltAddAttenuation, setOltAddAttenuation] = useState("0.35");
+  const [oltAddFusionLoss, setOltAddFusionLoss] = useState("0.1");
+  const [oltAddNotes, setOltAddNotes] = useState("");
+  const [selectedOltElementId, setSelectedOltElementId] = useState<number | null>(null);
+  const [oltDetailPanelOpen, setOltDetailPanelOpen] = useState(false);
+  const oltMarkersRef = useRef<Record<number, L.Marker>>({});
   // Contagem de ONUs por sgpId (total do splitter/all, online actualizado após clique)
   const { data: onuCountsData } = trpc.sgp.getOnuCounts.useQuery(undefined, { staleTime: 5 * 60 * 1000 });
   // Estado local para guardar contagem online após cada consulta ao /onu/all/
@@ -923,6 +939,36 @@ export default function InfrastructureMap() {
     { ceoId: sidePanelRefId },
     { enabled: sidePanelType === "ceo" && sidePanelRefId > 0 }
   );
+  const ceoViaAssocQuery = trpc.ceoViaAssociations.byCeo.useQuery(
+    { ceoId: sidePanelRefId },
+    { enabled: sidePanelType === "ceo" && sidePanelRefId > 0 }
+  );
+  // Splitter fusion dialog state
+  const [splFusionDialogOpen, setSplFusionDialogOpen] = useState(false);
+  const [splFusionSourceVia, setSplFusionSourceVia] = useState<{ id: number; viaNumber: number; splitterId: number } | null>(null);
+  const [splFusionTargetType, setSplFusionTargetType] = useState<"tube" | "splitter">("tube");
+  const [splFusionTargetTubeId, setSplFusionTargetTubeId] = useState<string>("");
+  const [splFusionTargetViaId, setSplFusionTargetViaId] = useState<string>("");
+  const createSplFusionMut = trpc.ceoViaAssociations.create.useMutation({
+    onSuccess: () => {
+      mapUtils.ceoViaAssociations.byCeo.invalidate({ ceoId: sidePanelRefId });
+      mapUtils.ceoSplitterVias.byCeo.invalidate({ ceoId: sidePanelRefId });
+      mapUtils.ceoVias.byCeo.invalidate({ ceoId: sidePanelRefId });
+      setFusionDialogOpen(false);
+      setSplFusionDialogOpen(false);
+      toast.success("Fusão registrada");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteSplFusionMut = trpc.ceoViaAssociations.deleteByVias.useMutation({
+    onSuccess: () => {
+      mapUtils.ceoViaAssociations.byCeo.invalidate({ ceoId: sidePanelRefId });
+      mapUtils.ceoSplitterVias.byCeo.invalidate({ ceoId: sidePanelRefId });
+      mapUtils.ceoVias.byCeo.invalidate({ ceoId: sidePanelRefId });
+      toast.success("Fusão removida");
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   // Auto-expandir todos os tubos quando carregados no painel lateral
   useEffect(() => {
@@ -1056,6 +1102,32 @@ export default function InfrastructureMap() {
   useEffect(() => { renderMarkers(); }, [renderMarkers]);
   useEffect(() => { renderRoutes(); }, [renderRoutes]);
 
+  // Renderizar marcadores OLT no mapa
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    // Limpar marcadores OLT anteriores
+    Object.values(oltMarkersRef.current).forEach(m => m.remove());
+    oltMarkersRef.current = {};
+    if (!showOlts) return;
+    (oltElements as any[]).forEach((olt: any) => {
+      const icon = L.divIcon({
+        className: "",
+        iconSize: [36, 36],
+        iconAnchor: [18, 18],
+        html: `<div style="width:36px;height:36px;background:#f59e0b;border:3px solid #fff;border-radius:6px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);position:relative;">
+          <svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M2 20h.01'/><path d='M7 20v-4'/><path d='M12 20v-8'/><path d='M17 20V8'/><path d='M22 4v16'/></svg>
+          <div style="position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#f59e0b;font-size:9px;font-weight:700;padding:1px 4px;border-radius:3px;white-space:nowrap;border:1px solid rgba(245,158,11,0.4);">${olt.equipmentName ?? 'OLT'}</div>
+        </div>`,
+      });
+      const marker = L.marker([Number(olt.lat), Number(olt.lng)], { icon }).addTo(mapRef.current!);
+      marker.on("click", () => {
+        setSelectedOltElementId(olt.id);
+        setOltDetailPanelOpen(true);
+      });
+      oltMarkersRef.current[olt.id] = marker;
+    });
+  }, [oltElements, showOlts, mapReady]);
+
   // Modo de adição de elemento
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
@@ -1070,6 +1142,21 @@ export default function InfrastructureMap() {
     map.once("click", handler);
     return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
   }, [addingMode, mapReady]);
+
+  // Modo adicionar OLT — clique no mapa
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const map = mapRef.current;
+    if (!addingOltMode) { map.getContainer().style.cursor = ""; return; }
+    map.getContainer().style.cursor = "crosshair";
+    const handler = (e: L.LeafletMouseEvent) => {
+      setOltAddLat(e.latlng.lat); setOltAddLng(e.latlng.lng);
+      setOltAddEquipmentId(null); setOltAddTxPower("5.0"); setOltAddAttenuation("0.35"); setOltAddFusionLoss("0.1"); setOltAddNotes("");
+      setOltAddDialogOpen(true); setAddingOltMode(false); map.getContainer().style.cursor = "";
+    };
+    map.once("click", handler);
+    return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
+  }, [addingOltMode, mapReady]);
 
   // Traçado livre — prévia
   useEffect(() => {
@@ -2007,7 +2094,8 @@ export default function InfrastructureMap() {
                     updateRouteMut.mutate({ id: r.id, fromElementId: null }, {
                       onSuccess: () => {
                         toast.success("Origem desvinculada");
-                        setSidePanel({ kind: "route", route: { ...r, fromElementId: 0 as any } });
+                        refetchRoutes();
+                        setSidePanel({ kind: "route", route: { ...r, fromElementId: null as any } });
                       },
                       onError: (e) => toast.error(`Erro ao desvincular: ${e.message}`),
                     });
@@ -2027,7 +2115,8 @@ export default function InfrastructureMap() {
                     updateRouteMut.mutate({ id: r.id, toElementId: null }, {
                       onSuccess: () => {
                         toast.success("Destino desvinculado");
-                        setSidePanel({ kind: "route", route: { ...r, toElementId: 0 as any } });
+                        refetchRoutes();
+                        setSidePanel({ kind: "route", route: { ...r, toElementId: null as any } });
                       },
                       onError: (e) => toast.error(`Erro ao desvincular: ${e.message}`),
                     });
@@ -2347,8 +2436,12 @@ export default function InfrastructureMap() {
                     const st = ok ? "<span style='background:#d1fae5;color:#059669;padding:1px 5px;border-radius:3px;font-size:7pt;font-weight:700'>FUSIONADA</span>" : "<span style='background:#f3f4f6;color:#9ca3af;padding:1px 5px;border-radius:3px;font-size:7pt'>LIVRE</span>";
                     const fc = ok ? "#059669" : "#9ca3af";
                     const ft2 = ok ? "VIA " + fv!.viaNumber + " do " + escH(ft!.identifier) + (fv!.label ? " (" + escH(fv!.label) + ")" : "") : "&mdash;";
-                    const vc = PRINT_VIA_COLORS[via.viaNumber];
-                    const vc2 = vc ? `<span style='background:${vc.bg};color:${vc.text};border:1px solid ${vc.border};padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700'>${via.viaNumber}</span>` : `<b>${via.viaNumber}</b>`;
+                    const isEntryVia = tube.type === "splitter" && via.viaNumber === 0;
+                    const viaDisplayNum = isEntryVia ? "ENT" : (tube.type === "splitter" ? String(via.viaNumber).padStart(2, "0") : via.viaNumber);
+                    const vc = isEntryVia ? null : PRINT_VIA_COLORS[via.viaNumber];
+                    const vc2 = isEntryVia
+                      ? `<span style='background:#f3e8ff;color:#7c3aed;border:1px solid #c4b5fd;padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700'>ENT</span>`
+                      : (vc ? `<span style='background:${vc.bg};color:${vc.text};border:1px solid ${vc.border};padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700'>${viaDisplayNum}</span>` : `<b>${viaDisplayNum}</b>`);
                     return `<tr style='background:${bg}'><td style='text-align:center'>${vc2}</td><td>${lbl}</td><td style='text-align:center'>${st}</td><td style='color:${fc}'>${ft2}</td><td style='font-size:8pt;color:#6b7280'>${escH(via.notes)}</td></tr>`;
                   }).join("")}
                   </tbody></table></div>`;
@@ -2450,6 +2543,7 @@ export default function InfrastructureMap() {
           const allVias = (isCto ? ctoViasQuery.data : ceoViasQuery.data) as any[] | undefined;
           const ceoSplitters = (!isCto ? ceoSplittersQuery.data : undefined) as any[] | undefined;
           const ceoSplitterVias = (!isCto ? ceoSplitterViasQuery.data : undefined) as any[] | undefined;
+          const ceoViaAssocs = (!isCto ? ceoViaAssocQuery.data : undefined) as any[] | undefined;
           const isLoadingTubes = isCto ? ctoTubesQuery.isLoading : ceoTubesQuery.isLoading;
           if (isLoadingTubes) return (
             <div className="border-t border-border pt-2">
@@ -2540,7 +2634,12 @@ export default function InfrastructureMap() {
                         <div className="px-2 pb-1.5 space-y-0.5 max-h-48 overflow-y-auto">
                           {tubVias.length === 0 && <div className="text-xs text-muted-foreground/50 italic py-0.5">Nenhuma via cadastrada</div>}
                           {tubVias.sort((a: any, b: any) => a.viaNumber - b.viaNumber).map((via: any) => {
-                            const isFused = via.fusedToViaId !== null;
+                            // Verificar fusão directa (tubo-tubo) ou via associação (tubo-splitter)
+                            const assocForVia = (ceoViaAssocs ?? []).find((a: any) =>
+                              (a.sourceType === "tube" && a.sourceViaId === via.id) ||
+                              (a.targetType === "tube" && a.targetViaId === via.id)
+                            );
+                            const isFused = via.fusedToViaId !== null || !!assocForVia;
                             const viaColor = FIBER_VIA_COLORS[via.viaNumber] ?? "#6b7280";
                             return (
                               <div key={via.id} className="flex items-center gap-0.5 group">
@@ -2549,7 +2648,12 @@ export default function InfrastructureMap() {
                                   title={isFused ? "Clique para remover fusão" : "Clique para registrar fusão"}
                                   onClick={() => {
                                     if (isFused) {
-                                      setClearFusionConfirm({ id: via.id, viaNumber: via.viaNumber, isCto });
+                                      if (assocForVia) {
+                                        // Fusão via associação (tubo-splitter): apagar a associação
+                                        deleteSplFusionMut.mutate({ ceoId: sidePanelRefId, viaId1: assocForVia.sourceViaId, viaId2: assocForVia.targetViaId });
+                                      } else {
+                                        setClearFusionConfirm({ id: via.id, viaNumber: via.viaNumber, isCto });
+                                      }
                                     } else {
                                       setFusionSourceVia({ id: via.id, viaNumber: via.viaNumber, tubeId: tube.id, isCto, isFused: false, label: via.label });
                                       setFusionTargetTubeId("");
@@ -2558,21 +2662,27 @@ export default function InfrastructureMap() {
                                     }
                                   }}
                                 >
-                                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isFused ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
+                                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isFused ? "bg-emerald-400" : (tube.type === "splitter" && via.viaNumber === 0 ? "bg-purple-400" : "bg-muted-foreground/30")}`} />
                                   <span
                                     className="shrink-0 flex items-center gap-0.5"
                                     style={{ minWidth: "2rem" }}
                                     title={`Via ${via.viaNumber}`}
                                   >
-                                    <span
-                                      className="inline-block w-2 h-2 rounded-full border border-white/20 shrink-0"
-                                      style={{ background: viaColor }}
-                                    />
-                                    <span className="text-muted-foreground">{via.viaNumber}</span>
+                                    {tube.type !== "splitter" && (
+                                      <span
+                                        className="inline-block w-2 h-2 rounded-full border border-white/20 shrink-0"
+                                        style={{ background: viaColor }}
+                                      />
+                                    )}
+                                    <span className={tube.type === "splitter" && via.viaNumber === 0 ? "text-purple-300 font-semibold" : "text-muted-foreground"}>
+                                      {tube.type === "splitter" ? (via.viaNumber === 0 ? "ENT" : String(via.viaNumber).padStart(2, "0")) : via.viaNumber}
+                                    </span>
                                   </span>
-                                  {via.label
+                                  {via.label && via.viaNumber !== 0
                                     ? <span className="truncate font-medium">{via.label}</span>
-                                    : <span className="text-muted-foreground/50 italic">livre</span>}
+                                    : via.viaNumber === 0
+                                      ? <span className="text-muted-foreground/70 italic">{tube.type === "splitter" ? "entrada" : "livre"}</span>
+                                      : <span className="text-muted-foreground/50 italic">livre</span>}
                                   {isFused && (
                                     <span className="ml-auto flex items-center gap-0.5 text-[10px] text-red-400 font-semibold shrink-0">
                                       <Link2Off className="w-2.5 h-2.5" /> desfazer
@@ -2630,18 +2740,46 @@ export default function InfrastructureMap() {
                           <span className="text-xs text-muted-foreground shrink-0">{splVias.length}v</span>
                         </button>
                         {isExpanded && (
-                          <div className="px-2 pb-1.5 space-y-0.5 max-h-40 overflow-y-auto">
-                            {splVias.map((via: any) => (
-                              <div key={via.id} className="flex items-center gap-1.5 text-xs py-0.5 px-1 rounded hover:bg-accent/20">
-                                <div className="w-1.5 h-1.5 rounded-full shrink-0 bg-purple-400/50" />
-                                <span className="text-muted-foreground shrink-0" style={{ minWidth: "2rem" }}>
-                                  {via.viaNumber === 0 ? "ENT" : String(via.viaNumber).padStart(2, "0")}
-                                </span>
-                                {via.label
-                                  ? <span className="truncate font-medium">{via.label}</span>
-                                  : <span className="text-muted-foreground/50 italic">{via.viaNumber === 0 ? "entrada" : "livre"}</span>}
-                              </div>
-                            ))}
+                          <div className="px-2 pb-1.5 space-y-0.5 max-h-60 overflow-y-auto">
+                            {splVias.map((via: any) => {
+                              const myAssoc = (ceoViaAssocs ?? []).find((a: any) =>
+                                (a.sourceType === "splitter" && a.sourceViaId === via.id) ||
+                                (a.targetType === "splitter" && a.targetViaId === via.id)
+                              );
+                              const isFused = !!myAssoc;
+                              return (
+                                <div key={via.id} className={`flex items-center gap-1.5 text-xs py-0.5 px-1 rounded group cursor-pointer ${isFused ? "bg-cyan-500/10" : "hover:bg-accent/20"}`}
+                                  onClick={() => {
+                                    if (isFused) {
+                                      deleteSplFusionMut.mutate({ ceoId: sidePanelRefId, viaId1: via.id, viaId2: myAssoc.sourceType === "splitter" && myAssoc.sourceViaId === via.id ? myAssoc.targetViaId : myAssoc.sourceViaId });
+                                    } else {
+                                      setSplFusionSourceVia({ id: via.id, viaNumber: via.viaNumber, splitterId: spl.id });
+                                      setSplFusionTargetType("tube");
+                                      setSplFusionTargetTubeId("");
+                                      setSplFusionTargetViaId("");
+                                      setSplFusionDialogOpen(true);
+                                    }
+                                  }}
+                                >
+                                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isFused ? "bg-cyan-400" : "bg-purple-400/50"}`} />
+                                  <span className="text-muted-foreground shrink-0" style={{ minWidth: "2rem" }}>
+                                    {via.viaNumber === 0 ? "ENT" : String(via.viaNumber).padStart(2, "0")}
+                                  </span>
+                                  {via.label
+                                    ? <span className="truncate font-medium">{via.label}</span>
+                                    : <span className="text-muted-foreground/50 italic">{via.viaNumber === 0 ? "entrada" : "livre"}</span>}
+                                  {isFused ? (
+                                    <span className="ml-auto flex items-center gap-0.5 text-[10px] text-red-400 font-semibold shrink-0">
+                                      <Link2Off className="w-2.5 h-2.5" /> desfazer
+                                    </span>
+                                  ) : (
+                                    <span className="ml-auto flex items-center gap-0.5 text-[10px] text-cyan-400 font-semibold shrink-0">
+                                      <Link2 className="w-2.5 h-2.5" /> fundir
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -2717,6 +2855,9 @@ export default function InfrastructureMap() {
             </Button>
             <Button size="sm" variant={addingRouteMode ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => { setAddingRouteMode(v => !v); setRouteFrom(null); }}>
               <Cable className="w-3 h-3" />{addingRouteMode ? "Cancelar Rota" : "Add Cabo"}
+            </Button>
+            <Button size="sm" variant={addingOltMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${addingOltMode ? "bg-amber-600 hover:bg-amber-700 border-amber-500 text-white" : "border-amber-500/40 text-amber-400 hover:bg-amber-500/10"}`} onClick={() => setAddingOltMode(v => !v)}>
+              <Signal className="w-3 h-3" />{addingOltMode ? "Cancelar OLT" : "Add OLT"}
             </Button>
           </>
         )}
@@ -2808,13 +2949,19 @@ export default function InfrastructureMap() {
           <button onClick={() => setAddingMode(null)} className="ml-auto text-amber-300 hover:text-amber-200 underline">Cancelar</button>
         </div>
       )}
+      {addingOltMode && (
+        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
+          <Signal className="w-3.5 h-3.5" />Clique no mapa para posicionar a OLT
+          <button onClick={() => setAddingOltMode(false)} className="ml-auto text-amber-300 hover:text-amber-200 underline">Cancelar</button>
+        </div>
+      )}
       {otdrMode && (
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
           <Zap className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="flex-1">
             {otdrElementId == null
               ? "Modo OTDR Virtual ativo — clique num CEO ou CTO no mapa para seleccioná-lo como ponto de partida"
-              : `Elemento selecionado: ${(elements as any[]).find((e: any) => e.id === otdrElementId)?.name ?? `#${otdrElementId}`} — configure o tubo, via e distância no painel`}
+              : (() => { const el = (elements as any[]).find((e: any) => e.id === otdrElementId); if (!el) return `Elemento #${otdrElementId} selecionado — configure o tubo, via e distância no painel`; const ref = el.type === 'cto' ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : (ceos as any[]).find((c: any) => c.id === el.referenceId); const name = ref?.name ?? (el.type === 'cto' ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`); return `Elemento selecionado: ${name} — configure o tubo, via e distância no painel`; })()}
           </span>
           {otdrResult && (
             <span className="text-amber-300 font-medium">
@@ -2875,6 +3022,7 @@ export default function InfrastructureMap() {
             <div className="border-t border-border pt-1.5 mt-1">
               <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-blue-400 border-2 border-white" /><span className="text-muted-foreground">CEO (círculo)</span></div>
               <div className="flex items-center gap-2 mt-1"><div className="w-4 h-4 rounded bg-purple-400 border-2 border-white" /><span className="text-muted-foreground">CTO (quadrado)</span></div>
+              <div className="flex items-center gap-2 mt-1"><div className="w-4 h-4 rounded bg-amber-500 border-2 border-white flex items-center justify-center"><Signal style={{width:8,height:8,color:'white'}} /></div><span className="text-muted-foreground">OLT</span></div>
             </div>
           </div>
           <div className="absolute top-4 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-xs" style={{ zIndex: 1000 }}>
@@ -2902,7 +3050,7 @@ export default function InfrastructureMap() {
                   ) : (
                     <div className="flex items-center gap-2">
                       <div className="flex-1 text-xs bg-muted rounded-lg px-3 py-2 text-foreground font-medium">
-                        {(elements as any[]).find((e: any) => e.id === otdrElementId)?.name ?? `Elemento #${otdrElementId}`}
+                        {(() => { const el = (elements as any[]).find((e: any) => e.id === otdrElementId); if (!el) return `Elemento #${otdrElementId}`; const ref = el.type === 'cto' ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : (ceos as any[]).find((c: any) => c.id === el.referenceId); return ref?.name ?? (el.type === 'cto' ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`); })()}
                       </div>
                       <button onClick={() => { setOtdrElementId(null); setOtdrTubeId(""); setOtdrViaNumber(""); setOtdrResult(null); }}
                         className="text-muted-foreground hover:text-foreground">
@@ -2980,7 +3128,6 @@ export default function InfrastructureMap() {
                       setOtdrRunning(true);
                       setOtdrResult(null);
                       try {
-                        const utils = trpc.useUtils();
                         const result = await utils.infraMap.traceOtdr.fetch({
                           elementId: otdrElementId,
                           tubeId: Number(otdrTubeId),
@@ -4312,6 +4459,96 @@ export default function InfrastructureMap() {
         </DialogContent>
       </Dialog>
 
+      {/* Diálogo Fusão de Splitter */}
+      <Dialog open={splFusionDialogOpen} onOpenChange={setSplFusionDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Link2 className="w-4 h-4" /> Identificar Fusão — VIA {splFusionSourceVia?.viaNumber === 0 ? "00 (Entrada)" : splFusionSourceVia?.viaNumber}</DialogTitle>
+          </DialogHeader>
+          {splFusionSourceVia && (() => {
+            const tubes = ceoTubesQuery.data as any[] | undefined;
+            const allVias = ceoViasQuery.data as any[] | undefined;
+            const allSplVias = ceoSplitterViasQuery.data as any[] | undefined;
+            const targetTube = (tubes ?? []).find((t: any) => t.id === Number(splFusionTargetTubeId));
+            const targetVias = targetTube ? (allVias ?? []).filter((v: any) => v.tubeId === targetTube.id) : [];
+            return (
+              <div className="space-y-4">
+                <div className="rounded-lg bg-muted/30 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">Origem:</span> Via <strong>{splFusionSourceVia.viaNumber === 0 ? "00 (Entrada)" : splFusionSourceVia.viaNumber}</strong> do Splitter
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Tipo de destino</Label>
+                  <Select value={splFusionTargetType} onValueChange={v => { setSplFusionTargetType(v as any); setSplFusionTargetTubeId(""); setSplFusionTargetViaId(""); }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="tube">Tubo</SelectItem>
+                      <SelectItem value="splitter">Splitter</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {splFusionTargetType === "tube" && (
+                  <div className="space-y-1.5">
+                    <Label>Tubo de destino *</Label>
+                    <Select value={splFusionTargetTubeId} onValueChange={v => { setSplFusionTargetTubeId(v); setSplFusionTargetViaId(""); }}>
+                      <SelectTrigger><SelectValue placeholder="Selecionar tubo" /></SelectTrigger>
+                      <SelectContent>
+                        {(tubes ?? []).map((t: any) => (
+                          <SelectItem key={t.id} value={String(t.id)}>{t.type === "splitter" ? "⊕" : "○"} {t.identifier}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {splFusionTargetType === "tube" && splFusionTargetTubeId && (
+                  <div className="space-y-1.5">
+                    <Label>Via de destino *</Label>
+                    <Select value={splFusionTargetViaId} onValueChange={setSplFusionTargetViaId}>
+                      <SelectTrigger><SelectValue placeholder="Selecionar via" /></SelectTrigger>
+                      <SelectContent>
+                        {targetVias.length === 0 && <SelectItem value="__none" disabled>Nenhuma via disponível</SelectItem>}
+                        {targetVias.map((v: any) => (
+                          <SelectItem key={v.id} value={String(v.id)}>Via {v.viaNumber}{v.label ? ` — ${v.label}` : ""}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {splFusionTargetType === "splitter" && (
+                  <div className="space-y-1.5">
+                    <Label>Via de Splitter de destino *</Label>
+                    <Select value={splFusionTargetViaId} onValueChange={setSplFusionTargetViaId}>
+                      <SelectTrigger><SelectValue placeholder="Selecionar via" /></SelectTrigger>
+                      <SelectContent>
+                        {(allSplVias ?? []).filter((v: any) => v.splitterId !== splFusionSourceVia.splitterId).map((v: any) => (
+                          <SelectItem key={v.id} value={String(v.id)}>Via {v.viaNumber} · Splitter #{v.splitterId}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSplFusionDialogOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={!splFusionTargetViaId || createSplFusionMut.isPending}
+              onClick={() => {
+                if (!splFusionSourceVia || !splFusionTargetViaId) return;
+                createSplFusionMut.mutate({
+                  ceoId: sidePanelRefId,
+                  sourceType: "splitter",
+                  sourceViaId: splFusionSourceVia.id,
+                  targetType: splFusionTargetType,
+                  targetViaId: parseInt(splFusionTargetViaId),
+                });
+              }}
+            >
+              {createSplFusionMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar Fusão"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* Diálogo Registrar Fusão */}
       <Dialog open={fusionDialogOpen} onOpenChange={setFusionDialogOpen}>
         <DialogContent className="max-w-md">
@@ -4319,19 +4556,32 @@ export default function InfrastructureMap() {
             <DialogTitle className="flex items-center gap-2"><GitMerge className="w-4 h-4" /> Registrar Fusão</DialogTitle>
           </DialogHeader>
           {fusionSourceVia && (() => {
-            const tubes = (fusionSourceVia.isCto ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
+            const rawTubes = (fusionSourceVia.isCto ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
+            const rawSplitters = (!fusionSourceVia.isCto ? ceoSplittersQuery.data : undefined) as any[] | undefined;
+            // Combine tubes + splitters (splitters marked with type="splitter" and prefixed id "spl_<id>")
+            const tubes = [
+              ...(rawTubes ?? []),
+              ...(rawSplitters ?? []).map((s: any) => ({ ...s, _isSplitter: true, _splId: s.id, id: `spl_${s.id}`, type: "splitter" })),
+            ];
             const allVias = (fusionSourceVia.isCto ? ctoViasQuery.data : ceoViasQuery.data) as any[] | undefined;
-            const targetTube = (tubes ?? []).find((t: any) => t.id === Number(fusionTargetTubeId));
-            const targetVias = targetTube ? (allVias ?? []).filter((v: any) => v.tubeId === targetTube.id && v.fusedToViaId === null && v.id !== fusionSourceVia.id) : [];
+            const allSplVias = (!fusionSourceVia.isCto ? ceoSplitterViasQuery.data : undefined) as any[] | undefined;
+            const targetTube = tubes.find((t: any) => String(t.id) === fusionTargetTubeId);
+            const isSplitterTarget = targetTube?.type === "splitter";
+            const targetSplId = isSplitterTarget ? targetTube?._splId : null;
+            const targetVias = targetTube
+              ? isSplitterTarget
+                ? (allSplVias ?? []).filter((v: any) => v.splitterId === targetSplId)
+                : (allVias ?? []).filter((v: any) => v.tubeId === Number(fusionTargetTubeId) && v.fusedToViaId === null && v.id !== fusionSourceVia.id)
+              : [];
             return (
               <div className="space-y-4">
                 <div className="rounded-lg bg-muted/30 px-3 py-2 text-sm">
                   <span className="text-muted-foreground">Origem:</span> Via <strong>{fusionSourceVia.viaNumber}</strong>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Tubo de destino *</Label>
+                  <Label>Tubo / Splitter de destino *</Label>
                   <Select value={fusionTargetTubeId} onValueChange={v => { setFusionTargetTubeId(v); setFusionTargetViaId(""); }}>
-                    <SelectTrigger><SelectValue placeholder="Selecionar tubo" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Selecionar tubo ou splitter" /></SelectTrigger>
                     <SelectContent>
                       {(tubes ?? []).map((t: any) => (
                         <SelectItem key={t.id} value={String(t.id)}>{t.type === "splitter" ? "⊕" : "○"} {t.identifier}</SelectItem>
@@ -4343,11 +4593,11 @@ export default function InfrastructureMap() {
                   <div className="space-y-1.5">
                     <Label>Via de destino *</Label>
                     <Select value={fusionTargetViaId} onValueChange={setFusionTargetViaId}>
-                      <SelectTrigger><SelectValue placeholder="Selecionar via livre" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Selecionar via" /></SelectTrigger>
                       <SelectContent>
-                        {targetVias.length === 0 && <SelectItem value="__none" disabled>Nenhuma via livre</SelectItem>}
+                        {targetVias.length === 0 && <SelectItem value="__none" disabled>Nenhuma via disponível</SelectItem>}
                         {targetVias.map((v: any) => (
-                          <SelectItem key={v.id} value={String(v.id)}>Via {v.viaNumber}{v.label ? ` — ${v.label}` : ""}</SelectItem>
+                          <SelectItem key={v.id} value={String(v.id)}>{isSplitterTarget ? (v.viaNumber === 0 ? "ENT (Entrada)" : `Saída ${v.viaNumber}`) : `Via ${v.viaNumber}`}{v.label ? ` — ${v.label}` : ""}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -4381,25 +4631,35 @@ export default function InfrastructureMap() {
               </div>
             );
           })()}
-          <DialogFooter>
+           <DialogFooter>
             <Button variant="outline" onClick={() => setFusionDialogOpen(false)}>Cancelar</Button>
             <Button
-              disabled={!fusionTargetTubeId || !fusionTargetViaId || setCtoFusionMut.isPending || setCeoFusionMut.isPending}
+              disabled={!fusionTargetTubeId || !fusionTargetViaId || setCtoFusionMut.isPending || setCeoFusionMut.isPending || createSplFusionMut.isPending}
               onClick={() => {
                 if (!fusionSourceVia || !fusionTargetTubeId || !fusionTargetViaId) return;
-                if (fusionSourceVia.isCto) {
+                const isSplDest = fusionTargetTubeId.startsWith("spl_");
+                if (isSplDest && !fusionSourceVia.isCto) {
+                  // Via de tubo -> via de splitter: usar associação
+                  createSplFusionMut.mutate({
+                    ceoId: sidePanelRefId,
+                    sourceType: "tube",
+                    sourceViaId: fusionSourceVia.id,
+                    targetType: "splitter",
+                    targetViaId: Number(fusionTargetViaId),
+                  });
+                  setFusionDialogOpen(false);
+                } else if (fusionSourceVia.isCto) {
                   setCtoFusionMut.mutate({ viaId: fusionSourceVia.id, fusedToTubeId: Number(fusionTargetTubeId), fusedToViaId: Number(fusionTargetViaId) });
                 } else {
                   setCeoFusionMut.mutate({ viaId: fusionSourceVia.id, fusedToTubeId: Number(fusionTargetTubeId), fusedToViaId: Number(fusionTargetViaId) });
                 }
               }}
             >
-              {setCtoFusionMut.isPending || setCeoFusionMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Registrar Fusão"}
+              {setCtoFusionMut.isPending || setCeoFusionMut.isPending || createSplFusionMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Registrar Fusão"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
       {/* Diálogo de Edição de Via */}
       <Dialog open={editViaDialogOpen} onOpenChange={setEditViaDialogOpen}>
         <DialogContent className="max-w-sm">
@@ -4679,6 +4939,27 @@ export default function InfrastructureMap() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Diálogo Criar OLT no Mapa ── */}
+      <OltCreateDialog
+        open={oltAddDialogOpen}
+        onClose={() => setOltAddDialogOpen(false)}
+        lat={oltAddLat}
+        lng={oltAddLng}
+        onCreated={() => { refetchOltElements(); }}
+      />
+
+      {/* ── Painel de Detalhes OLT ── */}
+      {oltDetailPanelOpen && selectedOltElementId != null && (
+        <OltDetailPanel
+          oltElementId={selectedOltElementId}
+          elements={elements as any[]}
+          ceos={ceos}
+          ctos={ctos as any[]}
+          onClose={() => { setOltDetailPanelOpen(false); setSelectedOltElementId(null); }}
+          onUpdated={() => refetchOltElements()}
+        />
+      )}
 
       {/* ── Painel de detalhes CEO/CTO sobreposto ao mapa (redimensionável) ── */}
       <ResizableDetailPanel

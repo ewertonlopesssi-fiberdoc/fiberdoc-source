@@ -208,7 +208,7 @@ function SplitterViaCard({
   return (
     <div className={cn(
       "relative rounded-lg border p-3 transition-all group",
-      myAssocs.length > 0 ? "border-emerald-500/40 bg-emerald-500/5" : "border-border/40 bg-card hover:border-border/70"
+      myAssocs.length > 0 ? "border-cyan-500/40 bg-cyan-500/5" : "border-border/40 bg-card hover:border-border/70"
     )}>
       <div className="flex items-center justify-between gap-2 mb-1">
         <div className="flex items-center gap-2">
@@ -222,8 +222,10 @@ function SplitterViaCard({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={() => onAssociate(via, splitter)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" title="Criar associação"><GitBranch className="h-3 w-3" /></button>
+        <div className="flex items-center gap-0.5">
+          <button onClick={() => onAssociate(via, splitter)} className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold text-cyan-400 hover:bg-cyan-500/10 transition-colors border border-cyan-500/20" title="Identificar fusão">
+            <Link2 className="h-2.5 w-2.5" /> fundir
+          </button>
         </div>
       </div>
       {via.label && via.label !== "Entrada" && !via.label.startsWith("Saída") && (
@@ -243,9 +245,9 @@ function SplitterViaCard({
           if (sv) otherLabel = `VIA ${String(sv.viaNumber).padStart(2,"0")} · Splitter`;
         }
         return (
-          <div key={assoc.id} className="text-[10px] text-emerald-300 bg-emerald-500/10 rounded px-2 py-1 border border-emerald-500/20 mt-1 flex items-center justify-between gap-1">
-            <span><span className="font-medium">ASSOC</span><span className="text-emerald-200/70 mx-1">→</span>{otherLabel}</span>
-            <button onClick={() => onClearAssociation(assoc.id)} className="text-muted-foreground hover:text-destructive transition-colors" title="Remover"><XCircle className="h-3 w-3" /></button>
+          <div key={assoc.id} className="text-[10px] text-cyan-300 bg-cyan-500/10 rounded px-2 py-1 border border-cyan-500/20 mt-1 flex items-center justify-between gap-1">
+            <span><span className="font-medium">FUSÃO</span><span className="text-cyan-200/70 mx-1">→</span>{otherLabel}</span>
+            <button onClick={() => onClearAssociation(assoc.id)} className="text-muted-foreground hover:text-destructive transition-colors" title="Remover fusão"><XCircle className="h-3 w-3" /></button>
           </div>
         );
       })}
@@ -255,11 +257,11 @@ function SplitterViaCard({
 
 // ─── TubePanel ────────────────────────────────────────────────────────────────
 function TubePanel({
-  tube, tubes, ceoId, fibers, associations, allSplitterVias,
+  tube, tubes, ceoId, fibers, associations, allSplitterVias, splitters,
   onEditTube, onDeleteTube, isAdmin,
 }: {
   tube: Tube; tubes: Tube[]; ceoId: number; fibers: Fiber[];
-  associations: ViaAssociation[]; allSplitterVias: SplitterVia[];
+  associations: ViaAssociation[]; allSplitterVias: SplitterVia[]; splitters: Splitter[];
   onEditTube: (tube: Tube) => void; onDeleteTube: (tubeId: number) => void; isAdmin: boolean;
 }) {
   const utils = trpc.useUtils();
@@ -283,7 +285,11 @@ function TubePanel({
   const { data: allVias = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId });
   const { data: allSplVias = [] } = trpc.ceoSplitterVias.byCeo.useQuery({ ceoId });
 
-  const targetTubeVias = (allVias as Via[]).filter(v => v.tubeId === parseInt(fusionTubeId));
+  // fusionTubeId can be "spl_<id>" for splitters or a numeric tube id
+  const isFusionTargetSplitter = fusionTubeId.startsWith("spl_");
+  const fusionTargetSplitterId = isFusionTargetSplitter ? parseInt(fusionTubeId.replace("spl_", "")) : null;
+  const targetTubeVias = isFusionTargetSplitter ? [] : (allVias as Via[]).filter(v => v.tubeId === parseInt(fusionTubeId));
+  const targetSplVias = isFusionTargetSplitter ? (allSplVias as SplitterVia[]).filter(v => v.splitterId === fusionTargetSplitterId) : [];
   const otherTubes = tubes.filter(t => t.id !== tube.id);
 
   const setFusionMutation = trpc.ceoVias.setFusion.useMutation({
@@ -326,25 +332,39 @@ function TubePanel({
   });
   const createAssocMutation = trpc.ceoViaAssociations.create.useMutation({
     onSuccess: () => {
-      toast.success("Associação criada!");
+      toast.success("Fusão registrada!");
       utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
+      utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
+      utils.ceoVias.byCeo.invalidate({ ceoId });
+      utils.ceoVias.byTube.invalidate();
       setAssocDialog(null);
+      setFusionDialog(null); setFusionTubeId(""); setFusionViaNumber("");
     },
     onError: e => toast.error("Erro: " + e.message),
   });
   const deleteAssocMutation = trpc.ceoViaAssociations.delete.useMutation({
     onSuccess: () => {
-      toast.success("Associação removida!");
+      toast.success("Fusão removida!");
       utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
+      utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
+      utils.ceoVias.byCeo.invalidate({ ceoId });
     },
     onError: e => toast.error("Erro: " + e.message),
   });
 
   function handleSetFusion() {
     if (!fusionDialog || !fusionTubeId || !fusionViaNumber) return;
-    const targetVia = targetTubeVias.find(v => v.viaNumber === parseInt(fusionViaNumber));
-    if (!targetVia) { toast.error("Via não encontrada"); return; }
-    setFusionMutation.mutate({ viaId: fusionDialog.id, fusedToTubeId: parseInt(fusionTubeId), fusedToViaId: targetVia.id });
+    if (isFusionTargetSplitter) {
+      // Destino é um splitter: usar associação
+      const targetSplVia = targetSplVias.find(v => v.id === parseInt(fusionViaNumber));
+      if (!targetSplVia) { toast.error("Via de splitter não encontrada"); return; }
+      createAssocMutation.mutate({ ceoId, sourceType: "tube", sourceViaId: fusionDialog.id, targetType: "splitter", targetViaId: targetSplVia.id });
+      setFusionDialog(null); setFusionTubeId(""); setFusionViaNumber("");
+    } else {
+      const targetVia = targetTubeVias.find(v => v.viaNumber === parseInt(fusionViaNumber));
+      if (!targetVia) { toast.error("Via não encontrada"); return; }
+      setFusionMutation.mutate({ viaId: fusionDialog.id, fusedToTubeId: parseInt(fusionTubeId), fusedToViaId: targetVia.id });
+    }
   }
 
   const fusedCount = (vias as Via[]).filter(v => v.fusedToViaId !== null).length;
@@ -457,12 +477,13 @@ function TubePanel({
           <DialogHeader><DialogTitle>Identificar Fusão — VIA {fusionDialog?.viaNumber}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label>Tubo de destino</Label>
+              <Label>Tubo / Splitter de destino</Label>
               <Select value={fusionTubeId || "__none__"} onValueChange={v => { setFusionTubeId(v === "__none__" ? "" : v); setFusionViaNumber(""); }}>
-                <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione o tubo..." /></SelectTrigger>
+                <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione o tubo ou splitter..." /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Selecione...</SelectItem>
-                  {otherTubes.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.identifier} ({t.totalVias} vias)</SelectItem>)}
+                  {otherTubes.map(t => <SelectItem key={t.id} value={String(t.id)}>○ {t.identifier} ({t.totalVias} vias)</SelectItem>)}
+                  {splitters.map(s => <SelectItem key={`spl_${s.id}`} value={`spl_${s.id}`}>⊕ {s.identifier} ({s.ratio})</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -473,11 +494,18 @@ function TubePanel({
                   <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione a via..." /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">Selecione...</SelectItem>
-                    {targetTubeVias.map(v => (
-                      <SelectItem key={v.id} value={String(v.viaNumber)}>
-                        VIA {String(v.viaNumber).padStart(2,"0")}{v.label ? ` — ${v.label}` : ""}{v.fusedToViaId !== null ? " (ocupada)" : ""}
-                      </SelectItem>
-                    ))}
+                    {isFusionTargetSplitter
+                      ? targetSplVias.map(v => (
+                          <SelectItem key={v.id} value={String(v.id)}>
+                            {v.viaNumber === 0 ? "ENT (Entrada)" : `Saída ${String(v.viaNumber).padStart(2,"0")}`}{v.label ? ` — ${v.label}` : ""}
+                          </SelectItem>
+                        ))
+                      : targetTubeVias.map(v => (
+                          <SelectItem key={v.id} value={String(v.viaNumber)}>
+                            VIA {String(v.viaNumber).padStart(2,"0")}{v.label ? ` — ${v.label}` : ""}{v.fusedToViaId !== null ? " (ocupada)" : ""}
+                          </SelectItem>
+                        ))
+                    }
                   </SelectContent>
                 </Select>
               </div>
@@ -636,16 +664,24 @@ function SplitterPanel({
 
   const createAssocMutation = trpc.ceoViaAssociations.create.useMutation({
     onSuccess: () => {
-      toast.success("Associação criada!");
+      toast.success("Fusão registrada!");
       utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
+      utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
+      utils.ceoSplitterVias.bySplitter.invalidate({ splitterId: splitter.id });
+      utils.ceoVias.byCeo.invalidate({ ceoId });
+      utils.ceoVias.byTube.invalidate();
       setAssocDialog(null);
+      setAssocTargetTubeId(""); setAssocTargetViaId("");
     },
     onError: e => toast.error("Erro: " + e.message),
   });
   const deleteAssocMutation = trpc.ceoViaAssociations.delete.useMutation({
     onSuccess: () => {
-      toast.success("Associação removida!");
+      toast.success("Fusão removida!");
       utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
+      utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
+      utils.ceoSplitterVias.bySplitter.invalidate({ splitterId: splitter.id });
+      utils.ceoVias.byCeo.invalidate({ ceoId });
     },
     onError: e => toast.error("Erro: " + e.message),
   });
@@ -690,9 +726,9 @@ function SplitterPanel({
       {/* Dialog: Associação de Via de Splitter */}
       <Dialog open={assocDialog !== null} onOpenChange={() => setAssocDialog(null)}>
         <DialogContent className="bg-card border-border">
-          <DialogHeader><DialogTitle>Criar Associação — VIA {assocDialog?.viaNumber === 0 ? "00 (Entrada)" : assocDialog?.viaNumber} de {assocSplitter?.identifier}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Identificar Fusão — VIA {assocDialog?.viaNumber === 0 ? "00 (Entrada)" : assocDialog?.viaNumber} de {assocSplitter?.identifier}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <p className="text-xs text-muted-foreground">Associe esta via a qualquer outra via de tubo ou splitter deste CEO.</p>
+            <p className="text-xs text-muted-foreground">Selecione o tubo ou splitter de destino para identificar a fusão desta via.</p>
             <div className="space-y-1.5">
               <Label>Tipo de destino</Label>
               <Select value={assocTargetType} onValueChange={v => { setAssocTargetType(v as any); setAssocTargetTubeId(""); setAssocTargetViaId(""); }}>
@@ -745,8 +781,8 @@ function SplitterPanel({
             <Button onClick={() => {
               if (!assocDialog || !assocTargetViaId) return;
               createAssocMutation.mutate({ ceoId, sourceType: "splitter", sourceViaId: assocDialog.id, targetType: assocTargetType, targetViaId: parseInt(assocTargetViaId) });
-            }} disabled={!assocTargetViaId || createAssocMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-              {createAssocMutation.isPending ? "Criando..." : "Criar Associação"}
+            }} disabled={!assocTargetViaId || createAssocMutation.isPending} className="bg-cyan-600 hover:bg-cyan-700 text-white">
+              {createAssocMutation.isPending ? "Salvando..." : "Confirmar Fusão"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -850,6 +886,7 @@ function BandejaPanel({
                     {item.type === "tube" ? (
                       <TubePanel tube={item.item as Tube} tubes={tubes} ceoId={ceoId} fibers={[]}
                         associations={associations} allSplitterVias={allSplitterVias as SplitterVia[]}
+                        splitters={splitters}
                         onEditTube={onEditTube} onDeleteTube={onDeleteTube} isAdmin={isAdmin} />
                     ) : (
                       <SplitterPanel splitter={item.item as Splitter} ceoId={ceoId} tubes={tubes}
@@ -1396,6 +1433,7 @@ export default function CeoDetail() {
                     <TabsContent key={tube.id} value={String(tube.id)} className="p-4 mt-0">
                       <TubePanel tube={tube} tubes={tubeList} ceoId={ceoId} fibers={fiberList}
                         associations={assocList} allSplitterVias={allSplitterViasMain as SplitterVia[]}
+                        splitters={splitterList}
                         onEditTube={openEditTube} onDeleteTube={id => setDeleteTubeId(id)} isAdmin={isAdmin} />
                     </TabsContent>
                   ))}

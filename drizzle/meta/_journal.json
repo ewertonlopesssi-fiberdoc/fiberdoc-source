@@ -351,6 +351,13 @@
       "when": 1773148707559,
       "tag": "0049_lovely_wasp",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "5",
+      "when": 1773237962925,
+      "tag": "0050_bouncy_smiling_tiger",
+      "breakpoints": true
     }
   ]
 }

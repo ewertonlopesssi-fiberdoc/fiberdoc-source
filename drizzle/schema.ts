@@ -1084,3 +1084,39 @@ export const networkSnmpAlerts = mysqlTable("network_snmp_alerts", {
 });
 export type NetworkSnmpAlert = typeof networkSnmpAlerts.$inferSelect;
 export type InsertNetworkSnmpAlert = typeof networkSnmpAlerts.$inferInsert;
+
+// ─── OLT no Mapa ─────────────────────────────────────────────────────────────
+// Representa uma OLT posicionada geograficamente no mapa de infraestrutura.
+// Associada a um equipamento do tipo 'olt' já cadastrado em Equipamentos de Rede.
+export const mapOltElements = mysqlTable("map_olt_elements", {
+  id: int("id").autoincrement().primaryKey(),
+  equipmentId: int("equipmentId").notNull().references(() => equipments.id, { onDelete: "cascade" }),
+  lat: double("lat").notNull(),
+  lng: double("lng").notNull(),
+  defaultTxPowerDbm: float("defaultTxPowerDbm").default(5.0),  // Potência TX padrão em dBm (ex: +5.0)
+  fiberAttenuationDbPerKm: float("fiberAttenuationDbPerKm").default(0.35), // Atenuação da fibra em dB/km
+  fusionLossDb: float("fusionLossDb").default(0.1),             // Perda por fusão/conector em dB
+  notes: text("notes"),
+  createdAt: timestamp("olt_map_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("olt_map_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type MapOltElement = typeof mapOltElements.$inferSelect;
+export type InsertMapOltElement = typeof mapOltElements.$inferInsert;
+
+// ─── Vinculação Porta PON → Via/Tubo de CEO ───────────────────────────────────
+// Liga uma porta PON da OLT a uma via específica de um tubo de um CEO no mapa,
+// definindo o ponto de entrada da fibra na rede de distribuição.
+export const oltPortFiberLinks = mysqlTable("olt_port_fiber_links", {
+  id: int("id").autoincrement().primaryKey(),
+  oltElementId: int("oltElementId").notNull().references(() => mapOltElements.id, { onDelete: "cascade" }),
+  portId: int("portId").notNull().references(() => ports.id, { onDelete: "cascade" }),
+  txPowerDbm: float("txPowerDbm"),                              // Override da potência TX desta porta (null = usa defaultTxPowerDbm da OLT)
+  ceoElementId: int("ceoElementId").notNull().references(() => mapElements.id, { onDelete: "cascade" }),
+  tubeId: int("tubeId").notNull(),                              // FK ceo_tubes.id
+  viaNumber: int("viaNumber").notNull(),                        // Número da via dentro do tubo
+  notes: text("notes"),
+  createdAt: timestamp("olt_link_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("olt_link_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type OltPortFiberLink = typeof oltPortFiberLinks.$inferSelect;
+export type InsertOltPortFiberLink = typeof oltPortFiberLinks.$inferInsert;

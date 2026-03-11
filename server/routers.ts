@@ -140,6 +140,10 @@ import {
   getGroupMembers, addElementToGroup, removeElementFromGroup,
   addRouteToGroup, removeRouteFromGroup,
   getAllElementGroupMemberships, getAllRouteGroupMemberships,
+  getMapOltElements, getMapOltElementById, createMapOltElement, updateMapOltElement, deleteMapOltElement,
+  getOltPortLinks, createOltPortLink, updateOltPortLink, deleteOltPortLink,
+  calculateOpticalBalance,
+  getTubesByMapElement,
 } from "./db";
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
@@ -2387,12 +2391,9 @@ ${fiberFolder}
         const dbMod = await import("./db");
         return dbMod.getRoutesOccupancy();
       }),
-    tubesByElement: protectedProcedure
+    tubesByElement: publicProcedure
       .input(z.object({ elementId: z.number() }))
-      .query(async ({ input }) => {
-        const dbMod = await import("./db");
-        return dbMod.getTubesByMapElement(input.elementId);
-      }),
+      .query(async ({ input }) => getTubesByMapElement(input.elementId)),
     traceOtdr: protectedProcedure
       .input(z.object({
         elementId: z.number(),          // map_elements.id do ponto de partida
@@ -2408,6 +2409,93 @@ ${fiberFolder}
           input.viaNumber,
           input.distanceMeters
         );
+      }),
+    // ─── OLT no Mapa ─────────────────────────────────────────────────────────
+    oltElements: protectedProcedure.query(() => getMapOltElements()),
+    oltElementById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => getMapOltElementById(input.id)),
+    createOltElement: adminProcedure
+      .input(z.object({
+        equipmentId: z.number(),
+        lat: z.number(),
+        lng: z.number(),
+        defaultTxPowerDbm: z.number().default(5.0),
+        fiberAttenuationDbPerKm: z.number().default(0.35),
+        fusionLossDb: z.number().default(0.1),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createMapOltElement(input);
+        return { id };
+      }),
+    updateOltElement: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        lat: z.number().optional(),
+        lng: z.number().optional(),
+        defaultTxPowerDbm: z.number().optional(),
+        fiberAttenuationDbPerKm: z.number().optional(),
+        fusionLossDb: z.number().optional(),
+        notes: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateMapOltElement(id, data);
+        return { ok: true };
+      }),
+    deleteOltElement: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteMapOltElement(input.id);
+        return { ok: true };
+      }),
+    oltPortLinks: protectedProcedure
+      .input(z.object({ oltElementId: z.number() }))
+      .query(({ input }) => getOltPortLinks(input.oltElementId)),
+    createOltPortLink: adminProcedure
+      .input(z.object({
+        oltElementId: z.number(),
+        portId: z.number(),
+        txPowerDbm: z.number().nullable().optional(),
+        ceoElementId: z.number(),
+        tubeId: z.number(),
+        viaNumber: z.number().int().min(1),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createOltPortLink(input);
+        return { id };
+      }),
+    updateOltPortLink: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        txPowerDbm: z.number().nullable().optional(),
+        ceoElementId: z.number().optional(),
+        tubeId: z.number().optional(),
+        viaNumber: z.number().int().min(1).optional(),
+        notes: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateOltPortLink(id, data);
+        return { ok: true };
+      }),
+    deleteOltPortLink: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteOltPortLink(input.id);
+        return { ok: true };
+      }),
+    opticalBalance: protectedProcedure
+      .input(z.object({ ctoElementId: z.number() }))
+      .query(({ input }) => calculateOpticalBalance(input.ctoElementId)),
+    portsByOltElement: publicProcedure
+      .input(z.object({ oltElementId: z.number() }))
+      .query(async ({ input }) => {
+        const olt = await getMapOltElementById(input.oltElementId);
+        if (!olt) return [];
+        return getPortsByEquipment(olt.equipmentId);
       }),
   }),
   // ─── SGP Config ───────────────────────────────────────────────────────────────
