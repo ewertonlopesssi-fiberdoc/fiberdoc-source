@@ -119,20 +119,20 @@ import L from "leaflet";
 import { unzipSync, strFromU8 } from "fflate";
 import { OltCreateDialog, OltDetailPanel } from "./OltMapComponents";
 
-// Cores padrão de fibras ópticas (norma ABNT NBR 14772)
+// Cores padrão de fibras ópticas (norma ABNT/EIA-598)
 const FIBER_VIA_COLORS: Record<number, string> = {
-  1: "#3b82f6",   // azul
-  2: "#f97316",   // laranja
-  3: "#22c55e",   // verde
-  4: "#92400e",   // marrom
-  5: "#6b7280",   // cinza
-  6: "#f3f4f6",   // branco
-  7: "#ef4444",   // vermelho
-  8: "#111827",   // preto
-  9: "#eab308",   // amarelo
-  10: "#8b5cf6",  // violeta
-  11: "#ec4899",  // rosa
-  12: "#06b6d4",  // aqua/turquesa
+  1:  "#00B050",  // verde
+  2:  "#FFFF00",  // amarelo
+  3:  "#FFFFFF",  // branco
+  4:  "#0070C0",  // azul
+  5:  "#FF0000",  // vermelho
+  6:  "#7030A0",  // violeta
+  7:  "#7B3F00",  // marrom
+  8:  "#FF99CC",  // rosa
+  9:  "#111827",  // preto
+  10: "#808080",  // cinza
+  11: "#FF6600",  // laranja
+  12: "#00B0F0",  // aqua/turquesa
 };
 
 // Sub-componente para seletores de tubo (evita hooks em IIFE)
