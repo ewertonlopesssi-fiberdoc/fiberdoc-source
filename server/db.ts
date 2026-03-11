@@ -3306,7 +3306,7 @@ export async function getOltPortLinks(oltElementId: number): Promise<(OltPortFib
     // Formato: "Porta {portNumber}" + opcionalmente " — {label}"
     const portBase = port ? `Porta ${port.portNumber}${port.label ? ` — ${port.label}` : ""}` : `Porta #${link.portId}`;
     const slotDisplay = slot
-      ? (slot.label ? `Slot ${slot.slotNumber} — ${slot.label}` : `Slot ${slot.slotNumber}`)
+      ? `Slot ${slot.label || slot.slotNumber}`
       : null;
     return {
       ...link,
