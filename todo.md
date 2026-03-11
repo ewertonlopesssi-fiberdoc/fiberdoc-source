@@ -1492,3 +1492,8 @@
 - [x] Ponto laranja da extremidade não fica livre para arrastar — snap só activa após o utilizador mover >50m do ponto inicial (hasMoved flag)
 - [x] Erro SQL ao desvincular elemento — corrigido updateMapRoute para tratar null explicitamente; frontend envia null em vez de undefined
 - [x] Ao vincular ponto do meio, dialog agora mostra as duas opções (manter do ponto até ao fim OU do início até ao ponto) para o utilizador escolher
+
+## Bugs — Editor de traçado v3 — 10/03/2026
+- [ ] Snap activa durante o drag (deve ser só ao soltar o ponto)
+- [ ] Desvincular elemento ainda falha SQL (params vazio) — usar sql raw NULL
+- [ ] Vincular ponto do meio trunca o traçado — deve inserir elemento como ponto de passagem sem remover pontos

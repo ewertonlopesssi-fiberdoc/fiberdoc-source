@@ -1212,31 +1212,25 @@ export default function InfrastructureMap() {
       const initialLng = pt.lng;
       let hasMoved = false; // true após o utilizador mover o ponto pelo menos 0.0005° (~50m)
 
-      // Movimento: actualizar posição do marcador e polilinha
+      // Movimento: mover o marcador livremente SEM snap (snap só ao soltar)
       const handleDragMove = (clientX: number, clientY: number) => {
         if (!dragging) return;
         const ll = clientToLatLng(clientX, clientY);
         if (!ll) return;
-        // Marcar como movido se o utilizador arrastou pelo menos ~50m do ponto inicial
-        if (!hasMoved && Math.hypot(ll.lat - initialLat, ll.lng - initialLng) > 0.0005) {
-          hasMoved = true;
-        }
-        // Snap: só activo após o utilizador ter movido o ponto (evita prender ao elemento actual)
-        const snap = hasMoved ? findSnap(ll.lat, ll.lng) : null;
-        const moveLat = snap ? snap.lat : ll.lat;
-        const moveLng = snap ? snap.lng : ll.lng;
-        cm.setLatLng([moveLat, moveLng]);
+        // Mover o marcador para a posição actual do cursor (sem snap)
+        cm.setLatLng([ll.lat, ll.lng]);
         const newPath = [...editingRoutePathRef.current];
-        newPath[idx] = { lat: moveLat, lng: moveLng };
+        newPath[idx] = { lat: ll.lat, lng: ll.lng };
         editingRoutePathRef.current = newPath;
         if (editRoutePolylineRef.current) {
           editRoutePolylineRef.current.setLatLngs(newPath.map(p => [p.lat, p.lng] as L.LatLngExpression));
         }
-        // Indicador de snap
+        // Indicador visual de snap próximo (só visual, não move o ponto)
         if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
-        if (snap && mapRef.current) {
+        const nearSnap = findSnap(ll.lat, ll.lng);
+        if (nearSnap && mapRef.current) {
           const snapColor = isEndpoint ? "#22c55e" : "#f59e0b";
-          snapIndicatorRef.current = L.circleMarker([moveLat, moveLng], {
+          snapIndicatorRef.current = L.circleMarker([nearSnap.lat, nearSnap.lng], {
             radius: 14, color: snapColor, fillColor: snapColor, fillOpacity: 0.25, weight: 3,
           }).addTo(mapRef.current);
         }
@@ -1245,7 +1239,7 @@ export default function InfrastructureMap() {
         renderMidpoints(newPath, routeColor);
       };
 
-      // Fim de drag: aplicar snap definitivo
+      // Fim de drag: aplicar snap definitivo ao soltar
       const handleDragEnd = () => {
         if (!dragging) return;
         dragging = false;
@@ -1253,29 +1247,47 @@ export default function InfrastructureMap() {
         mapRef.current!.dragging.enable();
         if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
         const cmLatLng = cm.getLatLng();
+        // Snap definitivo: verificar se o ponto foi solto perto de um elemento
         const snap = findSnap(cmLatLng.lat, cmLatLng.lng);
-        // Determinar índice actual do ponto (idx é válido durante drag contínuo sem re-render)
         const pts = editingRoutePathRef.current;
         const isCurrentEndpoint = idx === 0 || idx === pts.length - 1;
         if (isCurrentEndpoint) {
-          // Extremidade: actualizar vinculação ao elemento
-          if (idx === 0) snapFromIdRef.current = snap ? snap.id : null;
-          else snapToIdRef.current = snap ? snap.id : null;
-          setEditingRoutePath([...pts]);
+          // Extremidade: se snap, mover para as coordenadas exactas do elemento e vincular
+          if (snap) {
+            const snappedPath = [...pts];
+            snappedPath[idx] = { lat: snap.lat, lng: snap.lng };
+            editingRoutePathRef.current = snappedPath;
+            cm.setLatLng([snap.lat, snap.lng]);
+            if (editRoutePolylineRef.current) {
+              editRoutePolylineRef.current.setLatLngs(snappedPath.map(p => [p.lat, p.lng] as L.LatLngExpression));
+            }
+            if (idx === 0) snapFromIdRef.current = snap.id;
+            else snapToIdRef.current = snap.id;
+            toast.success(`${idx === 0 ? "Origem" : "Destino"} vinculado a "${snap.name}"`);
+            setEditingRoutePath([...snappedPath]);
+          } else {
+            // Sem snap: desvincular elemento desta extremidade
+            if (idx === 0) snapFromIdRef.current = null;
+            else snapToIdRef.current = null;
+            setEditingRoutePath([...pts]);
+          }
         } else if (snap) {
-          // Ponto do meio arrastado para elemento: pedir confirmação de truncagem
-          // isCloserToStart = true → o ponto arrastado fica mais perto do início → truncar início
-          // Novo traçado: se isCloserToStart → pts[idx..fim] (elemento vira nova origem)
-          //               se !isCloserToStart → pts[0..idx] (elemento vira novo destino)
-          const isCloserToStart = idx <= pts.length / 2;
-          const newPath = isCloserToStart
-            ? pts.slice(idx)           // eliminar pontos ANTES do ponto arrastado
-            : pts.slice(0, idx + 1);   // eliminar pontos DEPOIS do ponto arrastado
+          // Ponto do meio arrastado para elemento:
+          // NÃO truncar o traçado — mover o ponto para as coordenadas exactas do elemento
+          // e mostrar dialog para o utilizador decidir se quer vincular como nova extremidade
+          const snappedPath = [...pts];
+          snappedPath[idx] = { lat: snap.lat, lng: snap.lng };
+          editingRoutePathRef.current = snappedPath;
+          cm.setLatLng([snap.lat, snap.lng]);
+          if (editRoutePolylineRef.current) {
+            editRoutePolylineRef.current.setLatLngs(snappedPath.map(p => [p.lat, p.lng] as L.LatLngExpression));
+          }
+          setEditingRoutePath([...snappedPath]);
           setTruncateConfirm({
             snappedId: snap.id,
             snappedName: snap.name,
-            isCloserToStart,
-            newPath,
+            isCloserToStart: idx <= pts.length / 2,
+            newPath: snappedPath, // passa o path completo (sem truncar)
             routeColor,
           });
           return;
@@ -3313,66 +3325,79 @@ export default function InfrastructureMap() {
         </DialogContent>
       </Dialog>
 
-      {/* Diálogo de confirmação de truncagem do traçado */}
+      {/* Diálogo: vincular ponto do meio a elemento */}
       <Dialog open={truncateConfirm !== null} onOpenChange={(open) => { if (!open) setTruncateConfirm(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Cable className="w-4 h-4 text-amber-400" />
-              Vincular extremidade ao elemento
+              Vincular ponto ao elemento
             </DialogTitle>
           </DialogHeader>
-          {truncateConfirm && (() => {
-            const pts = editingRoutePath;
-            const idx = truncateConfirm.isCloserToStart
-              ? pts.length - truncateConfirm.newPath.length   // índice do ponto arrastado (mais perto do início)
-              : truncateConfirm.newPath.length - 1;           // índice do ponto arrastado (mais perto do fim)
-            // Opção A: manter do ponto arrastado até ao fim (elemento = nova origem)
-            const pathA = pts.slice(idx);
-            // Opção B: manter do início até ao ponto arrastado (elemento = novo destino)
-            const pathB = pts.slice(0, idx + 1);
-            return (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  Arraste o ponto até <span className="font-semibold text-foreground">"{truncateConfirm.snappedName}"</span>. Escolha qual parte do traçado manter:
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    className="rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 p-3 text-left transition-colors"
-                    onClick={() => {
-                      editingRoutePathRef.current = pathA;
-                      snapFromIdRef.current = truncateConfirm.snappedId;
-                      snapToIdRef.current = snapToIdRef.current; // manter destino actual
-                      setEditingRoutePath([...pathA]);
-                      renderEditRouteMarkers([...pathA], truncateConfirm.routeColor);
-                      toast.success(`Origem vinculada a "${truncateConfirm.snappedName}" (${pathA.length} pontos)`);
-                      setTruncateConfirm(null);
-                    }}
-                  >
-                    <p className="text-xs font-semibold text-amber-400 mb-1">→ Manter do ponto até ao fim</p>
-                    <p className="text-xs text-muted-foreground">{truncateConfirm.snappedName} vira <strong>nova origem</strong></p>
-                    <p className="text-xs text-muted-foreground mt-1">{pathA.length} ponto(s) mantidos, {pts.length - pathA.length} removidos</p>
-                  </button>
-                  <button
-                    className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 p-3 text-left transition-colors"
-                    onClick={() => {
-                      editingRoutePathRef.current = pathB;
-                      snapToIdRef.current = truncateConfirm.snappedId;
-                      snapFromIdRef.current = snapFromIdRef.current; // manter origem actual
-                      setEditingRoutePath([...pathB]);
-                      renderEditRouteMarkers([...pathB], truncateConfirm.routeColor);
-                      toast.success(`Destino vinculado a "${truncateConfirm.snappedName}" (${pathB.length} pontos)`);
-                      setTruncateConfirm(null);
-                    }}
-                  >
-                    <p className="text-xs font-semibold text-cyan-400 mb-1">← Manter do início até ao ponto</p>
-                    <p className="text-xs text-muted-foreground">{truncateConfirm.snappedName} vira <strong>novo destino</strong></p>
-                    <p className="text-xs text-muted-foreground mt-1">{pathB.length} ponto(s) mantidos, {pts.length - pathB.length} removidos</p>
-                  </button>
-                </div>
+          {truncateConfirm && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                O ponto foi posicionado sobre <span className="font-semibold text-foreground">"{truncateConfirm.snappedName}"</span>. O traçado <strong>não será cortado</strong> — o ponto passa pelo elemento. O que deseja fazer?
+              </p>
+              <div className="grid grid-cols-1 gap-2">
+                {/* Opção 1: apenas ponto de passagem (não vincula como extremidade) */}
+                <button
+                  className="rounded-lg border border-muted/40 bg-muted/10 hover:bg-muted/20 p-3 text-left transition-colors"
+                  onClick={() => {
+                    // Apenas manter o ponto na posição do elemento (já foi movido)
+                    toast.success(`Ponto posicionado sobre "${truncateConfirm.snappedName}" (ponto de passagem)`);
+                    setTruncateConfirm(null);
+                  }}
+                >
+                  <p className="text-xs font-semibold text-foreground mb-1">📍 Ponto de passagem</p>
+                  <p className="text-xs text-muted-foreground">O cabo passa pelo elemento mas não é vinculado como extremidade. O traçado permanece intacto.</p>
+                </button>
+                {/* Opção 2: vincular como nova origem (manter do ponto até ao fim) */}
+                <button
+                  className="rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 p-3 text-left transition-colors"
+                  onClick={() => {
+                    const pts = truncateConfirm.newPath;
+                    // Encontrar o índice do ponto que está sobre o elemento
+                    const snapIdx = pts.findIndex(p =>
+                      Math.abs(p.lat - (elementsRef.current.find((e: any) => e.id === truncateConfirm.snappedId) as any)?.lat) < 0.0002 &&
+                      Math.abs(p.lng - (elementsRef.current.find((e: any) => e.id === truncateConfirm.snappedId) as any)?.lng) < 0.0002
+                    );
+                    const newPath = snapIdx >= 0 ? pts.slice(snapIdx) : pts;
+                    editingRoutePathRef.current = newPath;
+                    snapFromIdRef.current = truncateConfirm.snappedId;
+                    setEditingRoutePath([...newPath]);
+                    renderEditRouteMarkers([...newPath], truncateConfirm.routeColor);
+                    toast.success(`"${truncateConfirm.snappedName}" definido como nova origem`);
+                    setTruncateConfirm(null);
+                  }}
+                >
+                  <p className="text-xs font-semibold text-amber-400 mb-1">→ Definir como nova origem</p>
+                  <p className="text-xs text-muted-foreground">Remove os pontos antes deste elemento. O elemento vira a nova origem do cabo.</p>
+                </button>
+                {/* Opção 3: vincular como novo destino (manter do início até ao ponto) */}
+                <button
+                  className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 p-3 text-left transition-colors"
+                  onClick={() => {
+                    const pts = truncateConfirm.newPath;
+                    const snapIdx = pts.findIndex(p =>
+                      Math.abs(p.lat - (elementsRef.current.find((e: any) => e.id === truncateConfirm.snappedId) as any)?.lat) < 0.0002 &&
+                      Math.abs(p.lng - (elementsRef.current.find((e: any) => e.id === truncateConfirm.snappedId) as any)?.lng) < 0.0002
+                    );
+                    const newPath = snapIdx >= 0 ? pts.slice(0, snapIdx + 1) : pts;
+                    editingRoutePathRef.current = newPath;
+                    snapToIdRef.current = truncateConfirm.snappedId;
+                    setEditingRoutePath([...newPath]);
+                    renderEditRouteMarkers([...newPath], truncateConfirm.routeColor);
+                    toast.success(`"${truncateConfirm.snappedName}" definido como novo destino`);
+                    setTruncateConfirm(null);
+                  }}
+                >
+                  <p className="text-xs font-semibold text-cyan-400 mb-1">← Definir como novo destino</p>
+                  <p className="text-xs text-muted-foreground">Remove os pontos após este elemento. O elemento vira o novo destino do cabo.</p>
+                </button>
               </div>
-            );
-          })()}
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setTruncateConfirm(null)}>Cancelar</Button>
           </DialogFooter>

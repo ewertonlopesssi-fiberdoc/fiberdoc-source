@@ -2219,14 +2219,18 @@ export async function createMapRoute(data: Omit<InsertMapRoute, "id" | "createdA
 export async function updateMapRoute(id: number, data: Partial<Omit<InsertMapRoute, "id" | "createdAt" | "updatedAt">> & { fromElementId?: number | null; toElementId?: number | null; fromTubeId?: number | null; toTubeId?: number | null }): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  // Construir o set explicitamente para garantir que null é enviado como NULL (não undefined)
-  const setData: Record<string, any> = { ...data };
-  // Campos que podem ser null (desvincular): tratar null explicitamente
-  for (const field of ["fromElementId", "toElementId", "fromTubeId", "toTubeId"] as const) {
-    if (field in data) {
-      setData[field] = data[field] === null ? null : data[field];
+  // Construir o set explicitamente para garantir que null é enviado como SQL NULL
+  // O Drizzle ORM não envia null correctamente em alguns drivers MySQL; usar sql`NULL` explicitamente
+  const setData: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value === null) {
+      // Usar sql template literal para forçar NULL no MySQL
+      setData[key] = sql`NULL`;
+    } else if (value !== undefined) {
+      setData[key] = value;
     }
   }
+  if (Object.keys(setData).length === 0) return;
   await db.update(mapRoutes).set(setData).where(eq(mapRoutes.id, id));
 }
 export async function deleteMapRoute(id: number): Promise<void> {
