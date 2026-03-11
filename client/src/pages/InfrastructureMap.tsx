@@ -2723,6 +2723,27 @@ export default function InfrastructureMap() {
                             );
                             const isFused = via.fusedToViaId !== null || !!assocForVia;
                             const viaColor = FIBER_VIA_COLORS[via.viaNumber] ?? "#6b7280";
+                            // Badge de associação CTO: calcular o outro lado da ligação
+                            let assocBadge: { tubeIdentifier: string; viaNumber: number; isSplitter: boolean } | null = null;
+                            if (isCto && assocForVia) {
+                              const otherViaId = (assocForVia.sourceType === "tube" && assocForVia.sourceViaId === via.id)
+                                ? assocForVia.targetViaId
+                                : assocForVia.sourceViaId;
+                              const otherType = (assocForVia.sourceType === "tube" && assocForVia.sourceViaId === via.id)
+                                ? assocForVia.targetType
+                                : assocForVia.sourceType;
+                              const otherVia = (allVias ?? []).find((v: any) => v.id === otherViaId);
+                              if (otherVia) {
+                                const otherTube = (tubes ?? []).find((t: any) => t.id === otherVia.tubeId);
+                                if (otherTube) {
+                                  assocBadge = {
+                                    tubeIdentifier: otherTube.identifier,
+                                    viaNumber: otherVia.viaNumber,
+                                    isSplitter: otherType === "splitter" || otherTube.type === "splitter",
+                                  };
+                                }
+                              }
+                            }
                             return (
                               <div key={via.id} className="flex items-center gap-0.5 group">
                                 <button
@@ -2769,6 +2790,12 @@ export default function InfrastructureMap() {
                                     : via.viaNumber === 0
                                       ? <span className="text-muted-foreground/70 italic">{tube.type === "splitter" ? "entrada" : "livre"}</span>
                                       : <span className="text-muted-foreground/50 italic">livre</span>}
+                                  {/* Badge de associação CTO: mostra o outro lado da ligação */}
+                                  {assocBadge && (
+                                    <span className="ml-1 flex items-center gap-0.5 text-[10px] text-violet-300 bg-violet-500/10 border border-violet-500/20 rounded px-1 py-0 shrink-0 font-medium" title={`Associado a ${assocBadge.isSplitter ? "SPL" : "TUB"} ${assocBadge.tubeIdentifier} / Via ${assocBadge.viaNumber === 0 ? "ENT" : assocBadge.viaNumber}`}>
+                                      → {assocBadge.isSplitter ? "SPL" : "TUB"} {assocBadge.tubeIdentifier} / {assocBadge.viaNumber === 0 ? "ENT" : String(assocBadge.viaNumber).padStart(2, "0")}
+                                    </span>
+                                  )}
                                   {isFused && (
                                     <span className="ml-auto flex items-center gap-0.5 text-[10px] text-red-400 font-semibold shrink-0">
                                       <Link2Off className="w-2.5 h-2.5" /> desfazer
