@@ -828,6 +828,7 @@ export default function InfrastructureMap() {
     isCloserToStart: boolean;
     newPath: { lat: number; lng: number }[];
     routeColor: string;
+    splitPointIdx: number; // índice do ponto no path completo onde o elemento foi encaixado
   } | null>(null);
 
   // Query de tubos para o painel OTDR (carrega quando um elemento é seleccionado no modo OTDR)
@@ -1289,6 +1290,7 @@ export default function InfrastructureMap() {
             isCloserToStart: idx <= pts.length / 2,
             newPath: snappedPath, // passa o path completo (sem truncar)
             routeColor,
+            splitPointIdx: idx, // índice do ponto onde o elemento foi encaixado
           });
           return;
         } else {
@@ -3406,6 +3408,43 @@ export default function InfrastructureMap() {
                 >
                   <p className="text-xs font-semibold text-cyan-400 mb-1">← Definir como novo destino</p>
                   <p className="text-xs text-muted-foreground">Remove os pontos após este elemento. O elemento vira o novo destino do cabo.</p>
+                </button>
+                {/* Opção 4: dividir cabo neste elemento */}
+                <button
+                  className="rounded-lg border border-purple-500/40 bg-purple-500/10 hover:bg-purple-500/20 p-3 text-left transition-colors"
+                  onClick={() => {
+                    if (!editingRouteId) { toast.error("Nenhuma rota em edição"); return; }
+                    // Guardar primeiro o traçado actual (com o ponto no elemento) e depois dividir
+                    const pts = truncateConfirm.newPath;
+                    const splitIdx = truncateConfirm.splitPointIdx;
+                    // 1. Salvar o traçado completo com o ponto do elemento
+                    updateRoutePathMut.mutate({
+                      id: editingRouteId,
+                      path: JSON.stringify(pts),
+                      fromElementId: snapFromIdRef.current ?? undefined,
+                      toElementId: snapToIdRef.current ?? undefined,
+                    }, {
+                      onSuccess: () => {
+                        // 2. Dividir o cabo no índice do ponto encaixado
+                        splitRouteMut.mutate({
+                          id: editingRouteId!,
+                          splitPointIndex: splitIdx,
+                          elementId: truncateConfirm.snappedId,
+                        }, {
+                          onSuccess: () => {
+                            toast.success(`Cabo dividido em "${truncateConfirm.snappedName}" — dois segmentos criados`);
+                            cancelEditRoutePath();
+                            setTruncateConfirm(null);
+                          },
+                          onError: (e) => toast.error(`Erro ao dividir: ${e.message}`),
+                        });
+                      },
+                      onError: (e) => toast.error(`Erro ao salvar traçado: ${e.message}`),
+                    });
+                  }}
+                >
+                  <p className="text-xs font-semibold text-purple-400 mb-1">✂ Dividir cabo neste elemento</p>
+                  <p className="text-xs text-muted-foreground">Cria dois cabos separados: o primeiro termina neste elemento (destino) e o segundo começa neste elemento (origem). O traçado completo é preservado.</p>
                 </button>
               </div>
             </div>
