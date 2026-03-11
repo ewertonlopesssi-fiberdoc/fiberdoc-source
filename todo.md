@@ -1487,3 +1487,8 @@
 ## Bugs — Edição de traçado — 10/03/2026
 - [x] Dificuldade ao arrastar extremidades do traçado — reescrito com Pointer Events (unifica mouse+touch, setPointerCapture garante drag mesmo saindo do marcador)
 - [x] Truncagem incorrecta ao vincular ponto do meio a elemento — corrigida lógica de slice e actualização de snapFromId/snapToId
+
+## Bugs — Editor de traçado v2 — 10/03/2026
+- [x] Ponto laranja da extremidade não fica livre para arrastar — snap só activa após o utilizador mover >50m do ponto inicial (hasMoved flag)
+- [x] Erro SQL ao desvincular elemento — corrigido updateMapRoute para tratar null explicitamente; frontend envia null em vez de undefined
+- [x] Ao vincular ponto do meio, dialog agora mostra as duas opções (manter do ponto até ao fim OU do início até ao ponto) para o utilizador escolher

@@ -2216,10 +2216,18 @@ export async function createMapRoute(data: Omit<InsertMapRoute, "id" | "createdA
   );
   return (result as any).insertId;
 }
-export async function updateMapRoute(id: number, data: Partial<Omit<InsertMapRoute, "id" | "createdAt" | "updatedAt">>): Promise<void> {
+export async function updateMapRoute(id: number, data: Partial<Omit<InsertMapRoute, "id" | "createdAt" | "updatedAt">> & { fromElementId?: number | null; toElementId?: number | null; fromTubeId?: number | null; toTubeId?: number | null }): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  await db.update(mapRoutes).set(data).where(eq(mapRoutes.id, id));
+  // Construir o set explicitamente para garantir que null é enviado como NULL (não undefined)
+  const setData: Record<string, any> = { ...data };
+  // Campos que podem ser null (desvincular): tratar null explicitamente
+  for (const field of ["fromElementId", "toElementId", "fromTubeId", "toTubeId"] as const) {
+    if (field in data) {
+      setData[field] = data[field] === null ? null : data[field];
+    }
+  }
+  await db.update(mapRoutes).set(setData).where(eq(mapRoutes.id, id));
 }
 export async function deleteMapRoute(id: number): Promise<void> {
   const db = await getDb();

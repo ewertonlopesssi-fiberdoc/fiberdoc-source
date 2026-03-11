@@ -1207,12 +1207,22 @@ export default function InfrastructureMap() {
         return best ? { id: best.id, lat: Number(best.lat), lng: Number(best.lng), name: best.name ?? `El. ${best.id}` } : null;
       };
 
+      // Posição inicial do ponto (para ignorar snap ao elemento actual no início do drag)
+      const initialLat = pt.lat;
+      const initialLng = pt.lng;
+      let hasMoved = false; // true após o utilizador mover o ponto pelo menos 0.0005° (~50m)
+
       // Movimento: actualizar posição do marcador e polilinha
       const handleDragMove = (clientX: number, clientY: number) => {
         if (!dragging) return;
         const ll = clientToLatLng(clientX, clientY);
         if (!ll) return;
-        const snap = findSnap(ll.lat, ll.lng);
+        // Marcar como movido se o utilizador arrastou pelo menos ~50m do ponto inicial
+        if (!hasMoved && Math.hypot(ll.lat - initialLat, ll.lng - initialLng) > 0.0005) {
+          hasMoved = true;
+        }
+        // Snap: só activo após o utilizador ter movido o ponto (evita prender ao elemento actual)
+        const snap = hasMoved ? findSnap(ll.lat, ll.lng) : null;
         const moveLat = snap ? snap.lat : ll.lat;
         const moveLng = snap ? snap.lng : ll.lng;
         cm.setLatLng([moveLat, moveLng]);
@@ -1515,8 +1525,9 @@ export default function InfrastructureMap() {
     updateRoutePathMut.mutate({
       id: editingRouteId,
       path: JSON.stringify(pts),
-      fromElementId: newFromId ?? undefined,
-      toElementId: newToId ?? undefined,
+      // null significa desvincular, undefined significa "não alterar" — usar null explicitamente
+      fromElementId: newFromId !== undefined ? newFromId : null,
+      toElementId: newToId !== undefined ? newToId : null,
     });
     cancelEditRoutePath();
   }, [editingRouteId, elements, updateRoutePathMut, cancelEditRoutePath]);
@@ -3304,48 +3315,66 @@ export default function InfrastructureMap() {
 
       {/* Diálogo de confirmação de truncagem do traçado */}
       <Dialog open={truncateConfirm !== null} onOpenChange={(open) => { if (!open) setTruncateConfirm(null); }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Cable className="w-4 h-4 text-amber-400" />
               Vincular extremidade ao elemento
             </DialogTitle>
           </DialogHeader>
-          {truncateConfirm && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Deseja vincular o traçado ao elemento <span className="font-semibold text-foreground">"{truncateConfirm.snappedName}"</span> como nova <span className="font-semibold text-amber-400">{truncateConfirm.isCloserToStart ? "origem" : "destino"}</span>?
-              </p>
-              <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-300 space-y-1">
-                <p className="font-medium">Os seguintes pontos serão removidos do traçado:</p>
-                <p>{truncateConfirm.isCloserToStart
-                  ? `${editingRoutePath.length - truncateConfirm.newPath.length} ponto(s) antes da nova origem`
-                  : `${editingRoutePath.length - truncateConfirm.newPath.length} ponto(s) após o novo destino`
-                }</p>
-                <p className="text-muted-foreground">O traçado passará de {editingRoutePath.length} para {truncateConfirm.newPath.length} ponto(s).</p>
+          {truncateConfirm && (() => {
+            const pts = editingRoutePath;
+            const idx = truncateConfirm.isCloserToStart
+              ? pts.length - truncateConfirm.newPath.length   // índice do ponto arrastado (mais perto do início)
+              : truncateConfirm.newPath.length - 1;           // índice do ponto arrastado (mais perto do fim)
+            // Opção A: manter do ponto arrastado até ao fim (elemento = nova origem)
+            const pathA = pts.slice(idx);
+            // Opção B: manter do início até ao ponto arrastado (elemento = novo destino)
+            const pathB = pts.slice(0, idx + 1);
+            return (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Arraste o ponto até <span className="font-semibold text-foreground">"{truncateConfirm.snappedName}"</span>. Escolha qual parte do traçado manter:
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    className="rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 p-3 text-left transition-colors"
+                    onClick={() => {
+                      editingRoutePathRef.current = pathA;
+                      snapFromIdRef.current = truncateConfirm.snappedId;
+                      snapToIdRef.current = snapToIdRef.current; // manter destino actual
+                      setEditingRoutePath([...pathA]);
+                      renderEditRouteMarkers([...pathA], truncateConfirm.routeColor);
+                      toast.success(`Origem vinculada a "${truncateConfirm.snappedName}" (${pathA.length} pontos)`);
+                      setTruncateConfirm(null);
+                    }}
+                  >
+                    <p className="text-xs font-semibold text-amber-400 mb-1">→ Manter do ponto até ao fim</p>
+                    <p className="text-xs text-muted-foreground">{truncateConfirm.snappedName} vira <strong>nova origem</strong></p>
+                    <p className="text-xs text-muted-foreground mt-1">{pathA.length} ponto(s) mantidos, {pts.length - pathA.length} removidos</p>
+                  </button>
+                  <button
+                    className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 p-3 text-left transition-colors"
+                    onClick={() => {
+                      editingRoutePathRef.current = pathB;
+                      snapToIdRef.current = truncateConfirm.snappedId;
+                      snapFromIdRef.current = snapFromIdRef.current; // manter origem actual
+                      setEditingRoutePath([...pathB]);
+                      renderEditRouteMarkers([...pathB], truncateConfirm.routeColor);
+                      toast.success(`Destino vinculado a "${truncateConfirm.snappedName}" (${pathB.length} pontos)`);
+                      setTruncateConfirm(null);
+                    }}
+                  >
+                    <p className="text-xs font-semibold text-cyan-400 mb-1">← Manter do início até ao ponto</p>
+                    <p className="text-xs text-muted-foreground">{truncateConfirm.snappedName} vira <strong>novo destino</strong></p>
+                    <p className="text-xs text-muted-foreground mt-1">{pathB.length} ponto(s) mantidos, {pts.length - pathB.length} removidos</p>
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setTruncateConfirm(null)}>Cancelar</Button>
-            <Button
-              className="bg-amber-500 hover:bg-amber-600 text-white"
-              onClick={() => {
-                if (!truncateConfirm) return;
-                editingRoutePathRef.current = truncateConfirm.newPath;
-                if (truncateConfirm.isCloserToStart) {
-                  snapFromIdRef.current = truncateConfirm.snappedId;
-                } else {
-                  snapToIdRef.current = truncateConfirm.snappedId;
-                }
-                setEditingRoutePath([...truncateConfirm.newPath]);
-                renderEditRouteMarkers([...truncateConfirm.newPath], truncateConfirm.routeColor);
-                toast.success(`${truncateConfirm.isCloserToStart ? "Origem" : "Destino"} vinculado a "${truncateConfirm.snappedName}"`);
-                setTruncateConfirm(null);
-              }}
-            >
-              Confirmar vinculação
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
