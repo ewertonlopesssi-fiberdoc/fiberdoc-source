@@ -352,9 +352,13 @@ export function OltDetailPanel({
     new Map(
       ports
         .filter(p => p.slotId)
-        .map(p => [p.slotId, { id: p.slotId, slotNumber: p.slotNumber, slotLabel: p.slotLabel }])
+        .map(p => [p.slotId, {
+          id: p.slotId,
+          slotNumber: p.slotNumber ?? String(p.slotId),
+          slotLabel: p.slotLabel ?? null,
+        }])
     ).values()
-  );
+  ).sort((a, b) => String(a.slotNumber).localeCompare(String(b.slotNumber), undefined, { numeric: true }));
   const portsWithoutSlot = ports.filter(p => !p.slotId);
   const portsForSelectedSlot = selectedSlotId === "__no_slot__"
     ? portsWithoutSlot
@@ -461,7 +465,9 @@ export function OltDetailPanel({
                           <SelectContent className="z-[99999]">
                             {slots.map(s => (
                               <SelectItem key={s.id} value={String(s.id)}>
-                                Slot {s.slotNumber}{s.slotLabel ? ` — ${s.slotLabel}` : ""}
+                                {s.slotLabel
+                                  ? `Slot ${s.slotNumber} — ${s.slotLabel}`
+                                  : `Slot ${s.slotNumber}`}
                               </SelectItem>
                             ))}
                             {portsWithoutSlot.length > 0 && (
@@ -486,7 +492,7 @@ export function OltDetailPanel({
                         <SelectContent className="z-[99999]">
                           {portsForSelectedSlot.map((p: any) => (
                             <SelectItem key={p.id} value={String(p.id)}>
-                              {p.label || p.portNumber || `Porta #${p.id}`}
+                              {`Porta ${p.portNumber}${p.label ? ` — ${p.label}` : ""}`}
                               {p.type ? ` (${p.type.toUpperCase()})` : ""}
                             </SelectItem>
                           ))}

@@ -3285,13 +3285,16 @@ export async function getOltPortLinks(oltElementId: number): Promise<(OltPortFib
     const ceo = el ? ceoMap.get(el.referenceId) : null;
     const tube = tubeMap.get(link.tubeId);
     const slot = port?.slotId ? slotMap.get(port.slotId) : null;
-    const portDisplayName = port?.label || port?.portNumber || `Porta #${link.portId}`;
-    const slotDisplay = slot ? `Slot ${slot.slotNumber}${slot.label ? ` — ${slot.label}` : ""}` : null;
+    // Formato: "Porta {portNumber}" + opcionalmente " — {label}"
+    const portBase = port ? `Porta ${port.portNumber}${port.label ? ` — ${port.label}` : ""}` : `Porta #${link.portId}`;
+    const slotDisplay = slot
+      ? (slot.label ? `Slot ${slot.slotNumber} — ${slot.label}` : `Slot ${slot.slotNumber}`)
+      : null;
     return {
       ...link,
       portLabel: port?.label ?? null,
-      portNumber: port?.portNumber ?? `Porta #${link.portId}`,
-      portName: slotDisplay ? `${slotDisplay} / ${portDisplayName}` : portDisplayName,
+      portNumber: port?.portNumber ?? String(link.portId),
+      portName: slotDisplay ? `${slotDisplay} / ${portBase}` : portBase,
       slotNumber: slot?.slotNumber ?? null,
       slotLabel: slot?.label ?? null,
       ceoName: ceo?.name ?? `CEO #${link.ceoElementId}`,
