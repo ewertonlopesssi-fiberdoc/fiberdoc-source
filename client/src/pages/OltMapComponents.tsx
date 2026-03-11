@@ -341,8 +341,7 @@ export function OltDetailPanel({
   };
 
   const getPortLabel = (p: any) => {
-    const slotId = p.slotLabel || p.slotNumber;
-    const slotPrefix = slotId ? `Slot ${slotId} / ` : "";
+    const slotPrefix = p.slotNumber ? `${p.slotNumber} / ` : "";
     const portName = p.label || p.portNumber || `Porta #${p.id}`;
     const type = p.type ? ` (${p.type.toUpperCase()})` : "";
     return `${slotPrefix}${portName}${type}`;
@@ -466,7 +465,7 @@ export function OltDetailPanel({
                           <SelectContent className="z-[99999]">
                             {slots.map(s => (
                               <SelectItem key={s.id} value={String(s.id)}>
-                                {`Slot ${s.slotLabel || s.slotNumber}`}
+                                {s.slotNumber}
                               </SelectItem>
                             ))}
                             {portsWithoutSlot.length > 0 && (
@@ -740,18 +739,14 @@ export function OltDetailPanel({
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-400 bg-amber-500/10 max-w-full">
                                 <span className="truncate">
-                                  {(link.slotLabel || link.slotNumber) ? `Slot ${link.slotLabel || link.slotNumber} / ` : ""}
+                                  {link.slotNumber ? `${link.slotNumber} / ` : ""}
                                   {link.portName ?? link.portLabel ?? `Porta #${link.portId}`}
                                 </span>
                               </Badge>
                               <span className="text-xs font-semibold text-amber-300">{txPower > 0 ? "+" : ""}{txPower} dBm</span>
                             </div>
                             {/* Slot info (se disponível) */}
-                            {(link.slotLabel || link.slotNumber) && (
-                              <div className="text-[10px] text-muted-foreground/60 mb-0.5">
-                                Slot {link.slotLabel || link.slotNumber}
-                              </div>
-                            )}
+
                             <div className="text-xs text-muted-foreground">
                               <span className="text-foreground/80">{link.ceoName ?? getCeoName(link.ceoElementId)}</span>
                               {" → "}
