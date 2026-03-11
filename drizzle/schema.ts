@@ -1120,3 +1120,20 @@ export const oltPortFiberLinks = mysqlTable("olt_port_fiber_links", {
 });
 export type OltPortFiberLink = typeof oltPortFiberLinks.$inferSelect;
 export type InsertOltPortFiberLink = typeof oltPortFiberLinks.$inferInsert;
+
+// ─── Associações de Vias da CTO (tubo ↔ splitter) ────────────────────────────
+// Permite associar vias de tubos CTO a vias de splitters CTO (e vice-versa).
+// sourceType: "tube" | "splitter"  (indica de qual tabela vem a via de origem)
+// targetType: "tube" | "splitter"  (indica de qual tabela vem a via de destino)
+export const ctoViaAssociations = mysqlTable("cto_via_associations", {
+  id: int("id").autoincrement().primaryKey(),
+  ctoId: int("ctoId").notNull(),
+  sourceType: mysqlEnum("cto_assoc_source_type", ["tube", "splitter"]).notNull(),
+  sourceViaId: int("sourceViaId").notNull(),       // FK cto_vias.id
+  targetType: mysqlEnum("cto_assoc_target_type", ["tube", "splitter"]).notNull(),
+  targetViaId: int("targetViaId").notNull(),       // FK cto_vias.id
+  notes: text("notes"),
+  createdAt: timestamp("cto_assoc_created_at").defaultNow().notNull(),
+});
+export type CtoViaAssociation = typeof ctoViaAssociations.$inferSelect;
+export type InsertCtoViaAssociation = typeof ctoViaAssociations.$inferInsert;

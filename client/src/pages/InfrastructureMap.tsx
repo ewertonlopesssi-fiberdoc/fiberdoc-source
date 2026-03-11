@@ -811,8 +811,9 @@ export default function InfrastructureMap() {
   // Queries de tubos/vias para o painel lateral
   const sidePanelRefId = sidePanel?.kind === "element" ? sidePanel.element.referenceId : 0;
   const sidePanelType = sidePanel?.kind === "element" ? sidePanel.element.type : null;
-  const [expandedTubeIds, setExpandedTubeIds] = useState<Set<number>>(new Set());
-
+   const [expandedTubeIds, setExpandedTubeIds] = useState<Set<number>>(new Set());
+  // Filtro de vias no painel lateral ("all" | "free" | "fused" | "entry")
+  const [ctoViaFilter, setCtoViaFilter] = useState<"all" | "free" | "fused" | "entry">("all");
   // ─── Estados OTDR Virtual ──────────────────────────────────────────────────
   const [otdrMode, setOtdrMode] = useState(false);           // modo OTDR activo
   const [otdrPanelOpen, setOtdrPanelOpen] = useState(false); // painel de input aberto
@@ -943,6 +944,29 @@ export default function InfrastructureMap() {
     { ceoId: sidePanelRefId },
     { enabled: sidePanelType === "ceo" && sidePanelRefId > 0 }
   );
+  const ctoViaAssocQuery = trpc.ctoViaAssociations.byCto.useQuery(
+    { ctoId: sidePanelRefId },
+    { enabled: sidePanelType === "cto" && sidePanelRefId > 0 }
+  );
+  const createCtoSplFusionMut = trpc.ctoViaAssociations.create.useMutation({
+    onSuccess: () => {
+      mapUtils.ctoViaAssociations.byCto.invalidate({ ctoId: sidePanelRefId });
+      mapUtils.ctoVias.byCto.invalidate({ ctoId: sidePanelRefId });
+      mapUtils.ctoVias.byTube.invalidate();
+      setFusionDialogOpen(false);
+      toast.success("Fusão registrada");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteCtoSplFusionMut = trpc.ctoViaAssociations.deleteByVias.useMutation({
+    onSuccess: () => {
+      mapUtils.ctoViaAssociations.byCto.invalidate({ ctoId: sidePanelRefId });
+      mapUtils.ctoVias.byCto.invalidate({ ctoId: sidePanelRefId });
+      mapUtils.ctoVias.byTube.invalidate();
+      toast.success("Fusão removida");
+    },
+    onError: (e) => toast.error(e.message),
+  });
   // Splitter fusion dialog state
   const [splFusionDialogOpen, setSplFusionDialogOpen] = useState(false);
   const [splFusionSourceVia, setSplFusionSourceVia] = useState<{ id: number; viaNumber: number; splitterId: number } | null>(null);
@@ -2544,6 +2568,7 @@ export default function InfrastructureMap() {
           const ceoSplitters = (!isCto ? ceoSplittersQuery.data : undefined) as any[] | undefined;
           const ceoSplitterVias = (!isCto ? ceoSplitterViasQuery.data : undefined) as any[] | undefined;
           const ceoViaAssocs = (!isCto ? ceoViaAssocQuery.data : undefined) as any[] | undefined;
+          const ctoViaAssocs = (isCto ? ctoViaAssocQuery.data : undefined) as any[] | undefined;
           const isLoadingTubes = isCto ? ctoTubesQuery.isLoading : ceoTubesQuery.isLoading;
           if (isLoadingTubes) return (
             <div className="border-t border-border pt-2">
@@ -2557,6 +2582,18 @@ export default function InfrastructureMap() {
           );
           const tubeCount = tubes?.length ?? 0;
           const splitterCount = ceoSplitters?.length ?? 0;
+          // Estatísticas de ocupação globais para CTO
+          const ctoAllVias = isCto ? (allVias ?? []) : [];
+          const ctoTotalVias = ctoAllVias.length;
+          const ctoFusedVias = ctoAllVias.filter((v: any) => v.fusedToViaId !== null || (ctoViaAssocs ?? []).some((a: any) =>
+            (a.sourceType === "tube" && a.sourceViaId === v.id) ||
+            (a.targetType === "tube" && a.targetViaId === v.id) ||
+            (a.sourceType === "splitter" && a.sourceViaId === v.id) ||
+            (a.targetType === "splitter" && a.targetViaId === v.id)
+          )).length;
+          const ctoFreeVias = ctoTotalVias - ctoFusedVias;
+          const ctoOccPct = ctoTotalVias > 0 ? Math.round((ctoFusedVias / ctoTotalVias) * 100) : 0;
+          const ctoOccBarColor = ctoOccPct >= 90 ? "#ef4444" : ctoOccPct >= 60 ? "#f59e0b" : "#22c55e";
           return (
             <div className="border-t border-border pt-2">
               <div className="text-xs text-muted-foreground mb-2 font-medium flex items-center gap-1">
@@ -2574,18 +2611,62 @@ export default function InfrastructureMap() {
                   </button>
                 )}
               </div>
+              {/* Indicador de ocupação global + filtro de vias (apenas CTO) */}
+              {isCto && ctoTotalVias > 0 && (
+                <div className="mb-2 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Ocupação geral</span>
+                    <span className="font-semibold" style={{ color: ctoOccBarColor }}>{ctoFusedVias}/{ctoTotalVias} vias ({ctoOccPct}%)</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-muted/40 overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${ctoOccPct}%`, background: ctoOccBarColor }} />
+                  </div>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {(["all", "free", "fused", "entry"] as const).map(f => (
+                      <button
+                        key={f}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors border ${
+                          ctoViaFilter === f
+                            ? "bg-primary/20 border-primary/50 text-primary"
+                            : "bg-transparent border-border/40 text-muted-foreground hover:border-primary/30"
+                        }`}
+                        onClick={() => setCtoViaFilter(f)}
+                      >
+                        {f === "all" ? `Todas (${ctoTotalVias})` : f === "free" ? `Livres (${ctoFreeVias})` : f === "fused" ? `Fundidas (${ctoFusedVias})` : "Entrada"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {(!tubes || tubes.length === 0) && (
                 <div className="text-xs text-muted-foreground/60 italic py-1">Nenhum tubo cadastrado. Clique em "Adicionar" para criar.</div>
               )}
               <div className="space-y-1">
                 {(tubes ?? []).map((tube: any) => {
-                  const tubVias = (allVias ?? []).filter((v: any) => v.tubeId === tube.id);
-                  const fusedCount = tubVias.filter((v: any) => v.fusedToViaId !== null).length;
+                  const tubViasAll = (allVias ?? []).filter((v: any) => v.tubeId === tube.id);
+                  // Contar fusões incluindo associações tubo-splitter
+                  const fusedCount = tubViasAll.filter((v: any) => v.fusedToViaId !== null || (isCto ? (ctoViaAssocs ?? []) : (ceoViaAssocs ?? [])).some((a: any) =>
+                    (a.sourceType === "tube" && a.sourceViaId === v.id) ||
+                    (a.targetType === "tube" && a.targetViaId === v.id)
+                  )).length;
                   const total = tube.totalVias;
                   const pct = total > 0 ? Math.round((fusedCount / total) * 100) : 0;
                   // NOTE: For CEO, splitters are rendered separately below
                   const isExpanded = expandedTubeIds.has(tube.id);
                   const barColor = pct >= 90 ? "#ef4444" : pct >= 60 ? "#f59e0b" : "#22c55e";
+                  // Aplicar filtro de vias (apenas CTO)
+                  const tubVias = isCto && ctoViaFilter !== "all"
+                    ? tubViasAll.filter((v: any) => {
+                        const isViaFused = v.fusedToViaId !== null || (ctoViaAssocs ?? []).some((a: any) =>
+                          (a.sourceType === "tube" && a.sourceViaId === v.id) ||
+                          (a.targetType === "tube" && a.targetViaId === v.id)
+                        );
+                        if (ctoViaFilter === "free") return !isViaFused && v.viaNumber !== 0;
+                        if (ctoViaFilter === "fused") return isViaFused;
+                        if (ctoViaFilter === "entry") return v.viaNumber === 0;
+                        return true;
+                      })
+                    : tubViasAll;
                   return (
                     <div key={tube.id} className="rounded border border-border/40 overflow-hidden">
                       {/* Cabeçalho do tubo com botões de ação */}
@@ -2635,7 +2716,8 @@ export default function InfrastructureMap() {
                           {tubVias.length === 0 && <div className="text-xs text-muted-foreground/50 italic py-0.5">Nenhuma via cadastrada</div>}
                           {tubVias.sort((a: any, b: any) => a.viaNumber - b.viaNumber).map((via: any) => {
                             // Verificar fusão directa (tubo-tubo) ou via associação (tubo-splitter)
-                            const assocForVia = (ceoViaAssocs ?? []).find((a: any) =>
+                            const viaAssocs = isCto ? (ctoViaAssocs ?? []) : (ceoViaAssocs ?? []);
+                            const assocForVia = viaAssocs.find((a: any) =>
                               (a.sourceType === "tube" && a.sourceViaId === via.id) ||
                               (a.targetType === "tube" && a.targetViaId === via.id)
                             );
@@ -2650,7 +2732,11 @@ export default function InfrastructureMap() {
                                     if (isFused) {
                                       if (assocForVia) {
                                         // Fusão via associação (tubo-splitter): apagar a associação
-                                        deleteSplFusionMut.mutate({ ceoId: sidePanelRefId, viaId1: assocForVia.sourceViaId, viaId2: assocForVia.targetViaId });
+                                        if (isCto) {
+                                          deleteCtoSplFusionMut.mutate({ ctoId: sidePanelRefId, viaId1: assocForVia.sourceViaId, viaId2: assocForVia.targetViaId });
+                                        } else {
+                                          deleteSplFusionMut.mutate({ ceoId: sidePanelRefId, viaId1: assocForVia.sourceViaId, viaId2: assocForVia.targetViaId });
+                                        }
                                       } else {
                                         setClearFusionConfirm({ id: via.id, viaNumber: via.viaNumber, isCto });
                                       }
@@ -4558,19 +4644,40 @@ export default function InfrastructureMap() {
           {fusionSourceVia && (() => {
             const rawTubes = (fusionSourceVia.isCto ? ctoTubesQuery.data : ceoTubesQuery.data) as any[] | undefined;
             const rawSplitters = (!fusionSourceVia.isCto ? ceoSplittersQuery.data : undefined) as any[] | undefined;
-            // Combine tubes + splitters (splitters marked with type="splitter" and prefixed id "spl_<id>")
-            const tubes = [
-              ...(rawTubes ?? []),
-              ...(rawSplitters ?? []).map((s: any) => ({ ...s, _isSplitter: true, _splId: s.id, id: `spl_${s.id}`, type: "splitter" })),
-            ];
+            // Para CTO: splitters são tubos com type="splitter" na mesma tabela cto_tubes
+            const rawCtoSplitters = fusionSourceVia.isCto
+              ? (rawTubes ?? []).filter((t: any) => t.type === "splitter")
+              : [];
+            const rawCtoNormalTubes = fusionSourceVia.isCto
+              ? (rawTubes ?? []).filter((t: any) => t.type !== "splitter")
+              : [];
+            // Combine tubes + splitters (splitters marked with prefixed id "spl_<id>")
+            const tubes = fusionSourceVia.isCto
+              ? [
+                  ...rawCtoNormalTubes,
+                  ...rawCtoSplitters.map((s: any) => ({ ...s, _isSplitter: true, _splId: s.id, id: `spl_${s.id}` })),
+                ]
+              : [
+                  ...(rawTubes ?? []),
+                  ...(rawSplitters ?? []).map((s: any) => ({ ...s, _isSplitter: true, _splId: s.id, id: `spl_${s.id}`, type: "splitter" })),
+                ];
             const allVias = (fusionSourceVia.isCto ? ctoViasQuery.data : ceoViasQuery.data) as any[] | undefined;
             const allSplVias = (!fusionSourceVia.isCto ? ceoSplitterViasQuery.data : undefined) as any[] | undefined;
+            // Para CTO: vias dos splitters vêm da mesma tabela cto_vias
+            const allCtoSplVias = fusionSourceVia.isCto ? (allVias ?? []).filter((v: any) => {
+              const splTube = rawCtoSplitters.find((s: any) => s.id === v.tubeId);
+              return !!splTube;
+            }) : [];
             const targetTube = tubes.find((t: any) => String(t.id) === fusionTargetTubeId);
             const isSplitterTarget = targetTube?.type === "splitter";
             const targetSplId = isSplitterTarget ? targetTube?._splId : null;
             const targetVias = targetTube
               ? isSplitterTarget
-                ? (allSplVias ?? []).filter((v: any) => v.splitterId === targetSplId)
+                ? fusionSourceVia.isCto
+                  // CTO splitter: vias vêm de cto_vias filtradas por tubeId do splitter
+                  ? allCtoSplVias.filter((v: any) => v.tubeId === targetSplId)
+                  // CEO splitter: vias vêm de ceo_splitter_vias filtradas por splitterId
+                  : (allSplVias ?? []).filter((v: any) => v.splitterId === targetSplId)
                 : (allVias ?? []).filter((v: any) => v.tubeId === Number(fusionTargetTubeId) && v.fusedToViaId === null && v.id !== fusionSourceVia.id)
               : [];
             return (
@@ -4634,12 +4741,21 @@ export default function InfrastructureMap() {
            <DialogFooter>
             <Button variant="outline" onClick={() => setFusionDialogOpen(false)}>Cancelar</Button>
             <Button
-              disabled={!fusionTargetTubeId || !fusionTargetViaId || setCtoFusionMut.isPending || setCeoFusionMut.isPending || createSplFusionMut.isPending}
+              disabled={!fusionTargetTubeId || !fusionTargetViaId || setCtoFusionMut.isPending || setCeoFusionMut.isPending || createSplFusionMut.isPending || createCtoSplFusionMut.isPending}
               onClick={() => {
                 if (!fusionSourceVia || !fusionTargetTubeId || !fusionTargetViaId) return;
                 const isSplDest = fusionTargetTubeId.startsWith("spl_");
-                if (isSplDest && !fusionSourceVia.isCto) {
-                  // Via de tubo -> via de splitter: usar associação
+                if (isSplDest && fusionSourceVia.isCto) {
+                  // Via de tubo CTO -> via de splitter CTO: usar associação CTO
+                  createCtoSplFusionMut.mutate({
+                    ctoId: sidePanelRefId,
+                    sourceType: "tube",
+                    sourceViaId: fusionSourceVia.id,
+                    targetType: "splitter",
+                    targetViaId: Number(fusionTargetViaId),
+                  });
+                } else if (isSplDest && !fusionSourceVia.isCto) {
+                  // Via de tubo CEO -> via de splitter CEO: usar associação CEO
                   createSplFusionMut.mutate({
                     ceoId: sidePanelRefId,
                     sourceType: "tube",
@@ -4655,7 +4771,7 @@ export default function InfrastructureMap() {
                 }
               }}
             >
-              {setCtoFusionMut.isPending || setCeoFusionMut.isPending || createSplFusionMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Registrar Fusão"}
+              {setCtoFusionMut.isPending || setCeoFusionMut.isPending || createSplFusionMut.isPending || createCtoSplFusionMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Registrar Fusão"}
             </Button>
           </DialogFooter>
         </DialogContent>

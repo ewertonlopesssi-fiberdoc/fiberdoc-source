@@ -822,7 +822,7 @@ export async function bulkImportFibers(
 }
 
 // ─── CEO Helpers ──────────────────────────────────────────────────────────────
-import { ceos, ceoTubes, ceoVias, InsertCeo, InsertCeoTube, InsertCeoVia, ceoBandejas, InsertCeoBandeja, ceoSplitters, InsertCeoSplitter, ceoSplitterVias, InsertCeoSplitterVia, ceoViaAssociations, InsertCeoViaAssociation, ctoTubes, ctoVias, InsertCtoTube, InsertCtoVia } from "../drizzle/schema";
+import { ceos, ceoTubes, ceoVias, InsertCeo, InsertCeoTube, InsertCeoVia, ceoBandejas, InsertCeoBandeja, ceoSplitters, InsertCeoSplitter, ceoSplitterVias, InsertCeoSplitterVia, ceoViaAssociations, InsertCeoViaAssociation, ctoTubes, ctoVias, InsertCtoTube, InsertCtoVia, ctoViaAssociations, InsertCtoViaAssociation } from "../drizzle/schema";
 
 export async function getCeos(filters?: { roomId?: number; status?: string }) {
   const db = await getDb();
@@ -3660,4 +3660,82 @@ export async function calculateOpticalBalance(
     path: pathWithPower,
     warnings,
   };
+}
+
+// ─── CTO Via Associations (tubo ↔ splitter) ───────────────────────────────────
+export async function getViaAssociationsByCto(ctoId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ctoViaAssociations).where(eq(ctoViaAssociations.ctoId, ctoId));
+}
+
+export async function createCtoViaAssociation(data: Omit<InsertCtoViaAssociation, "id" | "createdAt">) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  // Verificar se já existe associação exacta entre estas vias (evitar duplicados)
+  const existing = await db.select().from(ctoViaAssociations).where(
+    and(
+      eq(ctoViaAssociations.ctoId, data.ctoId),
+      eq(ctoViaAssociations.sourceViaId, data.sourceViaId),
+      eq(ctoViaAssociations.targetViaId, data.targetViaId),
+    )
+  ).limit(1);
+  if (existing.length > 0) return existing[0].id;
+  // Verificar se a via source já tem qualquer associação
+  const existingSrcAsSource = await db.select().from(ctoViaAssociations).where(
+    and(
+      eq(ctoViaAssociations.ctoId, data.ctoId),
+      eq(ctoViaAssociations.sourceViaId, data.sourceViaId),
+    )
+  ).limit(1);
+  if (existingSrcAsSource.length > 0) throw new Error("Esta via já tem uma fusão associada.");
+  const existingSrcAsTarget = await db.select().from(ctoViaAssociations).where(
+    and(
+      eq(ctoViaAssociations.ctoId, data.ctoId),
+      eq(ctoViaAssociations.targetViaId, data.sourceViaId),
+    )
+  ).limit(1);
+  if (existingSrcAsTarget.length > 0) throw new Error("Esta via já tem uma fusão associada.");
+  // Verificar se a via target já tem qualquer associação
+  const existingTgtAsTarget = await db.select().from(ctoViaAssociations).where(
+    and(
+      eq(ctoViaAssociations.ctoId, data.ctoId),
+      eq(ctoViaAssociations.targetViaId, data.targetViaId),
+    )
+  ).limit(1);
+  if (existingTgtAsTarget.length > 0) throw new Error("Esta via já tem uma fusão associada.");
+  const existingTgtAsSource = await db.select().from(ctoViaAssociations).where(
+    and(
+      eq(ctoViaAssociations.ctoId, data.ctoId),
+      eq(ctoViaAssociations.sourceViaId, data.targetViaId),
+    )
+  ).limit(1);
+  if (existingTgtAsSource.length > 0) throw new Error("Esta via já tem uma fusão associada.");
+  const result = await db.insert(ctoViaAssociations).values(data);
+  return (result as any)[0]?.insertId ?? 0;
+}
+
+export async function deleteCtoViaAssociation(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.delete(ctoViaAssociations).where(eq(ctoViaAssociations.id, id));
+}
+
+export async function deleteCtoViaAssociationByVias(ctoId: number, viaId1: number, viaId2: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.delete(ctoViaAssociations).where(
+    and(
+      eq(ctoViaAssociations.ctoId, ctoId),
+      eq(ctoViaAssociations.sourceViaId, viaId1),
+      eq(ctoViaAssociations.targetViaId, viaId2),
+    )
+  );
+  await db.delete(ctoViaAssociations).where(
+    and(
+      eq(ctoViaAssociations.ctoId, ctoId),
+      eq(ctoViaAssociations.sourceViaId, viaId2),
+      eq(ctoViaAssociations.targetViaId, viaId1),
+    )
+  );
 }

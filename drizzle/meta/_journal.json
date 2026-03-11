@@ -358,6 +358,13 @@
       "when": 1773237962925,
       "tag": "0050_bouncy_smiling_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "5",
+      "when": 1773256629235,
+      "tag": "0051_common_gladiator",
+      "breakpoints": true
     }
   ]
 }

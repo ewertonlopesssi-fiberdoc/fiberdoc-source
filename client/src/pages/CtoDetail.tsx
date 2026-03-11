@@ -311,7 +311,12 @@ function TubePanel({
     setFiberSearch("");
   }
 
-  const fusedCount = (vias as Via[]).filter(v => v.fusedToViaId !== null).length;
+  // Para splitters: contar saídas ocupadas (excluir via de entrada viaNumber=0)
+  const splitterOutputVias = tube.type === "splitter" ? (vias as Via[]).filter(v => v.viaNumber !== 0) : (vias as Via[]);
+  const fusedCount = splitterOutputVias.filter(v => v.fusedToViaId !== null).length;
+  const splitterTotalOutputs = tube.type === "splitter" ? splitterOutputVias.length : tube.totalVias;
+  const occupancyPct = splitterTotalOutputs > 0 ? Math.round((fusedCount / splitterTotalOutputs) * 100) : 0;
+  const occupancyBarColor = occupancyPct >= 90 ? "#ef4444" : occupancyPct >= 60 ? "#f59e0b" : "#22c55e";
   const otherTubes = tubes.filter(t => t.id !== tube.id);
 
   const filteredFibers = fibers.filter(f =>
@@ -344,7 +349,10 @@ function TubePanel({
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              {tube.totalVias} vias · {fusedCount} fusionada{fusedCount !== 1 ? "s" : ""}
+              {tube.type === "splitter"
+                ? `${splitterTotalOutputs} saídas · ${fusedCount} ocupada${fusedCount !== 1 ? "s" : ""}`
+                : `${tube.totalVias} vias · ${fusedCount} fusionada${fusedCount !== 1 ? "s" : ""}`
+              }
             </p>
           </div>
         </div>
@@ -352,12 +360,12 @@ function TubePanel({
         <div className="flex items-center gap-1">
           <div className="h-2 w-20 rounded-full bg-muted overflow-hidden mr-2">
             <div
-              className="h-full bg-cyan-500 rounded-full transition-all"
-              style={{ width: `${tube.totalVias > 0 ? (fusedCount / tube.totalVias) * 100 : 0}%` }}
+              className="h-full rounded-full transition-all"
+              style={{ width: `${occupancyPct}%`, background: occupancyBarColor }}
             />
           </div>
-          <span className="text-xs text-muted-foreground mr-3">
-            {tube.totalVias > 0 ? Math.round((fusedCount / tube.totalVias) * 100) : 0}%
+          <span className="text-xs mr-3" style={{ color: occupancyBarColor }}>
+            {occupancyPct}%
           </span>
           {isAdmin && (
             <button

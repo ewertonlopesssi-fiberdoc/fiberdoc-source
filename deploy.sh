@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  FiberDoc — Script de Implantação v8.0
+#  FiberDoc — Script de Implantação v5.93.30
 #  Uso: bash deploy.sh [FIBERDOC_DIR] [FIBERDOC_SERVICE]
 #  Padrões: /opt/fiberdoc  e  fiberdoc
 # =============================================================================
@@ -13,7 +13,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "============================================================"
-echo "  FiberDoc — Implantação v8.0"
+echo "  FiberDoc — Implantação v5.93.30"
 echo "  Diretório: ${FIBERDOC_DIR}"
 echo "  Serviço:   ${FIBERDOC_SERVICE}"
 echo "  Data/Hora: $(date '+%d/%m/%Y %H:%M:%S')"
@@ -57,6 +57,9 @@ rsync -a --delete "${SCRIPT_DIR}/dist/" "${FIBERDOC_DIR}/dist/"
 [[ -f "${SCRIPT_DIR}/pnpm-lock.yaml" ]]  && cp "${SCRIPT_DIR}/pnpm-lock.yaml"  "${FIBERDOC_DIR}/pnpm-lock.yaml"  || true
 [[ -f "${SCRIPT_DIR}/migrate-v7.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v7.sql"  "${FIBERDOC_DIR}/migrate-v7.sql"  || true
 [[ -f "${SCRIPT_DIR}/migrate-v8.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v8.sql"  "${FIBERDOC_DIR}/migrate-v8.sql"  || true
+[[ -f "${SCRIPT_DIR}/migrate-v9.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v9.sql"  "${FIBERDOC_DIR}/migrate-v9.sql"  || true
+[[ -f "${SCRIPT_DIR}/migrate-v10.sql" ]] && cp "${SCRIPT_DIR}/migrate-v10.sql" "${FIBERDOC_DIR}/migrate-v10.sql" || true
+[[ -f "${SCRIPT_DIR}/migrate-v11.sql" ]] && cp "${SCRIPT_DIR}/migrate-v11.sql" "${FIBERDOC_DIR}/migrate-v11.sql" || true
 echo "      Artefactos copiados."
 
 # ── 6. Instalar dependências ─────────────────────────────────────────────────
@@ -155,6 +158,9 @@ if [[ -z "${DB_URL}" ]]; then
   echo "          Após configurar, execute manualmente:"
   echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v7.sql"
   echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v8.sql"
+  echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v9.sql"
+  echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v10.sql"
+  echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v11.sql"
 else
   # Parsear a URL: mysql://user:pass@host:port/dbname?...
   # Remover prefixo mysql:// e parâmetros após ?
@@ -175,7 +181,7 @@ else
   fi
 
   # Aplicar cada ficheiro de migração em ordem
-  for MIGRATE_VER in "migrate-v7.sql" "migrate-v8.sql"; do
+  for MIGRATE_VER in "migrate-v7.sql" "migrate-v8.sql" "migrate-v9.sql" "migrate-v10.sql" "migrate-v11.sql"; do
     MIGRATE_SQL="${FIBERDOC_DIR}/${MIGRATE_VER}"
     if [[ ! -f "${MIGRATE_SQL}" ]]; then
       MIGRATE_SQL="${SCRIPT_DIR}/${MIGRATE_VER}"
@@ -230,6 +236,6 @@ fi
 
 echo ""
 echo "============================================================"
-echo "  FiberDoc v8.0 implantado com sucesso!"
+echo "  FiberDoc v5.93.30 implantado com sucesso!"
 echo "  Backup anterior: ${BACKUP_DIR}/fiberdoc_backup_${TIMESTAMP}.tar.gz"
 echo "============================================================"

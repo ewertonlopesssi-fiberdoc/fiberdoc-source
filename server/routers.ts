@@ -36,6 +36,7 @@ import {
   getViaAssociationsByCeo, createViaAssociation, deleteViaAssociation, deleteViaAssociationByVias,
   getTubesByCto, createCtoTube, updateCtoTube, deleteCtoTube,
   getViasByCtotube, getViasByCto, setCtoViaFusion, clearCtoViaFusion, updateCtoVia, setCtoViaFiber,
+  getViaAssociationsByCto, createCtoViaAssociation, deleteCtoViaAssociation, deleteCtoViaAssociationByVias,
 } from "./db";
 import {
   createConnection,
@@ -1158,6 +1159,42 @@ export const appRouter = router({
     clearFiber: protectedProcedure
       .input(z.object({ viaId: z.number() }))
       .mutation(async ({ input }) => setCtoViaFiber(input.viaId, null)),
+  }),
+  // ─── CTO Via Associations (tubo ↔ splitter) ───────────────────────────────
+  ctoViaAssociations: router({
+    byCto: protectedProcedure
+      .input(z.object({ ctoId: z.number() }))
+      .query(async ({ input }) => getViaAssociationsByCto(input.ctoId)),
+    create: protectedProcedure
+      .input(z.object({
+        ctoId: z.number(),
+        sourceType: z.enum(["tube", "splitter"]),
+        sourceViaId: z.number(),
+        targetType: z.enum(["tube", "splitter"]),
+        targetViaId: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createCtoViaAssociation({
+          ctoId: input.ctoId,
+          sourceType: input.sourceType,
+          sourceViaId: input.sourceViaId,
+          targetType: input.targetType,
+          targetViaId: input.targetViaId,
+          notes: input.notes ?? null,
+        });
+        return { id };
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => deleteCtoViaAssociation(input.id)),
+    deleteByVias: protectedProcedure
+      .input(z.object({
+        ctoId: z.number(),
+        viaId1: z.number(),
+        viaId2: z.number(),
+      }))
+      .mutation(async ({ input }) => deleteCtoViaAssociationByVias(input.ctoId, input.viaId1, input.viaId2)),
   }),
   // ─── Gerenciamento de Usuários (apenas admin) ──────────────────────────────
   users: router({
