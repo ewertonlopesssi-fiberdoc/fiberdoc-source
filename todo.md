@@ -1500,3 +1500,8 @@
 
 ## Correcção Badge OLT — 11/03/2026
 - [x] Badge de porta OLT mostrava "A / A / Porta 01" (duplicado) — corrigido para usar apenas link.portName que já inclui o slot
+
+## Balanço Óptico CTO — 11/03/2026
+- [x] Corrigir painel de balanço óptico na CtoDetail: campos errados (estimatedPowerDbm→rxPowerDbm, totalDistanceM→distanceKm, oltName/portName inexistentes)
+- [x] Melhorar display: mostrar RX com cor por qualidade, TX da OLT, perdas detalhadas (cabo/splitter/fusão), percurso com potência acumulada por passo
+- [x] Mostrar painel mesmo quando found=false (com avisos de diagnóstico)

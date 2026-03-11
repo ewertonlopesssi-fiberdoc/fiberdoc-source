@@ -1269,82 +1269,142 @@ export default function CtoDetail() {
       </div>
 
       {/* Painel de Balanço Óptico */}
-      {opticalBalance && (opticalBalance as any).found && (
-        <Card className="border-border/50 bg-card">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <div className="h-9 w-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
-                <Zap className="h-4 w-4 text-amber-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="text-sm font-semibold text-foreground">Estimativa de Sinal Óptico</h3>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "text-xs",
-                      (opticalBalance as any).signalQuality === "optimal" && "border-emerald-500/50 text-emerald-400 bg-emerald-500/10",
-                      (opticalBalance as any).signalQuality === "good" && "border-cyan-500/50 text-cyan-400 bg-cyan-500/10",
-                      (opticalBalance as any).signalQuality === "marginal" && "border-amber-500/50 text-amber-400 bg-amber-500/10",
-                      (opticalBalance as any).signalQuality === "weak" && "border-red-500/50 text-red-400 bg-red-500/10",
+      {opticalBalance && (() => {
+        const ob = opticalBalance as any;
+        const rxPower: number | null = ob.rxPowerDbm ?? null;
+        const txPower: number = ob.txPowerDbm ?? 0;
+        const totalLoss: number = ob.totalLossDb ?? 0;
+        const distKm: number = ob.distanceKm ?? 0;
+        const cableLoss: number = ob.cableLossDb ?? 0;
+        const splitterLoss: number = ob.splitterLossDb ?? 0;
+        const fusionLoss: number = ob.fusionLossDb ?? 0;
+        const quality: string = ob.signalQuality ?? "no_signal";
+        const pathSteps: any[] = ob.path ?? [];
+        const warnings: string[] = ob.warnings ?? [];
+        // Encontrar o nome da OLT e porta no percurso
+        const oltStep = pathSteps.find((s: any) => s.type === "olt");
+        const oltLabel = oltStep?.label ?? null;
+        // Cor da potência RX
+        const rxColor = quality === "optimal" ? "text-emerald-400"
+          : quality === "good" ? "text-cyan-400"
+          : quality === "marginal" ? "text-amber-400"
+          : quality === "weak" ? "text-red-400"
+          : "text-muted-foreground";
+        const qualityBadgeClass = quality === "optimal" ? "border-emerald-500/50 text-emerald-400 bg-emerald-500/10"
+          : quality === "good" ? "border-cyan-500/50 text-cyan-400 bg-cyan-500/10"
+          : quality === "marginal" ? "border-amber-500/50 text-amber-400 bg-amber-500/10"
+          : quality === "weak" ? "border-red-500/50 text-red-400 bg-red-500/10"
+          : "border-border/50 text-muted-foreground";
+        const qualityLabel = quality === "optimal" ? "★ Ótimo"
+          : quality === "good" ? "● Bom"
+          : quality === "marginal" ? "▲ Marginal"
+          : quality === "weak" ? "⚠ Fraco"
+          : "✕ Sem sinal";
+        if (!ob.found && warnings.length === 0) return null;
+        return (
+          <Card className="border-border/50 bg-card">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <div className={cn(
+                  "h-9 w-9 rounded-lg border flex items-center justify-center shrink-0",
+                  ob.found ? "bg-amber-500/10 border-amber-500/20" : "bg-muted/30 border-border/30"
+                )}>
+                  <Zap className={cn("h-4 w-4", ob.found ? "text-amber-400" : "text-muted-foreground")} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="text-sm font-semibold text-foreground">Balanço Óptico Estimado</h3>
+                    {ob.found && (
+                      <Badge variant="outline" className={cn("text-xs", qualityBadgeClass)}>
+                        {qualityLabel}
+                      </Badge>
                     )}
-                  >
-                    {(opticalBalance as any).signalQuality === "optimal" && "★ Ótimo"}
-                    {(opticalBalance as any).signalQuality === "good" && "● Bom"}
-                    {(opticalBalance as any).signalQuality === "marginal" && "▲ Marginal"}
-                    {(opticalBalance as any).signalQuality === "weak" && "⚠ Fraco"}
-                  </Badge>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-                  <div className="bg-background/50 rounded-lg p-3 border border-border/30">
-                    <p className="text-xs text-muted-foreground">Potência Estimada</p>
-                    <p className="text-lg font-bold text-amber-400">{((opticalBalance as any).estimatedPowerDbm ?? 0).toFixed(1)} dBm</p>
                   </div>
-                  <div className="bg-background/50 rounded-lg p-3 border border-border/30">
-                    <p className="text-xs text-muted-foreground">OLT / Porta</p>
-                    <p className="text-sm font-semibold text-foreground truncate">{(opticalBalance as any).oltName ?? "-"}</p>
-                    <p className="text-xs text-muted-foreground">{(opticalBalance as any).portName ?? "-"}</p>
-                  </div>
-                  <div className="bg-background/50 rounded-lg p-3 border border-border/30">
-                    <p className="text-xs text-muted-foreground">Distância Total</p>
-                    <p className="text-sm font-semibold text-foreground">{(((opticalBalance as any).totalDistanceM ?? 0) / 1000).toFixed(2)} km</p>
-                  </div>
-                  <div className="bg-background/50 rounded-lg p-3 border border-border/30">
-                    <p className="text-xs text-muted-foreground">Perda Total</p>
-                    <p className="text-sm font-semibold text-red-400">-{((opticalBalance as any).totalLossDb ?? 0).toFixed(1)} dB</p>
-                  </div>
-                </div>
-                {/* Percurso detalhado */}
-                {(opticalBalance as any).path && (opticalBalance as any).path.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Percurso</p>
-                    <div className="flex flex-wrap items-center gap-1">
-                      {((opticalBalance as any).path as any[]).map((step: any, i: number) => (
-                        <span key={i} className="flex items-center gap-1">
-                          {i > 0 && <span className="text-muted-foreground text-xs">→</span>}
-                          <span className={cn(
-                            "text-xs px-2 py-0.5 rounded-full border",
-                            step.type === "olt" && "bg-amber-500/10 border-amber-500/30 text-amber-300",
-                            step.type === "ceo" && "bg-blue-500/10 border-blue-500/30 text-blue-300",
-                            step.type === "cto" && "bg-emerald-500/10 border-emerald-500/30 text-emerald-300",
-                            step.type === "splitter" && "bg-violet-500/10 border-violet-500/30 text-violet-300",
-                            step.type === "cable" && "bg-muted/50 border-border/30 text-muted-foreground",
-                          )}>
-                            {step.label}
-                            {step.lossDb != null && step.lossDb !== 0 && (
-                              <span className="ml-1 opacity-70">(-{Math.abs(step.lossDb).toFixed(1)} dB)</span>
-                            )}
-                          </span>
-                        </span>
+                  {!ob.found ? (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Não foi possível calcular — CTO não está conectada a uma OLT no mapa.</p>
+                      {warnings.map((w: string, i: number) => (
+                        <p key={i} className="text-xs text-amber-400/80">⚠ {w}</p>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <>
+                      {/* Grid de métricas principais */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                        <div className="bg-background/50 rounded-lg p-3 border border-border/30">
+                          <p className="text-xs text-muted-foreground mb-0.5">Potência RX (CTO)</p>
+                          <p className={cn("text-xl font-bold", rxColor)}>
+                            {rxPower !== null ? `${rxPower > 0 ? "+" : ""}${rxPower.toFixed(1)}` : "—"} dBm
+                          </p>
+                        </div>
+                        <div className="bg-background/50 rounded-lg p-3 border border-border/30">
+                          <p className="text-xs text-muted-foreground mb-0.5">Potência TX (OLT)</p>
+                          <p className="text-sm font-semibold text-foreground">{txPower > 0 ? "+" : ""}{txPower.toFixed(1)} dBm</p>
+                          {oltLabel && <p className="text-xs text-muted-foreground truncate mt-0.5">{oltLabel}</p>}
+                        </div>
+                        <div className="bg-background/50 rounded-lg p-3 border border-border/30">
+                          <p className="text-xs text-muted-foreground mb-0.5">Distância Total</p>
+                          <p className="text-sm font-semibold text-foreground">{distKm.toFixed(2)} km</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Cabo: -{cableLoss.toFixed(1)} dB</p>
+                        </div>
+                        <div className="bg-background/50 rounded-lg p-3 border border-border/30">
+                          <p className="text-xs text-muted-foreground mb-0.5">Perda Total</p>
+                          <p className="text-sm font-semibold text-red-400">-{totalLoss.toFixed(1)} dB</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {splitterLoss > 0 && `Spl: -${splitterLoss.toFixed(1)} dB`}
+                            {splitterLoss > 0 && fusionLoss > 0 && " · "}
+                            {fusionLoss > 0 && `Fus: -${fusionLoss.toFixed(1)} dB`}
+                          </p>
+                        </div>
+                      </div>
+                      {/* Percurso detalhado */}
+                      {pathSteps.length > 0 && (
+                        <div className="space-y-1.5">
+                          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Percurso do Sinal</p>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {pathSteps.map((step: any, i: number) => (
+                              <span key={i} className="flex items-center gap-1">
+                                {i > 0 && <span className="text-muted-foreground text-xs">→</span>}
+                                <span className={cn(
+                                  "text-xs px-2 py-0.5 rounded-full border",
+                                  step.type === "olt" && "bg-amber-500/10 border-amber-500/30 text-amber-300",
+                                  step.type === "ceo" && "bg-blue-500/10 border-blue-500/30 text-blue-300",
+                                  step.type === "cto" && "bg-emerald-500/10 border-emerald-500/30 text-emerald-300",
+                                  step.type === "splitter" && "bg-violet-500/10 border-violet-500/30 text-violet-300",
+                                  step.type === "cable" && "bg-muted/50 border-border/30 text-muted-foreground",
+                                  step.type === "fusion" && "bg-cyan-500/10 border-cyan-500/30 text-cyan-300",
+                                )}>
+                                  {step.label}
+                                  {step.lossDb != null && step.lossDb !== 0 && (
+                                    <span className="ml-1 opacity-70">(-{Math.abs(step.lossDb).toFixed(1)} dB)</span>
+                                  )}
+                                  {step.cumulativePowerDbm != null && (
+                                    <span className="ml-1 font-medium opacity-90">
+                                      {step.cumulativePowerDbm > 0 ? "+" : ""}{step.cumulativePowerDbm.toFixed(1)}
+                                    </span>
+                                  )}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Avisos */}
+                      {warnings.length > 0 && (
+                        <div className="mt-2 space-y-0.5">
+                          {warnings.map((w: string, i: number) => (
+                            <p key={i} className="text-xs text-amber-400/80">⚠ {w}</p>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Painel SGP — ONUs */}
       {cto.sgpId && (
