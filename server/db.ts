@@ -2217,21 +2217,26 @@ export async function createMapRoute(data: Omit<InsertMapRoute, "id" | "createdA
   return (result as any).insertId;
 }
 export async function updateMapRoute(id: number, data: Partial<Omit<InsertMapRoute, "id" | "createdAt" | "updatedAt">> & { fromElementId?: number | null; toElementId?: number | null; fromTubeId?: number | null; toTubeId?: number | null }): Promise<void> {
-  const db = await getDb();
-  if (!db) return;
-  // Construir o set explicitamente para garantir que null é enviado como SQL NULL
-  // O Drizzle ORM não envia null correctamente em alguns drivers MySQL; usar sql`NULL` explicitamente
-  const setData: Record<string, any> = {};
+  // Usar raw SQL via _pool para garantir que null é enviado como SQL NULL
+  // O Drizzle ORM com sql`NULL` ainda pode falhar em alguns drivers MySQL/TiDB
+  if (!_pool) _pool = createPool();
+  const setClauses: string[] = [];
+  const params: any[] = [];
   for (const [key, value] of Object.entries(data)) {
     if (value === null) {
-      // Usar sql template literal para forçar NULL no MySQL
-      setData[key] = sql`NULL`;
+      setClauses.push(`\`${key}\` = NULL`);
+      // NULL não precisa de parâmetro
     } else if (value !== undefined) {
-      setData[key] = value;
+      setClauses.push(`\`${key}\` = ?`);
+      params.push(value);
     }
   }
-  if (Object.keys(setData).length === 0) return;
-  await db.update(mapRoutes).set(setData).where(eq(mapRoutes.id, id));
+  if (setClauses.length === 0) return;
+  params.push(id);
+  await _pool.promise().execute(
+    `UPDATE \`map_routes\` SET ${setClauses.join(", ")} WHERE \`id\` = ?`,
+    params
+  );
 }
 export async function deleteMapRoute(id: number): Promise<void> {
   const db = await getDb();

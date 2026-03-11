@@ -1,0 +1,30 @@
+{
+  "query": "SHOW CREATE TABLE map_routes;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SHOW CREATE TABLE map_routes;",
+  "rows": [
+    {
+      "Table": "map_routes",
+      "Create Table": "CREATE TABLE `map_routes` ("
+    }
+  ],
+  "messages": [
+    "  `id` int NOT NULL AUTO_INCREMENT,",
+    "  `name` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,",
+    "  `fromElementId` int DEFAULT NULL,",
+    "  `toElementId` int DEFAULT NULL,",
+    "  `fiberCount` int DEFAULT '12',",
+    "  `cableType` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT 'FO',",
+    "  `color` varchar(16) COLLATE utf8mb4_unicode_ci DEFAULT '#22d3ee',",
+    "  `path` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,",
+    "  `notes` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,",
+    "  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,",
+    "  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,",
+    "  `fromTubeId` int DEFAULT NULL,",
+    "  `toTubeId` int DEFAULT NULL,",
+    "  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */",
+    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+  ],
+  "stdout": "Table\tCreate Table\nmap_routes\tCREATE TABLE `map_routes` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `name` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,\n  `fromElementId` int DEFAULT NULL,\n  `toElementId` int DEFAULT NULL,\n  `fiberCount` int DEFAULT '12',\n  `cableType` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT 'FO',\n  `color` varchar(16) COLLATE utf8mb4_unicode_ci DEFAULT '#22d3ee',\n  `path` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,\n  `notes` text COLLATE utf8mb4_unicode_ci DEFAULT NULL,\n  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  `fromTubeId` int DEFAULT NULL,\n  `toTubeId` int DEFAULT NULL,\n  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci\n",
+  "stderr": "",
+  "execution_time_ms": 116
+}
