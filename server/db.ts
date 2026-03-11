@@ -3397,10 +3397,7 @@ export async function calculateOpticalBalance(
 ): Promise<OpticalBalanceResult> {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-
   const warnings: string[] = [];
-  const path: OpticalBalanceResult["path"] = [];
-
   // Carregar todos os dados necessários
   const allElements = await db.select().from(mapElements);
   const allRoutes = await db.select().from(mapRoutes);
@@ -3412,10 +3409,10 @@ export async function calculateOpticalBalance(
   const allCtos = await db.select({ id: ctos.id, name: ctos.name }).from(ctos);
   const allSplitters = await db.select().from(ceoSplitters);
   const allSplitterVias = await db.select().from(ceoSplitterVias);
+  const allViaAssocs = await db.select().from(ceoViaAssociations);
   const allOltElements = await db.select().from(mapOltElements);
   const allOltLinks = await db.select().from(oltPortFiberLinks);
   const allPorts = await db.select({ id: ports.id, label: ports.label, portNumber: ports.portNumber }).from(ports);
-
   // Índices
   const elementById = new Map(allElements.map(e => [e.id, e]));
   const ceoById = new Map(allCeos.map(c => [c.id, c]));
@@ -3424,14 +3421,13 @@ export async function calculateOpticalBalance(
   const ctoTubeById = new Map(allCtoTubes.map(t => [t.id, t]));
   const ceoViaById = new Map(allCeoVias.map(v => [v.id, v]));
   const ctoViaById = new Map(allCtoVias.map(v => [v.id, v]));
+  const splitterViaById = new Map(allSplitterVias.map(v => [v.id, v]));
   const splitterById = new Map(allSplitters.map(s => [s.id, s]));
   const portById = new Map(allPorts.map(p => [p.id, p]));
-
   function getElementName(el: { type: string; referenceId: number }): string {
     if (el.type === "ceo") return ceoById.get(el.referenceId)?.name ?? `CEO #${el.referenceId}`;
     return ctoById.get(el.referenceId)?.name ?? `CTO #${el.referenceId}`;
   }
-
   // Verificar se o elemento alvo é uma CTO
   const ctoElement = elementById.get(ctoElementId);
   if (!ctoElement) {
@@ -3440,60 +3436,28 @@ export async function calculateOpticalBalance(
   if (ctoElement.type !== "cto") {
     return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: 0, cableLossDb: 0, splitterLossDb: 0, fusionLossDb: 0, signalQuality: "no_signal", path: [], warnings: [`Elemento #${ctoElementId} não é uma CTO`] };
   }
-
   const ctoName = getElementName(ctoElement);
-
-  // Encontrar todas as vias da CTO que têm fusão de entrada (fusedToViaId preenchido por outra via)
-  // A CTO recebe fibra por um tubo — precisamos encontrar qual tubo/via está conectado a um cabo que vem de um CEO
-  // Estratégia: encontrar rotas que chegam a esta CTO (toElementId = ctoElementId)
+  // Encontrar rotas conectadas à CTO
   const incomingRoutes = allRoutes.filter(r => r.toElementId === ctoElementId || r.fromElementId === ctoElementId);
   if (incomingRoutes.length === 0) {
     return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: 0, cableLossDb: 0, splitterLossDb: 0, fusionLossDb: 0, signalQuality: "no_signal", path: [], warnings: [`CTO "${ctoName}" não tem cabos conectados`] };
   }
-
-  // Para cada rota que chega à CTO, tentar rastrear de volta até uma OLT
-  // Usar BFS/DFS reverso: CTO ← CEO ← ... ← OLT
-  // Simplificação: seguir o primeiro cabo que tem tubo vinculado e rastrear para trás
-
   // Encontrar a rota de entrada e o tubo de chegada
   let entryRoute: typeof allRoutes[0] | null = null;
   let entryTubeId: number | null = null;
-  let entryIsFromSide = false; // true se a CTO é o fromElement da rota
-
   for (const route of incomingRoutes) {
     if (route.toElementId === ctoElementId && route.toTubeId) {
-      entryRoute = route;
-      entryTubeId = route.toTubeId;
-      entryIsFromSide = false;
-      break;
+      entryRoute = route; entryTubeId = route.toTubeId; break;
     }
     if (route.fromElementId === ctoElementId && route.fromTubeId) {
-      entryRoute = route;
-      entryTubeId = route.fromTubeId;
-      entryIsFromSide = true;
-      break;
+      entryRoute = route; entryTubeId = route.fromTubeId; break;
     }
   }
-
   if (!entryRoute || !entryTubeId) {
-    // Tentar sem tubo vinculado
     entryRoute = incomingRoutes[0];
     warnings.push(`Cabo "${entryRoute.name ?? `#${entryRoute.id}`}" não tem tubo vinculado na CTO — estimativa pode ser imprecisa`);
   }
-
-  // Rastrear de volta: CTO → CEO de origem → ... → OLT
-  // Construir o percurso reverso
-  interface TraceNode {
-    elementId: number;
-    tubeId: number | null;
-    viaNumber: number | null;
-    routeId: number | null;
-    distanceKm: number;
-    splitterLoss: number;
-    fusionCount: number;
-  }
-
-  // Função haversine para calcular distância em km
+  // Funções auxiliares
   function haversineKm(p1: { lat: number; lng: number }, p2: { lat: number; lng: number }): number {
     const R = 6371;
     const phi1 = p1.lat * Math.PI / 180;
@@ -3503,7 +3467,6 @@ export async function calculateOpticalBalance(
     const a = Math.sin(dphi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dlambda / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
-
   function calcRouteDistanceKm(route: typeof allRoutes[0]): number {
     let pts: { lat: number; lng: number }[] = [];
     try { pts = route.path ? JSON.parse(route.path) : []; } catch { /* ignore */ }
@@ -3516,87 +3479,76 @@ export async function calculateOpticalBalance(
     for (let i = 1; i < pts.length; i++) total += haversineKm(pts[i - 1], pts[i]);
     return total;
   }
-
   // Rastrear de volta a partir da CTO até encontrar uma OLT
-  // Percurso: CTO ← (cabo) ← CEO ← (fusão) ← CEO ← ... ← OLT
   let totalDistanceKm = 0;
   let totalSplitterLoss = 0;
   let totalFusionCount = 0;
   let foundOlt: { element: typeof allOltElements[0]; link: typeof allOltLinks[0] } | null = null;
-
-  // Construir o percurso reverso (da CTO para a OLT)
   const reversePath: Array<{ type: string; label: string; lossDb: number; distKm?: number }> = [];
-
-  // Passo 1: Adicionar a CTO ao percurso
   reversePath.push({ type: "cto", label: ctoName, lossDb: 0 });
-
-  // Passo 2: Seguir os cabos de volta, elemento por elemento
+  // Estado actual do rastreio
   let currentElementId = ctoElementId;
   let currentTubeId = entryTubeId;
   let currentViaNumber: number | null = null;
+  // Conjunto de estados visitados para detectar loops reais
+  // Chave inclui viaNumber para evitar falsos positivos quando o mesmo elemento
+  // aparece com tubos/vias diferentes (passagem legítima de cabo)
   const visited = new Set<string>();
-
-  for (let iter = 0; iter < 30; iter++) {
-    const loopKey = `${currentElementId}:${currentTubeId}`;
+  for (let iter = 0; iter < 50; iter++) {
+    const loopKey = `${currentElementId}:${currentTubeId ?? "null"}:${currentViaNumber ?? "null"}`;
     if (visited.has(loopKey)) { warnings.push("Loop detectado na cadeia de fibra"); break; }
     visited.add(loopKey);
-
-    // Encontrar o cabo que conecta a este elemento por este tubo
+    // Encontrar o cabo que chega a este elemento por este tubo
     let activeRoute: typeof allRoutes[0] | null = null;
-    let isForwardOnRoute = false; // true = este elemento é o toElement da rota
-
+    let isForwardOnRoute = false;
     if (currentTubeId) {
-      // Tubo como toTubeId (elemento é destino da rota)
       activeRoute = allRoutes.find(r => r.toElementId === currentElementId && r.toTubeId === currentTubeId) ?? null;
       if (activeRoute) { isForwardOnRoute = true; }
       if (!activeRoute) {
-        // Tubo como fromTubeId (elemento é origem da rota — cabo sai daqui)
         activeRoute = allRoutes.find(r => r.fromElementId === currentElementId && r.fromTubeId === currentTubeId) ?? null;
         if (activeRoute) { isForwardOnRoute = false; }
       }
     }
     if (!activeRoute) {
       // Sem tubo vinculado — tentar qualquer cabo conectado a este elemento
-      activeRoute = allRoutes.find(r => r.toElementId === currentElementId || r.fromElementId === currentElementId) ?? null;
+      // Excluir o cabo que acabámos de percorrer (evitar voltar atrás)
+      const lastCableLabel = reversePath.filter(s => s.type === "cable").at(-1)?.label;
+      activeRoute = allRoutes.find(r =>
+        (r.toElementId === currentElementId || r.fromElementId === currentElementId) &&
+        (r.name ?? `Cabo #${r.id}`) !== lastCableLabel
+      ) ?? null;
       if (activeRoute) {
         isForwardOnRoute = activeRoute.toElementId === currentElementId;
         warnings.push(`Cabo "${activeRoute.name ?? `#${activeRoute.id}`}" sem tubo vinculado — estimativa pode ser imprecisa`);
       }
     }
-
     if (!activeRoute) {
       warnings.push(`Nenhum cabo encontrado chegando ao elemento "${getElementName(elementById.get(currentElementId)!)}" — cadeia interrompida`);
       break;
     }
-
-    // Calcular distância deste segmento
     const segDistKm = calcRouteDistanceKm(activeRoute);
     totalDistanceKm += segDistKm;
-
     reversePath.push({ type: "cable", label: activeRoute.name ?? `Cabo #${activeRoute.id}`, lossDb: 0, distKm: segDistKm });
-
     // Avançar para o elemento anterior (origem do cabo)
-    const prevElementId = isForwardOnRoute
-      ? (activeRoute.fromElementId ?? null)
-      : (activeRoute.toElementId ?? null);
-
+    const prevElementId = isForwardOnRoute ? (activeRoute.fromElementId ?? null) : (activeRoute.toElementId ?? null);
     if (!prevElementId) {
       warnings.push(`Cabo "${activeRoute.name ?? `#${activeRoute.id}`}" não tem elemento de origem vinculado`);
       break;
     }
-
     const prevElement = elementById.get(prevElementId);
     if (!prevElement) { warnings.push(`Elemento #${prevElementId} não encontrado`); break; }
-
     const prevElementName = getElementName(prevElement);
-
-    // Determinar o tubo de chegada no elemento anterior
-    const arrivalTubeId = isForwardOnRoute
-      ? (activeRoute.fromTubeId ?? null)
-      : (activeRoute.toTubeId ?? null);
-
+    const arrivalTubeId = isForwardOnRoute ? (activeRoute.fromTubeId ?? null) : (activeRoute.toTubeId ?? null);
     // Verificar se o elemento anterior é uma OLT (via olt_port_fiber_links)
-    const oltLink = allOltLinks.find(l => l.ceoElementId === prevElementId && (arrivalTubeId === null || l.tubeId === arrivalTubeId));
+    // Verificar com tubo e, se disponível, com viaNumber
+    const oltLink = allOltLinks.find(l =>
+      l.ceoElementId === prevElementId &&
+      (arrivalTubeId === null || l.tubeId === arrivalTubeId) &&
+      (currentViaNumber === null || l.viaNumber === currentViaNumber)
+    ) ?? allOltLinks.find(l =>
+      l.ceoElementId === prevElementId &&
+      (arrivalTubeId === null || l.tubeId === arrivalTubeId)
+    );
     if (oltLink) {
       const oltEl = allOltElements.find(o => o.id === oltLink.oltElementId);
       if (oltEl) {
@@ -3608,103 +3560,160 @@ export async function calculateOpticalBalance(
         break;
       }
     }
-
     // Adicionar CEO/CTO ao percurso
     reversePath.push({ type: prevElement.type === "ceo" ? "ceo" : "cto", label: prevElementName, lossDb: 0 });
-
-    // Verificar se há splitter no CEO que processa esta fibra
-    if (prevElement.type === "ceo" && arrivalTubeId) {
-      // Verificar se o tubo de chegada é um splitter (ceo_tube_type = 'splitter')
-      const arrivalTube = ceoTubeById.get(arrivalTubeId);
-      if (arrivalTube && (arrivalTube as any).ceo_tube_type === "splitter") {
-        // Encontrar o splitter associado a este tubo
-        // Os splitters estão em ceo_splitters, ligados por bandejaId
-        // Simplificação: usar a perda padrão de 1:8 se não encontrar
-        const splitterForTube = allSplitters.find(s => s.ceoId === prevElement.referenceId);
-        const ratio = splitterForTube?.ratio ?? "1:8";
-        const loss = getSplitterLoss(ratio);
-        totalSplitterLoss += loss;
-        reversePath.push({ type: "splitter", label: `Splitter ${ratio}`, lossDb: loss });
-      }
-    }
-
-    // Verificar se há fusão de saída no CEO (via ceo_vias.fusedToViaId)
-    if (arrivalTubeId) {
-      // Encontrar a via de chegada (pelo número de via, se disponível)
-      let arrivalVia: typeof allCeoVias[0] | typeof allCtoVias[0] | null = null;
-      if (prevElement.type === "ceo") {
-        arrivalVia = allCeoVias.find(v => v.tubeId === arrivalTubeId && (currentViaNumber === null || v.viaNumber === currentViaNumber)) ?? null;
-      } else {
-        arrivalVia = allCtoVias.find(v => v.tubeId === arrivalTubeId && (currentViaNumber === null || v.viaNumber === currentViaNumber)) ?? null;
-      }
-
-      if (arrivalVia && arrivalVia.fusedToTubeId) {
+    // Processar o interior do CEO: seguir fusões e associações de vias
+    if (prevElement.type === "ceo" && arrivalTubeId !== null) {
+      const ceoRefId = prevElement.referenceId;
+      // Encontrar a via de chegada no tubo de chegada
+      let arrivalVia = allCeoVias.find(v =>
+        v.tubeId === arrivalTubeId &&
+        (currentViaNumber === null || v.viaNumber === currentViaNumber)
+      ) ?? allCeoVias.find(v => v.tubeId === arrivalTubeId) ?? null;
+      // Caminho 1: fusão directa (fusedToTubeId na via do tubo)
+      if (arrivalVia?.fusedToTubeId) {
         totalFusionCount++;
-        // Seguir a fusão para o tubo de saída
         currentTubeId = arrivalVia.fusedToTubeId;
         if (arrivalVia.fusedToViaId) {
-          const exitVia = prevElement.type === "ceo"
-            ? ceoViaById.get(arrivalVia.fusedToViaId)
-            : ctoViaById.get(arrivalVia.fusedToViaId);
-          currentViaNumber = exitVia?.viaNumber ?? currentViaNumber;
+          const exitVia = ceoViaById.get(arrivalVia.fusedToViaId);
+          currentViaNumber = exitVia?.viaNumber ?? null;
+        } else {
+          currentViaNumber = null;
+        }
+        currentElementId = prevElementId;
+        continue;
+      }
+      // Caminho 2: associação via ceoViaAssociations (tubo → splitter ou splitter → tubo)
+      if (arrivalVia) {
+        // Procurar associação onde a via de chegada é source ou target
+        const assocToSplitter = allViaAssocs.find(a =>
+          a.ceoId === ceoRefId &&
+          a.sourceType === "tube" && a.sourceViaId === arrivalVia!.id &&
+          a.targetType === "splitter"
+        ) ?? allViaAssocs.find(a =>
+          a.ceoId === ceoRefId &&
+          a.targetType === "tube" && a.targetViaId === arrivalVia!.id &&
+          a.sourceType === "splitter"
+        );
+        if (assocToSplitter) {
+          // Determinar qual é a via do splitter
+          const splitterViaId = assocToSplitter.sourceType === "tube"
+            ? assocToSplitter.targetViaId
+            : assocToSplitter.sourceViaId;
+          const splitterVia = splitterViaById.get(splitterViaId);
+          if (splitterVia) {
+            const splitter = splitterById.get(splitterVia.splitterId);
+            if (splitter) {
+              // Calcular perda do splitter
+              const loss = splitterVia.lossDb ?? getSplitterLoss(splitter.ratio);
+              totalSplitterLoss += loss;
+              reversePath.push({ type: "splitter", label: `${splitter.identifier} (${splitter.ratio})`, lossDb: loss });
+              totalFusionCount++; // fusão de entrada do splitter
+              // Encontrar a via de entrada do splitter (viaNumber=0)
+              const splitterEntryVia = allSplitterVias.find(v =>
+                v.splitterId === splitter.id && v.viaNumber === 0
+              );
+              if (splitterEntryVia) {
+                // Encontrar a associação da via de entrada do splitter com um tubo
+                const assocFromSplitter = allViaAssocs.find(a =>
+                  a.ceoId === ceoRefId &&
+                  a.sourceType === "splitter" && a.sourceViaId === splitterEntryVia.id &&
+                  a.targetType === "tube"
+                ) ?? allViaAssocs.find(a =>
+                  a.ceoId === ceoRefId &&
+                  a.targetType === "splitter" && a.targetViaId === splitterEntryVia.id &&
+                  a.sourceType === "tube"
+                );
+                if (assocFromSplitter) {
+                  const exitTubeViaId = assocFromSplitter.sourceType === "splitter"
+                    ? assocFromSplitter.targetViaId
+                    : assocFromSplitter.sourceViaId;
+                  const exitTubeVia = ceoViaById.get(exitTubeViaId);
+                  if (exitTubeVia) {
+                    currentTubeId = exitTubeVia.tubeId;
+                    currentViaNumber = exitTubeVia.viaNumber;
+                    currentElementId = prevElementId;
+                    continue;
+                  }
+                }
+                warnings.push(`Splitter "${splitter.identifier}": via de entrada não tem tubo associado`);
+              }
+            }
+          }
+        }
+      }
+      // Caminho 3: tubo de chegada é do tipo 'splitter' (campo type === 'splitter')
+      const arrivalTubeObj = ceoTubeById.get(arrivalTubeId);
+      if (arrivalTubeObj?.type === "splitter") {
+        const splitterForTube = allSplitters.find(s => s.ceoId === ceoRefId);
+        if (splitterForTube) {
+          const loss = getSplitterLoss(splitterForTube.ratio);
+          totalSplitterLoss += loss;
+          reversePath.push({ type: "splitter", label: `${splitterForTube.identifier} (${splitterForTube.ratio})`, lossDb: loss });
+        }
+      }
+      // Sem fusão nem associação — manter o tubo de chegada e continuar
+      currentTubeId = arrivalTubeId;
+      currentViaNumber = arrivalVia?.viaNumber ?? null;
+    } else if (prevElement.type === "cto" && arrivalTubeId !== null) {
+      // CTO intermédia: seguir fusão se existir
+      const arrivalVia = allCtoVias.find(v =>
+        v.tubeId === arrivalTubeId &&
+        (currentViaNumber === null || v.viaNumber === currentViaNumber)
+      ) ?? null;
+      if (arrivalVia?.fusedToTubeId) {
+        totalFusionCount++;
+        currentTubeId = arrivalVia.fusedToTubeId;
+        if (arrivalVia.fusedToViaId) {
+          const exitVia = ctoViaById.get(arrivalVia.fusedToViaId);
+          currentViaNumber = exitVia?.viaNumber ?? null;
+        } else {
+          currentViaNumber = null;
         }
       } else {
         currentTubeId = arrivalTubeId;
+        currentViaNumber = arrivalVia?.viaNumber ?? null;
       }
     } else {
-      currentTubeId = null;
+      currentTubeId = arrivalTubeId;
+      currentViaNumber = null;
     }
-
     currentElementId = prevElementId;
   }
-
   if (!foundOlt) {
     warnings.push("Não foi possível rastrear a fibra até uma porta OLT — verifique se a OLT está posicionada no mapa e se as portas estão vinculadas aos tubos dos CEOs");
-    return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: totalDistanceKm, cableLossDb: 0, splitterLossDb: totalSplitterLoss, fusionLossDb: 0, signalQuality: "no_signal", path: [], warnings };
+    return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: totalDistanceKm, cableLossDb: 0, splitterLossDb: totalSplitterLoss, fusionLossDb: 0, signalQuality: "no_signal" as const, path: [], warnings };
   }
-
   // Calcular potência
   const txPower = foundOlt.link.txPowerDbm ?? foundOlt.element.defaultTxPowerDbm ?? 5.0;
   const attenuationPerKm = foundOlt.element.fiberAttenuationDbPerKm ?? 0.35;
   const fusionLossPerFusion = foundOlt.element.fusionLossDb ?? 0.1;
-
   const cableLoss = totalDistanceKm * attenuationPerKm;
   const fusionLoss = totalFusionCount * fusionLossPerFusion;
   const totalLoss = cableLoss + totalSplitterLoss + fusionLoss;
   const rxPower = txPower - totalLoss;
-
   // Construir o path final (inverter o percurso reverso)
   const finalPath = reversePath.reverse();
   let cumulativePower = txPower;
   const pathWithPower: OpticalBalanceResult["path"] = finalPath.map(step => {
     cumulativePower -= step.lossDb;
-    return {
-      type: step.type as any,
-      label: step.label,
-      lossDb: step.lossDb,
-      cumulativePowerDbm: Math.round(cumulativePower * 10) / 10,
-    };
+    return { ...step, cumulativePowerDbm: cumulativePower };
   });
-
-  // Adicionar perda de cabo distribuída ao longo do percurso
-  // (já calculada globalmente, não por segmento)
-
   return {
     found: true,
-    rxPowerDbm: Math.round(rxPower * 10) / 10,
+    rxPowerDbm: rxPower,
     txPowerDbm: txPower,
-    totalLossDb: Math.round(totalLoss * 10) / 10,
-    distanceKm: Math.round(totalDistanceKm * 1000) / 1000,
-    cableLossDb: Math.round(cableLoss * 10) / 10,
-    splitterLossDb: Math.round(totalSplitterLoss * 10) / 10,
-    fusionLossDb: Math.round(fusionLoss * 10) / 10,
+    totalLossDb: totalLoss,
+    distanceKm: totalDistanceKm,
+    cableLossDb: cableLoss,
+    splitterLossDb: totalSplitterLoss,
+    fusionLossDb: fusionLoss,
     signalQuality: getSignalQuality(rxPower),
     path: pathWithPower,
     warnings,
   };
 }
-
-// ─── CTO Via Associations (tubo ↔ splitter) ───────────────────────────────────
+// ─── CTO Via Associations (tubo ↔ splitter) ────────────────────────────────────
 export async function getViaAssociationsByCto(ctoId: number) {
   const db = await getDb();
   if (!db) return [];
