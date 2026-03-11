@@ -269,9 +269,6 @@ export async function deleteEquipment(id: number) {
 export async function getPortsByEquipment(equipmentId: number) {
   const db = await getDb();
   if (!db) return [];
-  // Alias para o equipamento vinculado e a porta vinculada
-  const connectedEquipment = { id: equipments.id, name: equipments.name };
-  const connectedPort = { id: ports.id, portNumber: ports.portNumber, label: ports.label };
   const rows = await db
     .select({
       // Todos os campos da porta
@@ -292,6 +289,9 @@ export async function getPortsByEquipment(equipmentId: number) {
       connectedEquipmentName: equipments.name,
       connectedPortNumber: sql<string | null>`connected_port.portNumber`,
       connectedPortLabel: sql<string | null>`connected_port.label`,
+      // Campos do slot (via LEFT JOIN)
+      slotNumber: sql<string | null>`es.slotNumber`,
+      slotLabel: sql<string | null>`es.label`,
     })
     .from(ports)
     .leftJoin(equipments, eq(ports.connectedToEquipmentId, equipments.id))
@@ -299,8 +299,12 @@ export async function getPortsByEquipment(equipmentId: number) {
       sql`${ports} AS connected_port`,
       sql`connected_port.id = ${ports.connectedToPortId}`
     )
+    .leftJoin(
+      sql`equipment_slots AS es`,
+      sql`es.id = ${ports.slotId}`
+    )
     .where(eq(ports.equipmentId, equipmentId))
-    .orderBy(ports.sortOrder, ports.portNumber);
+    .orderBy(sql`es.slotNumber`, ports.sortOrder, ports.portNumber);
   return rows;
 }
 
@@ -3243,6 +3247,9 @@ export async function deleteMapOltElement(id: number): Promise<void> {
 export async function getOltPortLinks(oltElementId: number): Promise<(OltPortFiberLink & {
   portLabel: string | null;
   portNumber: string;
+  portName: string | null;
+  slotNumber: string | null;
+  slotLabel: string | null;
   ceoName: string;
   tubeIdentifier: string;
 })[]> {
@@ -3250,27 +3257,43 @@ export async function getOltPortLinks(oltElementId: number): Promise<(OltPortFib
   if (!db) return [];
   const links = await db.select().from(oltPortFiberLinks).where(eq(oltPortFiberLinks.oltElementId, oltElementId));
   if (links.length === 0) return [];
-
-  // Enriquecer com dados de porta, CEO e tubo
-  const allPorts = await db.select({ id: ports.id, label: ports.label, portNumber: ports.portNumber }).from(ports);
+  // Enriquecer com dados de porta, slot, CEO e tubo
+  const allPorts = await db.select({
+    id: ports.id,
+    label: ports.label,
+    portNumber: ports.portNumber,
+    slotId: ports.slotId,
+  }).from(ports);;
   const allElements = await db.select({ id: mapElements.id, type: mapElements.type, referenceId: mapElements.referenceId }).from(mapElements);
   const allCeos = await db.select({ id: ceos.id, name: ceos.name }).from(ceos);
   const allCeoTubes = await db.select({ id: ceoTubes.id, identifier: ceoTubes.identifier }).from(ceoTubes);
 
+   // Buscar slots dos ports que têm slotId
+  const slotIds = [...new Set(allPorts.map(p => p.slotId).filter(Boolean))] as number[];
+  let slotMap = new Map<number, { slotNumber: string; label: string | null }>();
+  if (slotIds.length > 0) {
+    const allSlots = await db.select({ id: equipmentSlots.id, slotNumber: equipmentSlots.slotNumber, label: equipmentSlots.label }).from(equipmentSlots).where(sql`${equipmentSlots.id} IN (${sql.join(slotIds.map(id => sql`${id}`), sql`, `)})`);
+    slotMap = new Map(allSlots.map(s => [s.id, { slotNumber: s.slotNumber, label: s.label }]));
+  }
   const portMap = new Map(allPorts.map(p => [p.id, p]));
   const elementMap = new Map(allElements.map(e => [e.id, e]));
   const ceoMap = new Map(allCeos.map(c => [c.id, c]));
   const tubeMap = new Map(allCeoTubes.map(t => [t.id, t]));
-
   return links.map(link => {
     const port = portMap.get(link.portId);
     const el = elementMap.get(link.ceoElementId);
     const ceo = el ? ceoMap.get(el.referenceId) : null;
     const tube = tubeMap.get(link.tubeId);
+    const slot = port?.slotId ? slotMap.get(port.slotId) : null;
+    const portDisplayName = port?.label || port?.portNumber || `Porta #${link.portId}`;
+    const slotDisplay = slot ? `Slot ${slot.slotNumber}${slot.label ? ` — ${slot.label}` : ""}` : null;
     return {
       ...link,
       portLabel: port?.label ?? null,
       portNumber: port?.portNumber ?? `Porta #${link.portId}`,
+      portName: slotDisplay ? `${slotDisplay} / ${portDisplayName}` : portDisplayName,
+      slotNumber: slot?.slotNumber ?? null,
+      slotLabel: slot?.label ?? null,
       ceoName: ceo?.name ?? `CEO #${link.ceoElementId}`,
       tubeIdentifier: tube?.identifier ?? `Tubo #${link.tubeId}`,
     };
