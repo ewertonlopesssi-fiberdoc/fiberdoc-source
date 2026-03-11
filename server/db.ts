@@ -269,9 +269,9 @@ export async function deleteEquipment(id: number) {
 export async function getPortsByEquipment(equipmentId: number) {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db
+  // Buscar portas
+  const portRows = await db
     .select({
-      // Todos os campos da porta
       id: ports.id,
       equipmentId: ports.equipmentId,
       slotId: ports.slotId,
@@ -285,13 +285,9 @@ export async function getPortsByEquipment(equipmentId: number) {
       connectedToEquipmentId: ports.connectedToEquipmentId,
       connectedToPortId: ports.connectedToPortId,
       createdAt: ports.createdAt,
-      // Campos do equipamento vinculado (via LEFT JOIN)
       connectedEquipmentName: equipments.name,
       connectedPortNumber: sql<string | null>`connected_port.portNumber`,
       connectedPortLabel: sql<string | null>`connected_port.label`,
-      // Campos do slot (via LEFT JOIN)
-      slotNumber: sql<string | null>`es.slotNumber`,
-      slotLabel: sql<string | null>`es.label`,
     })
     .from(ports)
     .leftJoin(equipments, eq(ports.connectedToEquipmentId, equipments.id))
@@ -299,12 +295,32 @@ export async function getPortsByEquipment(equipmentId: number) {
       sql`${ports} AS connected_port`,
       sql`connected_port.id = ${ports.connectedToPortId}`
     )
-    .leftJoin(
-      sql`equipment_slots AS es`,
-      sql`es.id = ${ports.slotId}`
-    )
-    .where(eq(ports.equipmentId, equipmentId))
-    .orderBy(sql`es.slotNumber`, ports.sortOrder, ports.portNumber);
+    .where(eq(ports.equipmentId, equipmentId));
+  // Buscar slots separadamente para evitar conflito de aliases
+  const slotIds = [...new Set(portRows.map(p => p.slotId).filter(Boolean))] as number[];
+  let slotMap = new Map<number, { slotNumber: string; slotLabel: string | null }>();
+  if (slotIds.length > 0) {
+    const slotRows = await db
+      .select({ id: equipmentSlots.id, slotNumber: equipmentSlots.slotNumber, label: equipmentSlots.label })
+      .from(equipmentSlots)
+      .where(sql`${equipmentSlots.id} IN (${sql.join(slotIds.map(id => sql`${id}`), sql`, `)})`);
+    slotMap = new Map(slotRows.map(s => [s.id, { slotNumber: s.slotNumber, slotLabel: s.label ?? null }]));
+  }
+  // Juntar e ordenar
+  const rows = portRows.map(p => ({
+    ...p,
+    slotNumber: p.slotId ? (slotMap.get(p.slotId)?.slotNumber ?? null) : null,
+    slotLabel: p.slotId ? (slotMap.get(p.slotId)?.slotLabel ?? null) : null,
+  }));
+  rows.sort((a, b) => {
+    const sA = a.slotNumber ?? "";
+    const sB = b.slotNumber ?? "";
+    const slotCmp = sA.localeCompare(sB, undefined, { numeric: true });
+    if (slotCmp !== 0) return slotCmp;
+    const sortCmp = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+    if (sortCmp !== 0) return sortCmp;
+    return String(a.portNumber).localeCompare(String(b.portNumber), undefined, { numeric: true });
+  });
   return rows;
 }
 
@@ -3258,12 +3274,14 @@ export async function getOltPortLinks(oltElementId: number): Promise<(OltPortFib
   const links = await db.select().from(oltPortFiberLinks).where(eq(oltPortFiberLinks.oltElementId, oltElementId));
   if (links.length === 0) return [];
   // Enriquecer com dados de porta, slot, CEO e tubo
+  // Buscar apenas as portas referenciadas pelos links (não todas)
+  const portIds = [...new Set(links.map(l => l.portId))];
   const allPorts = await db.select({
     id: ports.id,
     label: ports.label,
     portNumber: ports.portNumber,
     slotId: ports.slotId,
-  }).from(ports);;
+  }).from(ports).where(sql`${ports.id} IN (${sql.join(portIds.map(id => sql`${id}`), sql`, `)})`);;
   const allElements = await db.select({ id: mapElements.id, type: mapElements.type, referenceId: mapElements.referenceId }).from(mapElements);
   const allCeos = await db.select({ id: ceos.id, name: ceos.name }).from(ceos);
   const allCeoTubes = await db.select({ id: ceoTubes.id, identifier: ceoTubes.identifier }).from(ceoTubes);
