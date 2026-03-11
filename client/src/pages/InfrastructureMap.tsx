@@ -1999,13 +1999,19 @@ export default function InfrastructureMap() {
                   variant="outline" size="sm"
                   className="flex-1 gap-1 border-orange-500/40 text-orange-400 hover:bg-orange-500/10 text-xs"
                   disabled={updateRouteMut.isPending}
-                  title="Desvincular extremidade de origem"
+                  title={`Desvincular origem: ${(fromRef as any)?.name ?? `El.${r.fromElementId}`}`}
                   onClick={() => {
-                    updateRouteMut.mutate({ id: r.id, fromElementId: null });
-                    setSidePanel({ kind: "route", route: { ...r, fromElementId: 0 } });
+                    if (!window.confirm(`Desvincular a origem "${(fromRef as any)?.name ?? `El.${r.fromElementId}`}" deste cabo?`)) return;
+                    updateRouteMut.mutate({ id: r.id, fromElementId: null }, {
+                      onSuccess: () => {
+                        toast.success("Origem desvinculada");
+                        setSidePanel({ kind: "route", route: { ...r, fromElementId: 0 as any } });
+                      },
+                      onError: (e) => toast.error(`Erro ao desvincular: ${e.message}`),
+                    });
                   }}
                 >
-                  <Unlink className="w-3 h-3" /> Orig.
+                  <Unlink className="w-3 h-3" /> Desv. Orig.
                 </Button>
               ) : null}
               {r.toElementId ? (
@@ -2013,13 +2019,19 @@ export default function InfrastructureMap() {
                   variant="outline" size="sm"
                   className="flex-1 gap-1 border-orange-500/40 text-orange-400 hover:bg-orange-500/10 text-xs"
                   disabled={updateRouteMut.isPending}
-                  title="Desvincular extremidade de destino"
+                  title={`Desvincular destino: ${(toRef as any)?.name ?? `El.${r.toElementId}`}`}
                   onClick={() => {
-                    updateRouteMut.mutate({ id: r.id, toElementId: null });
-                    setSidePanel({ kind: "route", route: { ...r, toElementId: 0 } });
+                    if (!window.confirm(`Desvincular o destino "${(toRef as any)?.name ?? `El.${r.toElementId}`}" deste cabo?`)) return;
+                    updateRouteMut.mutate({ id: r.id, toElementId: null }, {
+                      onSuccess: () => {
+                        toast.success("Destino desvinculado");
+                        setSidePanel({ kind: "route", route: { ...r, toElementId: 0 as any } });
+                      },
+                      onError: (e) => toast.error(`Erro ao desvincular: ${e.message}`),
+                    });
                   }}
                 >
-                  <Unlink className="w-3 h-3" /> Dest.
+                  <Unlink className="w-3 h-3" /> Desv. Dest.
                 </Button>
               ) : null}
               {(!r.fromElementId || !r.toElementId) && (
@@ -3786,7 +3798,11 @@ export default function InfrastructureMap() {
                   — Sem equipamento
                 </button>
                 {(elements as any[])
-                  .filter((e: any) => !linkEndpointsFromSearch || (e.name ?? "").toLowerCase().includes(linkEndpointsFromSearch.toLowerCase()))
+                  .map((e: any) => {
+                    const ref = e.type === "cto" ? (ctos as any[]).find((c: any) => c.id === e.referenceId) : ceos.find((c: any) => c.id === e.referenceId);
+                    return { ...e, displayName: ref?.name ?? (e.type === "cto" ? `CTO-${e.referenceId}` : `CEO-${e.referenceId}`) };
+                  })
+                  .filter((e: any) => !linkEndpointsFromSearch || e.displayName.toLowerCase().includes(linkEndpointsFromSearch.toLowerCase()) || e.type.toLowerCase().includes(linkEndpointsFromSearch.toLowerCase()))
                   .slice(0, 20)
                   .map((e: any) => (
                     <button
@@ -3795,16 +3811,17 @@ export default function InfrastructureMap() {
                       onClick={() => setLinkEndpointsFrom(e.id)}
                     >
                       <span className={`inline-block w-2 h-2 rounded-sm mr-1.5 ${e.type === "cto" ? "bg-purple-400" : "bg-blue-400"}`} />
-                      {e.name ?? `Elemento ${e.id}`}
+                      {e.displayName}
                       <span className="text-muted-foreground ml-1 text-[10px]">{e.type?.toUpperCase()}</span>
                     </button>
                   ))}
               </div>
-              {linkEndpointsFrom !== null && (
-                <div className="text-[10px] text-emerald-400 mt-1">
-                  ✓ {(elements as any[]).find((e: any) => e.id === linkEndpointsFrom)?.name ?? `Elemento ${linkEndpointsFrom}`}
-                </div>
-              )}
+              {linkEndpointsFrom !== null && (() => {
+                const el = (elements as any[]).find((e: any) => e.id === linkEndpointsFrom);
+                const ref = el ? (el.type === "cto" ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : ceos.find((c: any) => c.id === el.referenceId)) : null;
+                const name = ref?.name ?? (el ? (el.type === "cto" ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`) : `Elemento ${linkEndpointsFrom}`);
+                return <div className="text-[10px] text-emerald-400 mt-1">✓ {name}</div>;
+              })()}
             </div>
             {/* Extremo Destino */}
             <div>
@@ -3824,7 +3841,11 @@ export default function InfrastructureMap() {
                   — Sem equipamento
                 </button>
                 {(elements as any[])
-                  .filter((e: any) => !linkEndpointsToSearch || (e.name ?? "").toLowerCase().includes(linkEndpointsToSearch.toLowerCase()))
+                  .map((e: any) => {
+                    const ref = e.type === "cto" ? (ctos as any[]).find((c: any) => c.id === e.referenceId) : ceos.find((c: any) => c.id === e.referenceId);
+                    return { ...e, displayName: ref?.name ?? (e.type === "cto" ? `CTO-${e.referenceId}` : `CEO-${e.referenceId}`) };
+                  })
+                  .filter((e: any) => !linkEndpointsToSearch || e.displayName.toLowerCase().includes(linkEndpointsToSearch.toLowerCase()) || e.type.toLowerCase().includes(linkEndpointsToSearch.toLowerCase()))
                   .slice(0, 20)
                   .map((e: any) => (
                     <button
@@ -3833,16 +3854,17 @@ export default function InfrastructureMap() {
                       onClick={() => setLinkEndpointsTo(e.id)}
                     >
                       <span className={`inline-block w-2 h-2 rounded-sm mr-1.5 ${e.type === "cto" ? "bg-purple-400" : "bg-blue-400"}`} />
-                      {e.name ?? `Elemento ${e.id}`}
+                      {e.displayName}
                       <span className="text-muted-foreground ml-1 text-[10px]">{e.type?.toUpperCase()}</span>
                     </button>
                   ))}
               </div>
-              {linkEndpointsTo !== null && (
-                <div className="text-[10px] text-emerald-400 mt-1">
-                  ✓ {(elements as any[]).find((e: any) => e.id === linkEndpointsTo)?.name ?? `Elemento ${linkEndpointsTo}`}
-                </div>
-              )}
+              {linkEndpointsTo !== null && (() => {
+                const el = (elements as any[]).find((e: any) => e.id === linkEndpointsTo);
+                const ref = el ? (el.type === "cto" ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : ceos.find((c: any) => c.id === el.referenceId)) : null;
+                const name = ref?.name ?? (el ? (el.type === "cto" ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`) : `Elemento ${linkEndpointsTo}`);
+                return <div className="text-[10px] text-emerald-400 mt-1">✓ {name}</div>;
+              })()}
             </div>
           </div>
           <DialogFooter className="mt-4">
