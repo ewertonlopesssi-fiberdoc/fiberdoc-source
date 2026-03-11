@@ -1497,3 +1497,6 @@
 - [ ] Snap activa durante o drag (deve ser só ao soltar o ponto)
 - [ ] Desvincular elemento ainda falha SQL (params vazio) — usar sql raw NULL
 - [ ] Vincular ponto do meio trunca o traçado — deve inserir elemento como ponto de passagem sem remover pontos
+
+## Correcção Badge OLT — 11/03/2026
+- [x] Badge de porta OLT mostrava "A / A / Porta 01" (duplicado) — corrigido para usar apenas link.portName que já inclui o slot

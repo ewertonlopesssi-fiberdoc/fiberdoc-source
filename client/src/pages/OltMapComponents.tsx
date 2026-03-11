@@ -739,8 +739,7 @@ export function OltDetailPanel({
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-400 bg-amber-500/10 max-w-full">
                                 <span className="truncate">
-                                  {link.slotNumber ? `${link.slotNumber} / ` : ""}
-                                  {link.portName ?? link.portLabel ?? `Porta #${link.portId}`}
+                                  {link.portName ?? (link.slotNumber ? `${link.slotNumber} / Porta ${link.portNumber}` : link.portLabel) ?? `Porta #${link.portId}`}
                                 </span>
                               </Badge>
                               <span className="text-xs font-semibold text-amber-300">{txPower > 0 ? "+" : ""}{txPower} dBm</span>
