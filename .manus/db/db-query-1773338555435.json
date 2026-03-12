@@ -1,0 +1,62 @@
+{
+  "query": "\nSELECT cv.id, cv.ceoId, cv.tubeId, cv.viaNumber, cv.label, \n       cv.fusedToTubeId, cv.fusedToViaId, cv.fusedToSplitterId, cv.fusedToSplitterViaId,\n       ct.identifier as tube_name,\n       c.name as ceo_name\nFROM ceo_vias cv\nJOIN ceo_tubes ct ON ct.id = cv.tubeId\nJOIN ceos c ON c.id = cv.ceoId\nWHERE cv.fusedToTubeId IS NOT NULL OR cv.fusedToSplitterId IS NOT NULL\nORDER BY cv.ceoId, cv.tubeId, cv.viaNumber;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute \nSELECT cv.id, cv.ceoId, cv.tubeId, cv.viaNumber, cv.label, \n       cv.fusedToTubeId, cv.fusedToViaId, cv.fusedToSplitterId, cv.fusedToSplitterViaId,\n       ct.identifier as tube_name,\n       c.name as ceo_name\nFROM ceo_vias cv\nJOIN ceo_tubes ct ON ct.id = cv.tubeId\nJOIN ceos c ON c.id = cv.ceoId\nWHERE cv.fusedToTubeId IS NOT NULL OR cv.fusedToSplitterId IS NOT NULL\nORDER BY cv.ceoId, cv.tubeId, cv.viaNumber;\n",
+  "rows": [
+    {
+      "id": "2",
+      "ceoId": "1",
+      "tubeId": "1",
+      "viaNumber": "2",
+      "label": "NULL",
+      "fusedToTubeId": "2",
+      "fusedToViaId": "18",
+      "fusedToSplitterId": "NULL",
+      "fusedToSplitterViaId": "NULL",
+      "tube_name": "TUBO 1",
+      "ceo_name": "CEO TESTE"
+    },
+    {
+      "id": "9",
+      "ceoId": "1",
+      "tubeId": "1",
+      "viaNumber": "9",
+      "label": "teste1",
+      "fusedToTubeId": "2",
+      "fusedToViaId": "14",
+      "fusedToSplitterId": "NULL",
+      "fusedToSplitterViaId": "NULL",
+      "tube_name": "TUBO 1",
+      "ceo_name": "CEO TESTE"
+    },
+    {
+      "id": "13",
+      "ceoId": "1",
+      "tubeId": "2",
+      "viaNumber": "1",
+      "label": "NULL",
+      "fusedToTubeId": "1",
+      "fusedToViaId": "4",
+      "fusedToSplitterId": "NULL",
+      "fusedToSplitterViaId": "NULL",
+      "tube_name": "TUBO 2",
+      "ceo_name": "CEO TESTE"
+    },
+    {
+      "id": "14",
+      "ceoId": "1",
+      "tubeId": "2",
+      "viaNumber": "2",
+      "label": "NULL",
+      "fusedToTubeId": "1",
+      "fusedToViaId": "9",
+      "fusedToSplitterId": "NULL",
+      "fusedToSplitterViaId": "NULL",
+      "tube_name": "TUBO 2",
+      "ceo_name": "CEO TESTE"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tceoId\ttubeId\tviaNumber\tlabel\tfusedToTubeId\tfusedToViaId\tfusedToSplitterId\tfusedToSplitterViaId\ttube_name\tceo_name\n2\t1\t1\t2\tNULL\t2\t18\tNULL\tNULL\tTUBO 1\tCEO TESTE\n9\t1\t1\t9\tteste1\t2\t14\tNULL\tNULL\tTUBO 1\tCEO TESTE\n13\t1\t2\t1\tNULL\t1\t4\tNULL\tNULL\tTUBO 2\tCEO TESTE\n14\t1\t2\t2\tNULL\t1\t9\tNULL\tNULL\tTUBO 2\tCEO TESTE\n",
+  "stderr": "",
+  "execution_time_ms": 73
+}

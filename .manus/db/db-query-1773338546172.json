@@ -1,0 +1,109 @@
+{
+  "query": "SELECT * FROM ceo_splitter_vias ORDER BY splitterId, viaNumber LIMIT 30;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SELECT * FROM ceo_splitter_vias ORDER BY splitterId, viaNumber LIMIT 30;",
+  "rows": [
+    {
+      "id": "1",
+      "splitterId": "1",
+      "ceoId": "1",
+      "viaNumber": "0",
+      "label": "Entrada",
+      "lossDb": "0",
+      "notes": "NULL",
+      "createdAt": "2026-03-03 23:20:26",
+      "updatedAt": "2026-03-03 23:20:26"
+    },
+    {
+      "id": "2",
+      "splitterId": "1",
+      "ceoId": "1",
+      "viaNumber": "1",
+      "label": "Saída 1",
+      "lossDb": "10.5",
+      "notes": "NULL",
+      "createdAt": "2026-03-03 23:20:26",
+      "updatedAt": "2026-03-03 23:20:26"
+    },
+    {
+      "id": "3",
+      "splitterId": "1",
+      "ceoId": "1",
+      "viaNumber": "2",
+      "label": "Saída 2",
+      "lossDb": "10.5",
+      "notes": "NULL",
+      "createdAt": "2026-03-03 23:20:26",
+      "updatedAt": "2026-03-03 23:20:26"
+    },
+    {
+      "id": "4",
+      "splitterId": "1",
+      "ceoId": "1",
+      "viaNumber": "3",
+      "label": "Saída 3",
+      "lossDb": "10.5",
+      "notes": "NULL",
+      "createdAt": "2026-03-03 23:20:26",
+      "updatedAt": "2026-03-03 23:20:26"
+    },
+    {
+      "id": "5",
+      "splitterId": "1",
+      "ceoId": "1",
+      "viaNumber": "4",
+      "label": "Saída 4",
+      "lossDb": "10.5",
+      "notes": "NULL",
+      "createdAt": "2026-03-03 23:20:26",
+      "updatedAt": "2026-03-03 23:20:26"
+    },
+    {
+      "id": "6",
+      "splitterId": "1",
+      "ceoId": "1",
+      "viaNumber": "5",
+      "label": "Saída 5",
+      "lossDb": "10.5",
+      "notes": "NULL",
+      "createdAt": "2026-03-03 23:20:26",
+      "updatedAt": "2026-03-03 23:20:26"
+    },
+    {
+      "id": "7",
+      "splitterId": "1",
+      "ceoId": "1",
+      "viaNumber": "6",
+      "label": "Saída 6",
+      "lossDb": "10.5",
+      "notes": "NULL",
+      "createdAt": "2026-03-03 23:20:26",
+      "updatedAt": "2026-03-03 23:20:26"
+    },
+    {
+      "id": "8",
+      "splitterId": "1",
+      "ceoId": "1",
+      "viaNumber": "7",
+      "label": "Saída 7",
+      "lossDb": "10.5",
+      "notes": "NULL",
+      "createdAt": "2026-03-03 23:20:26",
+      "updatedAt": "2026-03-03 23:20:26"
+    },
+    {
+      "id": "9",
+      "splitterId": "1",
+      "ceoId": "1",
+      "viaNumber": "8",
+      "label": "Saída 8",
+      "lossDb": "10.5",
+      "notes": "NULL",
+      "createdAt": "2026-03-03 23:20:26",
+      "updatedAt": "2026-03-03 23:20:26"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tsplitterId\tceoId\tviaNumber\tlabel\tlossDb\tnotes\tcreatedAt\tupdatedAt\n1\t1\t1\t0\tEntrada\t0\tNULL\t2026-03-03 23:20:26\t2026-03-03 23:20:26\n2\t1\t1\t1\tSaída 1\t10.5\tNULL\t2026-03-03 23:20:26\t2026-03-03 23:20:26\n3\t1\t1\t2\tSaída 2\t10.5\tNULL\t2026-03-03 23:20:26\t2026-03-03 23:20:26\n4\t1\t1\t3\tSaída 3\t10.5\tNULL\t2026-03-03 23:20:26\t2026-03-03 23:20:26\n5\t1\t1\t4\tSaída 4\t10.5\tNULL\t2026-03-03 23:20:26\t2026-03-03 23:20:26\n6\t1\t1\t5\tSaída 5\t10.5\tNULL\t2026-03-03 23:20:26\t2026-03-03 23:20:26\n7\t1\t1\t6\tSaída 6\t10.5\tNULL\t2026-03-03 23:20:26\t2026-03-03 23:20:26\n8\t1\t1\t7\tSaída 7\t10.5\tNULL\t2026-03-03 23:20:26\t2026-03-03 23:20:26\n9\t1\t1\t8\tSaída 8\t10.5\tNULL\t2026-03-03 23:20:26\t2026-03-03 23:20:26\n",
+  "stderr": "",
+  "execution_time_ms": 58
+}

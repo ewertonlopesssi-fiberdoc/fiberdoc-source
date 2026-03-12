@@ -3971,23 +3971,39 @@ export async function calculateOpticalBalance(
           totalSplitterLoss += loss;
           reversePath.push({ type: "splitter", label: `${splitter.identifier} (${splitter.ratio})`, lossDb: loss });
           totalFusionCount++; // fusão de entrada do splitter
-          // Encontrar a via de entrada do splitter (viaNumber=0) que está fusionada com o tubo de saída
-          // A via de entrada do splitter (ENT, viaNumber=0) deve ter uma ceoVia com fusedToSplitterId apontando para este splitter
-          // Procurar ceoVia no mesmo CEO que aponta para este splitter como entrada (viaNumber=0 do splitter)
+          // Encontrar a via de entrada do splitter (viaNumber=0)
           const splitterEntryVia = allSplitterVias.find(v => v.splitterId === splitter.id && v.viaNumber === 0);
-          // Procurar ceoVia que está fusionada com a via de entrada do splitter
-          const exitCeoVia = splitterEntryVia
-            ? allCeoVias.find(v =>
-                v.ceoId === ceoRefId &&
-                (v as any).fusedToSplitterId === splitter.id &&
-                (v as any).fusedToSplitterViaId === splitterEntryVia.id
-              )
-            : null;
-          if (exitCeoVia) {
-            currentTubeId = exitCeoVia.tubeId;
-            currentViaNumber = exitCeoVia.viaNumber;
-            currentElementId = prevElementId;
-            continue;
+          if (splitterEntryVia) {
+            // Método 1: procurar ceoVia com fusedToSplitterId apontando para a via ENT
+            const exitCeoVia = allCeoVias.find(v =>
+              v.ceoId === ceoRefId &&
+              (v as any).fusedToSplitterId === splitter.id &&
+              (v as any).fusedToSplitterViaId === splitterEntryVia.id
+            );
+            if (exitCeoVia) {
+              currentTubeId = exitCeoVia.tubeId;
+              currentViaNumber = exitCeoVia.viaNumber;
+              currentElementId = prevElementId;
+              continue;
+            }
+            // Método 2: procurar via ceoViaAssociations (splitter ENT → tubo)
+            const assocEntToTube = allViaAssocs.find(a =>
+              a.ceoId === ceoRefId &&
+              ((a.sourceType === "splitter" && a.sourceViaId === splitterEntryVia.id && a.targetType === "tube") ||
+               (a.targetType === "splitter" && a.targetViaId === splitterEntryVia.id && a.sourceType === "tube"))
+            );
+            if (assocEntToTube) {
+              const exitTubeViaId = assocEntToTube.sourceType === "splitter"
+                ? assocEntToTube.targetViaId
+                : assocEntToTube.sourceViaId;
+              const exitTubeVia = ceoViaById.get(exitTubeViaId);
+              if (exitTubeVia) {
+                currentTubeId = exitTubeVia.tubeId;
+                currentViaNumber = exitTubeVia.viaNumber;
+                currentElementId = prevElementId;
+                continue;
+              }
+            }
           }
           // Fallback: procurar qualquer ceoVia que aponte para a entrada deste splitter
           const anyExitCeoVia = allCeoVias.find(v =>

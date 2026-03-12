@@ -1,0 +1,22 @@
+{
+  "query": "\n-- Todos os CEOs\nSELECT c.id as ceo_id, c.name FROM ceos c ORDER BY c.id;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute \n-- Todos os CEOs\nSELECT c.id as ceo_id, c.name FROM ceos c ORDER BY c.id;\n",
+  "rows": [
+    {
+      "ceo_id": "1",
+      "name": "CEO TESTE"
+    },
+    {
+      "ceo_id": "30002",
+      "name": "TESTE2"
+    },
+    {
+      "ceo_id": "60001",
+      "name": "teste"
+    }
+  ],
+  "messages": [],
+  "stdout": "ceo_id\tname\n1\tCEO TESTE\n30002\tTESTE2\n60001\tteste\n",
+  "stderr": "",
+  "execution_time_ms": 56
+}

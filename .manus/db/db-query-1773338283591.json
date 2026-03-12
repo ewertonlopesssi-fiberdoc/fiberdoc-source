@@ -1,0 +1,20 @@
+{
+  "query": "SELECT c.id as ceo_id, c.name, me.id as element_id FROM ceos c JOIN map_elements me ON me.type = 'ceo' AND me.referenceId = c.id ORDER BY c.id DESC LIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 62dKvDDRXNFU1NB.48f4057fd5e9 --database KioPgWiG3Nyw2z6a2yjfqA --execute SELECT c.id as ceo_id, c.name, me.id as element_id FROM ceos c JOIN map_elements me ON me.type = 'ceo' AND me.referenceId = c.id ORDER BY c.id DESC LIMIT 20;",
+  "rows": [
+    {
+      "ceo_id": "60001",
+      "name": "teste",
+      "element_id": "60001"
+    },
+    {
+      "ceo_id": "30002",
+      "name": "TESTE2",
+      "element_id": "30002"
+    }
+  ],
+  "messages": [],
+  "stdout": "ceo_id\tname\telement_id\n60001\tteste\t60001\n30002\tTESTE2\t30002\n",
+  "stderr": "",
+  "execution_time_ms": 70
+}
