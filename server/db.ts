@@ -3556,40 +3556,28 @@ const SPLITTER_LOSS_DB: Record<string, number> = {
   "1:64": 20.5,
 };
 
-// Tabela de perda por splitter desbalanceado (em dB)
-// Chave: "A/B" onde A > B (ex: "95/5")
-// Valor: [perdaPortaMaior, perdaPortaMenor]
-const UNBALANCED_SPLITTER_LOSS_DB: Record<string, [number, number]> = {
-  "95/5":  [0.2,  13.0],
-  "90/10": [0.5,  10.0],
-  "80/20": [1.0,   7.0],
-  "70/30": [1.6,   5.2],
-  "60/40": [2.2,   4.0],
-};
-
 /**
  * Detecta se o identifier corresponde a um splitter desbalanceado.
- * Retorna a chave normalizada (ex: "95/5") ou null.
+ * Retorna as percentagens [maior, menor] ou null se não for desbalanceado.
+ * Ex: "95/5" → [95, 5], "SPLINTER 90/10" → [90, 10]
  */
-function detectUnbalancedRatio(identifier: string): string | null {
-  // Procurar padrão "NN/MM" ou "NN:MM" onde ambos os números são > 1
-  const m = identifier.match(/(\d+)\/(\d+)/) ?? identifier.match(/(\d+):(\d+)/);
+function detectUnbalancedRatio(identifier: string): [number, number] | null {
+  const m = identifier.match(/(\d+)\/(\d+)/);
   if (!m) return null;
   const a = parseInt(m[1]);
   const b = parseInt(m[2]);
   // Se ambos > 1 e somam ~100, é desbalanceado
   if (a > 1 && b > 1 && Math.abs(a + b - 100) <= 5) {
-    const bigger = Math.max(a, b);
-    const smaller = Math.min(a, b);
-    return `${bigger}/${smaller}`;
+    return [Math.max(a, b), Math.min(a, b)];
   }
   return null;
 }
 
 /**
  * Calcula a perda de um splitter desbalanceado com base no viaNumber da via de saída.
- * Via de MAIOR viaNumber = porta de MAIOR percentagem (menor perda).
- * Via de MENOR viaNumber = porta de MENOR percentagem (maior perda).
+ * Usa a fórmula: perda = -10 × log10(percentagem/100)
+ * Convenção: via de MAIOR viaNumber = porta de MAIOR percentagem (menor perda).
+ *             via de MENOR viaNumber (excluindo ENT=0) = porta de MENOR percentagem (maior perda).
  * @param ratio Identifier do splitter (ex: "95/5", "SPLINTER 90/10")
  * @param exitViaNumber viaNumber da via de saída do splitter
  * @param allSplitterViaNumbers todos os viaNumbers das vias deste splitter
@@ -3599,12 +3587,16 @@ function getUnbalancedSplitterLoss(
   exitViaNumber: number,
   allSplitterViaNumbers: number[]
 ): number | null {
-  const key = detectUnbalancedRatio(ratio);
-  if (!key || !UNBALANCED_SPLITTER_LOSS_DB[key]) return null;
-  const [lossMajor, lossMinor] = UNBALANCED_SPLITTER_LOSS_DB[key];
-  const maxVia = Math.max(...allSplitterViaNumbers);
+  const percentages = detectUnbalancedRatio(ratio);
+  if (!percentages) return null;
+  const [pctMajor, pctMinor] = percentages;
+  // Excluir via ENT (viaNumber=0) para determinar max/min das saídas
+  const outputVias = allSplitterViaNumbers.filter(n => n > 0);
+  if (outputVias.length === 0) return null;
+  const maxVia = Math.max(...outputVias);
   // Via de maior viaNumber = porta maior% = menor perda
-  return exitViaNumber === maxVia ? lossMajor : lossMinor;
+  const pct = exitViaNumber === maxVia ? pctMajor : pctMinor;
+  return parseFloat((-10 * Math.log10(pct / 100)).toFixed(2));
 }
 
 function getSplitterLoss(ratio: string): number {
