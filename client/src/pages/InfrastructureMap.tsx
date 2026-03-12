@@ -2937,9 +2937,10 @@ export default function InfrastructureMap() {
                             );
                             const isFused = via.fusedToViaId !== null || !!assocForVia;
                             const viaColor = FIBER_VIA_COLORS[via.viaNumber] ?? "#6b7280";
-                            // Badge de associação CTO: calcular o outro lado da ligação
+                            // Badge de destino de fusão: mostra o outro lado da ligação
                             let assocBadge: { tubeIdentifier: string; viaNumber: number; isSplitter: boolean } | null = null;
-                            if (isCto && assocForVia) {
+                            if (assocForVia) {
+                              // Fusão via associação (tubo↔splitter)
                               const otherViaId = (assocForVia.sourceType === "tube" && assocForVia.sourceViaId === via.id)
                                 ? assocForVia.targetViaId
                                 : assocForVia.sourceViaId;
@@ -2956,6 +2957,17 @@ export default function InfrastructureMap() {
                                     isSplitter: otherType === "splitter" || otherTube.type === "splitter",
                                   };
                                 }
+                              }
+                            } else if (via.fusedToViaId && via.fusedToTubeId) {
+                              // Fusão directa tubo↔tubo (fusedToViaId/fusedToTubeId)
+                              const destTube = (tubes ?? []).find((t: any) => t.id === via.fusedToTubeId);
+                              const destVia = (allVias ?? []).find((v: any) => v.id === via.fusedToViaId);
+                              if (destTube && destVia) {
+                                assocBadge = {
+                                  tubeIdentifier: destTube.identifier,
+                                  viaNumber: destVia.viaNumber,
+                                  isSplitter: destTube.type === "splitter",
+                                };
                               }
                             }
                             return (
@@ -3074,6 +3086,17 @@ export default function InfrastructureMap() {
                                 (a.targetType === "splitter" && a.targetViaId === via.id)
                               );
                               const isFused = !!myAssoc;
+                              // Badge de destino: mostrar o tubo/via do outro lado da associação
+                              let splAssocBadge: { tubeIdentifier: string; viaNumber: number } | null = null;
+                              if (myAssoc) {
+                                const otherViaId = (myAssoc.sourceType === "splitter" && myAssoc.sourceViaId === via.id)
+                                  ? myAssoc.targetViaId : myAssoc.sourceViaId;
+                                const otherVia = (ceoViasQuery.data as any[] ?? []).find((v: any) => v.id === otherViaId);
+                                if (otherVia) {
+                                  const otherTube = (ceoTubesQuery.data as any[] ?? []).find((t: any) => t.id === otherVia.tubeId);
+                                  if (otherTube) splAssocBadge = { tubeIdentifier: otherTube.identifier, viaNumber: otherVia.viaNumber };
+                                }
+                              }
                               return (
                                 <div key={via.id} className={`flex items-center gap-1.5 text-xs py-0.5 px-1 rounded group cursor-pointer ${isFused ? "bg-cyan-500/10" : "hover:bg-accent/20"}`}
                                   onClick={() => {
@@ -3095,6 +3118,13 @@ export default function InfrastructureMap() {
                                   {via.label
                                     ? <span className="truncate font-medium">{via.label}</span>
                                     : <span className="text-muted-foreground/50 italic">{via.viaNumber === 0 ? "entrada" : "livre"}</span>}
+                                  {/* Badge de destino: mostra o tubo/via do outro lado */}
+                                  {splAssocBadge && (
+                                    <span className="ml-1 flex items-center gap-0.5 text-[10px] text-violet-300 bg-violet-500/10 border border-violet-500/20 rounded px-1 py-0 shrink-0 font-medium"
+                                      title={`Associado a TUB ${splAssocBadge.tubeIdentifier} / Via ${splAssocBadge.viaNumber}`}>
+                                      → TUB {splAssocBadge.tubeIdentifier} / {String(splAssocBadge.viaNumber).padStart(2, "0")}
+                                    </span>
+                                  )}
                                   {isFused ? (
                                     <span className="ml-auto flex items-center gap-0.5 text-[10px] text-red-400 font-semibold shrink-0">
                                       <Link2Off className="w-2.5 h-2.5" /> desfazer

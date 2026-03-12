@@ -1541,3 +1541,7 @@
 ## Bug: OTDR Virtual e Balanço Óptico com múltiplas CTOs
 - [ ] Corrigir traceOtdrPath para suportar topologia em árvore (múltiplos ramos a partir de um mesmo CEO/nó)
 - [ ] Corrigir calcOpticalBalance para calcular todos os ramos em paralelo, não apenas o primeiro encontrado
+
+- [x] Painel lateral CTO: mostrar destino de fusão nas vias dos tubos (ex: FUSÃO → SPLINTER 1:4 ENT)
+- [x] Remover aba Tubos/Splitters do painel de CEO (gerido dentro da bandeja)
+- [x] Fusão bidirecional: ao associar via de tubo a via de splitter, criar associação inversa automaticamente

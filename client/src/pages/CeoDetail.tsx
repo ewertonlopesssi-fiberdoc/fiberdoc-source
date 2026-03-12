@@ -1283,13 +1283,7 @@ export default function CeoDetail() {
           mainTab === "bandejas" ? "border-amber-400 text-amber-400" : "border-transparent text-muted-foreground hover:text-foreground")}>
           <LayoutGrid className="h-4 w-4 inline mr-1.5" />Bandejas ({bandejaList.length})
         </button>
-        <button onClick={() => setMainTab("tubos")} className={cn("px-4 py-2 text-sm font-medium border-b-2 transition-colors",
-          mainTab === "tubos" ? "border-blue-400 text-blue-400" : "border-transparent text-muted-foreground hover:text-foreground")}>
-          <Layers className="h-4 w-4 inline mr-1.5" />Tubos / Splitters ({tubeList.length})
-          {tubesWithoutBandeja.length > 0 && (
-            <Badge variant="outline" className="ml-1.5 text-[9px] px-1 py-0 border-amber-500/40 text-amber-300">{tubesWithoutBandeja.length} sem bandeja</Badge>
-          )}
-        </button>
+        {/* Aba Tubos/Splitters removida — gerenciamento feito dentro das Bandejas */}
       </div>
 
       {/* Conteúdo: Bandejas */}
