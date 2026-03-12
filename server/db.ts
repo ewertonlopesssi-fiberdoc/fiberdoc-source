@@ -57,6 +57,10 @@ import {
   MapElementGroup,
   mapRouteGroups,
   MapRouteGroup,
+  mapPoleGroups,
+  MapPoleGroup,
+  mapReserveGroups,
+  MapReserveGroup,
   mapPoles,
   MapPole,
   InsertMapPole,
@@ -2546,6 +2550,68 @@ export async function getAllElementGroupMemberships(): Promise<MapElementGroup[]
   const db = await getDb();
   if (!db) return [];
   return db.select().from(mapElementGroups);
+}
+
+// ─── Grupos de Postes ─────────────────────────────────────────────────────────
+export async function addPoleToGroup(poleId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(mapPoleGroups)
+    .where(and(eq(mapPoleGroups.poleId, poleId), eq(mapPoleGroups.groupId, groupId)))
+    .limit(1);
+  if (existing.length === 0) {
+    await db.insert(mapPoleGroups).values({ poleId, groupId });
+  }
+}
+
+export async function removePoleFromGroup(poleId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapPoleGroups)
+    .where(and(eq(mapPoleGroups.poleId, poleId), eq(mapPoleGroups.groupId, groupId)));
+}
+
+export async function removePoleFromAllGroups(poleId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapPoleGroups).where(eq(mapPoleGroups.poleId, poleId));
+}
+
+export async function getAllPoleGroupMemberships(): Promise<MapPoleGroup[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapPoleGroups);
+}
+
+// ─── Grupos de Reservas Técnicas ──────────────────────────────────────────────
+export async function addReserveToGroup(reserveId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(mapReserveGroups)
+    .where(and(eq(mapReserveGroups.reserveId, reserveId), eq(mapReserveGroups.groupId, groupId)))
+    .limit(1);
+  if (existing.length === 0) {
+    await db.insert(mapReserveGroups).values({ reserveId, groupId });
+  }
+}
+
+export async function removeReserveFromGroup(reserveId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapReserveGroups)
+    .where(and(eq(mapReserveGroups.reserveId, reserveId), eq(mapReserveGroups.groupId, groupId)));
+}
+
+export async function removeReserveFromAllGroups(reserveId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapReserveGroups).where(eq(mapReserveGroups.reserveId, reserveId));
+}
+
+export async function getAllReserveGroupMemberships(): Promise<MapReserveGroup[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapReserveGroups);
 }
 
 export async function getAllRouteGroupMemberships(): Promise<MapRouteGroup[]> {

@@ -756,6 +756,22 @@ export default function InfrastructureMap() {
     onSuccess: () => { refetchGroups(); toast.success("Cabo removido do grupo"); },
     onError: (e: any) => toast.error(e.message),
   });
+  const assignPoleToGroupMut = trpc.mapGroups.addPole.useMutation({
+    onSuccess: () => { refetchGroups(); toast.success("Poste adicionado ao grupo"); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const removePoleFromGroupMut = trpc.mapGroups.removePole.useMutation({
+    onSuccess: () => { refetchGroups(); toast.success("Poste removido do grupo"); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const assignReserveToGroupMut = trpc.mapGroups.addReserve.useMutation({
+    onSuccess: () => { refetchGroups(); toast.success("Reserva adicionada ao grupo"); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const removeReserveFromGroupMut = trpc.mapGroups.removeReserve.useMutation({
+    onSuccess: () => { refetchGroups(); toast.success("Reserva removida do grupo"); },
+    onError: (e: any) => toast.error(e.message),
+  });
   const addElementsMut = trpc.mapGroups.addElements.useMutation({
     onSuccess: (data: any) => { refetchGroups(); setQuickAssignDialogOpen(false); setGroupSelectMode(false); setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set()); toast.success(`${data.count} elemento${data.count !== 1 ? "s" : ""} adicionado${data.count !== 1 ? "s" : ""} ao grupo`); },
     onError: (e: any) => toast.error(e.message),
@@ -3615,13 +3631,15 @@ export default function InfrastructureMap() {
         {groupsPanelOpen && (() => {
           // Construir árvore hierárquica de grupos
           const allGroups = mapGroups as any[];
+          const poles = mapPoles as any[];
+          const reserves = mapReserves as any[];
           const rootGroups = allGroups.filter((g: any) => !g.parentId);
           const childGroups = (parentId: number) => allGroups.filter((g: any) => g.parentId === parentId);
           const countAllElements = (g: any): { elems: number; routes: number } => {
             const children = childGroups(g.id);
             const childCounts = children.map(countAllElements);
             return {
-              elems: (g.elements?.length ?? 0) + childCounts.reduce((s: number, c: any) => s + c.elems, 0),
+              elems: (g.elements?.length ?? 0) + (g.poles?.length ?? 0) + (g.reserves?.length ?? 0) + childCounts.reduce((s: number, c: any) => s + c.elems, 0),
               routes: (g.routes?.length ?? 0) + childCounts.reduce((s: number, c: any) => s + c.routes, 0),
             };
           };
@@ -3640,7 +3658,15 @@ export default function InfrastructureMap() {
               const rt = (routes as any[]).find((x: any) => x.id === r.routeId);
               return rt ? { ...rt, _type: "route" } : null;
             }).filter(Boolean);
-            const hasItems = groupElems.length > 0 || groupRoutes.length > 0;
+            const groupPoles: any[] = (group.poles ?? []).map((p: any) => {
+              const pole = (poles as any[]).find((x: any) => x.id === p.poleId);
+              return pole ? { ...pole, _type: "pole" } : null;
+            }).filter(Boolean);
+            const groupReserves: any[] = (group.reserves ?? []).map((r: any) => {
+              const reserve = (reserves as any[]).find((x: any) => x.id === r.reserveId);
+              return reserve ? { ...reserve, _type: "reserve" } : null;
+            }).filter(Boolean);
+            const hasItems = groupElems.length > 0 || groupRoutes.length > 0 || groupPoles.length > 0 || groupReserves.length > 0;
             return (
               <div key={group.id}>
                 <div
@@ -3739,6 +3765,20 @@ export default function InfrastructureMap() {
                         />
                         <span className="text-muted-foreground truncate flex-1" title={rt.name ?? rt.label}>{rt.name ?? rt.label ?? `Cabo #${rt.id}`}</span>
                         <span className="text-muted-foreground/50 uppercase text-[10px]">cabo</span>
+                      </div>
+                    ))}
+                    {groupPoles.map((pole: any) => (
+                      <div key={`pole-${pole.id}`} className="flex items-center gap-2 px-2 py-1 hover:bg-muted/20 text-xs" style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                        <span className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span className="text-muted-foreground truncate flex-1" title={pole.name ?? pole.label}>{pole.name ?? pole.label ?? `Poste #${pole.id}`}</span>
+                        <span className="text-muted-foreground/50 uppercase text-[10px]">poste</span>
+                      </div>
+                    ))}
+                    {groupReserves.map((reserve: any) => (
+                      <div key={`reserve-${reserve.id}`} className="flex items-center gap-2 px-2 py-1 hover:bg-muted/20 text-xs" style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                        <span className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span className="text-muted-foreground truncate flex-1" title={reserve.name ?? reserve.label}>{reserve.name ?? reserve.label ?? `Reserva #${reserve.id}`}</span>
+                        <span className="text-muted-foreground/50 uppercase text-[10px]">reserva</span>
                       </div>
                     ))}
                   </div>
@@ -5661,6 +5701,29 @@ export default function InfrastructureMap() {
               </div>
             </div>
             <div className="space-y-1.5">
+              <Label className="flex items-center gap-1"><Folder className="w-3 h-3" /> Grupo / Pasta</Label>
+              <Select
+                value={(() => { const g = (mapGroups as any[]).find((g: any) => g.poles?.some((p: any) => p.poleId === editingPoleId)); return g ? String(g.id) : "none"; })()} 
+                onValueChange={(val) => {
+                  if (!editingPoleId) return;
+                  const curGroup = (mapGroups as any[]).find((g: any) => g.poles?.some((p: any) => p.poleId === editingPoleId));
+                  if (curGroup) removePoleFromGroupMut.mutate({ groupId: curGroup.id, poleId: editingPoleId });
+                  if (val !== "none") assignPoleToGroupMut.mutate({ groupId: Number(val), poleId: editingPoleId });
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sem grupo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem grupo</SelectItem>
+                  {(mapGroups as any[]).map((g: any) => (
+                    <SelectItem key={g.id} value={String(g.id)}>
+                      <span className="flex items-center gap-1.5"><span style={{ background: g.color, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />{g.name}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!editingPoleId && <p className="text-xs text-muted-foreground">Salve o poste primeiro para atribuir a um grupo.</p>}
+            </div>
+            <div className="space-y-1.5">
               <Label>Observações</Label>
               <Textarea value={poleForm.notes} onChange={e => setPoleForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Observações opcionais..." />
             </div>
@@ -5760,6 +5823,29 @@ export default function InfrastructureMap() {
               <div className="text-xs bg-muted rounded px-3 py-2 text-muted-foreground font-mono">
                 {reserveDialogLat.toFixed(6)}, {reserveDialogLng.toFixed(6)}
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1"><Folder className="w-3 h-3" /> Grupo / Pasta</Label>
+              <Select
+                value={(() => { const g = (mapGroups as any[]).find((g: any) => g.reserves?.some((r: any) => r.reserveId === editingReserveId)); return g ? String(g.id) : "none"; })()} 
+                onValueChange={(val) => {
+                  if (!editingReserveId) return;
+                  const curGroup = (mapGroups as any[]).find((g: any) => g.reserves?.some((r: any) => r.reserveId === editingReserveId));
+                  if (curGroup) removeReserveFromGroupMut.mutate({ groupId: curGroup.id, reserveId: editingReserveId });
+                  if (val !== "none") assignReserveToGroupMut.mutate({ groupId: Number(val), reserveId: editingReserveId });
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sem grupo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem grupo</SelectItem>
+                  {(mapGroups as any[]).map((g: any) => (
+                    <SelectItem key={g.id} value={String(g.id)}>
+                      <span className="flex items-center gap-1.5"><span style={{ background: g.color, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />{g.name}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!editingReserveId && <p className="text-xs text-muted-foreground">Salve a reserva primeiro para atribuir a um grupo.</p>}
             </div>
             <div className="space-y-1.5">
               <Label>Observações</Label>

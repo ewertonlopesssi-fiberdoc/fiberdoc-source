@@ -738,6 +738,22 @@ export const mapRouteGroups = mysqlTable("map_route_groups", {
 });
 export type MapRouteGroup = typeof mapRouteGroups.$inferSelect;
 
+// ─── Associação de Postes a Grupos ──────────────────────────────────────────
+export const mapPoleGroups = mysqlTable("map_pole_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  poleId: int("poleId").notNull(),
+  groupId: int("groupId").notNull(),
+});
+export type MapPoleGroup = typeof mapPoleGroups.$inferSelect;
+
+// ─── Associação de Reservas Técnicas a Grupos ─────────────────────────────────
+export const mapReserveGroups = mysqlTable("map_reserve_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  reserveId: int("reserveId").notNull(),
+  groupId: int("groupId").notNull(),
+});
+export type MapReserveGroup = typeof mapReserveGroups.$inferSelect;
+
 // ─── Configurações da Aplicação (Integrações) ─────────────────────────────────
 export const appSettings = mysqlTable("app_settings", {
   id: int("id").autoincrement().primaryKey(),
