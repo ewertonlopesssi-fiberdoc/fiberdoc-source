@@ -96,13 +96,30 @@ function formatRatio(ratio: string): string {
   return ratio;
 }
 
+// ─── FusedToSplitterBadge ─────────────────────────────────────────────────────────────────
+function FusedToSplitterBadge({ splitterId, splitterViaId, splitters, allSplitterVias }: {
+  splitterId: number | null; splitterViaId: number | null;
+  splitters: Splitter[]; allSplitterVias: SplitterVia[];
+}) {
+  const spl = splitters.find(s => s.id === splitterId);
+  const sv = allSplitterVias.find(v => v.id === splitterViaId);
+  const splLabel = spl ? spl.identifier : "SPL";
+  const viaLabel = sv ? (sv.viaNumber === 0 ? "ENT" : `VIA ${sv.viaNumber}`) : (splitterViaId ? `ID ${splitterViaId}` : "");
+  return (
+    <div className="text-[10px] text-purple-300 bg-purple-500/10 rounded px-2 py-1 border border-purple-500/20">
+      <span className="font-medium">FUSÃO</span><span className="text-purple-200/70 mx-1">→</span>
+      <span>{splLabel} / {viaLabel}</span>
+    </div>
+  );
+}
+
 // ─── ViaCard ──────────────────────────────────────────────────────────────────
 function ViaCard({
-  via, tubes, allVias, fibers, associations, allSplitterVias,
+  via, tubes, allVias, fibers, associations, allSplitterVias, splitters,
   onSetFusion, onClearFusion, onEditLabel, onSetFiber, onClearFiber,
 }: {
   via: Via; tubes: Tube[]; allVias: Via[]; fibers: Fiber[];
-  associations?: ViaAssociation[]; allSplitterVias?: SplitterVia[];
+  associations?: ViaAssociation[]; allSplitterVias?: SplitterVia[]; splitters?: Splitter[];
   onSetFusion: (via: Via) => void; onClearFusion: (via: Via) => void;
   onEditLabel: (via: Via) => void; onSetFiber: (via: Via) => void;
   onClearFiber: (viaId: number) => void;
@@ -171,10 +188,12 @@ function ViaCard({
         </div>
       )}
       {via.fusedToSplitterId !== null ? (
-        <div className="text-[10px] text-purple-300 bg-purple-500/10 rounded px-2 py-1 border border-purple-500/20">
-          <span className="font-medium">FUSÃO</span><span className="text-purple-200/70 mx-1">→</span>
-          <span>SPLITTER (VIA {via.fusedToSplitterViaId})</span>
-        </div>
+        <FusedToSplitterBadge
+          splitterId={via.fusedToSplitterId}
+          splitterViaId={via.fusedToSplitterViaId}
+          splitters={splitters ?? []}
+          allSplitterVias={allSplitterVias ?? []}
+        />
       ) : assocSplLabel ? (
         <div className="text-[10px] text-violet-300 bg-violet-500/10 rounded px-2 py-1 border border-violet-500/20">
           <span className="font-medium">FUSÃO</span><span className="text-violet-200/70 mx-1">→</span>
@@ -443,7 +462,7 @@ function TubePanel({
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
               {filteredVias.map(via => (
                 <ViaCard key={via.id} via={via} tubes={tubes} allVias={allVias as Via[]} fibers={fibers}
-                  associations={associations} allSplitterVias={allSplitterVias}
+                  associations={associations} allSplitterVias={allSplitterVias} splitters={splitters}
                   onSetFusion={v => { setFusionDialog(v); setFusionTubeId(""); setFusionViaNumber(""); }}
                   onClearFusion={via => setClearFusionConfirmDialog(via)}
                   onEditLabel={v => { setLabelDialog(v); setLabelValue(v.label ?? ""); setLabelNotes(v.notes ?? ""); }}
