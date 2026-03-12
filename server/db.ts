@@ -2970,13 +2970,43 @@ export async function traceOtdrPath(
   // Função para encontrar a rota que sai de um elemento via um tubo específico
   // Retorna { route, isForward } onde isForward=true significa que o tubo está como fromTubeId
   // (o cabo sai deste elemento em direcção ao toElementId)
-  function findRouteFromTube(elementId: number, tubeId: number): { route: typeof allRoutes[0]; isForward: boolean } | null {
+  // Quando há múltiplas rotas com o mesmo tubo, tenta selecionar a que tem a via correcta no destino
+  function findRouteFromTube(elementId: number, tubeId: number, viaNumber?: number): { route: typeof allRoutes[0]; isForward: boolean } | null {
     // Tubo está como fromTubeId → percorrer em frente (from→to)
-    let r = allRoutes.find(r => r.fromElementId === elementId && r.fromTubeId === tubeId);
-    if (r) return { route: r, isForward: true };
+    const forwardRoutes = allRoutes.filter(r => r.fromElementId === elementId && r.fromTubeId === tubeId);
+    if (forwardRoutes.length === 1) return { route: forwardRoutes[0], isForward: true };
+    if (forwardRoutes.length > 1 && viaNumber !== undefined) {
+      // Múltiplos cabos saindo pelo mesmo tubo: selecionar o que tem a via correcta no destino
+      const best = forwardRoutes.find(r => {
+        if (!r.toElementId || !r.toTubeId) return false;
+        const destEl = elementById.get(r.toElementId);
+        if (!destEl) return false;
+        const destVia = destEl.type === "ceo"
+          ? allCeoVias.find(v => v.tubeId === r.toTubeId! && v.viaNumber === viaNumber)
+          : allCtoVias.find(v => v.tubeId === r.toTubeId! && v.viaNumber === viaNumber);
+        return !!destVia;
+      });
+      if (best) return { route: best, isForward: true };
+      return { route: forwardRoutes[0], isForward: true }; // fallback ao primeiro
+    }
+    if (forwardRoutes.length > 0) return { route: forwardRoutes[0], isForward: true };
     // Tubo está como toTubeId → percorrer ao contrário (to→from)
-    r = allRoutes.find(r => r.toElementId === elementId && r.toTubeId === tubeId);
-    if (r) return { route: r, isForward: false };
+    const backwardRoutes = allRoutes.filter(r => r.toElementId === elementId && r.toTubeId === tubeId);
+    if (backwardRoutes.length === 1) return { route: backwardRoutes[0], isForward: false };
+    if (backwardRoutes.length > 1 && viaNumber !== undefined) {
+      const best = backwardRoutes.find(r => {
+        if (!r.fromElementId || !r.fromTubeId) return false;
+        const destEl = elementById.get(r.fromElementId);
+        if (!destEl) return false;
+        const destVia = destEl.type === "ceo"
+          ? allCeoVias.find(v => v.tubeId === r.fromTubeId! && v.viaNumber === viaNumber)
+          : allCtoVias.find(v => v.tubeId === r.fromTubeId! && v.viaNumber === viaNumber);
+        return !!destVia;
+      });
+      if (best) return { route: best, isForward: false };
+      return { route: backwardRoutes[0], isForward: false };
+    }
+    if (backwardRoutes.length > 0) return { route: backwardRoutes[0], isForward: false };
     return null;
   }
 
@@ -3009,7 +3039,8 @@ export async function traceOtdrPath(
     visitedElements.add(loopKey);
 
     // Encontrar a rota que sai deste elemento via este tubo
-    const routeResult = findRouteFromTube(currentElementId, currentTubeId);
+    // Passar viaNumber para desambiguar quando há múltiplos cabos no mesmo tubo
+    const routeResult = findRouteFromTube(currentElementId, currentTubeId, currentViaNumber);
     if (!routeResult) {
       // Não há rota vinculada a este tubo — verificar se há rota sem tubo vinculado
       const routeNoTube = allRoutes.find(r =>
@@ -3726,6 +3757,7 @@ export async function calculateOpticalBalance(
   // Chave inclui viaNumber para evitar falsos positivos quando o mesmo elemento
   // aparece com tubos/vias diferentes (passagem legítima de cabo)
   const visited = new Set<string>();
+  const visitedRouteIds = new Set<number>(); // IDs de rotas já percorridas (evitar voltar atrás)
   for (let iter = 0; iter < 50; iter++) {
     const loopKey = `${currentElementId}:${currentTubeId ?? "null"}:${currentViaNumber ?? "null"}`;
     if (visited.has(loopKey)) { warnings.push("Loop detectado na cadeia de fibra"); break; }
@@ -3743,12 +3775,18 @@ export async function calculateOpticalBalance(
     }
     if (!activeRoute) {
       // Sem tubo vinculado — tentar qualquer cabo conectado a este elemento
-      // Excluir o cabo que acabámos de percorrer (evitar voltar atrás)
-      const lastCableLabel = reversePath.filter(s => s.type === "cable").at(-1)?.label;
-      activeRoute = allRoutes.find(r =>
+      // Excluir todas as rotas já percorridas (evitar voltar atrás em qualquer ramo)
+      const candidateRoutes = allRoutes.filter(r =>
         (r.toElementId === currentElementId || r.fromElementId === currentElementId) &&
-        (r.name ?? `Cabo #${r.id}`) !== lastCableLabel
-      ) ?? null;
+        !visitedRouteIds.has(r.id)
+      );
+      // Priorizar cabos cujo outro extremo é um CEO (rastreio de volta à OLT passa por CEOs)
+      const routeViaCeo = candidateRoutes.find(r => {
+        const otherId = r.toElementId === currentElementId ? r.fromElementId : r.toElementId;
+        const otherEl = otherId ? elementById.get(otherId) : null;
+        return otherEl?.type === "ceo";
+      });
+      activeRoute = routeViaCeo ?? candidateRoutes[0] ?? null;
       if (activeRoute) {
         isForwardOnRoute = activeRoute.toElementId === currentElementId;
         warnings.push(`Cabo "${activeRoute.name ?? `#${activeRoute.id}`}" sem tubo vinculado — estimativa pode ser imprecisa`);
@@ -3758,6 +3796,7 @@ export async function calculateOpticalBalance(
       warnings.push(`Nenhum cabo encontrado chegando ao elemento "${getElementName(elementById.get(currentElementId)!)}" — cadeia interrompida`);
       break;
     }
+    visitedRouteIds.add(activeRoute.id); // marcar rota como percorrida
     const segDistKmBase = calcRouteDistanceKm(activeRoute);
     const reserveMetersOB = reserveByRouteOB.get(activeRoute.id) ?? 0;
     const segDistKm = segDistKmBase + (reserveMetersOB / 1000);

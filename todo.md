@@ -1537,3 +1537,7 @@
 - [x] Elemento Reserva Técnica: marcador visual no mapa (ícone de caixa), dialog com campos Nome, Tamanho (metros) e vínculo a traçado
 - [x] Integrar reserva técnica no cálculo de comprimento do traçado vinculado (OTDR Virtual + Balanço Óptico Estimado)
 - [x] Aplicar migrations no servidor de produção (tabelas criadas via webdev_execute_sql)
+
+## Bug: OTDR Virtual e Balanço Óptico com múltiplas CTOs
+- [ ] Corrigir traceOtdrPath para suportar topologia em árvore (múltiplos ramos a partir de um mesmo CEO/nó)
+- [ ] Corrigir calcOpticalBalance para calcular todos os ramos em paralelo, não apenas o primeiro encontrado
