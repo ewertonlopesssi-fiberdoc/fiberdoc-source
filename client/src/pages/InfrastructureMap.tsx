@@ -1255,7 +1255,7 @@ export default function InfrastructureMap() {
           <div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${(pole.name ?? '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
         </div>`,
       });
-      const marker = L.marker([Number(pole.lat), Number(pole.lng)], { icon }).addTo(mapRef.current!);
+      const marker = L.marker([Number(pole.lat), Number(pole.lng)], { icon, draggable: isAdmin }).addTo(mapRef.current!);
       marker.on("click", () => {
         if (!isAdmin) return;
         setEditingPoleId(pole.id);
@@ -1264,6 +1264,12 @@ export default function InfrastructureMap() {
         setPoleDialogLng(Number(pole.lng));
         setPoleDialogOpen(true);
       });
+      if (isAdmin) {
+        marker.on("dragend", () => {
+          const pos = marker.getLatLng();
+          updatePoleMut.mutate({ id: pole.id, lat: pos.lat, lng: pos.lng });
+        });
+      }
       poleMarkersRef.current[pole.id] = marker;
     });
   }, [mapPoles, showPoles, mapReady, isAdmin]);
@@ -1286,7 +1292,7 @@ export default function InfrastructureMap() {
           <div style="background:rgba(8,145,178,0.85);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${reserve.sizeMeters ?? 0}m</div>
         </div>`,
       });
-      const marker = L.marker([Number(reserve.lat), Number(reserve.lng)], { icon }).addTo(mapRef.current!);
+      const marker = L.marker([Number(reserve.lat), Number(reserve.lng)], { icon, draggable: isAdmin }).addTo(mapRef.current!);
       marker.on("click", () => {
         if (!isAdmin) return;
         setEditingReserveId(reserve.id);
@@ -1295,6 +1301,12 @@ export default function InfrastructureMap() {
         setReserveDialogLng(Number(reserve.lng));
         setReserveDialogOpen(true);
       });
+      if (isAdmin) {
+        marker.on("dragend", () => {
+          const pos = marker.getLatLng();
+          updateReserveMut.mutate({ id: reserve.id, lat: pos.lat, lng: pos.lng });
+        });
+      }
       reserveMarkersRef.current[reserve.id] = marker;
     });
   }, [mapReserves, showReserves, mapReady, isAdmin]);
