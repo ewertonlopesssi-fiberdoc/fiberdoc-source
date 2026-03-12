@@ -3132,33 +3132,6 @@ export async function traceOtdrPath(
       tracedPath.push(pts[0]);
     }
 
-    // Reserva técnica vinculada a esta rota (metros extras a considerar no cálculo)
-    const reserveMeters = reserveByRoute.get(activeRoute.id) ?? 0;
-    if (reserveMeters > 0) {
-      warnings.push(`Reserva técnica de ${reserveMeters}m incluída no cálculo da rota "${activeRoute.name ?? `#${activeRoute.id}`}"`);
-      // Verificar se a distância alvo é atingida dentro da reserva (antes de percorrer o traçado)
-      if (distanceTraveled + reserveMeters >= targetDistanceMeters) {
-        const remaining = targetDistanceMeters - distanceTraveled;
-        // O ponto está dentro da reserva técnica — posicioná-lo no início do segmento
-        const startPt = pts[0];
-        tracedPath.push(startPt);
-        distanceTraveled = targetDistanceMeters;
-        return {
-          found: true,
-          lat: startPt.lat, lng: startPt.lng,
-          distanceTraveled,
-          totalLength: totalLength + reserveMeters,
-          segmentName: activeRoute.name ?? null,
-          segmentRouteId: activeRoute.id,
-          elementReached: null,
-          tracedPath,
-          warnings: [...warnings, `Ponto OTDR localizado dentro da reserva técnica de ${reserveMeters}m (${Math.round(remaining)}m usados da reserva)`]
-        };
-      }
-      distanceTraveled += reserveMeters;
-      totalLength += reserveMeters;
-    }
-
     // Percorrer ponto a ponto acumulando distância
     for (let i = 1; i < pts.length; i++) {
       const segLen = haversineMeters(pts[i - 1], pts[i]);
@@ -3184,6 +3157,32 @@ export async function traceOtdrPath(
 
       distanceTraveled += segLen;
       tracedPath.push(pts[i]);
+    }
+
+    // Reserva técnica vinculada a esta rota (metros extras no final do traçado, próximo ao elemento destino)
+    const reserveMeters = reserveByRoute.get(activeRoute.id) ?? 0;
+    if (reserveMeters > 0) {
+      warnings.push(`Reserva técnica de ${reserveMeters}m incluída no cálculo da rota "${activeRoute.name ?? `#${activeRoute.id}`}"`);
+      totalLength += reserveMeters;
+      // Verificar se a distância alvo é atingida dentro da reserva (após percorrer o traçado físico)
+      if (distanceTraveled + reserveMeters >= targetDistanceMeters) {
+        const remaining = targetDistanceMeters - distanceTraveled;
+        // O ponto está dentro da reserva técnica — posicioná-lo no último ponto do traçado
+        const endPt = pts[pts.length - 1] ?? pts[0];
+        distanceTraveled = targetDistanceMeters;
+        return {
+          found: true,
+          lat: endPt.lat, lng: endPt.lng,
+          distanceTraveled,
+          totalLength,
+          segmentName: activeRoute.name ?? null,
+          segmentRouteId: activeRoute.id,
+          elementReached: null,
+          tracedPath,
+          warnings: [...warnings, `Ponto OTDR localizado dentro da reserva técnica de ${reserveMeters}m (${Math.round(remaining)}m usados da reserva)`]
+        };
+      }
+      distanceTraveled += reserveMeters;
     }
 
     // Chegou ao elemento destino — verificar se há fusão que continua
@@ -3928,9 +3927,12 @@ export async function calculateOpticalBalance(
           reversePath.push({ type: "splitter", label: `${splitterForTube.identifier} (${splitterForTube.ratio})`, lossDb: loss });
         }
       }
-      // Sem fusão nem associação — manter o tubo de chegada e continuar
-      currentTubeId = arrivalTubeId;
-      currentViaNumber = arrivalVia?.viaNumber ?? null;
+      // Sem fusão nem associação — parar com aviso claro (não há como continuar sem fusão configurada)
+      const elName = getElementName(prevElement);
+      const tubeObj = ceoTubeById.get(arrivalTubeId);
+      const viaStr = currentViaNumber ? ` via ${currentViaNumber}` : "";
+      warnings.push(`A fibra chega ao elemento "${elName}" pelo tubo "${tubeObj?.identifier ?? `#${arrivalTubeId}`}"${viaStr} mas não tem fusão de saída registada — a fibra termina aqui`);
+      break;
     } else if (prevElement.type === "cto" && arrivalTubeId !== null) {
       // CTO intermédia: seguir fusão se existir
       const arrivalVia = allCtoVias.find(v =>

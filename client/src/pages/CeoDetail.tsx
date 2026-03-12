@@ -97,32 +97,24 @@ function formatRatio(ratio: string): string {
 
 // ─── ViaCard ──────────────────────────────────────────────────────────────────
 function ViaCard({
-  via, tubes, allVias, fibers, associations, allSplitterVias,
-  onSetFusion, onClearFusion, onEditLabel, onSetFiber, onClearFiber, onAssociate, onClearAssociation,
+  via, tubes, allVias, fibers,
+  onSetFusion, onClearFusion, onEditLabel, onSetFiber, onClearFiber,
 }: {
   via: Via; tubes: Tube[]; allVias: Via[]; fibers: Fiber[];
-  associations: ViaAssociation[]; allSplitterVias: SplitterVia[];
   onSetFusion: (via: Via) => void; onClearFusion: (via: Via) => void;
   onEditLabel: (via: Via) => void; onSetFiber: (via: Via) => void;
-  onClearFiber: (viaId: number) => void; onAssociate: (via: Via) => void;
-  onClearAssociation: (assocId: number) => void;
+  onClearFiber: (viaId: number) => void;
 }) {
   const fused = via.fusedToViaId !== null;
   const fusedTube = fused ? tubes.find(t => t.id === via.fusedToTubeId) : null;
   const fusedVia = fused ? allVias.find(v => v.id === via.fusedToViaId) : null;
   const fiber = via.fiberId ? fibers.find(f => f.id === via.fiberId) : null;
   const fiberColor = FIBER_VIA_COLORS[via.viaNumber] ?? null;
-  const myAssocs = associations.filter(a =>
-    (a.sourceType === "tube" && a.sourceViaId === via.id) ||
-    (a.targetType === "tube" && a.targetViaId === via.id)
-  );
 
   return (
     <div className={cn(
       "relative rounded-lg border p-3 transition-all group",
-      fused ? "border-cyan-500/40 bg-cyan-500/5"
-        : myAssocs.length > 0 ? "border-emerald-500/40 bg-emerald-500/5"
-        : "border-border/40 bg-card hover:border-border/70"
+      fused ? "border-cyan-500/40 bg-cyan-500/5" : "border-border/40 bg-card hover:border-border/70"
     )}>
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
@@ -148,7 +140,7 @@ function ViaCard({
           ) : (
             <button onClick={() => onSetFusion(via)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors" title="Identificar fusão"><Link2 className="h-3 w-3" /></button>
           )}
-          <button onClick={() => onAssociate(via)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" title="Criar associação"><GitBranch className="h-3 w-3" /></button>
+
         </div>
       </div>
       {fiber && (
@@ -164,26 +156,7 @@ function ViaCard({
       ) : (
         <div className="text-[10px] text-muted-foreground/40 italic">livre</div>
       )}
-      {myAssocs.map(assoc => {
-        const isSrc = assoc.sourceType === "tube" && assoc.sourceViaId === via.id;
-        const otherViaId = isSrc ? assoc.targetViaId : assoc.sourceViaId;
-        const otherType = isSrc ? assoc.targetType : assoc.sourceType;
-        let otherLabel = `Via #${otherViaId}`;
-        if (otherType === "tube") {
-          const ov = allVias.find(v => v.id === otherViaId);
-          const ot = ov ? tubes.find(t => t.id === ov.tubeId) : null;
-          if (ov && ot) otherLabel = `VIA ${String(ov.viaNumber).padStart(2,"0")} · ${ot.identifier}`;
-        } else {
-          const sv = allSplitterVias.find(v => v.id === otherViaId);
-          if (sv) otherLabel = `VIA ${String(sv.viaNumber).padStart(2,"0")} · Splitter`;
-        }
-        return (
-          <div key={assoc.id} className="text-[10px] text-emerald-300 bg-emerald-500/10 rounded px-2 py-1 border border-emerald-500/20 mt-1 flex items-center justify-between gap-1">
-            <span><span className="font-medium">ASSOC</span><span className="text-emerald-200/70 mx-1">→</span>{otherLabel}</span>
-            <button onClick={() => onClearAssociation(assoc.id)} className="text-muted-foreground hover:text-destructive transition-colors" title="Remover"><XCircle className="h-3 w-3" /></button>
-          </div>
-        );
-      })}
+
       {via.notes && <p className="text-[10px] text-muted-foreground/50 mt-1 truncate">{via.notes}</p>}
     </div>
   );
@@ -426,14 +399,11 @@ function TubePanel({
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
               {filteredVias.map(via => (
                 <ViaCard key={via.id} via={via} tubes={tubes} allVias={allVias as Via[]} fibers={fibers}
-                  associations={associations} allSplitterVias={allSplitterVias}
                   onSetFusion={v => { setFusionDialog(v); setFusionTubeId(""); setFusionViaNumber(""); }}
                   onClearFusion={via => setClearFusionConfirmDialog(via)}
                   onEditLabel={v => { setLabelDialog(v); setLabelValue(v.label ?? ""); setLabelNotes(v.notes ?? ""); }}
                   onSetFiber={v => { setFiberDialog(v); setSelectedFiberId(v.fiberId ? String(v.fiberId) : ""); setFiberSearch(""); }}
                   onClearFiber={id => clearFiberMutation.mutate({ viaId: id })}
-                  onAssociate={v => { setAssocDialog(v); setAssocTargetType("tube"); setAssocTargetTubeId(""); setAssocTargetViaId(""); }}
-                  onClearAssociation={id => deleteAssocMutation.mutate({ id })}
                 />
               ))}
             </div>
@@ -574,70 +544,7 @@ function TubePanel({
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: Associação de Via */}
-      <Dialog open={assocDialog !== null} onOpenChange={() => setAssocDialog(null)}>
-        <DialogContent className="bg-card border-border">
-          <DialogHeader><DialogTitle>Criar Associação — VIA {assocDialog?.viaNumber} de {tube.identifier}</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-xs text-muted-foreground">Associe esta via a qualquer outra via de tubo ou splitter deste CEO.</p>
-            <div className="space-y-1.5">
-              <Label>Tipo de destino</Label>
-              <Select value={assocTargetType} onValueChange={v => { setAssocTargetType(v as any); setAssocTargetTubeId(""); setAssocTargetViaId(""); }}>
-                <SelectTrigger className="bg-background border-border/50"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="tube">Tubo</SelectItem>
-                  <SelectItem value="splitter">Splitter</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {assocTargetType === "tube" && (
-              <div className="space-y-1.5">
-                <Label>Tubo de destino</Label>
-                <Select value={assocTargetTubeId || "__none__"} onValueChange={v => { setAssocTargetTubeId(v === "__none__" ? "" : v); setAssocTargetViaId(""); }}>
-                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Selecione...</SelectItem>
-                    {tubes.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.identifier}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {assocTargetType === "tube" && assocTargetTubeId && (
-              <div className="space-y-1.5">
-                <Label>Via de destino</Label>
-                <Select value={assocTargetViaId || "__none__"} onValueChange={v => setAssocTargetViaId(v === "__none__" ? "" : v)}>
-                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Selecione...</SelectItem>
-                    {assocTargetTubeVias.map(v => <SelectItem key={v.id} value={String(v.id)}>VIA {String(v.viaNumber).padStart(2,"0")}{v.label ? ` — ${v.label}` : ""}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {assocTargetType === "splitter" && (
-              <div className="space-y-1.5">
-                <Label>Via de Splitter de destino</Label>
-                <Select value={assocTargetViaId || "__none__"} onValueChange={v => setAssocTargetViaId(v === "__none__" ? "" : v)}>
-                  <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Selecione...</SelectItem>
-                    {(allSplVias as SplitterVia[]).map(v => <SelectItem key={v.id} value={String(v.id)}>VIA {String(v.viaNumber).padStart(2,"0")} · Splitter #{v.splitterId}{v.lossDb !== null ? ` (~${v.lossDb} dB)` : ""}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAssocDialog(null)} className="border-border/50">Cancelar</Button>
-            <Button onClick={() => {
-              if (!assocDialog || !assocTargetViaId) return;
-              createAssocMutation.mutate({ ceoId, sourceType: "tube", sourceViaId: assocDialog.id, targetType: assocTargetType, targetViaId: parseInt(assocTargetViaId) });
-            }} disabled={!assocTargetViaId || createAssocMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-              {createAssocMutation.isPending ? "Criando..." : "Criar Associação"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
     </div>
   );
 }
