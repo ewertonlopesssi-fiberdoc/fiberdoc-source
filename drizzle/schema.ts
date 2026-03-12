@@ -1138,3 +1138,36 @@ export const ctoViaAssociations = mysqlTable("cto_via_associations", {
 });
 export type CtoViaAssociation = typeof ctoViaAssociations.$inferSelect;
 export type InsertCtoViaAssociation = typeof ctoViaAssociations.$inferInsert;
+
+// ─── Postes ───────────────────────────────────────────────────────────────────
+// Elementos de poste no mapa de infraestrutura.
+export const mapPoles = mysqlTable("map_poles", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  reference: varchar("reference", { length: 128 }),          // Referência/código do poste
+  effort: varchar("effort", { length: 64 }),                 // Esforço (ex: "600 daN", "Simples", "Duplo")
+  lat: double("lat").notNull(),
+  lng: double("lng").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("pole_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("pole_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type MapPole = typeof mapPoles.$inferSelect;
+export type InsertMapPole = typeof mapPoles.$inferInsert;
+
+// ─── Reservas Técnicas ────────────────────────────────────────────────────────
+// Reserva de cabo em campo (bobina de folga). Pode estar vinculada a uma rota.
+// Quando vinculada, o comprimento extra é somado ao cálculo da rota no OTDR/Balanço Óptico.
+export const mapTechnicalReserves = mysqlTable("map_technical_reserves", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  sizeMeters: int("sizeMeters").notNull().default(0),        // Comprimento da reserva em metros
+  routeId: int("routeId"),                                   // FK map_routes.id (opcional)
+  lat: double("lat").notNull(),
+  lng: double("lng").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("reserve_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("reserve_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type MapTechnicalReserve = typeof mapTechnicalReserves.$inferSelect;
+export type InsertMapTechnicalReserve = typeof mapTechnicalReserves.$inferInsert;

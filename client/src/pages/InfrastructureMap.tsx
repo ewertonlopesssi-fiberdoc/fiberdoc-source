@@ -105,6 +105,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import {
   Map, Download, Plus, X, Eye, EyeOff, Loader2,
@@ -113,7 +114,8 @@ import {
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
   Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw,
   Lock, Unlock, ExternalLink, Move, CheckCircle2,
-  Zap, Crosshair, MapPin, Copy, Signal, Wifi, FolderTree, ChevronDown, CornerDownRight
+  Zap, Crosshair, MapPin, Copy, Signal, Wifi, FolderTree, ChevronDown, CornerDownRight,
+  Milestone, Codesandbox
 } from "lucide-react";
 import L from "leaflet";
 import { unzipSync, strFromU8 } from "fflate";
@@ -312,6 +314,28 @@ export default function InfrastructureMap() {
   const [selectedOltElementId, setSelectedOltElementId] = useState<number | null>(null);
   const [oltDetailPanelOpen, setOltDetailPanelOpen] = useState(false);
   const oltMarkersRef = useRef<Record<number, L.Marker>>({});
+  // Postes no mapa
+  const { data: mapPoles = [], refetch: refetchPoles } = trpc.mapPoles.list.useQuery();
+  const [showPoles, setShowPoles] = useState(true);
+  const [addingPoleMode, setAddingPoleMode] = useState(false);
+  const [poleDialogOpen, setPoleDialogOpen] = useState(false);
+  const [poleDialogLat, setPoleDialogLat] = useState(0);
+  const [poleDialogLng, setPoleDialogLng] = useState(0);
+  const [poleForm, setPoleForm] = useState({ name: "", reference: "", effort: "", notes: "" });
+  const [editingPoleId, setEditingPoleId] = useState<number | null>(null);
+  const [deletePoleId, setDeletePoleId] = useState<number | null>(null);
+  const poleMarkersRef = useRef<Record<number, L.Marker>>({});
+  // Reservas Técnicas no mapa
+  const { data: mapReserves = [], refetch: refetchReserves } = trpc.mapTechnicalReserves.list.useQuery();
+  const [showReserves, setShowReserves] = useState(true);
+  const [addingReserveMode, setAddingReserveMode] = useState(false);
+  const [reserveDialogOpen, setReserveDialogOpen] = useState(false);
+  const [reserveDialogLat, setReserveDialogLat] = useState(0);
+  const [reserveDialogLng, setReserveDialogLng] = useState(0);
+  const [reserveForm, setReserveForm] = useState({ name: "", sizeMeters: 0, routeId: null as number | null, notes: "" });
+  const [editingReserveId, setEditingReserveId] = useState<number | null>(null);
+  const [deleteReserveId, setDeleteReserveId] = useState<number | null>(null);
+  const reserveMarkersRef = useRef<Record<number, L.Marker>>({});
   // Contagem de ONUs por sgpId (total do splitter/all, online actualizado após clique)
   const { data: onuCountsData } = trpc.sgp.getOnuCounts.useQuery(undefined, { staleTime: 5 * 60 * 1000 });
   // Estado local para guardar contagem online após cada consulta ao /onu/all/
@@ -484,7 +508,14 @@ export default function InfrastructureMap() {
   const [assignGroupId, setAssignGroupId] = useState<number | null>(null);
   const [quickAssignDialogOpen, setQuickAssignDialogOpen] = useState(false);
   const [quickAssignGroupId, setQuickAssignGroupId] = useState<number | null>(null);
+  const [expandedPickerGroups, setExpandedPickerGroups] = useState<Set<number>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
+  const [expandedGroupElements, setExpandedGroupElements] = useState<Set<number>>(new Set());
+  const [checkedItems, setCheckedItems] = useState<{ elements: Set<number>; routes: Set<number> }>({ elements: new Set(), routes: new Set() });
+  const toggleCheckedElement = (id: number) => setCheckedItems(prev => { const e = new Set(prev.elements); if (e.has(id)) e.delete(id); else e.add(id); return { ...prev, elements: e }; });
+  const toggleCheckedRoute = (id: number) => setCheckedItems(prev => { const r = new Set(prev.routes); if (r.has(id)) r.delete(id); else r.add(id); return { ...prev, routes: r }; });
+  const totalChecked = checkedItems.elements.size + checkedItems.routes.size;
+  const handleExportChecked = () => { setExportSelectedElements(new Set(checkedItems.elements)); setExportSelectedRoutes(new Set(checkedItems.routes)); setExportSelectAll(false); setExportDialogOpen(true); };
 
   const createGroupMut = trpc.mapGroups.create.useMutation({
     onSuccess: () => { refetchGroups(); setGroupDialogOpen(false); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null }); toast.success("Grupo criado"); },
@@ -821,6 +852,32 @@ export default function InfrastructureMap() {
   });
   const deleteGroupMut = trpc.infraMap.deleteElement.useMutation();
   const deleteGroupRouteMut = trpc.infraMap.deleteRoute.useMutation();
+  // Mutations de postes
+  const createPoleMut = trpc.mapPoles.create.useMutation({
+    onSuccess: () => { refetchPoles(); setPoleDialogOpen(false); setPoleForm({ name: "", reference: "", effort: "", notes: "" }); toast.success("Poste adicionado"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updatePoleMut = trpc.mapPoles.update.useMutation({
+    onSuccess: () => { refetchPoles(); setPoleDialogOpen(false); setEditingPoleId(null); toast.success("Poste atualizado"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deletePoleMut = trpc.mapPoles.delete.useMutation({
+    onSuccess: () => { refetchPoles(); setDeletePoleId(null); toast.success("Poste excluído"); },
+    onError: (e) => toast.error(e.message),
+  });
+  // Mutations de reservas técnicas
+  const createReserveMut = trpc.mapTechnicalReserves.create.useMutation({
+    onSuccess: () => { refetchReserves(); setReserveDialogOpen(false); setReserveForm({ name: "", sizeMeters: 0, routeId: null, notes: "" }); toast.success("Reserva técnica adicionada"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateReserveMut = trpc.mapTechnicalReserves.update.useMutation({
+    onSuccess: () => { refetchReserves(); setReserveDialogOpen(false); setEditingReserveId(null); toast.success("Reserva técnica atualizada"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteReserveMut = trpc.mapTechnicalReserves.delete.useMutation({
+    onSuccess: () => { refetchReserves(); setDeleteReserveId(null); toast.success("Reserva técnica excluída"); },
+    onError: (e) => toast.error(e.message),
+  });
   const sgpQuery = trpc.sgp.queryClientsByCto.useQuery(
     {
       ctoName: sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? (sidePanel.element.name ?? "") : "",
@@ -1179,6 +1236,98 @@ export default function InfrastructureMap() {
       oltMarkersRef.current[olt.id] = marker;
     });
   }, [oltElements, showOlts, mapReady]);
+
+  // Renderizar postes no mapa
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    Object.values(poleMarkersRef.current).forEach(m => m.remove());
+    poleMarkersRef.current = {};
+    if (!showPoles) return;
+    (mapPoles as any[]).forEach((pole: any) => {
+      const icon = L.divIcon({
+        className: "",
+        iconSize: [32, 46],
+        iconAnchor: [16, 46],
+        html: `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
+          <div style="width:32px;height:32px;background:#6b7280;border:3px solid #fff;border-radius:4px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);">
+            <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><line x1='12' y1='2' x2='12' y2='22'/><path d='M4 6h16'/><path d='M4 6l4 4'/><path d='M20 6l-4 4'/></svg>
+          </div>
+          <div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${(pole.name ?? '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+        </div>`,
+      });
+      const marker = L.marker([Number(pole.lat), Number(pole.lng)], { icon }).addTo(mapRef.current!);
+      marker.on("click", () => {
+        if (!isAdmin) return;
+        setEditingPoleId(pole.id);
+        setPoleForm({ name: pole.name ?? "", reference: pole.reference ?? "", effort: pole.effort ?? "", notes: pole.notes ?? "" });
+        setPoleDialogLat(Number(pole.lat));
+        setPoleDialogLng(Number(pole.lng));
+        setPoleDialogOpen(true);
+      });
+      poleMarkersRef.current[pole.id] = marker;
+    });
+  }, [mapPoles, showPoles, mapReady, isAdmin]);
+
+  // Renderizar reservas técnicas no mapa
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    Object.values(reserveMarkersRef.current).forEach(m => m.remove());
+    reserveMarkersRef.current = {};
+    if (!showReserves) return;
+    (mapReserves as any[]).forEach((reserve: any) => {
+      const icon = L.divIcon({
+        className: "",
+        iconSize: [32, 46],
+        iconAnchor: [16, 46],
+        html: `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
+          <div style="width:32px;height:32px;background:#0891b2;border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);">
+            <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z'/><polyline points='3.27 6.96 12 12.01 20.73 6.96'/><line x1='12' y1='22.08' x2='12' y2='12'/></svg>
+          </div>
+          <div style="background:rgba(8,145,178,0.85);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${reserve.sizeMeters ?? 0}m</div>
+        </div>`,
+      });
+      const marker = L.marker([Number(reserve.lat), Number(reserve.lng)], { icon }).addTo(mapRef.current!);
+      marker.on("click", () => {
+        if (!isAdmin) return;
+        setEditingReserveId(reserve.id);
+        setReserveForm({ name: reserve.name ?? "", sizeMeters: reserve.sizeMeters ?? 0, routeId: reserve.routeId ?? null, notes: reserve.notes ?? "" });
+        setReserveDialogLat(Number(reserve.lat));
+        setReserveDialogLng(Number(reserve.lng));
+        setReserveDialogOpen(true);
+      });
+      reserveMarkersRef.current[reserve.id] = marker;
+    });
+  }, [mapReserves, showReserves, mapReady, isAdmin]);
+
+  // Modo adicionar poste — clique no mapa
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const map = mapRef.current;
+    if (!addingPoleMode) { map.getContainer().style.cursor = ""; return; }
+    map.getContainer().style.cursor = "crosshair";
+    const handler = (e: L.LeafletMouseEvent) => {
+      setPoleDialogLat(e.latlng.lat); setPoleDialogLng(e.latlng.lng);
+      setEditingPoleId(null); setPoleForm({ name: "", reference: "", effort: "", notes: "" });
+      setPoleDialogOpen(true); setAddingPoleMode(false); map.getContainer().style.cursor = "";
+    };
+    map.once("click", handler);
+    return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
+  }, [addingPoleMode, mapReady]);
+
+  // Modo adicionar reserva técnica — clique no mapa
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const map = mapRef.current;
+    if (!addingReserveMode) { map.getContainer().style.cursor = ""; return; }
+    map.getContainer().style.cursor = "crosshair";
+    const handler = (e: L.LeafletMouseEvent) => {
+      setReserveDialogLat(e.latlng.lat); setReserveDialogLng(e.latlng.lng);
+      setEditingReserveId(null); setReserveForm({ name: "", sizeMeters: 0, routeId: null, notes: "" });
+      setReserveDialogOpen(true); setAddingReserveMode(false); map.getContainer().style.cursor = "";
+    };
+    map.once("click", handler);
+    return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
+  }, [addingReserveMode, mapReady]);
 
   // Modo de adição de elemento
   useEffect(() => {
@@ -2974,6 +3123,12 @@ export default function InfrastructureMap() {
         <Button size="sm" variant={showRoutes ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowRoutes(v => !v)}>
           <Cable className="w-3 h-3" />Cabos {showRoutes ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
         </Button>
+        <Button size="sm" variant={showPoles ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowPoles(v => !v)} title="Mostrar/ocultar postes">
+          <Milestone className="w-3 h-3" />Postes {showPoles ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+        </Button>
+        <Button size="sm" variant={showReserves ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowReserves(v => !v)} title="Mostrar/ocultar reservas técnicas">
+          <Codesandbox className="w-3 h-3" />Reservas {showReserves ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+        </Button>
         {isAdmin && (
           <>
             <div className="w-px h-4 bg-border mx-1" />
@@ -2999,6 +3154,12 @@ export default function InfrastructureMap() {
             </Button>
             <Button size="sm" variant={addingOltMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${addingOltMode ? "bg-amber-600 hover:bg-amber-700 border-amber-500 text-white" : "border-amber-500/40 text-amber-400 hover:bg-amber-500/10"}`} onClick={() => setAddingOltMode(v => !v)}>
               <Signal className="w-3 h-3" />{addingOltMode ? "Cancelar OLT" : "Add OLT"}
+            </Button>
+            <Button size="sm" variant={addingPoleMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${addingPoleMode ? "bg-slate-600 hover:bg-slate-700 border-slate-500 text-white" : "border-slate-500/40 text-slate-400 hover:bg-slate-500/10"}`} onClick={() => setAddingPoleMode(v => !v)}>
+              <Milestone className="w-3 h-3" />{addingPoleMode ? "Cancelar Poste" : "Add Poste"}
+            </Button>
+            <Button size="sm" variant={addingReserveMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${addingReserveMode ? "bg-cyan-700 hover:bg-cyan-800 border-cyan-600 text-white" : "border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10"}`} onClick={() => setAddingReserveMode(v => !v)}>
+              <Codesandbox className="w-3 h-3" />{addingReserveMode ? "Cancelar Reserva" : "Add Reserva"}
             </Button>
           </>
         )}
@@ -3103,6 +3264,18 @@ export default function InfrastructureMap() {
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
           <Signal className="w-3.5 h-3.5" />Clique no mapa para posicionar a OLT
           <button onClick={() => setAddingOltMode(false)} className="ml-auto text-amber-300 hover:text-amber-200 underline">Cancelar</button>
+        </div>
+      )}
+      {addingPoleMode && (
+        <div className="px-4 py-2 bg-slate-500/10 border-b border-slate-500/30 text-slate-400 text-xs flex items-center gap-2">
+          <Milestone className="w-3.5 h-3.5" />Clique no mapa para posicionar o poste
+          <button onClick={() => setAddingPoleMode(false)} className="ml-auto text-slate-300 hover:text-slate-200 underline">Cancelar</button>
+        </div>
+      )}
+      {addingReserveMode && (
+        <div className="px-4 py-2 bg-cyan-500/10 border-b border-cyan-500/30 text-cyan-400 text-xs flex items-center gap-2">
+          <Codesandbox className="w-3.5 h-3.5" />Clique no mapa para posicionar a reserva técnica
+          <button onClick={() => setAddingReserveMode(false)} className="ml-auto text-cyan-300 hover:text-cyan-200 underline">Cancelar</button>
         </div>
       )}
       {otdrMode && (
@@ -3364,15 +3537,27 @@ export default function InfrastructureMap() {
             const isActive = activeGroupFilter === group.id;
             const children = childGroups(group.id);
             const isExpanded = expandedGroups.has(group.id) || children.length === 0;
+            const isElemsExpanded = expandedGroupElements.has(group.id);
             const counts = countAllElements(group);
+            // Elementos e rotas directamente neste grupo
+            const groupElems: any[] = (group.elements ?? []).map((e: any) => {
+              const el = (elements as any[]).find((x: any) => x.id === e.elementId);
+              return el ? { ...el, _type: "element" } : null;
+            }).filter(Boolean);
+            const groupRoutes: any[] = (group.routes ?? []).map((r: any) => {
+              const rt = (routes as any[]).find((x: any) => x.id === r.routeId);
+              return rt ? { ...rt, _type: "route" } : null;
+            }).filter(Boolean);
+            const hasItems = groupElems.length > 0 || groupRoutes.length > 0;
             return (
               <div key={group.id}>
                 <div
-                  className={`flex items-center gap-1.5 px-3 py-2 cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-3 py-2 ${
                     isActive ? "bg-violet-500/10" : "hover:bg-muted/30"
                   }`}
                   style={{ paddingLeft: `${12 + depth * 16}px` }}
                 >
+                  {/* Seta para subpastas */}
                   {children.length > 0 ? (
                     <button
                       onClick={() => setExpandedGroups(prev => {
@@ -3388,8 +3573,22 @@ export default function InfrastructureMap() {
                     <span className="w-3.5 flex-shrink-0" />
                   )}
                   <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: group.color ?? "#6366f1" }} />
-                  <span className="text-xs font-medium flex-1 truncate">{group.name}</span>
+                  <span className="text-xs font-medium flex-1 truncate cursor-pointer" onClick={() => setActiveGroupFilter(isActive ? null : group.id)}>{group.name}</span>
                   <div className="flex items-center gap-0.5 flex-shrink-0">
+                    {/* Seta para listar elementos da pasta */}
+                    {hasItems && (
+                      <button
+                        onClick={() => setExpandedGroupElements(prev => {
+                          const n = new Set(prev);
+                          if (n.has(group.id)) n.delete(group.id); else n.add(group.id);
+                          return n;
+                        })}
+                        className="p-0.5 text-muted-foreground hover:text-foreground"
+                        title={isElemsExpanded ? "Ocultar itens" : "Ver itens da pasta"}
+                      >
+                        {isElemsExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3 opacity-50" />}
+                      </button>
+                    )}
                     <span className="text-xs text-muted-foreground">{counts.elems + counts.routes}</span>
                     <button
                       onClick={() => setActiveGroupFilter(isActive ? null : group.id)}
@@ -3425,6 +3624,33 @@ export default function InfrastructureMap() {
                     )}
                   </div>
                 </div>
+                {/* Lista de elementos da pasta (expandida) */}
+                {isElemsExpanded && hasItems && (
+                  <div className="border-l border-border/40 ml-6 mb-1">
+                    {groupElems.map((el: any) => (
+                      <div key={`el-${el.id}`} className="flex items-center gap-2 px-2 py-1 hover:bg-muted/20 text-xs" style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                        <Checkbox
+                          checked={checkedItems.elements.has(el.id)}
+                          onCheckedChange={() => toggleCheckedElement(el.id)}
+                          className="w-3.5 h-3.5 flex-shrink-0"
+                        />
+                        <span className="text-muted-foreground truncate flex-1" title={el.elementName ?? el.name ?? el.label}>{el.elementName ?? el.name ?? el.label ?? `#${el.id}`}</span>
+                        <span className="text-muted-foreground/50 uppercase text-[10px]">{el.type ?? ""}</span>
+                      </div>
+                    ))}
+                    {groupRoutes.map((rt: any) => (
+                      <div key={`rt-${rt.id}`} className="flex items-center gap-2 px-2 py-1 hover:bg-muted/20 text-xs" style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                        <Checkbox
+                          checked={checkedItems.routes.has(rt.id)}
+                          onCheckedChange={() => toggleCheckedRoute(rt.id)}
+                          className="w-3.5 h-3.5 flex-shrink-0"
+                        />
+                        <span className="text-muted-foreground truncate flex-1" title={rt.name ?? rt.label}>{rt.name ?? rt.label ?? `Cabo #${rt.id}`}</span>
+                        <span className="text-muted-foreground/50 uppercase text-[10px]">cabo</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {isExpanded && children.length > 0 && (
                   <div>{children.map((c: any) => renderGroup(c, depth + 1))}</div>
                 )}
@@ -3468,6 +3694,25 @@ export default function InfrastructureMap() {
                   <div className="py-1">{rootGroups.map((g: any) => renderGroup(g, 0))}</div>
                 )}
               </div>
+              {totalChecked > 0 && (
+                <div className="px-3 py-2 border-t border-border bg-cyan-500/5 flex items-center gap-2">
+                  <span className="text-xs text-cyan-400 flex-1">{totalChecked} item{totalChecked !== 1 ? "s" : ""} marcado{totalChecked !== 1 ? "s" : ""}</span>
+                  <button
+                    onClick={handleExportChecked}
+                    className="text-xs text-cyan-300 hover:text-cyan-200 underline"
+                    title="Exportar itens marcados"
+                  >
+                    Exportar
+                  </button>
+                  <button
+                    onClick={() => setCheckedItems({ elements: new Set(), routes: new Set() })}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    title="Limpar marcações"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
               {isAdmin && (
                 <div className="px-3 py-2 border-t border-border">
                   <button
@@ -3858,27 +4103,48 @@ export default function InfrastructureMap() {
                 <p>Nenhuma pasta criada ainda.</p>
                 <button onClick={() => { setQuickAssignDialogOpen(false); setEditingGroupId(null); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null }); setGroupDialogOpen(true); }} className="text-violet-400 underline text-xs mt-1">Criar nova pasta</button>
               </div>
-            ) : (
-              <div className="border border-border rounded-lg divide-y divide-border max-h-60 overflow-y-auto">
-                {(mapGroups as any[]).map((g: any) => (
-                  <button
-                    key={g.id}
-                    onClick={() => handleQuickAssign(g.id)}
-                    disabled={addElementsMut.isPending}
-                    className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-muted/40 text-left"
-                  >
-                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: g.color ?? "#6366f1" }} />
-                    <span className="text-sm flex-1">{g.name}</span>
-                    {g.parentId && (
-                      <span className="text-xs text-muted-foreground">
-                        {(mapGroups as any[]).find((p: any) => p.id === g.parentId)?.name ?? ""}
-                      </span>
-                    )}
-                    {addElementsMut.isPending && <Loader2 className="w-3 h-3 animate-spin" />}
-                  </button>
-                ))}
-              </div>
-            )}
+            ) : (() => {
+              const allG = mapGroups as any[];
+              const rootG = allG.filter((g: any) => !g.parentId);
+              const childrenOf = (pid: number) => allG.filter((g: any) => g.parentId === pid);
+              const renderPickerNode = (g: any, depth: number): React.ReactNode => {
+                const children = childrenOf(g.id);
+                const isExpanded = expandedPickerGroups.has(g.id);
+                const hasChildren = children.length > 0;
+                return (
+                  <div key={g.id}>
+                    <div className="flex items-center" style={{ paddingLeft: `${depth * 16}px` }}>
+                      {hasChildren ? (
+                        <button
+                          className="p-1 text-muted-foreground hover:text-foreground flex-shrink-0"
+                          onClick={() => setExpandedPickerGroups(prev => { const s = new Set(prev); if (s.has(g.id)) s.delete(g.id); else s.add(g.id); return s; })}
+                        >
+                          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                        </button>
+                      ) : (
+                        <span className="w-5 flex-shrink-0" />
+                      )}
+                      <button
+                        onClick={() => handleQuickAssign(g.id)}
+                        disabled={addElementsMut.isPending}
+                        className="flex-1 flex items-center gap-2 px-2 py-2 hover:bg-muted/40 text-left rounded"
+                      >
+                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: g.color ?? "#6366f1" }} />
+                        <span className="text-sm flex-1">{g.name}</span>
+                        {hasChildren && !isExpanded && <span className="text-xs text-muted-foreground">{children.length} subpasta{children.length !== 1 ? 's' : ''}</span>}
+                        {addElementsMut.isPending && <Loader2 className="w-3 h-3 animate-spin" />}
+                      </button>
+                    </div>
+                    {isExpanded && children.map((c: any) => renderPickerNode(c, depth + 1))}
+                  </div>
+                );
+              };
+              return (
+                <div className="border border-border rounded-lg max-h-60 overflow-y-auto py-1">
+                  {rootG.map((g: any) => renderPickerNode(g, 0))}
+                </div>
+              );
+            })()}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setQuickAssignDialogOpen(false)}>Cancelar</Button>
@@ -5250,6 +5516,197 @@ export default function InfrastructureMap() {
           onUpdated={() => refetchOltElements()}
         />
       )}
+
+      {/* ── Diálogo de Poste ───────────────────────────────────────────────────────────── */}
+      <Dialog open={poleDialogOpen} onOpenChange={v => { if (!v) { setPoleDialogOpen(false); setEditingPoleId(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Milestone className="w-4 h-4 text-slate-400" />
+              {editingPoleId ? "Editar Poste" : "Adicionar Poste"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Nome *</Label>
+              <Input value={poleForm.name} onChange={e => setPoleForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Poste 001" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Referência</Label>
+              <Input value={poleForm.reference} onChange={e => setPoleForm(f => ({ ...f, reference: e.target.value }))} placeholder="Ex: P-001 / 12345" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Esforço</Label>
+              <Input value={poleForm.effort} onChange={e => setPoleForm(f => ({ ...f, effort: e.target.value }))} placeholder="Ex: Simples, Duplo, Âncora..." />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Localização GPS</Label>
+              <div className="flex gap-2 items-center">
+                <div className="flex-1 text-xs bg-muted rounded px-3 py-2 text-muted-foreground font-mono">
+                  {poleDialogLat.toFixed(6)}, {poleDialogLng.toFixed(6)}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 text-xs h-8"
+                  onClick={() => {
+                    if (!navigator.geolocation) { toast.error("Geolocalização não suportada pelo navegador"); return; }
+                    navigator.geolocation.getCurrentPosition(
+                      (pos) => { setPoleDialogLat(pos.coords.latitude); setPoleDialogLng(pos.coords.longitude); toast.success("Localização obtida"); },
+                      () => toast.error("Não foi possível obter a localização")
+                    );
+                  }}
+                >
+                  <MapPin className="w-3 h-3" /> Pegar Localização
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Observações</Label>
+              <Textarea value={poleForm.notes} onChange={e => setPoleForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Observações opcionais..." />
+            </div>
+          </div>
+          <DialogFooter className="flex items-center justify-between">
+            {editingPoleId && (
+              <Button variant="destructive" size="sm" onClick={() => setDeletePoleId(editingPoleId)} className="mr-auto gap-1">
+                <Trash2 className="w-3.5 h-3.5" /> Excluir
+              </Button>
+            )}
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { setPoleDialogOpen(false); setEditingPoleId(null); }}>Cancelar</Button>
+              <Button
+                disabled={createPoleMut.isPending || updatePoleMut.isPending}
+                onClick={() => {
+                  if (!poleForm.name.trim()) { toast.error("Nome obrigatório"); return; }
+                  if (editingPoleId) {
+                    updatePoleMut.mutate({ id: editingPoleId, name: poleForm.name, reference: poleForm.reference, effort: poleForm.effort, notes: poleForm.notes, lat: poleDialogLat, lng: poleDialogLng });
+                  } else {
+                    createPoleMut.mutate({ name: poleForm.name, reference: poleForm.reference, effort: poleForm.effort, notes: poleForm.notes, lat: poleDialogLat, lng: poleDialogLng });
+                  }
+                }}
+              >
+                {createPoleMut.isPending || updatePoleMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : (editingPoleId ? "Salvar" : "Adicionar")}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmação de exclusão de poste */}
+      <Dialog open={deletePoleId !== null} onOpenChange={v => { if (!v) setDeletePoleId(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Excluir Poste</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Tem certeza que deseja excluir este poste? Esta ação não pode ser desfeita.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletePoleId(null)}>Cancelar</Button>
+            <Button variant="destructive" disabled={deletePoleMut.isPending} onClick={() => { if (deletePoleId) { deletePoleMut.mutate({ id: deletePoleId }); setPoleDialogOpen(false); setEditingPoleId(null); } }}>
+              {deletePoleMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Excluir"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Diálogo de Reserva Técnica ────────────────────────────────────────────────────── */}
+      <Dialog open={reserveDialogOpen} onOpenChange={v => { if (!v) { setReserveDialogOpen(false); setEditingReserveId(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Codesandbox className="w-4 h-4 text-cyan-400" />
+              {editingReserveId ? "Editar Reserva Técnica" : "Adicionar Reserva Técnica"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Nome *</Label>
+              <Input value={reserveForm.name} onChange={e => setReserveForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Reserva CEO-01" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tamanho da Reserva (metros)</Label>
+              <Input type="number" min={0} step={1} value={reserveForm.sizeMeters} onChange={e => setReserveForm(f => ({ ...f, sizeMeters: Number(e.target.value) }))} placeholder="Ex: 20" />
+              <p className="text-xs text-muted-foreground">Metros de cabo reservado. Será incluído no cálculo do OTDR Virtual e Balanço Óptico quando vinculado a um traçado.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Vincular a um Traçado (opcional)</Label>
+              <Select
+                value={reserveForm.routeId !== null ? String(reserveForm.routeId) : "none"}
+                onValueChange={v => setReserveForm(f => ({ ...f, routeId: v === "none" ? null : Number(v) }))}
+              >
+                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sem vínculo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem vínculo</SelectItem>
+                  {(routes as any[]).map((r: any) => (
+                    <SelectItem key={r.id} value={String(r.id)}>{r.name ?? `Cabo #${r.id}`}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {reserveForm.routeId !== null && (() => {
+                const r = (routes as any[]).find((rt: any) => rt.id === reserveForm.routeId);
+                if (!r) return null;
+                const fromEl = (elements as any[]).find((e: any) => e.id === r.fromElementId);
+                const toEl = (elements as any[]).find((e: any) => e.id === r.toElementId);
+                const fromRef = fromEl ? (fromEl.type === "cto" ? (ctos as any[]).find((c: any) => c.id === fromEl.referenceId) : (ceos as any[]).find((c: any) => c.id === fromEl.referenceId)) : null;
+                const toRef = toEl ? (toEl.type === "cto" ? (ctos as any[]).find((c: any) => c.id === toEl.referenceId) : (ceos as any[]).find((c: any) => c.id === toEl.referenceId)) : null;
+                return (
+                  <div className="text-xs text-cyan-400 bg-cyan-500/10 rounded p-2 border border-cyan-500/20">
+                    <span className="font-medium">{r.name ?? `Cabo #${r.id}`}</span>
+                    {fromRef && toRef && <span className="text-muted-foreground ml-1">({fromRef.name} → {toRef.name})</span>}
+                    <br />
+                    <span className="text-muted-foreground">A reserva de <b className="text-cyan-300">{reserveForm.sizeMeters}m</b> será somada ao comprimento do traçado nos cálculos de OTDR e Balanço Óptico.</span>
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Localização GPS</Label>
+              <div className="text-xs bg-muted rounded px-3 py-2 text-muted-foreground font-mono">
+                {reserveDialogLat.toFixed(6)}, {reserveDialogLng.toFixed(6)}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Observações</Label>
+              <Textarea value={reserveForm.notes} onChange={e => setReserveForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Observações opcionais..." />
+            </div>
+          </div>
+          <DialogFooter className="flex items-center justify-between">
+            {editingReserveId && (
+              <Button variant="destructive" size="sm" onClick={() => setDeleteReserveId(editingReserveId)} className="mr-auto gap-1">
+                <Trash2 className="w-3.5 h-3.5" /> Excluir
+              </Button>
+            )}
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { setReserveDialogOpen(false); setEditingReserveId(null); }}>Cancelar</Button>
+              <Button
+                disabled={createReserveMut.isPending || updateReserveMut.isPending}
+                onClick={() => {
+                  if (!reserveForm.name.trim()) { toast.error("Nome obrigatório"); return; }
+                  if (editingReserveId) {
+                    updateReserveMut.mutate({ id: editingReserveId, name: reserveForm.name, sizeMeters: reserveForm.sizeMeters, routeId: reserveForm.routeId, notes: reserveForm.notes, lat: reserveDialogLat, lng: reserveDialogLng });
+                  } else {
+                    createReserveMut.mutate({ name: reserveForm.name, sizeMeters: reserveForm.sizeMeters, routeId: reserveForm.routeId, notes: reserveForm.notes, lat: reserveDialogLat, lng: reserveDialogLng });
+                  }
+                }}
+              >
+                {createReserveMut.isPending || updateReserveMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : (editingReserveId ? "Salvar" : "Adicionar")}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmação de exclusão de reserva técnica */}
+      <Dialog open={deleteReserveId !== null} onOpenChange={v => { if (!v) setDeleteReserveId(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Excluir Reserva Técnica</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Tem certeza que deseja excluir esta reserva técnica?</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteReserveId(null)}>Cancelar</Button>
+            <Button variant="destructive" disabled={deleteReserveMut.isPending} onClick={() => { if (deleteReserveId) { deleteReserveMut.mutate({ id: deleteReserveId }); setReserveDialogOpen(false); setEditingReserveId(null); } }}>
+              {deleteReserveMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Excluir"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Painel de detalhes CEO/CTO sobreposto ao mapa (redimensionável) ── */}
       <ResizableDetailPanel

@@ -145,6 +145,9 @@ import {
   getOltPortLinks, createOltPortLink, updateOltPortLink, deleteOltPortLink,
   calculateOpticalBalance,
   getTubesByMapElement,
+  getMapPoles, getMapPoleById, createMapPole, updateMapPole, deleteMapPole,
+  getMapTechnicalReserves, getMapTechnicalReserveById, getMapTechnicalReservesByRoute,
+  createMapTechnicalReserve, updateMapTechnicalReserve, deleteMapTechnicalReserve,
 } from "./db";
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
@@ -3326,6 +3329,91 @@ ${fiberFolder}
   sshCommander: sshCommanderRouter,
   genieacs: genieacsRouter,
   networkSnmp: networkSnmpRouter,
+  mapPoles: router({
+    list: protectedProcedure
+      .query(() => getMapPoles()),
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => getMapPoleById(input.id)),
+    create: adminProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        reference: z.string().optional(),
+        effort: z.string().optional(),
+        lat: z.number(),
+        lng: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createMapPole(input as any);
+        return { id };
+      }),
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        reference: z.string().optional(),
+        effort: z.string().optional(),
+        lat: z.number().optional(),
+        lng: z.number().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateMapPole(id, data as any);
+        return { ok: true };
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteMapPole(input.id);
+        return { ok: true };
+      }),
+  }),
+  mapTechnicalReserves: router({
+    list: protectedProcedure
+      .query(() => getMapTechnicalReserves()),
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => getMapTechnicalReserveById(input.id)),
+    byRoute: protectedProcedure
+      .input(z.object({ routeId: z.number() }))
+      .query(({ input }) => getMapTechnicalReservesByRoute(input.routeId)),
+    create: adminProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        sizeMeters: z.number().int().min(0),
+        routeId: z.number().nullable().optional(),
+        lat: z.number(),
+        lng: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createMapTechnicalReserve(input as any);
+        return { id };
+      }),
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        sizeMeters: z.number().int().min(0).optional(),
+        routeId: z.number().nullable().optional(),
+        lat: z.number().optional(),
+        lng: z.number().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateMapTechnicalReserve(id, data as any);
+        return { ok: true };
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteMapTechnicalReserve(input.id);
+        return { ok: true };
+      }),
+  }),
 });
 export type AppRouter = typeof appRouter;
 

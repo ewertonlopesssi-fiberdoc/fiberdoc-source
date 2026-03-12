@@ -57,6 +57,12 @@ import {
   MapElementGroup,
   mapRouteGroups,
   MapRouteGroup,
+  mapPoles,
+  MapPole,
+  InsertMapPole,
+  mapTechnicalReserves,
+  MapTechnicalReserve,
+  InsertMapTechnicalReserve,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -2187,10 +2193,21 @@ export async function deleteCto(id: number): Promise<void> {
 }
 
 // ─── Map Elements ─────────────────────────────────────────────────────────────
-export async function getMapElements(): Promise<MapElement[]> {
+export async function getMapElements(): Promise<(MapElement & { elementName?: string })[]> {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(mapElements);
+  const rows = await db.select().from(mapElements);
+  // Enrich with name from ceos/ctos
+  const ceoIds = rows.filter(r => r.type === 'ceo').map(r => r.referenceId);
+  const ctoIds = rows.filter(r => r.type === 'cto').map(r => r.referenceId);
+  const ceoRows = ceoIds.length > 0 ? await db.select({ id: ceos.id, name: ceos.name }).from(ceos).where(inArray(ceos.id, ceoIds)) : [];
+  const ctoRows = ctoIds.length > 0 ? await db.select({ id: ctos.id, name: ctos.name }).from(ctos).where(inArray(ctos.id, ctoIds)) : [];
+  const ceoMap = new Map(ceoRows.map(r => [r.id, r.name]));
+  const ctoMap = new Map(ctoRows.map(r => [r.id, r.name]));
+  return rows.map(r => ({
+    ...r,
+    elementName: r.type === 'ceo' ? (ceoMap.get(r.referenceId) ?? undefined) : (ctoMap.get(r.referenceId) ?? undefined),
+  }));
 }
 export async function upsertMapElement(type: string, referenceId: number, lat: number, lng: number, color?: string | null): Promise<number> {
   const db = await getDb();
@@ -2925,6 +2942,15 @@ export async function traceOtdrPath(
   const allCtoVias = await db.select().from(ctoVias);
   const allCeos = await db.select({ id: ceos.id, name: ceos.name }).from(ceos);
   const allCtos = await db.select({ id: ctos.id, name: ctos.name }).from(ctos);
+  // Carregar reservas técnicas vinculadas a rotas (para somar ao comprimento do traçado)
+  const allTechReserves = await db.select().from(mapTechnicalReserves);
+  // Mapa routeId -> total de metros de reserva vinculados
+  const reserveByRoute = new Map<number, number>();
+  for (const r of allTechReserves) {
+    if (r.routeId != null) {
+      reserveByRoute.set(r.routeId, (reserveByRoute.get(r.routeId) ?? 0) + r.sizeMeters);
+    }
+  }
 
   // Índices para acesso rápido
   const elementById = new Map(allElements.map(e => [e.id, e]));
@@ -3073,6 +3099,33 @@ export async function traceOtdrPath(
     // Adicionar ponto de partida ao traçado se for o primeiro segmento
     if (tracedPath.length === 0 && pts.length > 0) {
       tracedPath.push(pts[0]);
+    }
+
+    // Reserva técnica vinculada a esta rota (metros extras a considerar no cálculo)
+    const reserveMeters = reserveByRoute.get(activeRoute.id) ?? 0;
+    if (reserveMeters > 0) {
+      warnings.push(`Reserva técnica de ${reserveMeters}m incluída no cálculo da rota "${activeRoute.name ?? `#${activeRoute.id}`}"`);
+      // Verificar se a distância alvo é atingida dentro da reserva (antes de percorrer o traçado)
+      if (distanceTraveled + reserveMeters >= targetDistanceMeters) {
+        const remaining = targetDistanceMeters - distanceTraveled;
+        // O ponto está dentro da reserva técnica — posicioná-lo no início do segmento
+        const startPt = pts[0];
+        tracedPath.push(startPt);
+        distanceTraveled = targetDistanceMeters;
+        return {
+          found: true,
+          lat: startPt.lat, lng: startPt.lng,
+          distanceTraveled,
+          totalLength: totalLength + reserveMeters,
+          segmentName: activeRoute.name ?? null,
+          segmentRouteId: activeRoute.id,
+          elementReached: null,
+          tracedPath,
+          warnings: [...warnings, `Ponto OTDR localizado dentro da reserva técnica de ${reserveMeters}m (${Math.round(remaining)}m usados da reserva)`]
+        };
+      }
+      distanceTraveled += reserveMeters;
+      totalLength += reserveMeters;
     }
 
     // Percorrer ponto a ponto acumulando distância
@@ -3476,6 +3529,14 @@ export async function calculateOpticalBalance(
   const allOltElements = await db.select().from(mapOltElements);
   const allOltLinks = await db.select().from(oltPortFiberLinks);
   const allPorts = await db.select({ id: ports.id, label: ports.label, portNumber: ports.portNumber }).from(ports);
+  // Reservas técnicas: mapa routeId -> metros extras
+  const allTechReservesOB = await db.select().from(mapTechnicalReserves);
+  const reserveByRouteOB = new Map<number, number>();
+  for (const r of allTechReservesOB) {
+    if (r.routeId != null) {
+      reserveByRouteOB.set(r.routeId, (reserveByRouteOB.get(r.routeId) ?? 0) + r.sizeMeters);
+    }
+  }
   // Índices
   const elementById = new Map(allElements.map(e => [e.id, e]));
   const ceoById = new Map(allCeos.map(c => [c.id, c]));
@@ -3697,9 +3758,14 @@ export async function calculateOpticalBalance(
       warnings.push(`Nenhum cabo encontrado chegando ao elemento "${getElementName(elementById.get(currentElementId)!)}" — cadeia interrompida`);
       break;
     }
-    const segDistKm = calcRouteDistanceKm(activeRoute);
+    const segDistKmBase = calcRouteDistanceKm(activeRoute);
+    const reserveMetersOB = reserveByRouteOB.get(activeRoute.id) ?? 0;
+    const segDistKm = segDistKmBase + (reserveMetersOB / 1000);
     totalDistanceKm += segDistKm;
-    reversePath.push({ type: "cable", label: activeRoute.name ?? `Cabo #${activeRoute.id}`, lossDb: 0, distKm: segDistKm });
+    const cableLabel = reserveMetersOB > 0
+      ? `${activeRoute.name ?? `Cabo #${activeRoute.id}`} (+${reserveMetersOB}m reserva)`
+      : (activeRoute.name ?? `Cabo #${activeRoute.id}`);
+    reversePath.push({ type: "cable", label: cableLabel, lossDb: 0, distKm: segDistKm });
     // Avançar para o elemento anterior (origem do cabo)
     const prevElementId = isForwardOnRoute ? (activeRoute.fromElementId ?? null) : (activeRoute.toElementId ?? null);
     if (!prevElementId) {
@@ -3960,4 +4026,86 @@ export async function deleteCtoViaAssociationByVias(ctoId: number, viaId1: numbe
       eq(ctoViaAssociations.targetViaId, viaId1),
     )
   );
+}
+
+// ─── Postes (map_poles) ───────────────────────────────────────────────────────
+export async function getMapPoles(): Promise<MapPole[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapPoles).orderBy(mapPoles.name);
+}
+
+export async function getMapPoleById(id: number): Promise<MapPole | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(mapPoles).where(eq(mapPoles.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createMapPole(data: InsertMapPole): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const [result] = await db.insert(mapPoles).values(data);
+  return (result as any).insertId ?? 0;
+}
+
+export async function updateMapPole(id: number, data: Partial<InsertMapPole>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(mapPoles).set({ ...data, updatedAt: new Date() } as any).where(eq(mapPoles.id, id));
+}
+
+export async function deleteMapPole(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapPoles).where(eq(mapPoles.id, id));
+}
+
+// ─── Reservas Técnicas (map_technical_reserves) ───────────────────────────────
+export async function getMapTechnicalReserves(): Promise<MapTechnicalReserve[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapTechnicalReserves).orderBy(mapTechnicalReserves.name);
+}
+
+export async function getMapTechnicalReserveById(id: number): Promise<MapTechnicalReserve | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(mapTechnicalReserves).where(eq(mapTechnicalReserves.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getMapTechnicalReservesByRoute(routeId: number): Promise<MapTechnicalReserve[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapTechnicalReserves).where(eq(mapTechnicalReserves.routeId, routeId));
+}
+
+export async function createMapTechnicalReserve(data: InsertMapTechnicalReserve): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const [result] = await db.insert(mapTechnicalReserves).values(data);
+  return (result as any).insertId ?? 0;
+}
+
+export async function updateMapTechnicalReserve(id: number, data: Partial<InsertMapTechnicalReserve>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(mapTechnicalReserves).set({ ...data, updatedAt: new Date() } as any).where(eq(mapTechnicalReserves.id, id));
+}
+
+export async function deleteMapTechnicalReserve(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapTechnicalReserves).where(eq(mapTechnicalReserves.id, id));
+}
+
+/** Retorna a soma total de metros de reserva técnica vinculada a uma rota */
+export async function getTechnicalReserveExtraMeters(routeId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db.select({ sizeMeters: mapTechnicalReserves.sizeMeters })
+    .from(mapTechnicalReserves)
+    .where(eq(mapTechnicalReserves.routeId, routeId));
+  return rows.reduce((sum, r) => sum + (r.sizeMeters ?? 0), 0);
 }

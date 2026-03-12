@@ -1523,3 +1523,17 @@
 - [x] Criar subpasta dentro de um grupo existente
 - [ ] Mover grupo para outro pai (drag or select)
 - [x] Exibir contagem de elementos por grupo/subpasta
+
+## Painel de Grupos — Expand/Collapse e Checkboxes
+- [ ] Seta expand/collapse em cada pasta para listar elementos dentro da pasta
+- [ ] Checkbox ao lado de cada elemento na lista expandida
+- [ ] Botão de exportar apenas os elementos selecionados (KML/KMZ)
+- [ ] Dialog "Adicionar a grupo": substituir lista flat por árvore hierárquica expansível (pasta raiz → subpastas ao clicar)
+
+## Novos Elementos do Mapa
+- [x] Elemento Poste: tabela map_poles (id, name, reference, effort, lat, lng, notes, createdAt, updatedAt)
+- [x] Elemento Poste: marcador visual no mapa (ícone de poste), dialog de criação com campos Nome, Referência, Esforço, botão "Pegar Localização" (GPS do dispositivo)
+- [x] Elemento Reserva Técnica: tabela map_technical_reserves (id, name, sizeMeters, routeId nullable, lat, lng, notes, createdAt, updatedAt)
+- [x] Elemento Reserva Técnica: marcador visual no mapa (ícone de caixa), dialog com campos Nome, Tamanho (metros) e vínculo a traçado
+- [x] Integrar reserva técnica no cálculo de comprimento do traçado vinculado (OTDR Virtual + Balanço Óptico Estimado)
+- [x] Aplicar migrations no servidor de produção (tabelas criadas via webdev_execute_sql)
