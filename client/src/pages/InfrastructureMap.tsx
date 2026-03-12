@@ -390,6 +390,7 @@ export default function InfrastructureMap() {
   // Painel de detalhes sobreposto ao mapa (Sheet)
   const [detailPanel, setDetailPanel] = useState<{ type: "ceo" | "cto"; id: number } | null>(null);
   const [addingMode, setAddingMode] = useState<"ceo" | "cto" | null>(null);
+  const addingModeRef = useRef<"ceo" | "cto" | null>(null);
   const [addingRouteMode, setAddingRouteMode] = useState(false);
   const [routeFrom, setRouteFrom] = useState<number | null>(null);
   const [routeTo, setRouteTo] = useState<number | null>(null);
@@ -1341,6 +1342,9 @@ export default function InfrastructureMap() {
     return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
   }, [addingReserveMode, mapReady]);
 
+  // Sincronizar ref com estado para evitar stale closure
+  useEffect(() => { addingModeRef.current = addingMode; }, [addingMode]);
+
   // Modo de adição de elemento
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
@@ -1348,9 +1352,11 @@ export default function InfrastructureMap() {
     if (!addingMode) { map.getContainer().style.cursor = ""; return; }
     map.getContainer().style.cursor = "crosshair";
     const handler = (e: L.LeafletMouseEvent) => {
-      setPickDialogType(addingMode); setPickDialogLat(e.latlng.lat); setPickDialogLng(e.latlng.lng);
+      // Usar ref para garantir o tipo correcto mesmo com stale closure
+      const currentMode = addingModeRef.current ?? addingMode;
+      setPickDialogType(currentMode); setPickDialogLat(e.latlng.lat); setPickDialogLng(e.latlng.lng);
       setPickSelectedId(null); setPickCreateNew(false); setPickNewName(""); setPickNewAddress(""); setPickNewCapacity(8);
-      setPickDialogOpen(true); setAddingMode(null); map.getContainer().style.cursor = "";
+      setPickDialogOpen(true); setAddingMode(null); addingModeRef.current = null; map.getContainer().style.cursor = "";
     };
     map.once("click", handler);
     return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
