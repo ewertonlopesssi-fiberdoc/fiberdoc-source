@@ -3942,10 +3942,36 @@ export async function calculateOpticalBalance(
     if (prevElement.type === "ceo" && arrivalTubeId !== null) {
       const ceoRefId = prevElement.referenceId;
       // Encontrar a via de chegada no tubo de chegada
-      let arrivalVia = allCeoVias.find(v =>
-        v.tubeId === arrivalTubeId &&
-        (currentViaNumber === null || v.viaNumber === currentViaNumber)
-      ) ?? allCeoVias.find(v => v.tubeId === arrivalTubeId) ?? null;
+      // Se currentViaNumber está definido, usar a via exacta; caso contrário preferir vias com fusão
+      let arrivalVia: typeof allCeoVias[0] | null = null;
+      if (currentViaNumber !== null) {
+        arrivalVia = allCeoVias.find(v => v.tubeId === arrivalTubeId && v.viaNumber === currentViaNumber) ?? null;
+      }
+      if (!arrivalVia) {
+        // Preferir via com fusão directa (tubo→tubo)
+        arrivalVia = allCeoVias.find(v => v.tubeId === arrivalTubeId && v.fusedToTubeId != null) ?? null;
+      }
+      if (!arrivalVia) {
+        // Preferir via com fusão tubo→splitter
+        arrivalVia = allCeoVias.find(v => v.tubeId === arrivalTubeId && (v as any).fusedToSplitterId != null) ?? null;
+      }
+      if (!arrivalVia) {
+        // Preferir via com associação (ceoViaAssociations)
+        const tubeViaIds = new Set(allCeoVias.filter(v => v.tubeId === arrivalTubeId).map(v => v.id));
+        const assocVia = allViaAssocs.find(a =>
+          a.ceoId === ceoRefId &&
+          ((a.sourceType === "tube" && tubeViaIds.has(a.sourceViaId)) ||
+           (a.targetType === "tube" && tubeViaIds.has(a.targetViaId)))
+        );
+        if (assocVia) {
+          const assocViaId = assocVia.sourceType === "tube" ? assocVia.sourceViaId : assocVia.targetViaId;
+          arrivalVia = ceoViaById.get(assocViaId) ?? null;
+        }
+      }
+      if (!arrivalVia) {
+        // Fallback: primeira via do tubo
+        arrivalVia = allCeoVias.find(v => v.tubeId === arrivalTubeId) ?? null;
+      }
       // Caminho 1: fusão directa (fusedToTubeId na via do tubo)
       if (arrivalVia?.fusedToTubeId) {
         totalFusionCount++;
