@@ -98,19 +98,40 @@ function formatRatio(ratio: string): string {
 
 // ─── ViaCard ──────────────────────────────────────────────────────────────────
 function ViaCard({
-  via, tubes, allVias, fibers,
+  via, tubes, allVias, fibers, associations, allSplitterVias,
   onSetFusion, onClearFusion, onEditLabel, onSetFiber, onClearFiber,
 }: {
   via: Via; tubes: Tube[]; allVias: Via[]; fibers: Fiber[];
+  associations?: ViaAssociation[]; allSplitterVias?: SplitterVia[];
   onSetFusion: (via: Via) => void; onClearFusion: (via: Via) => void;
   onEditLabel: (via: Via) => void; onSetFiber: (via: Via) => void;
   onClearFiber: (viaId: number) => void;
 }) {
-  const fused = via.fusedToViaId !== null || via.fusedToSplitterId !== null;
+  // Associação tubo↔splitter via ceoViaAssociations
+  const myAssoc = (associations ?? []).find(a =>
+    (a.sourceType === "tube" && a.sourceViaId === via.id) ||
+    (a.targetType === "tube" && a.targetViaId === via.id)
+  );
+  const fused = via.fusedToViaId !== null || via.fusedToSplitterId !== null || !!myAssoc;
   const fusedTube = via.fusedToViaId ? tubes.find(t => t.id === via.fusedToTubeId) : null;
   const fusedVia = via.fusedToViaId ? allVias.find(v => v.id === via.fusedToViaId) : null;
   const fiber = via.fiberId ? fibers.find(f => f.id === via.fiberId) : null;
   const fiberColor = FIBER_VIA_COLORS[via.viaNumber] ?? null;
+  // Calcular destino da associação tubo↔splitter
+  let assocSplLabel: string | null = null;
+  if (myAssoc) {
+    const isSrc = myAssoc.sourceType === "tube" && myAssoc.sourceViaId === via.id;
+    const otherViaId = isSrc ? myAssoc.targetViaId : myAssoc.sourceViaId;
+    const otherType = isSrc ? myAssoc.targetType : myAssoc.sourceType;
+    if (otherType === "splitter") {
+      const sv = (allSplitterVias ?? []).find(v => v.id === otherViaId);
+      assocSplLabel = sv ? (sv.viaNumber === 0 ? "SPL ENT" : `SPL VIA ${sv.viaNumber}`) : "SPL";
+    } else {
+      const tv = allVias.find(v => v.id === otherViaId);
+      const tt = tv ? tubes.find(t => t.id === tv.tubeId) : null;
+      assocSplLabel = tv && tt ? `TUB ${tt.identifier} / VIA ${tv.viaNumber}` : "TUB";
+    }
+  }
 
   return (
     <div className={cn(
@@ -154,10 +175,15 @@ function ViaCard({
           <span className="font-medium">FUSÃO</span><span className="text-purple-200/70 mx-1">→</span>
           <span>SPLITTER (VIA {via.fusedToSplitterViaId})</span>
         </div>
+      ) : assocSplLabel ? (
+        <div className="text-[10px] text-violet-300 bg-violet-500/10 rounded px-2 py-1 border border-violet-500/20">
+          <span className="font-medium">FUSÃO</span><span className="text-violet-200/70 mx-1">→</span>
+          <span>{assocSplLabel}</span>
+        </div>
       ) : fused && fusedTube && fusedVia ? (
         <div className="text-[10px] text-cyan-300 bg-cyan-500/10 rounded px-2 py-1 border border-cyan-500/20">
           <span className="font-medium">FUSÃO</span><span className="text-cyan-200/70 mx-1">→</span>
-          <span>VIA {String(fusedVia.viaNumber).padStart(2,"0")} · {fusedTube.identifier}</span>
+          <span>VIA {String(fusedVia.viaNumber).padStart(2,"00")} · {fusedTube.identifier}</span>
         </div>
       ) : (
         <div className="text-[10px] text-muted-foreground/40 italic">livre</div>
@@ -402,8 +428,13 @@ function TubePanel({
         </div>
       ) : (() => {
         const filteredVias = (vias as Via[]).filter(v => {
-          if (viaStatusFilter === "fused") return v.fusedToViaId !== null;
-          if (viaStatusFilter === "free") return v.fusedToViaId === null;
+          const hasAssoc = associations.some((a: any) =>
+            (a.sourceType === "tube" && a.sourceViaId === v.id) ||
+            (a.targetType === "tube" && a.targetViaId === v.id)
+          );
+          const isFused = v.fusedToViaId !== null || v.fusedToSplitterId !== null || hasAssoc;
+          if (viaStatusFilter === "fused") return isFused;
+          if (viaStatusFilter === "free") return !isFused;
           return true;
         });
         return (
@@ -412,6 +443,7 @@ function TubePanel({
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
               {filteredVias.map(via => (
                 <ViaCard key={via.id} via={via} tubes={tubes} allVias={allVias as Via[]} fibers={fibers}
+                  associations={associations} allSplitterVias={allSplitterVias}
                   onSetFusion={v => { setFusionDialog(v); setFusionTubeId(""); setFusionViaNumber(""); }}
                   onClearFusion={via => setClearFusionConfirmDialog(via)}
                   onEditLabel={v => { setLabelDialog(v); setLabelValue(v.label ?? ""); setLabelNotes(v.notes ?? ""); }}
