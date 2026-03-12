@@ -3866,10 +3866,11 @@ export async function calculateOpticalBalance(
     let activeRoute: typeof allRoutes[0] | null = null;
     let isForwardOnRoute = false;
     if (currentTubeId) {
-      activeRoute = allRoutes.find(r => r.toElementId === currentElementId && r.toTubeId === currentTubeId) ?? null;
+      // Excluir rotas já percorridas para evitar loops
+      activeRoute = allRoutes.find(r => r.toElementId === currentElementId && r.toTubeId === currentTubeId && !visitedRouteIds.has(r.id)) ?? null;
       if (activeRoute) { isForwardOnRoute = true; }
       if (!activeRoute) {
-        activeRoute = allRoutes.find(r => r.fromElementId === currentElementId && r.fromTubeId === currentTubeId) ?? null;
+        activeRoute = allRoutes.find(r => r.fromElementId === currentElementId && r.fromTubeId === currentTubeId && !visitedRouteIds.has(r.id)) ?? null;
         if (activeRoute) { isForwardOnRoute = false; }
       }
     }
