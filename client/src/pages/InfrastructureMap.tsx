@@ -415,7 +415,9 @@ export default function InfrastructureMap() {
   const [groupSelectedElements, setGroupSelectedElements] = useState<Set<number>>(new Set());
   const [groupSelectedRoutes, setGroupSelectedRoutes] = useState<Set<number>>(new Set());
   const [pickDialogOpen, setPickDialogOpen] = useState(false);
-  const [pickDialogType, setPickDialogType] = useState<"ceo" | "cto">("cto");
+  // pickDialogKey força re-render do diálogo quando abre (refs não causam re-render)
+  const [pickDialogKey, setPickDialogKey] = useState(0);
+  // pickDialogTypeRef: definido sincronamente no handler do mapa, antes de qualquer re-render
   const pickDialogTypeRef = useRef<"ceo" | "cto">("cto");
   const [pickDialogLat, setPickDialogLat] = useState(0);
   const [pickDialogLng, setPickDialogLng] = useState(0);
@@ -1355,10 +1357,12 @@ export default function InfrastructureMap() {
     const handler = (e: L.LeafletMouseEvent) => {
       // Usar ref para garantir o tipo correcto mesmo com stale closure
       const currentMode = addingModeRef.current ?? addingMode;
-      // Definir ref atomicamente ANTES de abrir o diálogo
+      // Definir ref atomicamente ANTES de qualquer setState
       pickDialogTypeRef.current = currentMode;
-      setPickDialogType(currentMode); setPickDialogLat(e.latlng.lat); setPickDialogLng(e.latlng.lng);
+      setPickDialogLat(e.latlng.lat); setPickDialogLng(e.latlng.lng);
       setPickSelectedId(null); setPickCreateNew(false); setPickNewName(""); setPickNewAddress(""); setPickNewCapacity(8);
+      // Incrementar key para forçar re-render do diálogo com o novo tipo
+      setPickDialogKey(k => k + 1);
       setPickDialogOpen(true); setAddingMode(null); addingModeRef.current = null; map.getContainer().style.cursor = "";
     };
     map.once("click", handler);
@@ -3766,9 +3770,15 @@ export default function InfrastructureMap() {
       </div>
 
       {/* Diálogo pick CEO/CTO */}
-      <Dialog open={pickDialogOpen} onOpenChange={setPickDialogOpen}>
+      {/* IMPORTANTE: usar pickDialogTypeRef.current directamente no JSX para evitar
+          stale state — o estado React pode não ter sido actualizado quando o diálogo renderiza */}
+      <Dialog key={pickDialogKey} open={pickDialogOpen} onOpenChange={setPickDialogOpen}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Adicionar {pickDialogType.toUpperCase()} ao Mapa</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle style={{color: pickDialogTypeRef.current === "ceo" ? "#a855f7" : "#22c55e"}}>
+              Adicionar {pickDialogTypeRef.current.toUpperCase()} ao Mapa
+            </DialogTitle>
+          </DialogHeader>
           <div className="space-y-4">
             <div className="flex gap-2">
               <Button size="sm" variant={!pickCreateNew ? "default" : "outline"} onClick={() => setPickCreateNew(false)} className="flex-1">Selecionar existente</Button>
@@ -3776,15 +3786,15 @@ export default function InfrastructureMap() {
             </div>
             {!pickCreateNew ? (
               <div className="space-y-2">
-                <Label>Selecione um {pickDialogType.toUpperCase()}</Label>
+                <Label>Selecione um {pickDialogTypeRef.current.toUpperCase()}</Label>
                 <Select value={pickSelectedId?.toString() ?? ""} onValueChange={v => setPickSelectedId(Number(v))}>
-                  <SelectTrigger><SelectValue placeholder={`Selecionar ${pickDialogType.toUpperCase()}...`} /></SelectTrigger>
-                  <SelectContent>{(pickDialogType === "cto" ? (ctos as any[]) : ceos).map((item: any) => (<SelectItem key={item.id} value={item.id.toString()}>{item.name}</SelectItem>))}</SelectContent>
+                  <SelectTrigger><SelectValue placeholder={`Selecionar ${pickDialogTypeRef.current.toUpperCase()}...`} /></SelectTrigger>
+                  <SelectContent>{(pickDialogTypeRef.current === "cto" ? (ctos as any[]) : ceos).map((item: any) => (<SelectItem key={item.id} value={item.id.toString()}>{item.name}</SelectItem>))}</SelectContent>
                 </Select>
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="space-y-1.5"><Label>Nome *</Label><Input value={pickNewName} onChange={e => setPickNewName(e.target.value)} placeholder={`Nome do ${pickDialogType.toUpperCase()}`} /></div>
+                <div className="space-y-1.5"><Label>Nome *</Label><Input value={pickNewName} onChange={e => setPickNewName(e.target.value)} placeholder={`Nome do ${pickDialogTypeRef.current.toUpperCase()}`} /></div>
                 <div className="space-y-1.5">
                   <Label>Endereço</Label>
                   <div className="flex gap-2">
@@ -3796,7 +3806,7 @@ export default function InfrastructureMap() {
                   </div>
                   <p className="text-xs text-muted-foreground">Clique em "Auto" para preencher pelo GPS</p>
                 </div>
-                {pickDialogType === "cto" && <div className="space-y-1.5"><Label>Capacidade (portas)</Label><Input type="number" value={pickNewCapacity} onChange={e => setPickNewCapacity(Number(e.target.value))} min={1} /></div>}
+                {pickDialogTypeRef.current === "cto" && <div className="space-y-1.5"><Label>Capacidade (portas)</Label><Input type="number" value={pickNewCapacity} onChange={e => setPickNewCapacity(Number(e.target.value))} min={1} /></div>}
               </div>
             )}
             <div className="text-xs text-muted-foreground">Posição: {pickDialogLat.toFixed(6)}, {pickDialogLng.toFixed(6)}</div>
