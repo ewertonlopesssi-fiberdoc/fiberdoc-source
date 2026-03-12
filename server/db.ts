@@ -2228,8 +2228,10 @@ export async function getMapElements(): Promise<(MapElement & { elementName?: st
 export async function upsertMapElement(type: string, referenceId: number, lat: number, lng: number, color?: string | null): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  // IMPORTANTE: filtrar por type E referenceId — IDs de CEO e CTO são independentes
+  // (uma CEO com id=5 e uma CTO com id=5 são elementos diferentes)
   const existing = await db.select().from(mapElements)
-    .where(eq(mapElements.referenceId, referenceId))
+    .where(and(eq(mapElements.type, type), eq(mapElements.referenceId, referenceId)))
     .limit(1);
   if (existing.length > 0) {
     const updateData: any = { lat, lng };
