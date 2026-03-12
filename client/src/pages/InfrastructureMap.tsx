@@ -411,6 +411,10 @@ export default function InfrastructureMap() {
   const [exportTypeCto, setExportTypeCto] = useState(true);
   const [exportTypeCeo, setExportTypeCeo] = useState(true);
   const [exportTypeCabo, setExportTypeCabo] = useState(true);
+  const [exportIncludePoles, setExportIncludePoles] = useState(true);
+  const [exportIncludeReserves, setExportIncludeReserves] = useState(true);
+  const [exportIncludeFusions, setExportIncludeFusions] = useState(true);
+  const [exportGroupId, setExportGroupId] = useState<number | null>(null);
   const [groupSelectMode, setGroupSelectMode] = useState(false);
   const [groupSelectedElements, setGroupSelectedElements] = useState<Set<number>>(new Set());
   const [groupSelectedRoutes, setGroupSelectedRoutes] = useState<Set<number>>(new Set());
@@ -2114,7 +2118,17 @@ export default function InfrastructureMap() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ format: exportFormat, elementIds, routeIds, includeFibers: exportIncludeFibers, exportTypes: { cto: exportTypeCto, ceo: exportTypeCeo, cabo: exportTypeCabo } }),
+        body: JSON.stringify({
+          format: exportFormat,
+          elementIds,
+          routeIds,
+          includeFibers: exportIncludeFibers,
+          exportTypes: { cto: exportTypeCto, ceo: exportTypeCeo, cabo: exportTypeCabo },
+          includePoles: exportIncludePoles,
+          includeReserves: exportIncludeReserves,
+          includeFusions: exportIncludeFusions,
+          exportGroupId: exportGroupId ?? undefined,
+        }),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: "Erro ao exportar" }));
@@ -3953,7 +3967,7 @@ export default function InfrastructureMap() {
 
       {/* Exportação KML/KMZ */}
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-        <DialogContent className="max-w-lg flex flex-col" style={{maxHeight:"85vh"}}>
+        <DialogContent className="max-w-lg flex flex-col" style={{maxHeight:"90vh"}}>
           <DialogHeader><DialogTitle className="flex items-center gap-2"><Download className="w-4 h-4" />Exportar KML / KMZ</DialogTitle></DialogHeader>
           <div className="flex-1 overflow-y-auto space-y-4 pr-1">
             {/* Formato */}
@@ -3966,7 +3980,7 @@ export default function InfrastructureMap() {
             </div>
             {/* Filtro por tipo */}
             <div>
-              <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-2 block">Exportar por Tipo</Label>
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-2 block">Tipos de Elemento</Label>
               <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => setExportTypeCto(v => !v)}
@@ -3993,14 +4007,68 @@ export default function InfrastructureMap() {
                   {exportTypeCabo ? <span className="text-xs font-medium">✓ Incluído</span> : <span className="text-xs">Excluído</span>}
                 </button>
               </div>
-            </div>
-            {/* Opções adicionais */}
-            <div>
-              <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-2 block">Opções</Label>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2"><input type="checkbox" id="incFibers" checked={exportIncludeFibers} onChange={e => setExportIncludeFibers(e.target.checked)} /><Label htmlFor="incFibers" className="text-sm cursor-pointer">Incluir dados de fibras ópticas</Label></div>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <button
+                  onClick={() => setExportIncludePoles(v => !v)}
+                  className={`flex flex-col items-center gap-1 p-2.5 rounded-lg border-2 transition-all ${exportIncludePoles ? "border-yellow-500 bg-yellow-500/10 text-yellow-400" : "border-border text-muted-foreground"}`}
+                >
+                  <span className="text-sm font-bold">Postes</span>
+                  <span className="text-xs">{(mapPoles as any[]).length} itens</span>
+                  {exportIncludePoles ? <span className="text-xs font-medium">✓ Incluído</span> : <span className="text-xs">Excluído</span>}
+                </button>
+                <button
+                  onClick={() => setExportIncludeReserves(v => !v)}
+                  className={`flex flex-col items-center gap-1 p-2.5 rounded-lg border-2 transition-all ${exportIncludeReserves ? "border-orange-500 bg-orange-500/10 text-orange-400" : "border-border text-muted-foreground"}`}
+                >
+                  <span className="text-sm font-bold">Reservas</span>
+                  <span className="text-xs">{(mapReserves as any[]).length} itens</span>
+                  {exportIncludeReserves ? <span className="text-xs font-medium">✓ Incluído</span> : <span className="text-xs">Excluído</span>}
+                </button>
               </div>
             </div>
+            {/* Opções de conteúdo */}
+            <div>
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-2 block">Conteúdo das Descrições</Label>
+              <div className="space-y-2 bg-muted/10 rounded-lg p-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={exportIncludeFusions} onChange={e => setExportIncludeFusions(e.target.checked)} className="rounded" />
+                  <span className="text-sm">Incluir mapa de fusões (CEO/CTO)</span>
+                  <span className="text-xs text-muted-foreground ml-auto">+tempo</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={exportIncludeFibers} onChange={e => setExportIncludeFibers(e.target.checked)} className="rounded" />
+                  <span className="text-sm">Incluir dados de fibras ópticas</span>
+                </label>
+              </div>
+            </div>
+            {/* Filtro por grupo */}
+            {(mapGroups as any[]).length > 0 && (
+              <div>
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-2 block">Filtrar por Grupo</Label>
+                <Select
+                  value={exportGroupId !== null ? String(exportGroupId) : "all"}
+                  onValueChange={v => setExportGroupId(v === "all" ? null : Number(v))}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder="Todos os grupos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os grupos</SelectItem>
+                    {(mapGroups as any[]).map((g: any) => (
+                      <SelectItem key={g.id} value={String(g.id)}>
+                        <span className="flex items-center gap-2">
+                          {g.color && <span className="w-2.5 h-2.5 rounded-full inline-block" style={{background: g.color}} />}
+                          {g.name}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {exportGroupId !== null && (
+                  <p className="text-xs text-muted-foreground mt-1">Apenas elementos do grupo selecionado serão exportados.</p>
+                )}
+              </div>
+            )}
             {/* Seleção individual (avançado) */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -4021,13 +4089,15 @@ export default function InfrastructureMap() {
               </div>
             </div>
             {/* Resumo */}
-            <div className="bg-muted/20 rounded-lg px-3 py-2 text-xs text-muted-foreground">
-              Serão exportados: {exportTypeCto ? `${(elements as any[]).filter((e: any) => e.type === "cto").length} CTOs` : "0 CTOs"} · {exportTypeCeo ? `${(elements as any[]).filter((e: any) => e.type === "ceo").length} CEOs` : "0 CEOs"} · {exportTypeCabo ? `${(routes as any[]).length} Cabos` : "0 Cabos"}
+            <div className="bg-muted/20 rounded-lg px-3 py-2 text-xs text-muted-foreground space-y-0.5">
+              <div>Serão exportados: {exportTypeCto ? `${(elements as any[]).filter((e: any) => e.type === "cto").length} CTOs` : "0 CTOs"} · {exportTypeCeo ? `${(elements as any[]).filter((e: any) => e.type === "ceo").length} CEOs` : "0 CEOs"} · {exportTypeCabo ? `${(routes as any[]).length} Cabos` : "0 Cabos"}</div>
+              <div>{exportIncludePoles ? `${(mapPoles as any[]).length} Postes` : "0 Postes"} · {exportIncludeReserves ? `${(mapReserves as any[]).length} Reservas` : "0 Reservas"}{exportGroupId !== null ? ` (filtrado por grupo)` : ""}</div>
+              {exportIncludeFusions && <div className="text-yellow-500/80">⚠ Mapa de fusões ativo — exportação pode ser mais lenta</div>}
             </div>
           </div>
           <DialogFooter className="flex-shrink-0 pt-2">
             <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={handleExportKml} disabled={exportLoading || (!exportTypeCto && !exportTypeCeo && !exportTypeCabo)}>{exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Download className="w-4 h-4 mr-1" />Exportar {exportFormat.toUpperCase()}</>}</Button>
+            <Button onClick={handleExportKml} disabled={exportLoading || (!exportTypeCto && !exportTypeCeo && !exportTypeCabo && !exportIncludePoles && !exportIncludeReserves)}>{exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Download className="w-4 h-4 mr-1" />Exportar {exportFormat.toUpperCase()}</>}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

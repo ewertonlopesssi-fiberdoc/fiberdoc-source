@@ -1545,3 +1545,13 @@
 - [x] Painel lateral CTO: mostrar destino de fusão nas vias dos tubos (ex: FUSÃO → SPLINTER 1:4 ENT)
 - [x] Remover aba Tubos/Splitters do painel de CEO (gerido dentro da bandeja)
 - [x] Fusão bidirecional: ao associar via de tubo a via de splitter, criar associação inversa automaticamente
+
+## Melhorias na Exportação KMZ
+- [x] KMZ: incluir Postes com ícone, nome, referência, esforço, notas
+- [x] KMZ: incluir Reservas Técnicas com ícone, nome, tamanho, rota associada
+- [x] KMZ: organizar elementos em pastas por grupo cadastrado
+- [x] KMZ: descrições ricas em CEO (tubos, vias, fusões tubo↔tubo e tubo↔splitter)
+- [x] KMZ: descrições ricas em CTO (tubos, splitters, vias, fusões)
+- [x] KMZ: usar cor personalizada do mapElement no ícone
+- [x] KMZ: adicionar checkboxes Postes e Reservas no diálogo de exportação
+- [x] KMZ: opção de exportar por grupo específico
