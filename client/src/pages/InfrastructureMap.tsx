@@ -1133,7 +1133,9 @@ export default function InfrastructureMap() {
       const icon = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null);
       // Drag só ativo em modo edição global OU quando este elemento específico está em modo mover
       const isDraggable = isAdmin && (editMode || movingElementId === el.id);
-      const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isDraggable }).addTo(mapRef.current!);
+      // bubblingMouseEvents: false impede que o clique num marcador propague para o mapa
+      // (evita que durante addingMode o clique num marcador existente abra o diálogo de pick)
+      const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isDraggable, bubblingMouseEvents: false } as any).addTo(mapRef.current!);
       if (isAdmin) {
         marker.on("dragend", () => {
           if (!editMode && movingElementId !== el.id) return;
@@ -1147,7 +1149,15 @@ export default function InfrastructureMap() {
           }
         });
       }
-      marker.on("click", () => {
+      marker.on("click", (e: any) => {
+        // Durante addingMode (CEO/CTO), ignorar cliques em marcadores existentes
+        // para que apenas cliques em áreas vazias do mapa sejam processados
+        if (addingModeRef.current) {
+          // Propagar manualmente para o mapa com as coordenadas do marcador
+          // para que o handler de addição receba o evento
+          mapRef.current?.fire("click", { latlng: marker.getLatLng(), originalEvent: e.originalEvent });
+          return;
+        }
         if (groupSelectMode) { toggleGroupElement(el.id); return; }
         if (addingRouteMode) {
           const pos = marker.getLatLng();
