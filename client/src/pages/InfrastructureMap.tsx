@@ -416,6 +416,7 @@ export default function InfrastructureMap() {
   const [groupSelectedRoutes, setGroupSelectedRoutes] = useState<Set<number>>(new Set());
   const [pickDialogOpen, setPickDialogOpen] = useState(false);
   const [pickDialogType, setPickDialogType] = useState<"ceo" | "cto">("cto");
+  const pickDialogTypeRef = useRef<"ceo" | "cto">("cto");
   const [pickDialogLat, setPickDialogLat] = useState(0);
   const [pickDialogLng, setPickDialogLng] = useState(0);
   const [pickSelectedId, setPickSelectedId] = useState<number | null>(null);
@@ -1354,6 +1355,8 @@ export default function InfrastructureMap() {
     const handler = (e: L.LeafletMouseEvent) => {
       // Usar ref para garantir o tipo correcto mesmo com stale closure
       const currentMode = addingModeRef.current ?? addingMode;
+      // Definir ref atomicamente ANTES de abrir o diálogo
+      pickDialogTypeRef.current = currentMode;
       setPickDialogType(currentMode); setPickDialogLat(e.latlng.lat); setPickDialogLng(e.latlng.lng);
       setPickSelectedId(null); setPickCreateNew(false); setPickNewName(""); setPickNewAddress(""); setPickNewCapacity(8);
       setPickDialogOpen(true); setAddingMode(null); addingModeRef.current = null; map.getContainer().style.cursor = "";
@@ -2091,21 +2094,23 @@ export default function InfrastructureMap() {
 
   // Confirmar pick CEO/CTO
   const handlePickConfirm = async () => {
+    // Usar ref para garantir o tipo correcto (imune a re-renders e stale state)
+    const confirmedType = pickDialogTypeRef.current;
     try {
       if (pickCreateNew) {
         if (!pickNewName.trim()) { toast.error("Informe o nome"); return; }
-        if (pickDialogType === "cto") {
+        if (confirmedType === "cto") {
           const cto = await createCtoMut.mutateAsync({ name: pickNewName, address: pickNewAddress || undefined, capacity: pickNewCapacity, lat: pickDialogLat, lng: pickDialogLng });
           await upsertElementMut.mutateAsync({ type: "cto", referenceId: (cto as any).id, lat: pickDialogLat, lng: pickDialogLng });
         } else {
           const ceo = await createCeoMut.mutateAsync({ name: pickNewName, location: pickNewAddress || undefined });
           await upsertElementMut.mutateAsync({ type: "ceo", referenceId: (ceo as any).id, lat: pickDialogLat, lng: pickDialogLng });
         }
-        toast.success(`${pickDialogType.toUpperCase()} criado e adicionado ao mapa`);
+        toast.success(`${confirmedType.toUpperCase()} criado e adicionado ao mapa`);
       } else {
         if (!pickSelectedId) { toast.error("Selecione um item"); return; }
-        await upsertElementMut.mutateAsync({ type: pickDialogType, referenceId: pickSelectedId, lat: pickDialogLat, lng: pickDialogLng });
-        toast.success(`${pickDialogType.toUpperCase()} adicionado ao mapa`);
+        await upsertElementMut.mutateAsync({ type: confirmedType, referenceId: pickSelectedId, lat: pickDialogLat, lng: pickDialogLng });
+        toast.success(`${confirmedType.toUpperCase()} adicionado ao mapa`);
       }
       setPickDialogOpen(false);
       refetchElements();
