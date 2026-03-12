@@ -2409,18 +2409,19 @@ export async function getMapGroups(): Promise<MapGroup[]> {
   return db.select().from(mapGroups).orderBy(mapGroups.name);
 }
 
-export async function createMapGroup(data: { name: string; color?: string; description?: string }): Promise<number> {
+export async function createMapGroup(data: { name: string; color?: string; description?: string; parentId?: number | null }): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   const [result] = await db.insert(mapGroups).values({
     name: data.name,
     color: data.color ?? "#6366f1",
     description: data.description ?? null,
+    parentId: data.parentId ?? null,
   });
   return (result as any).insertId as number;
 }
 
-export async function updateMapGroup(id: number, data: { name?: string; color?: string; description?: string }): Promise<void> {
+export async function updateMapGroup(id: number, data: { name?: string; color?: string; description?: string; parentId?: number | null }): Promise<void> {
   const db = await getDb();
   if (!db) return;
   await db.update(mapGroups).set({ ...data, updatedAt: new Date() }).where(eq(mapGroups.id, id));
@@ -3371,14 +3372,75 @@ const SPLITTER_LOSS_DB: Record<string, number> = {
   "1:64": 20.5,
 };
 
+// Tabela de perda por splitter desbalanceado (em dB)
+// Chave: "A/B" onde A > B (ex: "95/5")
+// Valor: [perdaPortaMaior, perdaPortaMenor]
+const UNBALANCED_SPLITTER_LOSS_DB: Record<string, [number, number]> = {
+  "95/5":  [0.2,  13.0],
+  "90/10": [0.5,  10.0],
+  "80/20": [1.0,   7.0],
+  "70/30": [1.6,   5.2],
+  "60/40": [2.2,   4.0],
+};
+
+/**
+ * Detecta se o identifier corresponde a um splitter desbalanceado.
+ * Retorna a chave normalizada (ex: "95/5") ou null.
+ */
+function detectUnbalancedRatio(identifier: string): string | null {
+  // Procurar padrão "NN/MM" ou "NN:MM" onde ambos os números são > 1
+  const m = identifier.match(/(\d+)\/(\d+)/) ?? identifier.match(/(\d+):(\d+)/);
+  if (!m) return null;
+  const a = parseInt(m[1]);
+  const b = parseInt(m[2]);
+  // Se ambos > 1 e somam ~100, é desbalanceado
+  if (a > 1 && b > 1 && Math.abs(a + b - 100) <= 5) {
+    const bigger = Math.max(a, b);
+    const smaller = Math.min(a, b);
+    return `${bigger}/${smaller}`;
+  }
+  return null;
+}
+
+/**
+ * Calcula a perda de um splitter desbalanceado com base no viaNumber da via de saída.
+ * Via de MAIOR viaNumber = porta de MAIOR percentagem (menor perda).
+ * Via de MENOR viaNumber = porta de MENOR percentagem (maior perda).
+ * @param ratio Identifier do splitter (ex: "95/5", "SPLINTER 90/10")
+ * @param exitViaNumber viaNumber da via de saída do splitter
+ * @param allSplitterViaNumbers todos os viaNumbers das vias deste splitter
+ */
+function getUnbalancedSplitterLoss(
+  ratio: string,
+  exitViaNumber: number,
+  allSplitterViaNumbers: number[]
+): number | null {
+  const key = detectUnbalancedRatio(ratio);
+  if (!key || !UNBALANCED_SPLITTER_LOSS_DB[key]) return null;
+  const [lossMajor, lossMinor] = UNBALANCED_SPLITTER_LOSS_DB[key];
+  const maxVia = Math.max(...allSplitterViaNumbers);
+  // Via de maior viaNumber = porta maior% = menor perda
+  return exitViaNumber === maxVia ? lossMajor : lossMinor;
+}
+
 function getSplitterLoss(ratio: string): number {
-  // Normalizar o ratio (ex: "1/8" → "1:8", "8" → "1:8")
+  // Normalizar o ratio (ex: "1/8" → "1:8", "SPLINTER 1:8" → "1:8", "8" → "1:8")
   const normalized = ratio.replace("/", ":").trim();
+  // Verificação directa na tabela
   if (SPLITTER_LOSS_DB[normalized] !== undefined) return SPLITTER_LOSS_DB[normalized];
-  // Tentar extrair o denominador
-  const match = normalized.match(/1[:/](\d+)/);
-  if (match) {
-    const n = parseInt(match[1]);
+  // Extrair padrão "1:N" ou "1/N" de qualquer parte do string (ex: "SPLINTER 1:8" → "1:8")
+  const ratioMatch = normalized.match(/\b(1[:/]\d+)\b/);
+  if (ratioMatch) {
+    const extracted = ratioMatch[1].replace("/", ":");
+    if (SPLITTER_LOSS_DB[extracted] !== undefined) return SPLITTER_LOSS_DB[extracted];
+  }
+  // Tentar extrair apenas o denominador
+  const denomMatch = normalized.match(/1[:/](\d+)/);
+  if (denomMatch) {
+    const n = parseInt(denomMatch[1]);
+    // Procurar na tabela pelo denominador
+    const tableKey = `1:${n}`;
+    if (SPLITTER_LOSS_DB[tableKey] !== undefined) return SPLITTER_LOSS_DB[tableKey];
     return Math.round(10 * Math.log10(n) * 10) / 10; // 10*log10(N) dB
   }
   return 3.5; // fallback: 1:2
@@ -3502,11 +3564,18 @@ export async function calculateOpticalBalance(
     if (entryTubeObj?.type === "splitter") {
       // O tubo de entrada é o próprio splitter — adicionar perda
       const splitterRatio = entryTubeObj.identifier ?? "1:8";
-      const loss = getSplitterLoss(splitterRatio);
-      totalSplitterLoss += loss;
-      reversePath.push({ type: "splitter", label: `${entryTubeObj.identifier} (splitter interno)`, lossDb: loss });
       // Encontrar a via ENT do splitter (viaNumber = 0 ou 1) que tem fusão com um tubo
       const splitterVias = allCtoVias.filter(v => v.tubeId === entryTubeId);
+      // Para splitter desbalanceado, a via de saída é a que está associada ao cliente
+      // (a via que está conectada ao cabo de entrada da CTO = a via de saída do splitter)
+      // Neste caso, o entryTubeId é o splitter, e a via de saída é a que tem viaNumber máximo
+      const splitterViaNumbers = splitterVias.map(v => v.viaNumber);
+      // A via de saída do splitter (que vai para o cliente) tem o maior viaNumber
+      const exitViaNumber = splitterViaNumbers.length > 0 ? Math.max(...splitterViaNumbers) : 0;
+      const unbalancedLoss = getUnbalancedSplitterLoss(splitterRatio, exitViaNumber, splitterViaNumbers);
+      const loss = unbalancedLoss !== null ? unbalancedLoss : getSplitterLoss(splitterRatio);
+      totalSplitterLoss += loss;
+      reversePath.push({ type: "splitter", label: `${entryTubeObj.identifier} (splitter interno)`, lossDb: loss });
       // Procurar via ENT com fusão directa (fusedToTubeId)
       const entViaWithFusion = splitterVias.find(v => v.fusedToTubeId !== null && v.fusedToTubeId !== undefined);
       if (entViaWithFusion?.fusedToTubeId) {
@@ -3545,7 +3614,16 @@ export async function calculateOpticalBalance(
       if (viaWithSplitterFusion?.fusedToTubeId) {
         const splitterTube = ctoTubeById.get(viaWithSplitterFusion.fusedToTubeId!);
         if (splitterTube) {
-          const loss = getSplitterLoss(splitterTube.identifier ?? "1:8");
+          // Para splitter desbalanceado: a via que está fusionada ao tubo de entrada
+          // é a via de saída do splitter (a que vai para o cliente)
+          const splitterVias2 = allCtoVias.filter(v => v.tubeId === viaWithSplitterFusion.fusedToTubeId!);
+          const splitterViaNumbers2 = splitterVias2.map(v => v.viaNumber);
+          // A via de saída é a via que tem fusão com o tubo de entrada (viaWithSplitterFusion)
+          const exitViaForFusion = viaWithSplitterFusion.fusedToViaId
+            ? (ctoViaById.get(viaWithSplitterFusion.fusedToViaId)?.viaNumber ?? Math.max(...splitterViaNumbers2))
+            : Math.max(...splitterViaNumbers2);
+          const unbalancedLoss2 = getUnbalancedSplitterLoss(splitterTube.identifier ?? "1:8", exitViaForFusion, splitterViaNumbers2);
+          const loss = unbalancedLoss2 !== null ? unbalancedLoss2 : getSplitterLoss(splitterTube.identifier ?? "1:8");
           totalSplitterLoss += loss;
           totalFusionCount++;
           reversePath.push({ type: "splitter", label: `${splitterTube.identifier} (splitter interno)`, lossDb: loss });
@@ -3568,7 +3646,11 @@ export async function calculateOpticalBalance(
           if (splitterSideVia) {
             const splitterTube = ctoTubeById.get(splitterSideVia.tubeId);
             if (splitterTube?.type === "splitter") {
-              const loss = getSplitterLoss(splitterTube.identifier ?? "1:8");
+              // Para splitter desbalanceado: a splitterSideVia é a via de saída do splitter
+              const splitterVias3 = allCtoVias.filter(v => v.tubeId === splitterSideVia.tubeId);
+              const splitterViaNumbers3 = splitterVias3.map(v => v.viaNumber);
+              const unbalancedLoss3 = getUnbalancedSplitterLoss(splitterTube.identifier ?? "1:8", splitterSideVia.viaNumber, splitterViaNumbers3);
+              const loss = unbalancedLoss3 !== null ? unbalancedLoss3 : getSplitterLoss(splitterTube.identifier ?? "1:8");
               totalSplitterLoss += loss;
               totalFusionCount++;
               reversePath.push({ type: "splitter", label: `${splitterTube.identifier} (splitter interno)`, lossDb: loss });

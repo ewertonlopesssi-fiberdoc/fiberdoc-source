@@ -3214,17 +3214,33 @@ ${fiberFolder}
       .input(z.object({ groupId: z.number() }))
       .query(({ input }) => getGroupMembers(input.groupId)),
     create: adminProcedure
-      .input(z.object({ name: z.string().min(1), color: z.string().optional(), description: z.string().optional() }))
+      .input(z.object({ name: z.string().min(1), color: z.string().optional(), description: z.string().optional(), parentId: z.number().nullable().optional() }))
       .mutation(async ({ input }) => {
         const id = await createMapGroup(input);
         return { id };
       }),
     update: adminProcedure
-      .input(z.object({ id: z.number(), name: z.string().optional(), color: z.string().optional(), description: z.string().optional() }))
+      .input(z.object({ id: z.number(), name: z.string().optional(), color: z.string().optional(), description: z.string().optional(), parentId: z.number().nullable().optional() }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         await updateMapGroup(id, data);
         return { ok: true };
+      }),
+    addElements: adminProcedure
+      .input(z.object({ elementIds: z.array(z.number()), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        for (const elementId of input.elementIds) {
+          await addElementToGroup(elementId, input.groupId);
+        }
+        return { ok: true, count: input.elementIds.length };
+      }),
+    removeElements: adminProcedure
+      .input(z.object({ elementIds: z.array(z.number()), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        for (const elementId of input.elementIds) {
+          await removeElementFromGroup(elementId, input.groupId);
+        }
+        return { ok: true, count: input.elementIds.length };
       }),
     delete: adminProcedure
       .input(z.object({ id: z.number() }))

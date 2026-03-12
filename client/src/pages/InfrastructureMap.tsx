@@ -113,7 +113,7 @@ import {
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
   Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw,
   Lock, Unlock, ExternalLink, Move, CheckCircle2,
-  Zap, Crosshair, MapPin, Copy, Signal, Wifi
+  Zap, Crosshair, MapPin, Copy, Signal, Wifi, FolderTree, ChevronDown, CornerDownRight
 } from "lucide-react";
 import L from "leaflet";
 import { unzipSync, strFromU8 } from "fflate";
@@ -477,14 +477,17 @@ export default function InfrastructureMap() {
   const { data: mapGroups = [], refetch: refetchGroups } = trpc.mapGroups.list.useQuery();
   const [groupsPanelOpen, setGroupsPanelOpen] = useState(false);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
-  const [groupForm, setGroupForm] = useState({ name: "", color: "#6366f1", description: "" });
+  const [groupForm, setGroupForm] = useState({ name: "", color: "#6366f1", description: "", parentId: null as number | null });
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [activeGroupFilter, setActiveGroupFilter] = useState<number | null>(null);
   const [assignGroupDialogOpen, setAssignGroupDialogOpen] = useState(false);
   const [assignGroupId, setAssignGroupId] = useState<number | null>(null);
+  const [quickAssignDialogOpen, setQuickAssignDialogOpen] = useState(false);
+  const [quickAssignGroupId, setQuickAssignGroupId] = useState<number | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
 
   const createGroupMut = trpc.mapGroups.create.useMutation({
-    onSuccess: () => { refetchGroups(); setGroupDialogOpen(false); setGroupForm({ name: "", color: "#6366f1", description: "" }); toast.success("Grupo criado"); },
+    onSuccess: () => { refetchGroups(); setGroupDialogOpen(false); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null }); toast.success("Grupo criado"); },
     onError: (e) => toast.error(e.message),
   });
   const updateGroupMut = trpc.mapGroups.update.useMutation({
@@ -718,6 +721,31 @@ export default function InfrastructureMap() {
     onSuccess: () => { refetchGroups(); toast.success("Cabo removido do grupo"); },
     onError: (e: any) => toast.error(e.message),
   });
+  const addElementsMut = trpc.mapGroups.addElements.useMutation({
+    onSuccess: (data: any) => { refetchGroups(); setQuickAssignDialogOpen(false); setGroupSelectMode(false); setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set()); toast.success(`${data.count} elemento${data.count !== 1 ? "s" : ""} adicionado${data.count !== 1 ? "s" : ""} ao grupo`); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const removeElementsMut = trpc.mapGroups.removeElements.useMutation({
+    onSuccess: (data: any) => { refetchGroups(); toast.success(`${data.count} elemento${data.count !== 1 ? "s" : ""} removido${data.count !== 1 ? "s" : ""} do grupo`); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const handleQuickAssign = useCallback((groupId: number) => {
+    const elementIds = Array.from(groupSelectedElements);
+    const routeIds = Array.from(groupSelectedRoutes);
+    // Adicionar elementos em lote
+    if (elementIds.length > 0) addElementsMut.mutate({ elementIds, groupId });
+    // Adicionar cabos individualmente (sem mutation em lote para cabos)
+    routeIds.forEach(rId => assignRouteToGroupMut.mutate({ routeId: rId, groupId }));
+    if (elementIds.length === 0 && routeIds.length > 0) {
+      refetchGroups();
+      setQuickAssignDialogOpen(false);
+      setGroupSelectMode(false);
+      setGroupSelectedElements(new Set());
+      setGroupSelectedRoutes(new Set());
+      toast.success(`${routeIds.length} cabo${routeIds.length !== 1 ? "s" : ""} adicionado${routeIds.length !== 1 ? "s" : ""} ao grupo`);
+    }
+  }, [groupSelectedElements, groupSelectedRoutes, addElementsMut, assignRouteToGroupMut, refetchGroups]);
 
   // Filtrar elementos por grupo ativo
   const filteredElements = activeGroupFilter
@@ -3052,8 +3080,17 @@ export default function InfrastructureMap() {
           <span className="flex-1">Modo de seleção ativo — clique nos marcadores (CEO/CTO) ou cabos para selecionar.{groupTotalSelected > 0 && <span className="font-semibold ml-1">{groupTotalSelected} selecionado{groupTotalSelected !== 1 ? "s" : ""}</span>}</span>
           <button onClick={selectAllGroup} className="text-cyan-300 hover:text-cyan-200 underline text-xs">Selecionar tudo</button>
           <button onClick={clearGroupSelection} className="text-cyan-300 hover:text-cyan-200 underline text-xs">Limpar</button>
+          {groupTotalSelected > 0 && isAdmin && (
+            <button
+              onClick={() => setQuickAssignDialogOpen(true)}
+              className="flex items-center gap-1 bg-violet-600 hover:bg-violet-700 text-white rounded px-2 py-0.5 text-xs font-medium"
+            >
+              <Folder className="w-3 h-3" />Adicionar a grupo
+            </button>
+          )}
           {groupTotalSelected > 0 && isAdmin && <button onClick={handleGroupDelete} className="text-red-400 hover:text-red-300 underline text-xs">Excluir seleção</button>}
           {groupTotalSelected > 0 && <button onClick={handleGroupExport} className="text-cyan-300 hover:text-cyan-200 underline text-xs">Exportar seleção</button>}
+          <button onClick={toggleGroupSelectMode} className="text-cyan-300 hover:text-cyan-200 underline text-xs">Sair da seleção</button>
         </div>
       )}
       {addingMode && (
@@ -3310,95 +3347,145 @@ export default function InfrastructureMap() {
             </div>
           )}
         </div>
-        {groupsPanelOpen && (
-          <div className="w-72 border-l border-border bg-card/50 flex flex-col overflow-hidden flex-shrink-0">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <div className="flex items-center gap-2">
-                <Folder className="w-4 h-4 text-violet-400" />
-                <span className="text-sm font-medium">Grupos / Setores</span>
-              </div>
-              <div className="flex items-center gap-1">
-                {isAdmin && (
-                  <button onClick={() => { setEditingGroupId(null); setGroupForm({ name: "", color: "#6366f1", description: "" }); setGroupDialogOpen(true); }} className="text-violet-400 hover:text-violet-300" title="Novo grupo">
-                    <FolderPlus className="w-4 h-4" />
-                  </button>
-                )}
-                <button onClick={() => setGroupsPanelOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
-              </div>
-            </div>
-            {activeGroupFilter !== null && (
-              <div className="px-3 py-2 bg-violet-500/10 border-b border-violet-500/20 flex items-center gap-2">
-                <span className="text-xs text-violet-400 flex-1">Filtrando por grupo</span>
-                <button onClick={() => setActiveGroupFilter(null)} className="text-xs text-violet-300 hover:text-violet-200 underline">Limpar filtro</button>
-              </div>
-            )}
-            <div className="flex-1 overflow-y-auto">
-              {(mapGroups as any[]).length === 0 ? (
-                <div className="p-6 text-center text-sm text-muted-foreground">
-                  <Folder className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                  <p>Nenhum grupo criado.</p>
-                  {isAdmin && <p className="text-xs mt-1">Clique em <strong>+</strong> para criar um grupo de setores.</p>}
+        {groupsPanelOpen && (() => {
+          // Construir árvore hierárquica de grupos
+          const allGroups = mapGroups as any[];
+          const rootGroups = allGroups.filter((g: any) => !g.parentId);
+          const childGroups = (parentId: number) => allGroups.filter((g: any) => g.parentId === parentId);
+          const countAllElements = (g: any): { elems: number; routes: number } => {
+            const children = childGroups(g.id);
+            const childCounts = children.map(countAllElements);
+            return {
+              elems: (g.elements?.length ?? 0) + childCounts.reduce((s: number, c: any) => s + c.elems, 0),
+              routes: (g.routes?.length ?? 0) + childCounts.reduce((s: number, c: any) => s + c.routes, 0),
+            };
+          };
+          const renderGroup = (group: any, depth: number = 0) => {
+            const isActive = activeGroupFilter === group.id;
+            const children = childGroups(group.id);
+            const isExpanded = expandedGroups.has(group.id) || children.length === 0;
+            const counts = countAllElements(group);
+            return (
+              <div key={group.id}>
+                <div
+                  className={`flex items-center gap-1.5 px-3 py-2 cursor-pointer ${
+                    isActive ? "bg-violet-500/10" : "hover:bg-muted/30"
+                  }`}
+                  style={{ paddingLeft: `${12 + depth * 16}px` }}
+                >
+                  {children.length > 0 ? (
+                    <button
+                      onClick={() => setExpandedGroups(prev => {
+                        const n = new Set(prev);
+                        if (n.has(group.id)) n.delete(group.id); else n.add(group.id);
+                        return n;
+                      })}
+                      className="text-muted-foreground hover:text-foreground flex-shrink-0"
+                    >
+                      {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    </button>
+                  ) : (
+                    <span className="w-3.5 flex-shrink-0" />
+                  )}
+                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: group.color ?? "#6366f1" }} />
+                  <span className="text-xs font-medium flex-1 truncate">{group.name}</span>
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
+                    <span className="text-xs text-muted-foreground">{counts.elems + counts.routes}</span>
+                    <button
+                      onClick={() => setActiveGroupFilter(isActive ? null : group.id)}
+                      className={`p-0.5 rounded ${isActive ? "text-violet-400" : "text-muted-foreground hover:text-foreground"}`}
+                      title={isActive ? "Remover filtro" : "Filtrar por este grupo"}
+                    >
+                      {isActive ? <Check className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </button>
+                    {isAdmin && (
+                      <>
+                        <button
+                          onClick={() => { setEditingGroupId(null); setGroupForm({ name: "", color: group.color ?? "#6366f1", description: "", parentId: group.id }); setGroupDialogOpen(true); }}
+                          className="p-0.5 text-muted-foreground hover:text-violet-400"
+                          title="Criar subpasta aqui"
+                        >
+                          <FolderPlus className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => { setEditingGroupId(group.id); setGroupForm({ name: group.name, color: group.color ?? "#6366f1", description: group.description ?? "", parentId: group.parentId ?? null }); setGroupDialogOpen(true); }}
+                          className="p-0.5 text-muted-foreground hover:text-foreground"
+                          title="Editar grupo"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => deleteGroupMapMut.mutate({ id: group.id })}
+                          className="p-0.5 text-red-400/60 hover:text-red-400"
+                          title="Excluir grupo"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {(mapGroups as any[]).map((group: any) => {
-                    const isActive = activeGroupFilter === group.id;
-                    const elemCount = group.elements?.length ?? 0;
-                    const routeCount = group.routes?.length ?? 0;
-                    return (
-                      <div key={group.id} className={`px-3 py-3 ${isActive ? "bg-violet-500/10" : "hover:bg-muted/30"}`}>
-                        <div className="flex items-center gap-2">
-                          <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: group.color ?? "#6366f1" }} />
-                          <span className="text-sm font-medium flex-1 truncate">{group.name}</span>
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => setActiveGroupFilter(isActive ? null : group.id)} className={`text-xs px-1.5 py-0.5 rounded ${isActive ? "bg-violet-500 text-white" : "bg-muted text-muted-foreground hover:bg-muted/70"}`} title={isActive ? "Remover filtro" : "Filtrar mapa por este grupo"}>
-                              {isActive ? <Check className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                            </button>
-                            {isAdmin && (
-                              <>
-                                <button onClick={() => { setEditingGroupId(group.id); setGroupForm({ name: group.name, color: group.color ?? "#6366f1", description: group.description ?? "" }); setGroupDialogOpen(true); }} className="text-muted-foreground hover:text-foreground" title="Editar grupo">
-                                  <ChevronRight className="w-3.5 h-3.5" />
-                                </button>
-                                <button onClick={() => deleteGroupMapMut.mutate({ id: group.id })} className="text-red-400/60 hover:text-red-400" title="Excluir grupo">
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        {group.description && <p className="text-xs text-muted-foreground mt-1 truncate">{group.description}</p>}
-                        <div className="flex gap-3 mt-1.5 text-xs text-muted-foreground">
-                          <span>{elemCount} elemento{elemCount !== 1 ? "s" : ""}</span>
-                          <span>{routeCount} cabo{routeCount !== 1 ? "s" : ""}</span>
-                        </div>
-                        {isAdmin && groupSelectMode && groupTotalSelected > 0 && (
-                          <button onClick={() => {
-                            Array.from(groupSelectedElements).forEach(elId => assignElementToGroupMut.mutate({ elementId: elId, groupId: group.id }));
-                            Array.from(groupSelectedRoutes).forEach(rId => assignRouteToGroupMut.mutate({ routeId: rId, groupId: group.id }));
-                          }} className="mt-2 w-full text-xs bg-violet-600 hover:bg-violet-700 text-white rounded px-2 py-1">
-                            Adicionar seleção ({groupTotalSelected}) a este grupo
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
+                {isExpanded && children.length > 0 && (
+                  <div>{children.map((c: any) => renderGroup(c, depth + 1))}</div>
+                )}
+              </div>
+            );
+          };
+          return (
+            <div className="w-72 border-l border-border bg-card/50 flex flex-col overflow-hidden flex-shrink-0">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <FolderTree className="w-4 h-4 text-violet-400" />
+                  <span className="text-sm font-medium">Grupos / Pastas</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {isAdmin && (
+                    <button
+                      onClick={() => { setEditingGroupId(null); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null }); setGroupDialogOpen(true); }}
+                      className="text-violet-400 hover:text-violet-300"
+                      title="Nova pasta raiz"
+                    >
+                      <FolderPlus className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button onClick={() => setGroupsPanelOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+                </div>
+              </div>
+              {activeGroupFilter !== null && (
+                <div className="px-3 py-2 bg-violet-500/10 border-b border-violet-500/20 flex items-center gap-2">
+                  <span className="text-xs text-violet-400 flex-1">Filtrando por pasta</span>
+                  <button onClick={() => setActiveGroupFilter(null)} className="text-xs text-violet-300 hover:text-violet-200 underline">Limpar filtro</button>
+                </div>
+              )}
+              <div className="flex-1 overflow-y-auto">
+                {allGroups.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-muted-foreground">
+                    <FolderTree className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                    <p>Nenhuma pasta criada.</p>
+                    {isAdmin && <p className="text-xs mt-1">Clique em <strong>+</strong> para criar uma pasta.</p>}
+                  </div>
+                ) : (
+                  <div className="py-1">{rootGroups.map((g: any) => renderGroup(g, 0))}</div>
+                )}
+              </div>
+              {isAdmin && (
+                <div className="px-3 py-2 border-t border-border">
+                  <button
+                    onClick={toggleGroupSelectMode}
+                    className={`w-full text-xs text-center rounded px-2 py-1.5 ${
+                      groupSelectMode
+                        ? "bg-cyan-600/20 text-cyan-400 border border-cyan-500/30"
+                        : "text-violet-400 hover:text-violet-300 underline"
+                    }`}
+                  >
+                    {groupSelectMode ? `Seleção ativa (${groupTotalSelected})` : "Ativar seleção múltipla"}
+                  </button>
                 </div>
               )}
             </div>
-            {isAdmin && groupSelectMode && groupTotalSelected > 0 && (
-              <div className="px-3 py-2 border-t border-border text-xs text-muted-foreground">
-                <Tag className="w-3 h-3 inline mr-1" />{groupTotalSelected} selecionado{groupTotalSelected !== 1 ? "s" : ""} — clique em um grupo para atribuir
-              </div>
-            )}
-            {!groupSelectMode && isAdmin && (
-              <div className="px-3 py-2 border-t border-border">
-                <button onClick={toggleGroupSelectMode} className="w-full text-xs text-center text-violet-400 hover:text-violet-300 underline">
-                  Ativar seleção para atribuir elementos
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+          );
+        })()}
+        
         {sidePanel && (
           <div className="w-72 border-l border-border bg-card/50 flex flex-col overflow-hidden flex-shrink-0">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
@@ -3718,9 +3805,25 @@ export default function InfrastructureMap() {
       {/* Diálogo criação/edição de grupo */}
       <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><Folder className="w-4 h-4 text-violet-400" />{editingGroupId ? "Editar Grupo" : "Novo Grupo"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><FolderTree className="w-4 h-4 text-violet-400" />{editingGroupId ? "Editar Pasta" : "Nova Pasta"}</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-1.5"><Label>Nome do grupo *</Label><Input value={groupForm.name} onChange={e => setGroupForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Setor Norte, Bairro Centro..." /></div>
+            <div className="space-y-1.5"><Label>Nome da pasta *</Label><Input value={groupForm.name} onChange={e => setGroupForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Projeto 1, Setor Norte, CTOs..." /></div>
+            <div className="space-y-1.5"><Label>Pasta pai (opcional)</Label>
+              <Select value={groupForm.parentId !== null ? String(groupForm.parentId) : "none"} onValueChange={v => setGroupForm(f => ({ ...f, parentId: v === "none" ? null : Number(v) }))}>
+                <SelectTrigger><SelectValue placeholder="Nenhuma (pasta raiz)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nenhuma (pasta raiz)</SelectItem>
+                  {(mapGroups as any[]).filter((g: any) => g.id !== editingGroupId).map((g: any) => (
+                    <SelectItem key={g.id} value={String(g.id)}>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: g.color ?? "#6366f1" }} />
+                        {g.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1.5"><Label>Descrição</Label><Input value={groupForm.description} onChange={e => setGroupForm(f => ({ ...f, description: e.target.value }))} placeholder="Descrição opcional" /></div>
             <div className="space-y-1.5"><Label>Cor de identificação</Label>
               <div className="flex gap-2 items-center"><input type="color" value={groupForm.color} onChange={e => setGroupForm(f => ({ ...f, color: e.target.value }))} className="w-10 h-8 rounded cursor-pointer border border-border" /><span className="text-xs text-muted-foreground">{groupForm.color}</span></div>
@@ -3733,8 +3836,52 @@ export default function InfrastructureMap() {
               if (editingGroupId) updateGroupMut.mutate({ id: editingGroupId, ...groupForm });
               else createGroupMut.mutate(groupForm);
             }} disabled={createGroupMut.isPending || updateGroupMut.isPending}>
-              {createGroupMut.isPending || updateGroupMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : editingGroupId ? "Salvar" : "Criar Grupo"}
+              {createGroupMut.isPending || updateGroupMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : editingGroupId ? "Salvar" : "Criar Pasta"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de atribuição rápida de seleção a grupo */}
+      <Dialog open={quickAssignDialogOpen} onOpenChange={setQuickAssignDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Folder className="w-4 h-4 text-violet-400" />
+              Adicionar {groupTotalSelected} item{groupTotalSelected !== 1 ? "s" : ""} a uma pasta
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">Selecione a pasta de destino para os {groupTotalSelected} item{groupTotalSelected !== 1 ? "s" : ""} selecionados:</p>
+            {(mapGroups as any[]).length === 0 ? (
+              <div className="text-center py-4 text-sm text-muted-foreground">
+                <p>Nenhuma pasta criada ainda.</p>
+                <button onClick={() => { setQuickAssignDialogOpen(false); setEditingGroupId(null); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null }); setGroupDialogOpen(true); }} className="text-violet-400 underline text-xs mt-1">Criar nova pasta</button>
+              </div>
+            ) : (
+              <div className="border border-border rounded-lg divide-y divide-border max-h-60 overflow-y-auto">
+                {(mapGroups as any[]).map((g: any) => (
+                  <button
+                    key={g.id}
+                    onClick={() => handleQuickAssign(g.id)}
+                    disabled={addElementsMut.isPending}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-muted/40 text-left"
+                  >
+                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: g.color ?? "#6366f1" }} />
+                    <span className="text-sm flex-1">{g.name}</span>
+                    {g.parentId && (
+                      <span className="text-xs text-muted-foreground">
+                        {(mapGroups as any[]).find((p: any) => p.id === g.parentId)?.name ?? ""}
+                      </span>
+                    )}
+                    {addElementsMut.isPending && <Loader2 className="w-3 h-3 animate-spin" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuickAssignDialogOpen(false)}>Cancelar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1505,3 +1505,21 @@
 - [x] Corrigir painel de balanço óptico na CtoDetail: campos errados (estimatedPowerDbm→rxPowerDbm, totalDistanceM→distanceKm, oltName/portName inexistentes)
 - [x] Melhorar display: mostrar RX com cor por qualidade, TX da OLT, perdas detalhadas (cabo/splitter/fusão), percurso com potência acumulada por passo
 - [x] Mostrar painel mesmo quando found=false (com avisos de diagnóstico)
+
+## Bug: Criação de Grupo no Mapa
+- [x] Corrigir erro "Failed query: insert into map_groups" ao criar grupo no mapa de infraestrutura
+
+## Grupos Hierárquicos e Seleção Múltipla no Mapa
+- [x] Adicionar campo parentId (nullable, FK para map_groups.id) na tabela map_groups
+- [x] Aplicar migration no servidor de produção
+- [x] Atualizar schema Drizzle com campo parentId
+- [x] Atualizar helpers getMapGroups, createMapGroup, updateMapGroup para suportar parentId
+- [x] Atualizar procedures tRPC: list retorna árvore hierárquica, create/update aceitam parentId
+- [x] Modo de seleção múltipla no mapa (botão "Selecionar" na toolbar)
+- [x] Visual de checkbox/highlight nos elementos selecionados
+- [x] Barra de ações ao selecionar elementos: "Adicionar ao grupo", "Remover do grupo", "Cancelar"
+- [x] Dialog para escolher grupo destino ao adicionar elementos selecionados
+- [x] Painel de grupos com árvore hierárquica (pasta pai → subpastas)
+- [x] Criar subpasta dentro de um grupo existente
+- [ ] Mover grupo para outro pai (drag or select)
+- [x] Exibir contagem de elementos por grupo/subpasta
