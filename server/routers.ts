@@ -925,12 +925,42 @@ export const appRouter = router({
     setFusionToSplitter: protectedProcedure
       .input(z.object({
         viaId: z.number(),
+        ceoId: z.number(),
         fusedToSplitterId: z.number().nullable(),
         fusedToSplitterViaId: z.number().nullable(),
         notes: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         await setViaFusionToSplitter(input.viaId, input.fusedToSplitterId, input.fusedToSplitterViaId, input.notes);
+        // Criar associação bidirecional em ceoViaAssociations para que o splitter também mostre o destino
+        if (input.fusedToSplitterViaId != null) {
+          // Remover associação anterior desta via (se existir)
+          await deleteViaAssociationByVias(input.ceoId, input.viaId, input.fusedToSplitterViaId);
+          await createViaAssociation({
+            ceoId: input.ceoId,
+            sourceType: "tube",
+            sourceViaId: input.viaId,
+            targetType: "splitter",
+            targetViaId: input.fusedToSplitterViaId,
+            notes: input.notes ?? null,
+          });
+        } else {
+          // Limpar associação bidirecional ao desfazer fusão
+          const db = await (await import("./db")).getDb();
+          if (db) {
+            const { ceoViaAssociations } = await import("../drizzle/schema");
+            const { eq, or, and } = await import("drizzle-orm");
+            await db.delete(ceoViaAssociations).where(
+              and(
+                eq(ceoViaAssociations.ceoId, input.ceoId),
+                or(
+                  eq(ceoViaAssociations.sourceViaId, input.viaId),
+                  eq(ceoViaAssociations.targetViaId, input.viaId)
+                )
+              )
+            );
+          }
+        }
       }),
 
     updateLabel: protectedProcedure

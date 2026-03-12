@@ -402,7 +402,7 @@ function TubePanel({
       // Destino é um splitter: gravar fusão direta na via do tubo
       const targetSplVia = targetSplVias.find(v => v.id === parseInt(fusionViaNumber));
       if (!targetSplVia) { toast.error("Via de splitter não encontrada"); return; }
-      setFusionToSplitterMutation.mutate({ viaId: fusionDialog.id, fusedToSplitterId: fusionTargetSplitterId, fusedToSplitterViaId: targetSplVia.id });
+      setFusionToSplitterMutation.mutate({ viaId: fusionDialog.id, ceoId, fusedToSplitterId: fusionTargetSplitterId, fusedToSplitterViaId: targetSplVia.id });
     } else {
       const targetVia = targetTubeVias.find(v => v.viaNumber === parseInt(fusionViaNumber));
       if (!targetVia) { toast.error("Via não encontrada"); return; }

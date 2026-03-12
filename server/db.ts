@@ -1025,6 +1025,14 @@ export async function clearViaFusion(viaId: number) {
       .set({ fusedToTubeId: null, fusedToViaId: null, fusedToSplitterId: null, fusedToSplitterViaId: null })
       .where(eq(ceoVias.id, via.fusedToViaId));
   }
+
+  // Limpar associação bidirecional em ceoViaAssociations (tubo→splitter)
+  await db.delete(ceoViaAssociations).where(
+    or(
+      eq(ceoViaAssociations.sourceViaId, viaId),
+      eq(ceoViaAssociations.targetViaId, viaId)
+    )
+  );
 }
 
 export async function updateVia(id: number, data: { label?: string | null; notes?: string | null; fiberId?: number | null }) {
