@@ -1067,6 +1067,8 @@ export async function createCtoTube(data: Omit<InsertCtoTube, "id" | "createdAt"
     color: colorVal,
   };
   if (notesVal !== undefined) insertData.notes = notesVal;
+  if ((data as any).splitterType) insertData.splitterType = (data as any).splitterType;
+  if ((data as any).ratio) insertData.ratio = (data as any).ratio;
   const result = await db.insert(ctoTubes).values(insertData);
   const insertId = (result as any)[0]?.insertId ?? 0;
   const totalVias = data.totalVias ?? 0;

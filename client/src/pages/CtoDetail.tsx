@@ -24,11 +24,30 @@ import {
 import { cn } from "@/lib/utils";
 import { useRole } from "@/hooks/useRole";
 
+// ─── Notificar mapa pai (quando aberto em iframe) ─────────────────────────────
+function notifyCtoParent(ctoId: number) {
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({ type: "fiber-doc-invalidate", ctoId }, "*");
+  }
+}
+
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 type Tube = {
   id: number; ctoId: number; type: "tube" | "splitter";
   identifier: string; totalVias: number; color: string | null; notes: string | null;
+  splitterType?: "balanced" | "unbalanced" | null;
+  ratio?: string | null;
 };
+
+const BALANCED_RATIOS = ["1:2", "1:4", "1:8", "1:16", "1:32"];
+const UNBALANCED_RATIOS = ["1:2_90/10", "1:2_80/20", "1:2_70/30", "1:2_60/40", "1:2_50/50"];
+function formatRatio(ratio: string): string {
+  if (ratio.includes("_")) {
+    const [base, pct] = ratio.split("_");
+    return `${base} (${pct})`;
+  }
+  return ratio;
+}
 type Via = {
   id: number; tubeId: number; ctoId: number; viaNumber: number;
   label: string | null; fusedToViaId: number | null; fusedToTubeId: number | null;
@@ -229,8 +248,8 @@ function TubePanel({
       toast.success("Fusão identificada!");
       utils.ctoVias.byTube.invalidate({ tubeId: tube.id });
       utils.ctoVias.byCto.invalidate({ ctoId });
-      // Sincronização bidirecional: invalidar todas as queries de ctoVias (inclui o mapa)
       utils.ctoVias.byTube.invalidate();
+      notifyCtoParent(ctoId);
       setFusionDialog(null);
       setFusionTubeId("");
       setFusionViaNumber("");
@@ -243,8 +262,8 @@ function TubePanel({
       toast.success("Fusão removida!");
       utils.ctoVias.byTube.invalidate({ tubeId: tube.id });
       utils.ctoVias.byCto.invalidate({ ctoId });
-      // Sincronização bidirecional: invalidar todas as queries de ctoVias (inclui o mapa)
       utils.ctoVias.byTube.invalidate();
+      notifyCtoParent(ctoId);
     },
     onError: e => toast.error("Erro: " + e.message),
   });
@@ -866,6 +885,8 @@ export default function CtoDetail() {
   const [tubeForm, setTubeForm] = useState({
     identifier: "", type: "tube" as "tube" | "splitter",
     totalVias: "8", color: "", notes: "",
+    splitterType: "balanced" as "balanced" | "unbalanced",
+    ratio: "1:8",
   });
   const [printFilterOpen, setPrintFilterOpen] = useState(false);
   const [selectedTubeIds, setSelectedTubeIds] = useState<Set<number>>(new Set());
@@ -889,6 +910,7 @@ export default function CtoDetail() {
       toast.success("Localização da CTO atualizada!");
       utils.ctos.byId.invalidate({ id: ctoId });
       utils.ctos.list.invalidate();
+      notifyCtoParent(ctoId);
     },
     onError: e => toast.error("Erro ao atualizar: " + e.message),
   });
@@ -930,6 +952,7 @@ export default function CtoDetail() {
     onSuccess: () => {
       toast.success("Tubo/Splitter adicionado!");
       utils.ctoTubes.byCto.invalidate({ ctoId });
+      notifyCtoParent(ctoId);
       setTubeDialog(false);
     },
     onError: e => toast.error("Erro: " + e.message),
@@ -939,6 +962,7 @@ export default function CtoDetail() {
     onSuccess: () => {
       toast.success("Tubo/Splitter atualizado!");
       utils.ctoTubes.byCto.invalidate({ ctoId });
+      notifyCtoParent(ctoId);
       setTubeDialog(false);
     },
     onError: e => toast.error("Erro: " + e.message),
@@ -949,13 +973,14 @@ export default function CtoDetail() {
       toast.success("Tubo/Splitter removido!");
       utils.ctoTubes.byCto.invalidate({ ctoId });
       utils.ctoVias.byCto.invalidate({ ctoId });
+      notifyCtoParent(ctoId);
       setDeleteTubeId(null);
     },
     onError: e => toast.error("Erro: " + e.message),
   });
 
   function resetTubeForm() {
-    setTubeForm({ identifier: "", type: "tube", totalVias: "8", color: "", notes: "" });
+    setTubeForm({ identifier: "", type: "tube", totalVias: "8", color: "", notes: "", splitterType: "balanced", ratio: "1:8" });
   }
 
   function handleOpenPrintFilter() {
@@ -1141,28 +1166,33 @@ export default function CtoDetail() {
       totalVias: String(tube.totalVias),
       color: tube.color ?? "",
       notes: tube.notes ?? "",
+      splitterType: (tube.splitterType as any) ?? "balanced",
+      ratio: tube.ratio ?? "1:8",
     });
     setTubeDialog(true);
   }
 
   function handleTubeSubmit() {
     if (!tubeForm.identifier) return;
+    const isSpl = tubeForm.type === "splitter";
     if (editTube) {
       updateTubeMutation.mutate({
         id: editTube.id,
-            identifier: tubeForm.identifier,
+        identifier: tubeForm.identifier,
         type: tubeForm.type,
         color: tubeForm.color || undefined,
         notes: tubeForm.notes || undefined,
-      });
+        ...(isSpl ? { splitterType: tubeForm.splitterType, ratio: tubeForm.ratio } : {}),
+      } as any);
     } else {
       createTubeMutation.mutate({
         ctoId,
         identifier: tubeForm.identifier,
         type: tubeForm.type,
-        totalVias: parseInt(tubeForm.totalVias) || 8,
+        totalVias: isSpl ? parseInt(tubeForm.ratio.split(":")[1] ?? "8") : (parseInt(tubeForm.totalVias) || 8),
         color: tubeForm.color || undefined,
         notes: tubeForm.notes || undefined,
+        ...(isSpl ? { splitterType: tubeForm.splitterType, ratio: tubeForm.ratio } : {}),
       } as any);
     }
   }
@@ -1485,11 +1515,63 @@ export default function CtoDetail() {
                 <Input
                   value={tubeForm.identifier}
                   onChange={e => setTubeForm({ ...tubeForm, identifier: e.target.value })}
-                  placeholder={tubeForm.type === "splitter" ? "Ex: SPLITTER 1*8" : "Ex: TUBO 1"}
+                  placeholder={tubeForm.type === "splitter" ? `Ex: SPLITTER ${formatRatio(tubeForm.ratio)} #1` : "Ex: TUBO 1"}
                   className="bg-background border-border/50"
                 />
               </div>
             </div>
+            {tubeForm.type === "splitter" && !editTube && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label>Tipo de Splitter</Label>
+                    <Select value={tubeForm.splitterType} onValueChange={v => setTubeForm({ ...tubeForm, splitterType: v as any, ratio: v === "balanced" ? "1:8" : "1:2_90/10" })}>
+                      <SelectTrigger className="bg-background border-border/50"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="balanced">Balanceado</SelectItem>
+                        <SelectItem value="unbalanced">Desbalanceado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Razão de Divisão</Label>
+                    <Select value={tubeForm.ratio} onValueChange={v => setTubeForm({ ...tubeForm, ratio: v })}>
+                      <SelectTrigger className="bg-background border-border/50"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {(tubeForm.splitterType === "balanced" ? BALANCED_RATIOS : UNBALANCED_RATIOS).map(r => (
+                          <SelectItem key={r} value={r}>{formatRatio(r)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Perda estimada por via:</p>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="text-[10px] px-2 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300">VIA 00 (Entrada) — 0 dB</span>
+                    {tubeForm.splitterType === "balanced" ? (() => {
+                      const outputCount = parseInt(tubeForm.ratio.split(":")[1] ?? "2");
+                      const lossMap: Record<string, number> = { "1:2": 3.5, "1:4": 7.2, "1:8": 10.5, "1:16": 13.5, "1:32": 17.0 };
+                      const loss = lossMap[tubeForm.ratio] ?? 3.5;
+                      return Array.from({ length: outputCount }, (_, i) => (
+                        <span key={i} className="text-[10px] px-2 py-1 rounded border border-cyan-500/40 bg-cyan-500/10 text-cyan-300">VIA {String(i + 1).padStart(2, "0")} — ~{loss} dB</span>
+                      ));
+                    })() : (() => {
+                      const match = tubeForm.ratio.match(/(\d+)\/(\d+)/);
+                      if (!match) return null;
+                      const p1 = parseInt(match[1]); const p2 = parseInt(match[2]);
+                      const loss1 = (-10 * Math.log10(p1 / 100)).toFixed(1);
+                      const loss2 = (-10 * Math.log10(p2 / 100)).toFixed(1);
+                      return [
+                        <span key="1" className="text-[10px] px-2 py-1 rounded border border-cyan-500/40 bg-cyan-500/10 text-cyan-300">VIA 01 ({p1}%) — ~{loss1} dB</span>,
+                        <span key="2" className="text-[10px] px-2 py-1 rounded border border-violet-500/40 bg-violet-500/10 text-violet-300">VIA 02 ({p2}%) — ~{loss2} dB</span>,
+                      ];
+                    })()}
+                  </div>
+                </div>
+              </>
+            )}
+            {tubeForm.type !== "splitter" && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Quantidade de Vias *</Label>
@@ -1519,6 +1601,18 @@ export default function CtoDetail() {
                 />
               </div>
             </div>
+            )}
+            {tubeForm.type === "splitter" && (
+              <div className="space-y-1.5">
+                <Label>Cor</Label>
+                <Input
+                  value={tubeForm.color}
+                  onChange={e => setTubeForm({ ...tubeForm, color: e.target.value })}
+                  placeholder="Ex: Azul, Verde..."
+                  className="bg-background border-border/50"
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label>Observações</Label>
               <Textarea

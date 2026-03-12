@@ -1091,6 +1091,31 @@ export default function InfrastructureMap() {
     }
   }, [ctoTubesQuery.data, ceoTubesQuery.data, sidePanelType]);
 
+  // Sincronização bidirecional: escutar mensagens do iframe de detalhes (CTO/CEO)
+  // Quando a página de detalhes faz uma mutação, envia postMessage e o painel lateral invalida o cache
+  useEffect(() => {
+    function handleIframeMessage(evt: MessageEvent) {
+      if (!evt.data || typeof evt.data !== "object") return;
+      const { type, ctoId, ceoId } = evt.data as any;
+      if (type !== "fiber-doc-invalidate") return;
+      if (ctoId) {
+        mapUtils.ctoTubes.byCto.invalidate({ ctoId });
+        mapUtils.ctoVias.byCto.invalidate({ ctoId });
+        mapUtils.ctoVias.byTube.invalidate();
+        mapUtils.ctoViaAssociations.byCto.invalidate({ ctoId });
+      }
+      if (ceoId) {
+        mapUtils.ceoTubes.byCeo.invalidate({ ceoId });
+        mapUtils.ceoVias.byCeo.invalidate({ ceoId });
+        mapUtils.ceoVias.byTube.invalidate();
+        mapUtils.ceoSplitterVias.byCeo.invalidate({ ceoId });
+        mapUtils.ceoViaAssociations.byCeo.invalidate({ ceoId });
+      }
+    }
+    window.addEventListener("message", handleIframeMessage);
+    return () => window.removeEventListener("message", handleIframeMessage);
+  }, [mapUtils]);
+
   // Inicializar mapa Leaflet
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;

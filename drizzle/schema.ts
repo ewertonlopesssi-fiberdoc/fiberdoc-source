@@ -683,6 +683,8 @@ export const ctoTubes = mysqlTable("cto_tubes", {
   type: mysqlEnum("cto_tube_type", ["tube", "splitter"]).default("tube").notNull(),
   identifier: varchar("identifier", { length: 32 }).notNull(), // ex: "TUBO 1", "SPLITTER 1*8"
   totalVias: int("totalVias").default(12).notNull(),
+  splitterType: mysqlEnum("cto_splitter_type", ["balanced", "unbalanced"]).default("balanced"),
+  ratio: varchar("ratio", { length: 32 }),  // ex: "1:8", "1:16", "1:2_90/10"
   color: varchar("color", { length: 32 }),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

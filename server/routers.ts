@@ -1102,6 +1102,8 @@ export const appRouter = router({
         type: z.enum(["tube", "splitter"]).default("tube"),
         color: z.string().optional().transform(v => v === "" ? undefined : v),
         totalVias: z.number().min(1).max(288).default(12),
+        splitterType: z.enum(["balanced", "unbalanced"]).optional(),
+        ratio: z.string().optional().transform(v => v === "" ? undefined : v),
         notes: z.string().optional().transform(v => v === "" ? undefined : v),
       }))
       .mutation(async ({ input }) => {
@@ -1114,6 +1116,8 @@ export const appRouter = router({
         identifier: z.string().optional(),
         type: z.enum(["tube", "splitter"]).optional(),
         color: z.string().optional(),
+        splitterType: z.enum(["balanced", "unbalanced"]).optional(),
+        ratio: z.string().optional(),
         notes: z.string().optional(),
       }))
       .mutation(async ({ input }) => {

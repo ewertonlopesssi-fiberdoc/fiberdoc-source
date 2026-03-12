@@ -24,6 +24,13 @@ import { CeoFusionPrint } from "@/components/CeoFusionPrint";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/hooks/useRole";
 
+// ─── Notificar mapa pai (quando aberto em iframe) ─────────────────────────────
+function notifyCeoParent(ceoId: number) {
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({ type: "fiber-doc-invalidate", ceoId }, "*");
+  }
+}
+
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 type Tube = {
   id: number; ceoId: number; bandejaId: number | null;
@@ -320,6 +327,7 @@ function TubePanel({
     onSuccess: () => {
       toast.success("Fusão identificada!");
       utils.ceoVias.byTube.invalidate(); utils.ceoVias.byCeo.invalidate({ ceoId });
+      notifyCeoParent(ceoId);
       setFusionDialog(null); setFusionTubeId(""); setFusionViaNumber("");
     },
     onError: e => toast.error("Erro: " + e.message),
@@ -328,6 +336,7 @@ function TubePanel({
     onSuccess: () => {
       toast.success("Fusão removida!");
       utils.ceoVias.byTube.invalidate(); utils.ceoVias.byCeo.invalidate({ ceoId });
+      notifyCeoParent(ceoId);
     },
     onError: e => toast.error("Erro: " + e.message),
   });
@@ -358,6 +367,7 @@ function TubePanel({
     onSuccess: () => {
       toast.success("Fusão registrada!");
       utils.ceoVias.byTube.invalidate(); utils.ceoVias.byCeo.invalidate({ ceoId });
+      notifyCeoParent(ceoId);
       setFusionDialog(null); setFusionTubeId(""); setFusionViaNumber("");
     },
     onError: e => toast.error("Erro: " + e.message),
@@ -369,6 +379,7 @@ function TubePanel({
       utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
       utils.ceoVias.byCeo.invalidate({ ceoId });
       utils.ceoVias.byTube.invalidate();
+      notifyCeoParent(ceoId);
       setAssocDialog(null);
       setFusionDialog(null); setFusionTubeId(""); setFusionViaNumber("");
     },
@@ -380,6 +391,7 @@ function TubePanel({
       utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
       utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
       utils.ceoVias.byCeo.invalidate({ ceoId });
+      notifyCeoParent(ceoId);
     },
     onError: e => toast.error("Erro: " + e.message),
   });
@@ -949,6 +961,7 @@ export default function CeoDetail() {
   const createTubeMutation = trpc.ceoTubes.create.useMutation({
     onSuccess: () => {
       toast.success("Tubo adicionado!"); utils.ceoTubes.byCeo.invalidate({ ceoId }); utils.ceoVias.byCeo.invalidate({ ceoId });
+      notifyCeoParent(ceoId);
       setTubeDialog(false); setTubeForm({ identifier: "", type: "tube", totalVias: "12", color: "", notes: "" });
     },
     onError: e => toast.error("Erro: " + e.message),
@@ -956,6 +969,7 @@ export default function CeoDetail() {
   const updateTubeMutation = trpc.ceoTubes.update.useMutation({
     onSuccess: () => {
       toast.success("Tubo atualizado!"); utils.ceoTubes.byCeo.invalidate({ ceoId });
+      notifyCeoParent(ceoId);
       setTubeDialog(false); setEditTube(null); setTubeForm({ identifier: "", type: "tube", totalVias: "12", color: "", notes: "" });
     },
     onError: e => toast.error("Erro: " + e.message),
@@ -963,6 +977,7 @@ export default function CeoDetail() {
   const deleteTubeMutation = trpc.ceoTubes.delete.useMutation({
     onSuccess: () => {
       toast.success("Tubo removido!"); utils.ceoTubes.byCeo.invalidate({ ceoId }); utils.ceoVias.byCeo.invalidate({ ceoId });
+      notifyCeoParent(ceoId);
       setDeleteTubeId(null);
     },
     onError: e => toast.error("Erro: " + e.message),
@@ -971,6 +986,7 @@ export default function CeoDetail() {
   const createSplitterMutation = trpc.ceoSplitters.create.useMutation({
     onSuccess: () => {
       toast.success("Splitter adicionado!"); utils.ceoSplitters.byCeo.invalidate({ ceoId }); utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
+      notifyCeoParent(ceoId);
       setSplitterDialog(false); setSplitterForm({ identifier: "", splitterType: "balanced", ratio: "1:8", notes: "" });
     },
     onError: e => toast.error("Erro: " + e.message),
@@ -985,6 +1001,7 @@ export default function CeoDetail() {
   const deleteSplitterMutation = trpc.ceoSplitters.delete.useMutation({
     onSuccess: () => {
       toast.success("Splitter removido!"); utils.ceoSplitters.byCeo.invalidate({ ceoId }); utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
+      notifyCeoParent(ceoId);
       setDeleteSplitterId(null);
     },
     onError: e => toast.error("Erro: " + e.message),
