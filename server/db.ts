@@ -3821,7 +3821,9 @@ export async function calculateOpticalBalance(
           reversePath.push({ type: "splitter", label: `${splitterTube.identifier} (splitter interno)`, lossDb: loss });
           // O tubo de entrada real é o tubo de entrada do splitter — mas como o splitter
           // é interno à CTO, o cabo chega ao tubo de entrada (entryTubeId) directamente.
-          // Manter currentTubeId = entryTubeId para continuar rastreando.
+          // Definir currentViaNumber com o viaNumber da via fusionada ao splitter
+          // para que o algoritmo propague correctamente ao longo da cadeia.
+          currentViaNumber = viaWithSplitterFusion.viaNumber;
         }
       } else {
         // Procurar via ctoViaAssociations: via do tubo associada a via de splitter
@@ -4133,17 +4135,19 @@ export async function calculateOpticalBalance(
         currentTubeId = arrivalVia.fusedToTubeId;
         if (arrivalVia.fusedToViaId) {
           const exitVia = ctoViaById.get(arrivalVia.fusedToViaId);
-          currentViaNumber = exitVia?.viaNumber ?? null;
-        } else {
-          currentViaNumber = null;
+          // Preservar viaNumber: se a fusão não muda o número, manter o actual
+          currentViaNumber = exitVia?.viaNumber ?? currentViaNumber;
         }
+        // Se não tem fusedToViaId, manter currentViaNumber (propagação automática)
       } else {
         currentTubeId = arrivalTubeId;
-        currentViaNumber = arrivalVia?.viaNumber ?? null;
+        // Preservar viaNumber: via N do tubo de origem = via N do tubo de destino
+        currentViaNumber = arrivalVia?.viaNumber ?? currentViaNumber;
       }
     } else {
       currentTubeId = arrivalTubeId;
-      currentViaNumber = null;
+      // Preservar viaNumber ao atravessar elementos sem fusão explícita
+      // (via N do cabo de entrada = via N do cabo de saída)
     }
     currentElementId = prevElementId;
   }
