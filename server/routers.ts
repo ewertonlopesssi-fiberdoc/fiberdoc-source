@@ -29,7 +29,7 @@ async function uploadFile(buffer: Buffer, key: string, mimeType: string): Promis
 import {
   getCeos, getCeoById, createCeo, updateCeo, deleteCeo,
   getTubesByCeo, createCeoTube, updateCeoTube, deleteCeoTube,
-  getViasByTube, getViasByCeo, setViaFusion, clearViaFusion, updateVia, setViaFiber,
+  getViasByTube, getViasByCeo, setViaFusion, setViaFusionToSplitter, clearViaFusion, updateVia, setViaFiber,
   getBandejasByCeo, createCeoBandeja, updateCeoBandeja, deleteCeoBandeja,
   getSplittersByCeo, getSplittersByBandeja, createCeoSplitter, updateCeoSplitter, deleteCeoSplitter,
   getSplitterViasBySplitter, getSplitterViasByCeo, updateCeoSplitterVia,
@@ -921,6 +921,17 @@ export const appRouter = router({
     clearFusion: protectedProcedure
       .input(z.object({ viaId: z.number() }))
       .mutation(async ({ input }) => clearViaFusion(input.viaId)),
+
+    setFusionToSplitter: protectedProcedure
+      .input(z.object({
+        viaId: z.number(),
+        fusedToSplitterId: z.number().nullable(),
+        fusedToSplitterViaId: z.number().nullable(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await setViaFusionToSplitter(input.viaId, input.fusedToSplitterId, input.fusedToSplitterViaId, input.notes);
+      }),
 
     updateLabel: protectedProcedure
       .input(z.object({

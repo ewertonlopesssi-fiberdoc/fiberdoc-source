@@ -372,6 +372,13 @@
       "when": 1773328640596,
       "tag": "0052_daily_wendell_vaughn",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "5",
+      "when": 1773336183118,
+      "tag": "0053_wise_captain_midlands",
+      "breakpoints": true
     }
   ]
 }

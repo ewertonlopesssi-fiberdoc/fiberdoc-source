@@ -237,8 +237,10 @@ export const ceoVias = mysqlTable("ceo_vias", {
   ceoId: int("ceoId").notNull(),
   viaNumber: int("viaNumber").notNull(),           // 1, 2, 3...
   label: varchar("label", { length: 64 }),         // etiqueta opcional
-  fusedToViaId: int("fusedToViaId"),               // id da via destino da fusão
+  fusedToViaId: int("fusedToViaId"),               // id da via destino da fusão (tubo→tubo)
   fusedToTubeId: int("fusedToTubeId"),             // id do tubo destino
+  fusedToSplitterId: int("fusedToSplitterId"),     // id do splitter destino (tubo→splitter)
+  fusedToSplitterViaId: int("fusedToSplitterViaId"), // id da via do splitter destino
   fiberId: int("fiberId"),                         // fibra óptica associada a esta via
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -711,7 +713,7 @@ export const mapGroups = mysqlTable("map_groups", {
   name: varchar("name", { length: 128 }).notNull(),
   color: varchar("color", { length: 16 }).default("#6366f1").notNull(),
   description: text("description"),
-  parentId: int("parentId").default(null),
+  parentId: int("parentId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

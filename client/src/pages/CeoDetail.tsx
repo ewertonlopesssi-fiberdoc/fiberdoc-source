@@ -33,6 +33,7 @@ type Tube = {
 type Via = {
   id: number; tubeId: number; ceoId: number; viaNumber: number;
   label: string | null; fusedToViaId: number | null; fusedToTubeId: number | null;
+  fusedToSplitterId: number | null; fusedToSplitterViaId: number | null;
   fiberId: number | null; notes: string | null;
 };
 type Fiber = {
@@ -105,9 +106,9 @@ function ViaCard({
   onEditLabel: (via: Via) => void; onSetFiber: (via: Via) => void;
   onClearFiber: (viaId: number) => void;
 }) {
-  const fused = via.fusedToViaId !== null;
-  const fusedTube = fused ? tubes.find(t => t.id === via.fusedToTubeId) : null;
-  const fusedVia = fused ? allVias.find(v => v.id === via.fusedToViaId) : null;
+  const fused = via.fusedToViaId !== null || via.fusedToSplitterId !== null;
+  const fusedTube = via.fusedToViaId ? tubes.find(t => t.id === via.fusedToTubeId) : null;
+  const fusedVia = via.fusedToViaId ? allVias.find(v => v.id === via.fusedToViaId) : null;
   const fiber = via.fiberId ? fibers.find(f => f.id === via.fiberId) : null;
   const fiberColor = FIBER_VIA_COLORS[via.viaNumber] ?? null;
 
@@ -148,9 +149,14 @@ function ViaCard({
           <span className="font-medium">FIBRA</span><span className="text-emerald-200/70 mx-1">→</span><span className="truncate">{fiber.name}</span>
         </div>
       )}
-      {fused && fusedTube && fusedVia ? (
+      {via.fusedToSplitterId !== null ? (
+        <div className="text-[10px] text-purple-300 bg-purple-500/10 rounded px-2 py-1 border border-purple-500/20">
+          <span className="font-medium">FUSÃO</span><span className="text-purple-200/70 mx-1">→</span>
+          <span>SPLITTER (VIA {via.fusedToSplitterViaId})</span>
+        </div>
+      ) : fused && fusedTube && fusedVia ? (
         <div className="text-[10px] text-cyan-300 bg-cyan-500/10 rounded px-2 py-1 border border-cyan-500/20">
-          <span className="font-medium">FUSÃO</span><span className="text-cyan-200/70 mx-1">→</span>
+          <span className="font-medium">FUSÃO</span><span className="text-cyan-200/70 mx-1">→</span>
           <span>VIA {String(fusedVia.viaNumber).padStart(2,"0")} · {fusedTube.identifier}</span>
         </div>
       ) : (
@@ -303,6 +309,14 @@ function TubePanel({
     },
     onError: e => toast.error("Erro: " + e.message),
   });
+  const setFusionToSplitterMutation = trpc.ceoVias.setFusionToSplitter.useMutation({
+    onSuccess: () => {
+      toast.success("Fusão registrada!");
+      utils.ceoVias.byTube.invalidate(); utils.ceoVias.byCeo.invalidate({ ceoId });
+      setFusionDialog(null); setFusionTubeId(""); setFusionViaNumber("");
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
   const createAssocMutation = trpc.ceoViaAssociations.create.useMutation({
     onSuccess: () => {
       toast.success("Fusão registrada!");
@@ -328,11 +342,10 @@ function TubePanel({
   function handleSetFusion() {
     if (!fusionDialog || !fusionTubeId || !fusionViaNumber) return;
     if (isFusionTargetSplitter) {
-      // Destino é um splitter: usar associação
+      // Destino é um splitter: gravar fusão direta na via do tubo
       const targetSplVia = targetSplVias.find(v => v.id === parseInt(fusionViaNumber));
       if (!targetSplVia) { toast.error("Via de splitter não encontrada"); return; }
-      createAssocMutation.mutate({ ceoId, sourceType: "tube", sourceViaId: fusionDialog.id, targetType: "splitter", targetViaId: targetSplVia.id });
-      setFusionDialog(null); setFusionTubeId(""); setFusionViaNumber("");
+      setFusionToSplitterMutation.mutate({ viaId: fusionDialog.id, fusedToSplitterId: fusionTargetSplitterId, fusedToSplitterViaId: targetSplVia.id });
     } else {
       const targetVia = targetTubeVias.find(v => v.viaNumber === parseInt(fusionViaNumber));
       if (!targetVia) { toast.error("Via não encontrada"); return; }

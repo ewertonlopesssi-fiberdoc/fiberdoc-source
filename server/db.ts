@@ -303,7 +303,7 @@ export async function getPortsByEquipment(equipmentId: number) {
     )
     .where(eq(ports.equipmentId, equipmentId));
   // Buscar slots separadamente para evitar conflito de aliases
-  const slotIds = [...new Set(portRows.map(p => p.slotId).filter(Boolean))] as number[];
+  const slotIds = Array.from(new Set(portRows.map(p => p.slotId).filter(Boolean))) as number[];
   let slotMap = new Map<number, { slotNumber: string; slotLabel: string | null }>();
   if (slotIds.length > 0) {
     const slotRows = await db
@@ -990,6 +990,22 @@ export async function setViaFusion(
   }
 }
 
+// Fusão tubo → splitter: grava na via do tubo os campos de splitter
+export async function setViaFusionToSplitter(
+  viaId: number,
+  fusedToSplitterId: number | null,
+  fusedToSplitterViaId: number | null,
+  notes?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  // Limpar fusão tubo→tubo se existir
+  await db.update(ceoVias)
+    .set({ fusedToTubeId: null, fusedToViaId: null, fusedToSplitterId, fusedToSplitterViaId, notes: notes ?? null })
+    .where(eq(ceoVias.id, viaId));
+}
+
 export async function clearViaFusion(viaId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
@@ -998,15 +1014,15 @@ export async function clearViaFusion(viaId: number) {
   const rows = await db.select().from(ceoVias).where(eq(ceoVias.id, viaId)).limit(1);
   const via = rows[0];
 
-  // Limpar a via de origem
+  // Limpar a via de origem (tubo→tubo e tubo→splitter)
   await db.update(ceoVias)
-    .set({ fusedToTubeId: null, fusedToViaId: null })
+    .set({ fusedToTubeId: null, fusedToViaId: null, fusedToSplitterId: null, fusedToSplitterViaId: null })
     .where(eq(ceoVias.id, viaId));
 
-  // Limpar a via destino (bidirecional)
+  // Limpar a via destino (bidirecional tubo→tubo)
   if (via?.fusedToViaId) {
     await db.update(ceoVias)
-      .set({ fusedToTubeId: null, fusedToViaId: null })
+      .set({ fusedToTubeId: null, fusedToViaId: null, fusedToSplitterId: null, fusedToSplitterViaId: null })
       .where(eq(ceoVias.id, via.fusedToViaId));
   }
 }
@@ -2938,10 +2954,13 @@ export async function traceOtdrPath(
   const allRoutes = await db.select().from(mapRoutes);
   const allCeoTubes = await db.select().from(ceoTubes);
   const allCtoTubes = await db.select().from(ctoTubes);
-  const allCeoVias = await db.select().from(ceoVias);
+   const allCeoVias = await db.select().from(ceoVias);
   const allCtoVias = await db.select().from(ctoVias);
   const allCeos = await db.select({ id: ceos.id, name: ceos.name }).from(ceos);
   const allCtos = await db.select({ id: ctos.id, name: ctos.name }).from(ctos);
+  // Carregar splitters e vias de splitter para seguir fusões tubo→splitter
+  const allCeoSplitters = await db.select().from(ceoSplitters);
+  const allCeoSplitterVias = await db.select().from(ceoSplitterVias);
   // Carregar reservas técnicas vinculadas a rotas (para somar ao comprimento do traçado)
   const allTechReserves = await db.select().from(mapTechnicalReserves);
   // Mapa routeId -> total de metros de reserva vinculados
@@ -2951,7 +2970,6 @@ export async function traceOtdrPath(
       reserveByRoute.set(r.routeId, (reserveByRoute.get(r.routeId) ?? 0) + r.sizeMeters);
     }
   }
-
   // Índices para acesso rápido
   const elementById = new Map(allElements.map(e => [e.id, e]));
   const ceoTubeById = new Map(allCeoTubes.map(t => [t.id, t]));
@@ -2960,6 +2978,13 @@ export async function traceOtdrPath(
   const ctoViaById = new Map(allCtoVias.map(v => [v.id, v]));
   const ceoById = new Map(allCeos.map(c => [c.id, c]));
   const ctoById = new Map(allCtos.map(c => [c.id, c]));
+  const ceoSplitterById = new Map(allCeoSplitters.map(s => [s.id, s]));
+  // Índice: splitterId -> vias do splitter
+  const splitterViasBySplitter = new Map<number, typeof allCeoSplitterVias>();
+  for (const sv of allCeoSplitterVias) {
+    if (!splitterViasBySplitter.has(sv.splitterId)) splitterViasBySplitter.set(sv.splitterId, []);
+    splitterViasBySplitter.get(sv.splitterId)!.push(sv);
+  }
 
   // Função para obter o nome de um elemento
   function getElementName(el: { type: string; referenceId: number }): string {
@@ -3230,8 +3255,84 @@ export async function traceOtdrPath(
       };
     }
 
-    // Verificar se há fusão de saída
-    if (!arrivalVia.fusedToViaId || !arrivalVia.fusedToTubeId) {
+    // Verificar se há fusão de saída (tubo→tubo ou tubo→splitter)
+    if (nextElement.type === "ceo" && !arrivalVia.fusedToViaId && !arrivalVia.fusedToTubeId) {
+      // Verificar se há fusão tubo→splitter (novo mecanismo)
+      const ceoArrivalVia = arrivalVia as typeof allCeoVias[0];
+      if (ceoArrivalVia.fusedToSplitterId != null) {
+        // A via do tubo está fundida com a entrada (via 0) de um splitter
+        // Precisamos encontrar a via de saída do splitter que conecta ao próximo tubo
+        const splitter = ceoSplitterById.get(ceoArrivalVia.fusedToSplitterId);
+        if (!splitter) {
+          return {
+            found: false, lat: null, lng: null,
+            distanceTraveled, totalLength,
+            segmentName: activeRoute.name ?? null, segmentRouteId: activeRoute.id,
+            elementReached: { id: nextElementId, name: getElementName(nextElement), type: nextElement.type },
+            tracedPath,
+            warnings: [...warnings, `Splitter #${ceoArrivalVia.fusedToSplitterId} não encontrado no CEO "${getElementName(nextElement)}"`]
+          };
+        }
+        // Encontrar a via de saída do splitter (via 1, 2, ...) que está fundida com outro tubo
+        // Para OTDR, precisamos encontrar qual saída do splitter conecta ao próximo cabo
+        // Procurar entre as vias de saída do splitter aquela que tem uma via de CEO fundida de volta
+        const splitterVias = splitterViasBySplitter.get(splitter.id) ?? [];
+        // Encontrar a via de saída do splitter que tem uma ceoVia com fusedToSplitterViaId apontando para ela
+        // e essa ceoVia pertence a um tubo que tem rota de saída do elemento
+        let foundExitTubeId: number | null = null;
+        let foundExitViaNumber: number = currentViaNumber;
+        for (const splVia of splitterVias) {
+          if (splVia.viaNumber === 0) continue; // pular entrada
+          // Procurar ceoVia que aponta para esta via de splitter como saída
+          const exitCeoVia = allCeoVias.find(v =>
+            v.ceoId === nextElement.referenceId &&
+            (v as any).fusedToSplitterId === splitter.id &&
+            (v as any).fusedToSplitterViaId === splVia.id
+          );
+          if (exitCeoVia) {
+            // Verificar se este tubo tem rota de saída
+            const hasRoute = allRoutes.some(r =>
+              (r.fromElementId === nextElementId && r.fromTubeId === exitCeoVia.tubeId) ||
+              (r.toElementId === nextElementId && r.toTubeId === exitCeoVia.tubeId)
+            );
+            if (hasRoute) {
+              foundExitTubeId = exitCeoVia.tubeId;
+              foundExitViaNumber = exitCeoVia.viaNumber;
+              break;
+            }
+          }
+        }
+        if (foundExitTubeId === null) {
+          // Tentar usar a via de saída do splitter indicada em fusedToSplitterViaId
+          const targetSplVia = ceoArrivalVia.fusedToSplitterViaId != null
+            ? allCeoSplitterVias.find(sv => sv.id === ceoArrivalVia.fusedToSplitterViaId)
+            : null;
+          const splViaNum = targetSplVia?.viaNumber ?? 1;
+          warnings.push(`Splitter "${splitter.identifier}" em "${getElementName(nextElement)}": via de saída ${splViaNum} não tem tubo de saída configurado`);
+          return {
+            found: false, lat: null, lng: null,
+            distanceTraveled, totalLength,
+            segmentName: activeRoute.name ?? null, segmentRouteId: activeRoute.id,
+            elementReached: { id: nextElementId, name: getElementName(nextElement), type: nextElement.type },
+            tracedPath, warnings
+          };
+        }
+        warnings.push(`Fibra passa pelo splitter "${splitter.identifier}" em "${getElementName(nextElement)}" — sinal dividido`);
+        currentElementId = nextElementId;
+        currentTubeId = foundExitTubeId;
+        currentViaNumber = foundExitViaNumber;
+        continue;
+      }
+      // Sem fusão de saída
+      return {
+        found: false, lat: null, lng: null,
+        distanceTraveled, totalLength,
+        segmentName: activeRoute.name ?? null, segmentRouteId: activeRoute.id,
+        elementReached: { id: nextElementId, name: getElementName(nextElement), type: nextElement.type },
+        tracedPath,
+        warnings: [...warnings, `A fibra chega ao elemento "${getElementName(nextElement)}" mas a via ${currentViaNumber} não tem fusão de saída registada — a fibra termina aqui`]
+      };
+    } else if (!arrivalVia.fusedToViaId || !arrivalVia.fusedToTubeId) {
       return {
         found: false, lat: null, lng: null,
         distanceTraveled, totalLength,
@@ -3243,8 +3344,8 @@ export async function traceOtdrPath(
     }
 
     // Seguir a fusão para o tubo de saída
-    const exitTubeId = arrivalVia.fusedToTubeId;
-    const exitViaId = arrivalVia.fusedToViaId;
+    const exitTubeId = arrivalVia.fusedToTubeId!;
+    const exitViaId = arrivalVia.fusedToViaId!;
 
     // Obter o número da via de saída
     let exitViaNumber = currentViaNumber;
@@ -3359,7 +3460,7 @@ export async function getOltPortLinks(oltElementId: number): Promise<(OltPortFib
   if (links.length === 0) return [];
   // Enriquecer com dados de porta, slot, CEO e tubo
   // Buscar apenas as portas referenciadas pelos links (não todas)
-  const portIds = [...new Set(links.map(l => l.portId))];
+  const portIds = Array.from(new Set(links.map(l => l.portId)));
   const allPorts = await db.select({
     id: ports.id,
     label: ports.label,
@@ -3371,7 +3472,7 @@ export async function getOltPortLinks(oltElementId: number): Promise<(OltPortFib
   const allCeoTubes = await db.select({ id: ceoTubes.id, identifier: ceoTubes.identifier }).from(ceoTubes);
 
    // Buscar slots dos ports que têm slotId
-  const slotIds = [...new Set(allPorts.map(p => p.slotId).filter(Boolean))] as number[];
+  const slotIds = Array.from(new Set(allPorts.map(p => p.slotId).filter(Boolean))) as number[];
   let slotMap = new Map<number, { slotNumber: string; label: string | null }>();
   if (slotIds.length > 0) {
     const allSlots = await db.select({ id: equipmentSlots.id, slotNumber: equipmentSlots.slotNumber, label: equipmentSlots.label }).from(equipmentSlots).where(sql`${equipmentSlots.id} IN (${sql.join(slotIds.map(id => sql`${id}`), sql`, `)})`);
@@ -3638,7 +3739,7 @@ export async function calculateOpticalBalance(
   let totalSplitterLoss = 0;
   let totalFusionCount = 0;
   let foundOlt: { element: typeof allOltElements[0]; link: typeof allOltLinks[0] } | null = null;
-  const reversePath: Array<{ type: string; label: string; lossDb: number; distKm?: number }> = [];
+  const reversePath: Array<{ type: "olt" | "cable" | "splitter" | "fusion" | "ceo" | "cto"; label: string; lossDb: number; distKm?: number }> = [];
   reversePath.push({ type: "cto", label: ctoName, lossDb: 0 });
   // Estado actual do rastreio
   let currentElementId = ctoElementId;
