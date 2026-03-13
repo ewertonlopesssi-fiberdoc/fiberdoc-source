@@ -1597,3 +1597,7 @@
 
 ## Bug: Parser KML — Ícones
 - [x] Corrigir parser KML: resolver StyleMap e Style por Placemark (actualmente só extrai o href do primeiro Style encontrado, ignorando StyleMap e estilos inline)
+
+## Melhoria: Painel de Ícones KML
+- [x] Mostrar fallback visual colorido para ícones internos do Google Earth (icon-N_COLOR_0.png) que não carregam no browser
+- [x] Extrair cor e forma do nome do ícone (ex: icon-3_4_0 → cor índice 4) para identificação visual

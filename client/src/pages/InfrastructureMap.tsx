@@ -5209,10 +5209,39 @@ export default function InfrastructureMap() {
                 <div className="space-y-1.5">
                   {uniqueIcons.map(ig => {
                     const shortHref = ig.href.split("/").pop()?.split("?")[0] ?? ig.href;
+                    // Extrair cor do nome do ícone do Google Earth: icon-SHAPE_COLORIDX_0
+                    // Paleta de cores do Google Earth (índice 0-7)
+                    const geColorPalette = ["#e53935","#e91e63","#9c27b0","#3f51b5","#2196f3","#00bcd4","#4caf50","#ff9800","#ff5722","#795548","#607d8b","#f44336","#ff4081"];
+                    const geMatch = shortHref.match(/^icon-\d+_(\d+)_/);
+                    const geColorIdx = geMatch ? parseInt(geMatch[1]) % geColorPalette.length : -1;
+                    const geFallbackColor = geColorIdx >= 0 ? geColorPalette[geColorIdx] : "#607d8b";
+                    // Tentar URL pública do Google Earth para ícones internos
+                    const isGEInternal = /^icon-\d+_\d+_/.test(shortHref);
+                    const gePublicUrl = isGEInternal
+                      ? `https://maps.gstatic.com/mapfiles/ms2/micons/${shortHref}`
+                      : ig.href;
                     return (
                       <div key={ig.href} className="flex items-center gap-2">
-                        <div className="w-5 h-5 flex-shrink-0 rounded overflow-hidden bg-muted border border-border">
-                          <img src={ig.href} alt="" className="w-full h-full object-contain" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        <div className="w-6 h-6 flex-shrink-0 rounded overflow-hidden bg-muted border border-border flex items-center justify-center relative">
+                          <img
+                            src={gePublicUrl}
+                            alt=""
+                            className="w-full h-full object-contain absolute inset-0"
+                            onError={e => {
+                              const img = e.target as HTMLImageElement;
+                              img.style.display = "none";
+                              // Mostrar fallback colorido
+                              const parent = img.parentElement;
+                              if (parent) {
+                                parent.style.backgroundColor = geFallbackColor;
+                                parent.style.borderColor = geFallbackColor;
+                                const dot = document.createElement("span");
+                                dot.style.cssText = "color:white;font-size:10px;font-weight:bold;z-index:1;";
+                                dot.textContent = shortHref.charAt(0).toUpperCase();
+                                parent.appendChild(dot);
+                              }
+                            }}
+                          />
                         </div>
                         <span className="text-xs text-muted-foreground flex-1 truncate" title={ig.href}>{shortHref} <span className="opacity-60">({ig.count}x)</span></span>
                         <select
