@@ -1677,3 +1677,23 @@
 - [x] Mobile: remover SSH Commander e Relatórios do menu
 - [x] Mobile: adicionar OTDR Virtual
 - [x] Mobile: adicionar balanço óptico estimado na CTO
+
+## CPE Manager — Refatoração para SGP Puro (sem GenieACS)
+- [ ] Criar procedure sgp.searchOnus no backend para buscar ONTs por login/serial
+- [ ] Criar procedure sgp.getOnuDetail para buscar detalhes de uma ONU pelo ID
+- [ ] Criar procedure sgp.configureOnt para configurar PPPoE/Wi-Fi via SGP
+- [ ] Remover toggle useGenieacs do CpeManager (sempre usar SGP)
+- [ ] Reescrever lista de dispositivos usando sgp.searchOnus
+- [ ] Reescrever DevicePanel usando dados do SGP (sem getDevice do GenieACS)
+- [ ] Substituir reboot/ping/factoryReset por sgpCpeReboot/sgpCpePing via SGP
+- [ ] Atualizar diálogo de configuração para mostrar apenas config SGP
+- [ ] Remover imports do genieacsRouter do CpeManager
+
+## CPE Manager — Refatoração SGP Puro
+- [x] Remover dependência do GenieACS na listagem de dispositivos
+- [x] Adicionar procedure sgp.listOlts (lista OLTs do SGP)
+- [x] Adicionar procedure sgp.listOnusByOlt (lista ONUs por OLT com busca)
+- [x] Reescrever CpeManager para usar sgp.listOlts + sgp.listOnusByOlt
+- [x] Painel de detalhes usa sgp.getOnuDetail + sgp.configureOnt
+- [x] Aba CPE mantém comandos via genieacs.sgpCpe* (Gerenciador CPE do SGP)
+- [x] Dialog de configuração agora mostra configuração SGP (não GenieACS)

@@ -2620,6 +2620,60 @@ ${fiberFolder}
   // ─── SGP Config ───────────────────────────────────────────────────────────────
   sgp: router({
     config: protectedProcedure.query(() => getSgpConfig()),
+    // ─── CPE Manager: Listar OLTs do SGP ──────────────────────────────────────
+    listOlts: protectedProcedure
+      .query(async () => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { olts: [], error: "SGP não configurado" };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const res = await sgpFetch(`${base}/api/fttx/olt/`, cfg, { timeoutMs: 10000 });
+          if (!res.ok) return { olts: [], error: `HTTP ${res.status}` };
+          const data = await res.json() as any;
+          const olts = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+          return { olts, error: null };
+        } catch (e: any) {
+          return { olts: [], error: e.message ?? "Erro ao listar OLTs" };
+        }
+      }),
+    // ─── CPE Manager: Listar ONUs de uma OLT ──────────────────────────────────
+    listOnusByOlt: protectedProcedure
+      .input(z.object({
+        oltId: z.number(),
+        search: z.string().optional(),
+        limit: z.number().min(1).max(500).default(100),
+      }))
+      .query(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { onus: [], error: "SGP não configurado" };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const extraFields: Record<string, string> = {};
+          if (input.search) extraFields.q = input.search;
+          const res = await sgpFetch(
+            `${base}/api/fttx/olt/${input.oltId}/onu/list/`,
+            cfg,
+            { extraFields, timeoutMs: 15000 }
+          );
+          if (!res.ok) return { onus: [], error: `HTTP ${res.status}` };
+          const data = await res.json() as any;
+          const all = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+          const filtered = input.search
+            ? all.filter((o: any) => {
+                const s = input.search!.toLowerCase();
+                return (
+                  String(o.login ?? "").toLowerCase().includes(s) ||
+                  String(o.onu_login ?? "").toLowerCase().includes(s) ||
+                  String(o.serial ?? "").toLowerCase().includes(s) ||
+                  String(o.address ?? "").toLowerCase().includes(s)
+                );
+              })
+            : all;
+          return { onus: filtered.slice(0, input.limit), error: null };
+        } catch (e: any) {
+          return { onus: [], error: e.message ?? "Erro ao listar ONUs" };
+        }
+      }),
     saveConfig: adminProcedure
       .input(z.object({
         baseUrl: z.string().url(),
@@ -3195,6 +3249,119 @@ ${fiberFolder}
           }
         }
         return { ok: true, linked, details };
+      }),
+    // ─── CPE Manager: Buscar ONTs por login/serial ───────────────────────────────
+    searchOnus: protectedProcedure
+      .input(z.object({
+        query: z.string().min(1),
+        limit: z.number().min(1).max(200).default(50),
+      }))
+      .query(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) return { onus: [], error: "SGP não configurado" };
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          // Tenta buscar por serial
+          const res = await sgpFetch(
+            `${base}/api/fttx/onu/?serial=${encodeURIComponent(input.query)}`,
+            cfg,
+            { timeoutMs: 10000 }
+          );
+          if (res.ok) {
+            const data = await res.json() as any;
+            const list = Array.isArray(data) ? data : (data.results ?? data.data ?? []);
+            if (list.length > 0) return { onus: list.slice(0, input.limit), error: null };
+          }
+          // Fallback: buscar por login PPPoE
+          const res2 = await sgpFetch(
+            `${base}/api/fttx/onu/?login=${encodeURIComponent(input.query)}`,
+            cfg,
+            { timeoutMs: 10000 }
+          );
+          if (res2.ok) {
+            const data2 = await res2.json() as any;
+            const list2 = Array.isArray(data2) ? data2 : (data2.results ?? data2.data ?? []);
+            return { onus: list2.slice(0, input.limit), error: null };
+          }
+          return { onus: [], error: null };
+        } catch (e: any) {
+          return { onus: [], error: e.message ?? "Erro ao buscar ONTs" };
+        }
+      }),
+    // ─── CPE Manager: Detalhes de uma ONU ───────────────────────────────────────
+    getOnuDetail: protectedProcedure
+      .input(z.object({ onuId: z.number() }))
+      .query(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "SGP não configurado" });
+        try {
+          const base = cfg.baseUrl.replace(/\/$/, "");
+          const res = await sgpFetch(`${base}/api/fttx/onu/${input.onuId}/`, cfg, { timeoutMs: 10000 });
+          if (!res.ok) throw new TRPCError({ code: "NOT_FOUND", message: `ONU #${input.onuId} não encontrada` });
+          const data = await res.json() as any;
+          return data;
+        } catch (e: any) {
+          if (e instanceof TRPCError) throw e;
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: e.message });
+        }
+      }),
+    // ─── CPE Manager: Configurar ONU via SGP ────────────────────────────────────
+    configureOnt: protectedProcedure
+      .input(z.object({
+        onuId: z.number(),
+        configurePppoe: z.boolean().default(false),
+        pppoeLogin: z.string().optional(),
+        pppoePassword: z.string().optional(),
+        configureWifi: z.boolean().default(false),
+        wifiSsid: z.string().optional(),
+        wifiPassword: z.string().optional(),
+        wifiSsid5: z.string().optional(),
+        wifiPassword5: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const cfg = await getSgpConfig();
+        if (!cfg || !cfg.active) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "SGP não configurado" });
+        const base = cfg.baseUrl.replace(/\/$/, "");
+        const results: string[] = [];
+        const errors: string[] = [];
+        // Configurar PPPoE
+        if (input.configurePppoe && input.pppoeLogin) {
+          try {
+            const res = await sgpFetch(`${base}/api/fttx/onu/${input.onuId}/edit/`, cfg, {
+              method: "POST",
+              extraFields: {
+                onu_update: "wan",
+                onu_login: input.pppoeLogin,
+                ...(input.pppoePassword ? { onu_password: input.pppoePassword } : {}),
+              },
+              timeoutMs: 15000,
+            });
+            if (res.ok) results.push(`PPPoE configurado: ${input.pppoeLogin}`);
+            else errors.push(`Erro ao configurar PPPoE: HTTP ${res.status}`);
+          } catch (e: any) {
+            errors.push(`Erro PPPoE: ${e.message}`);
+          }
+        }
+        // Configurar Wi-Fi
+        if (input.configureWifi && (input.wifiSsid || input.wifiPassword)) {
+          try {
+            const wifiFields: Record<string, string> = { onu_update: "wifi" };
+            if (input.wifiSsid) wifiFields.wifi_ssid = input.wifiSsid;
+            if (input.wifiPassword) wifiFields.wifi_password = input.wifiPassword;
+            if (input.wifiSsid5) wifiFields.wifi_ssid5 = input.wifiSsid5;
+            if (input.wifiPassword5) wifiFields.wifi_password5 = input.wifiPassword5;
+            const res = await sgpFetch(`${base}/api/fttx/onu/${input.onuId}/edit/`, cfg, {
+              method: "POST",
+              extraFields: wifiFields,
+              timeoutMs: 15000,
+            });
+            if (res.ok) results.push(`Wi-Fi configurado: ${input.wifiSsid || "(atualizado)"}`);
+            else errors.push(`Erro ao configurar Wi-Fi: HTTP ${res.status}`);
+          } catch (e: any) {
+            errors.push(`Erro Wi-Fi: ${e.message}`);
+          }
+        }
+        return { success: errors.length === 0, results, errors };
       }),
   }),
   // ─── Racks ────────────────────────────────────────────────────────────────────

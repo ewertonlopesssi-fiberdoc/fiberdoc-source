@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,315 +11,151 @@ import { Label } from "@/components/ui/label";
 import {
   Cpu, Wifi, RefreshCw, Power, Settings, Search,
   Signal, Activity, AlertTriangle, CheckCircle, XCircle,
-  Router, Eye, EyeOff, Save, TestTube, Info,
-  ChevronRight, Zap, User, Lock, Globe, Gauge, Download, RotateCcw, Plug,
+  Router, Eye, EyeOff, Globe, Gauge, Download, RotateCcw, Plug,
+  Zap, User, Lock, Info,
 } from "lucide-react";
 import { toast } from "sonner";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
-interface CpeDevice {
-  id: string;
-  manufacturer: string;
-  modelName: string;
-  softwareVersion: string | null;
-  macAddress: string | null;
-  wanIp: string | null;
-  ssid24: string | null;
-  rxPower: number | null;
-  uptime: number | null;
-  lastInform: number | null;
-  isOnline: boolean;
+interface SgpOlt {
+  id: number;
+  name?: string;
+  nome?: string;
+  ident?: string;
+  ip?: string;
+}
+interface SgpOnuItem {
+  id: number;
+  onu: number;
+  slot: number;
+  pon: number;
+  olt_id?: number;
+  olt_name?: string;
+  login?: string | null;
+  onu_login?: string | null;
+  serial?: string | null;
+  address?: string | null;
+  signal?: string | null;
+  connection?: string | null;
+  status?: number | null;
+  servico?: number | null;
+  contrato?: number | null;
+  wifi_ssid?: string | null;
+  wifi_ssid5?: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function formatUptime(seconds: number | null): string {
-  if (!seconds) return "—";
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+function getOnuLogin(onu: SgpOnuItem): string {
+  return onu.onu_login || onu.login || `ONU ${onu.onu}`;
 }
-
-function formatLastInform(ts: number | null): string {
-  if (!ts) return "Nunca";
-  const diff = Date.now() - ts;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "Agora mesmo";
-  if (mins < 60) return `${mins}m atrás`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h atrás`;
-  return new Date(ts).toLocaleDateString("pt-BR");
+function getOnuStatus(onu: SgpOnuItem): "online" | "offline" | "unknown" {
+  if (onu.connection === "online" || onu.status === 1) return "online";
+  if (onu.connection === "offline" || onu.status === 0) return "offline";
+  return "unknown";
 }
-
-function getRxPowerColor(dbm: number | null): string {
-  if (dbm === null) return "text-slate-400";
-  if (dbm >= -20) return "text-green-400";
-  if (dbm >= -25) return "text-yellow-400";
-  if (dbm >= -27) return "text-orange-400";
+function getSignalColor(signal: string | null | undefined): string {
+  if (!signal) return "text-slate-400";
+  const val = parseFloat(signal);
+  if (isNaN(val)) return "text-slate-400";
+  if (val >= -20) return "text-green-400";
+  if (val >= -25) return "text-yellow-400";
+  if (val >= -27) return "text-orange-400";
   return "text-red-400";
 }
-
-function getRxPowerLabel(dbm: number | null): string {
-  if (dbm === null) return "—";
-  if (dbm >= -20) return "Excelente";
-  if (dbm >= -25) return "Bom";
-  if (dbm >= -27) return "Fraco";
+function getSignalLabel(signal: string | null | undefined): string {
+  if (!signal) return "—";
+  const val = parseFloat(signal);
+  if (isNaN(val)) return signal;
+  if (val >= -20) return "Excelente";
+  if (val >= -25) return "Bom";
+  if (val >= -27) return "Fraco";
   return "Crítico";
 }
 
-// ─── Componente de Configuração GenieACS ─────────────────────────────────────
-function GenieACSConfig({ onClose }: { onClose: () => void }) {
-  const { data: config } = trpc.genieacs.getConfig.useQuery();
-  const [url, setUrl] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPass, setShowPass] = useState(false);
-
-  const saveConfig = trpc.genieacs.saveConfig.useMutation({
-    onSuccess: () => {
-      toast.success("Configuração salva com sucesso");
-      onClose();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const testConn = trpc.genieacs.testConnection.useMutation({
-    onSuccess: (r: { success: boolean; message: string }) => {
-      if (r.success) toast.success(r.message);
-      else toast.error(r.message);
-    },
-    onError: (e: { message: string }) => toast.error(e.message),
-  });
-
-  // Preencher com dados actuais quando carregados
-  if (config && !url) {
-    setUrl(config.url);
-    setUsername(config.username);
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 flex gap-2">
-        <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-        <div className="text-xs text-blue-300">
-          <p className="font-medium mb-1">Como configurar:</p>
-          <p>1. Execute o script <code className="bg-slate-700 px-1 rounded">install-genieacs.sh</code> no servidor</p>
-          <p>2. URL padrão: <code className="bg-slate-700 px-1 rounded">http://127.0.0.1:7557</code> (mesmo servidor)</p>
-          <p>3. Deixe utilizador/senha em branco se não configurou autenticação no GenieACS</p>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <Label className="text-slate-300 text-sm">URL da API GenieACS (NBI)</Label>
-          <Input
-            value={url}
-            onChange={e => setUrl(e.target.value)}
-            placeholder="http://127.0.0.1:7557"
-            className="mt-1 bg-slate-700 border-slate-600 text-white"
-          />
-        </div>
-        <div>
-          <Label className="text-slate-300 text-sm">Utilizador (opcional)</Label>
-          <Input
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            placeholder="admin"
-            className="mt-1 bg-slate-700 border-slate-600 text-white"
-          />
-        </div>
-        <div>
-          <Label className="text-slate-300 text-sm">Senha (opcional)</Label>
-          <div className="relative mt-1">
-            <Input
-              type={showPass ? "text" : "password"}
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder={config?.hasPassword ? "••••••••" : "Sem senha configurada"}
-              className="bg-slate-700 border-slate-600 text-white pr-10"
-            />
-            <button
-              onClick={() => setShowPass(!showPass)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-            >
-              {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex gap-2 pt-2">
-        <Button
-          variant="outline"
-          onClick={() => testConn.mutate()}
-          disabled={testConn.isPending || !url}
-          className="border-slate-600 text-slate-300 hover:text-white hover:bg-slate-700"
-        >
-          <TestTube className="w-4 h-4 mr-2" />
-          {testConn.isPending ? "Testando..." : "Testar Conexão"}
-        </Button>
-        <Button
-          onClick={() => saveConfig.mutate({ url, username, password })}
-          disabled={saveConfig.isPending || !url}
-          className="bg-emerald-600 hover:bg-emerald-700 ml-auto"
-        >
-          <Save className="w-4 h-4 mr-2" />
-          {saveConfig.isPending ? "Salvando..." : "Salvar"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Painel de Detalhes da ONT ────────────────────────────────────────────────
-function DevicePanel({ deviceId }: { deviceId: string }) {
+// ─── Painel de Detalhes da ONU ────────────────────────────────────────────────
+function OnuPanel({ onu }: { onu: SgpOnuItem }) {
   const [activeTab, setActiveTab] = useState("info");
-  const [wifiSsid, setWifiSsid] = useState("");
-  const [wifiPass, setWifiPass] = useState("");
-  const [wifiBand, setWifiBand] = useState<"2.4" | "5" | "both">("2.4");
-  const [pingHost, setPingHost] = useState("8.8.8.8");
-  const [pingResult, setPingResult] = useState<any>(null);
-  const [showWifiPass, setShowWifiPass] = useState(false);
-  const [showRebootConfirm, setShowRebootConfirm] = useState(false);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  // Configuração automática SGP
-  const [pppoeLogin, setPppoeLogin] = useState("");
+  const [pppoeLogin, setPppoeLogin] = useState(onu.onu_login || onu.login || "");
   const [pppoePassword, setPppoePassword] = useState("");
   const [showPppoePass, setShowPppoePass] = useState(false);
-  const [wifiSsid2, setWifiSsid2] = useState("");
+  const [wifiSsid2, setWifiSsid2] = useState(onu.wifi_ssid || "");
   const [wifiPassword2, setWifiPassword2] = useState("");
-  const [wifiSsid5, setWifiSsid5] = useState("");
+  const [wifiSsid5, setWifiSsid5] = useState(onu.wifi_ssid5 || "");
   const [wifiPassword5, setWifiPassword5] = useState("");
   const [showWifiPass2, setShowWifiPass2] = useState(false);
   const [showWifiPass5, setShowWifiPass5] = useState(false);
   const [configurePppoe, setConfigurePppoe] = useState(true);
-  const [configureWifi, setConfigureWifi] = useState(true);
-  const [useGenieacs, setUseGenieacs] = useState(true);
+  const [configureWifi, setConfigureWifi] = useState(false);
   const [configResult, setConfigResult] = useState<{ success: boolean; results: string[]; errors: string[] } | null>(null);
-  const [sgpFilled, setSgpFilled] = useState(false);
-  // SGP CPE Manager
-  const [sgpCpeResult, setSgpCpeResult] = useState<{ action: string; success: boolean; message: string } | null>(null);
+  const [cpeResult, setCpeResult] = useState<{ action: string; success: boolean; message: string } | null>(null);
+  const [showRebootConfirm, setShowRebootConfirm] = useState(false);
 
-  const { data: device, isLoading, refetch } = trpc.genieacs.getDevice.useQuery(
-    { deviceId },
-    { refetchInterval: 30000 }
+  const { data: detail, isLoading: detailLoading, refetch: refetchDetail } = (trpc as any).sgp.getOnuDetail.useQuery(
+    { onuId: onu.id },
+    { retry: false, refetchOnWindowFocus: false }
   );
 
-  const setWifi = trpc.genieacs.setWifi.useMutation({
-    onSuccess: (r) => { toast.success(r.message); refetch(); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const reboot = trpc.genieacs.reboot.useMutation({
-    onSuccess: (r) => { toast.success(r.message); setShowRebootConfirm(false); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const factoryReset = trpc.genieacs.factoryReset.useMutation({
-    onSuccess: (r) => { toast.success(r.message); setShowResetConfirm(false); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const ping = trpc.genieacs.ping.useMutation({
-    onSuccess: (r: any) => { setPingResult(r); },
-    onError: (e: { message: string }) => toast.error(e.message),
-  });
-
-  const refresh = trpc.genieacs.refreshDevice.useMutation({
-    onSuccess: () => { toast.success("Actualização solicitada"); setTimeout(() => refetch(), 5000); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  // Buscar dados SGP
-  const { data: sgpData, isLoading: sgpLoading } = (trpc as any).genieacs.getOnuFromSgp.useQuery(
-    { deviceId },
-    { retry: false, refetchOnWindowFocus: false,
-      onSuccess: (d: any) => {
-        if (d?.found && d?.data && !sgpFilled) {
-          setSgpFilled(true);
-          if (d.data.pppoeLogin) setPppoeLogin(d.data.pppoeLogin);
-          if (d.data.wifiSsid) setWifiSsid2(d.data.wifiSsid);
-          if (d.data.wifiSsid5) setWifiSsid5(d.data.wifiSsid5);
-        }
-      }
+  useEffect(() => {
+    if (detail) {
+      if (detail.onu_login && !pppoeLogin) setPppoeLogin(detail.onu_login);
+      if (detail.wifi_ssid && !wifiSsid2) setWifiSsid2(detail.wifi_ssid);
+      if (detail.wifi_ssid5 && !wifiSsid5) setWifiSsid5(detail.wifi_ssid5);
     }
-  );
+  }, [detail]);
 
-  const configureOntMut = (trpc as any).genieacs.configureOnt.useMutation({
+  const configureOntMut = (trpc as any).sgp.configureOnt.useMutation({
     onSuccess: (r: any) => {
       setConfigResult(r);
-      if (r.success) {
-        toast.success(`ONT configurada! (${r.results.length} acções)`);
-      } else {
-        toast.error(`Configuração parcial: ${r.errors.join("; ")}`);
-      }
-      refetch();
+      if (r.success) toast.success(`ONU configurada! (${r.results.length} ação(ões))`);
+      else toast.error(`Configuração parcial: ${r.errors.join("; ")}`);
+      refetchDetail();
     },
     onError: (e: any) => toast.error(e.message),
   });
 
-  // ─── Mutations SGP CPE Manager ───
-  const mkSgpMut = (action: string) => (trpc as any).genieacs[action].useMutation({
+  const mkCpeMut = (action: string) => (trpc as any).genieacs[action].useMutation({
     onSuccess: (r: any) => {
       const ok = r?.ok !== false && r?.success !== false;
       const msg = r?.message || r?.status || (typeof r === "string" ? r : JSON.stringify(r));
-      setSgpCpeResult({ action, success: ok, message: msg });
-      if (ok) toast.success(`SGP CPE: ${msg || "Comando enviado"}`);
-      else toast.error(`SGP CPE: ${msg || "Erro"}`);
+      setCpeResult({ action, success: ok, message: msg });
+      if (ok) toast.success(`SGP: ${msg || "Comando enviado"}`);
+      else toast.error(`SGP: ${msg || "Erro"}`);
     },
     onError: (e: any) => {
-      setSgpCpeResult({ action, success: false, message: e.message });
-      toast.error(`SGP CPE: ${e.message}`);
+      setCpeResult({ action, success: false, message: e.message });
+      toast.error(`SGP: ${e.message}`);
     },
   });
-  const sgpCpePppoeMut = mkSgpMut("sgpCpePppoe");
-  const sgpCpeWifiMut = mkSgpMut("sgpCpeWifi");
-  const sgpCpeImportWifiMut = mkSgpMut("sgpCpeImportWifi");
-  const sgpCpeSyncWanMut = mkSgpMut("sgpCpeSyncWan");
-  const sgpCpePingMut = mkSgpMut("sgpCpePing");
-  const sgpCpeSpeedTestMut = mkSgpMut("sgpCpeSpeedTest");
-  const sgpCpeRebootMut = mkSgpMut("sgpCpeReboot");
 
-  const sgpServiceId: number | null = (sgpData as any)?.data?.servicoId ?? null;
+  const sgpCpePppoeMut = mkCpeMut("sgpCpePppoe");
+  const sgpCpeWifiMut = mkCpeMut("sgpCpeWifi");
+  const sgpCpeImportWifiMut = mkCpeMut("sgpCpeImportWifi");
+  const sgpCpeSyncWanMut = mkCpeMut("sgpCpeSyncWan");
+  const sgpCpePingMut = mkCpeMut("sgpCpePing");
+  const sgpCpeSpeedTestMut = mkCpeMut("sgpCpeSpeedTest");
+  const sgpCpeRebootMut = mkCpeMut("sgpCpeReboot");
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin" />
-      </div>
-    );
-  }
-
-  if (!device) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-        <XCircle className="w-10 h-10 mb-2" />
-        <p>Dispositivo não encontrado</p>
-      </div>
-    );
-  }
+  const sgpServiceId: number | null = (detail as any)?.servico ?? onu.servico ?? null;
+  const status = getOnuStatus(onu);
 
   return (
     <div className="space-y-4">
-      {/* Header do dispositivo */}
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <div className={`w-2.5 h-2.5 rounded-full ${device.isOnline ? "bg-green-400 animate-pulse" : "bg-red-400"}`} />
-            <span className="font-semibold text-white">{device.id}</span>
+            <div className={`w-2.5 h-2.5 rounded-full ${
+              status === "online" ? "bg-green-400 animate-pulse" :
+              status === "offline" ? "bg-red-400" : "bg-slate-500"
+            }`} />
+            <span className="font-semibold text-white">{getOnuLogin(onu)}</span>
           </div>
-          <p className="text-sm text-slate-400 mt-0.5">{device.manufacturer} {device.modelName}</p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            OLT: {onu.olt_name || `ID ${onu.olt_id}`} · Slot {onu.slot} · PON {onu.pon} · ONU {onu.onu}
+          </p>
+          {onu.address && <p className="text-xs text-slate-500 mt-0.5">{onu.address}</p>}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => refresh.mutate({ deviceId })}
-          disabled={refresh.isPending}
-          className="text-slate-400 hover:text-white"
-        >
-          <RefreshCw className={`w-4 h-4 ${refresh.isPending ? "animate-spin" : ""}`} />
+        <Button variant="ghost" size="sm" onClick={() => refetchDetail()} disabled={detailLoading} className="text-slate-400 hover:text-white">
+          <RefreshCw className={`w-4 h-4 ${detailLoading ? "animate-spin" : ""}`} />
         </Button>
       </div>
 
@@ -329,93 +165,62 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
           <TabsTrigger value="configure" className="flex-1 text-xs flex items-center gap-1">
             <Zap className="w-3 h-3" />Config
           </TabsTrigger>
-          <TabsTrigger value="wifi" className="flex-1 text-xs">Wi-Fi</TabsTrigger>
-          <TabsTrigger value="ping" className="flex-1 text-xs">Ping</TabsTrigger>
-          <TabsTrigger value="actions" className="flex-1 text-xs">Acções</TabsTrigger>
+          <TabsTrigger value="cpe" className="flex-1 text-xs flex items-center gap-1">
+            <Plug className="w-3 h-3" />CPE
+          </TabsTrigger>
         </TabsList>
 
-        {/* Aba Info */}
         <TabsContent value="info" className="space-y-3 mt-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-slate-700/30 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">Sinal Óptico</div>
-              <div className={`text-lg font-bold ${getRxPowerColor(device.rxPower)}`}>
-                {device.rxPower !== null ? `${device.rxPower.toFixed(2)} dBm` : "—"}
-              </div>
-              <div className={`text-xs ${getRxPowerColor(device.rxPower)}`}>
-                {getRxPowerLabel(device.rxPower)}
-              </div>
+          {detailLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="w-5 h-5 text-emerald-400 animate-spin" />
             </div>
-            <div className="bg-slate-700/30 rounded-lg p-3">
-              <div className="text-xs text-slate-400 mb-1">Uptime</div>
-              <div className="text-lg font-bold text-white">{formatUptime(device.uptime)}</div>
-              <div className="text-xs text-slate-400">Online</div>
-            </div>
-          </div>
-
-          <div className="space-y-2 text-sm">
-            {[
-              { label: "IP WAN", value: device.wanIp },
-              { label: "MAC", value: device.macAddress },
-              { label: "SSID 2.4GHz", value: device.ssid24 },
-              { label: "SSID 5GHz", value: (device as any).ssid5 },
-              { label: "Firmware", value: device.softwareVersion },
-              { label: "Último Inform", value: formatLastInform(device.lastInform) },
-            ].map(({ label, value }) => value ? (
-              <div key={label} className="flex justify-between items-center py-1.5 border-b border-slate-700/30">
-                <span className="text-slate-400">{label}</span>
-                <span className="text-white font-mono text-xs">{value}</span>
-              </div>
-            ) : null)}
-          </div>
-
-          {/* Dispositivos conectados */}
-          {(device as any).connectedDevices?.length > 0 && (
-            <div>
-              <div className="text-xs text-slate-400 mb-2 font-medium">
-                Dispositivos Wi-Fi Conectados ({(device as any).connectedDevices.length})
-              </div>
-              <div className="space-y-1">
-                {(device as any).connectedDevices.map((d: any, i: number) => (
-                  <div key={i} className="flex items-center gap-2 text-xs bg-slate-700/20 rounded px-2 py-1.5">
-                    <Wifi className="w-3 h-3 text-emerald-400" />
-                    <span className="font-mono text-slate-300">{d.mac}</span>
-                    {d.signal && <span className="text-slate-500 ml-auto">{d.signal} dBm</span>}
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-700/30 rounded-lg p-3">
+                  <div className="text-xs text-slate-400 mb-1">Sinal Óptico</div>
+                  <div className={`text-lg font-bold ${getSignalColor(onu.signal)}`}>
+                    {onu.signal ? `${onu.signal} dBm` : "—"}
                   </div>
-                ))}
+                  <div className={`text-xs ${getSignalColor(onu.signal)}`}>{getSignalLabel(onu.signal)}</div>
+                </div>
+                <div className="bg-slate-700/30 rounded-lg p-3">
+                  <div className="text-xs text-slate-400 mb-1">Status</div>
+                  <div className={`text-lg font-bold ${
+                    status === "online" ? "text-green-400" :
+                    status === "offline" ? "text-red-400" : "text-slate-400"
+                  }`}>
+                    {status === "online" ? "Online" : status === "offline" ? "Offline" : "—"}
+                  </div>
+                  <div className="text-xs text-slate-400">Conexão</div>
+                </div>
               </div>
-            </div>
+              <div className="space-y-2 text-sm">
+                {[
+                  { label: "Login PPPoE", value: (detail as any)?.onu_login || onu.onu_login || onu.login },
+                  { label: "Serial", value: (detail as any)?.serial || onu.serial },
+                  { label: "SSID 2.4GHz", value: (detail as any)?.wifi_ssid || onu.wifi_ssid },
+                  { label: "SSID 5GHz", value: (detail as any)?.wifi_ssid5 || onu.wifi_ssid5 },
+                  { label: "VLAN", value: (detail as any)?.vlan },
+                  { label: "Contrato", value: onu.contrato ? `#${onu.contrato}` : null },
+                  { label: "Serviço SGP", value: sgpServiceId ? `#${sgpServiceId}` : null },
+                ].map(({ label, value }) => value ? (
+                  <div key={label} className="flex justify-between items-center py-1.5 border-b border-slate-700/30">
+                    <span className="text-slate-400">{label}</span>
+                    <span className="text-white font-mono text-xs">{value}</span>
+                  </div>
+                ) : null)}
+              </div>
+            </>
           )}
         </TabsContent>
 
-        {/* Aba Configuração Automática */}
         <TabsContent value="configure" className="space-y-3 mt-3">
-          {/* Banner SGP */}
-          {sgpLoading ? (
-            <div className="bg-slate-700/30 rounded-lg p-3 flex items-center gap-2">
-              <RefreshCw className="w-4 h-4 text-slate-400 animate-spin" />
-              <span className="text-xs text-slate-400">Buscando dados no SGP...</span>
-            </div>
-          ) : (sgpData as any)?.found ? (
-            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 flex gap-2">
-              <CheckCircle className="w-4 h-4 text-green-400 shrink-0 mt-0.5" />
-              <div className="text-xs text-green-300 space-y-0.5">
-                <p className="font-medium">ONU encontrada no SGP</p>
-                {(sgpData as any).data?.pppoeLogin && <p>Login PPPoE: <span className="font-mono">{(sgpData as any).data.pppoeLogin}</span></p>}
-                {(sgpData as any).data?.address && <p>Endereço: {(sgpData as any).data.address}</p>}
-              </div>
-            </div>
-          ) : (
-            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <div className="text-xs text-amber-300">
-                <p className="font-medium">ONU não encontrada no SGP</p>
-                <p>Preencha os campos manualmente</p>
-              </div>
-            </div>
-          )}
-
-          {/* Toggle de opções */}
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 flex gap-2">
+            <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-blue-300">Configura PPPoE e Wi-Fi diretamente na ONU via API SGP.</p>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={() => setConfigurePppoe(!configurePppoe)}
@@ -433,18 +238,7 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
             >
               <Wifi className="w-3 h-3" /> Wi-Fi
             </button>
-            <button
-              onClick={() => setUseGenieacs(!useGenieacs)}
-              title={useGenieacs ? "Via TR-069 (GenieACS)" : "Via API SGP"}
-              className={`flex-1 py-1.5 rounded text-xs font-medium border transition-colors ${
-                useGenieacs ? "bg-emerald-700 border-emerald-600 text-white" : "bg-purple-700 border-purple-600 text-white"
-              }`}
-            >
-              {useGenieacs ? "TR-069" : "SGP API"}
-            </button>
           </div>
-
-          {/* Campos PPPoE */}
           {configurePppoe && (
             <div className="space-y-2 border border-slate-700/50 rounded-lg p-3">
               <div className="flex items-center gap-1 text-xs font-medium text-slate-300 mb-2">
@@ -454,25 +248,14 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
                 <Label className="text-slate-400 text-xs">Login PPPoE</Label>
                 <div className="relative mt-1">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
-                  <Input
-                    value={pppoeLogin}
-                    onChange={e => setPppoeLogin(e.target.value)}
-                    placeholder="usuario@provedor.com.br"
-                    className="pl-8 bg-slate-700 border-slate-600 text-white text-sm h-8"
-                  />
+                  <Input value={pppoeLogin} onChange={e => setPppoeLogin(e.target.value)} placeholder="usuario@provedor.com.br" className="pl-8 bg-slate-700 border-slate-600 text-white text-sm h-8" />
                 </div>
               </div>
               <div>
                 <Label className="text-slate-400 text-xs">Senha PPPoE</Label>
                 <div className="relative mt-1">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
-                  <Input
-                    type={showPppoePass ? "text" : "password"}
-                    value={pppoePassword}
-                    onChange={e => setPppoePassword(e.target.value)}
-                    placeholder="Senha PPPoE"
-                    className="pl-8 pr-8 bg-slate-700 border-slate-600 text-white text-sm h-8"
-                  />
+                  <Input type={showPppoePass ? "text" : "password"} value={pppoePassword} onChange={e => setPppoePassword(e.target.value)} placeholder="Senha PPPoE" className="pl-8 pr-8 bg-slate-700 border-slate-600 text-white text-sm h-8" />
                   <button onClick={() => setShowPppoePass(!showPppoePass)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400">
                     {showPppoePass ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                   </button>
@@ -480,8 +263,6 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
               </div>
             </div>
           )}
-
-          {/* Campos Wi-Fi */}
           {configureWifi && (
             <div className="space-y-2 border border-slate-700/50 rounded-lg p-3">
               <div className="flex items-center gap-1 text-xs font-medium text-slate-300 mb-2">
@@ -495,7 +276,7 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
                 <div>
                   <Label className="text-slate-400 text-xs">Senha 2.4GHz</Label>
                   <div className="relative mt-1">
-                    <Input type={showWifiPass2 ? "text" : "password"} value={wifiPassword2} onChange={e => setWifiPassword2(e.target.value)} placeholder="Senha Wi-Fi" className="pr-7 bg-slate-700 border-slate-600 text-white text-sm h-8" />
+                    <Input type={showWifiPass2 ? "text" : "password"} value={wifiPassword2} onChange={e => setWifiPassword2(e.target.value)} placeholder="Senha" className="pr-7 bg-slate-700 border-slate-600 text-white text-sm h-8" />
                     <button onClick={() => setShowWifiPass2(!showWifiPass2)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400">
                       {showWifiPass2 ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                     </button>
@@ -517,49 +298,40 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
               </div>
             </div>
           )}
-
-          {/* Resultado */}
           {configResult && (
-            <div className={`rounded-lg p-3 space-y-1 text-xs ${
-              configResult.success ? "bg-green-500/10 border border-green-500/20" : "bg-amber-500/10 border border-amber-500/20"
-            }`}>
+            <div className={`rounded-lg p-3 space-y-1 text-xs ${configResult.success ? "bg-green-500/10 border border-green-500/20" : "bg-amber-500/10 border border-amber-500/20"}`}>
               {configResult.results.map((r, i) => (
-                <div key={i} className="flex items-center gap-1 text-green-300">
-                  <CheckCircle className="w-3 h-3 shrink-0" /> {r}
-                </div>
+                <div key={i} className="flex items-center gap-1 text-green-300"><CheckCircle className="w-3 h-3 shrink-0" /> {r}</div>
               ))}
               {configResult.errors.map((e, i) => (
-                <div key={i} className="flex items-center gap-1 text-red-300">
-                  <XCircle className="w-3 h-3 shrink-0" /> {e}
-                </div>
+                <div key={i} className="flex items-center gap-1 text-red-300"><XCircle className="w-3 h-3 shrink-0" /> {e}</div>
               ))}
             </div>
           )}
-
           <Button
             onClick={() => {
               setConfigResult(null);
               configureOntMut.mutate({
-                deviceId,
+                onuId: onu.id,
+                configurePppoe,
                 pppoeLogin: pppoeLogin || undefined,
                 pppoePassword: pppoePassword || undefined,
+                configureWifi,
                 wifiSsid: wifiSsid2 || undefined,
                 wifiPassword: wifiPassword2 || undefined,
                 wifiSsid5: wifiSsid5 || undefined,
                 wifiPassword5: wifiPassword5 || undefined,
-                configurePppoe,
-                configureWifi,
-                useGenieacs,
               });
             }}
             disabled={configureOntMut.isPending || (!configurePppoe && !configureWifi)}
             className="w-full bg-blue-600 hover:bg-blue-700"
           >
             <Zap className="w-4 h-4 mr-2" />
-            {configureOntMut.isPending ? "Configurando..." : "Configurar ONT"}
+            {configureOntMut.isPending ? "Configurando..." : "Configurar ONU via SGP"}
           </Button>
+        </TabsContent>
 
-          {/* ─── Gerenciador CPE SGP ─── */}
+        <TabsContent value="cpe" className="space-y-3 mt-3">
           <div className="border border-purple-500/30 rounded-lg p-3 space-y-2">
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
@@ -568,91 +340,42 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
               {sgpServiceId ? (
                 <span className="text-xs text-purple-400 font-mono">Serviço #{sgpServiceId}</span>
               ) : (
-                <span className="text-xs text-slate-500">ID não encontrado</span>
+                <span className="text-xs text-slate-500">Serviço não vinculado</span>
               )}
             </div>
-
             {!sgpServiceId && (
               <div className="bg-amber-500/10 border border-amber-500/20 rounded p-2 flex gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-300">
-                  ONU sem serviço SGP vinculado. Verifique o campo <span className="font-mono">servico</span> na ONU do SGP.
-                </p>
+                <p className="text-xs text-amber-300">ONU sem serviço SGP vinculado. Verifique o campo <span className="font-mono">servico</span> na ONU do SGP.</p>
               </div>
             )}
-
-            {/* Resultado SGP CPE */}
-            {sgpCpeResult && (
-              <div className={`rounded p-2 text-xs flex items-start gap-1.5 ${
-                sgpCpeResult.success
-                  ? "bg-green-500/10 border border-green-500/20 text-green-300"
-                  : "bg-red-500/10 border border-red-500/20 text-red-300"
-              }`}>
-                {sgpCpeResult.success
-                  ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  : <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
-                <span>{sgpCpeResult.message}</span>
+            {cpeResult && (
+              <div className={`rounded p-2 text-xs flex items-start gap-1.5 ${cpeResult.success ? "bg-green-500/10 border border-green-500/20 text-green-300" : "bg-red-500/10 border border-red-500/20 text-red-300"}`}>
+                {cpeResult.success ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> : <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                <span>{cpeResult.message}</span>
               </div>
             )}
-
-            {/* Botões de acção */}
             <div className="grid grid-cols-2 gap-1.5">
+              {[
+                { label: "PPPoE", icon: Globe, mut: sgpCpePppoeMut },
+                { label: "Wi-Fi", icon: Wifi, mut: sgpCpeWifiMut },
+                { label: "Sync WAN", icon: RefreshCw, mut: sgpCpeSyncWanMut },
+                { label: "Import Wi-Fi", icon: Download, mut: sgpCpeImportWifiMut },
+                { label: "Ping", icon: Activity, mut: sgpCpePingMut },
+                { label: "Speed Test", icon: Gauge, mut: sgpCpeSpeedTestMut },
+              ].map(({ label, icon: Icon, mut }) => (
+                <button
+                  key={label}
+                  onClick={() => { setCpeResult(null); sgpServiceId && mut.mutate({ servicoId: sgpServiceId }); }}
+                  disabled={!sgpServiceId || mut.isPending}
+                  className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Icon className="w-3 h-3" />
+                  {mut.isPending ? "..." : label}
+                </button>
+              ))}
               <button
-                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpePppoeMut.mutate({ servicoId: sgpServiceId }); }}
-                disabled={!sgpServiceId || sgpCpePppoeMut.isPending}
-                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Globe className="w-3 h-3" />
-                {sgpCpePppoeMut.isPending ? "..." : "PPPoE"}
-              </button>
-
-              <button
-                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpeWifiMut.mutate({ servicoId: sgpServiceId }); }}
-                disabled={!sgpServiceId || sgpCpeWifiMut.isPending}
-                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Wifi className="w-3 h-3" />
-                {sgpCpeWifiMut.isPending ? "..." : "Wi-Fi"}
-              </button>
-
-              <button
-                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpeSyncWanMut.mutate({ servicoId: sgpServiceId }); }}
-                disabled={!sgpServiceId || sgpCpeSyncWanMut.isPending}
-                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <RefreshCw className="w-3 h-3" />
-                {sgpCpeSyncWanMut.isPending ? "..." : "Sync WAN"}
-              </button>
-
-              <button
-                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpeImportWifiMut.mutate({ servicoId: sgpServiceId }); }}
-                disabled={!sgpServiceId || sgpCpeImportWifiMut.isPending}
-                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Download className="w-3 h-3" />
-                {sgpCpeImportWifiMut.isPending ? "..." : "Import Wi-Fi"}
-              </button>
-
-              <button
-                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpePingMut.mutate({ servicoId: sgpServiceId }); }}
-                disabled={!sgpServiceId || sgpCpePingMut.isPending}
-                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Activity className="w-3 h-3" />
-                {sgpCpePingMut.isPending ? "..." : "Ping"}
-              </button>
-
-              <button
-                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpeSpeedTestMut.mutate({ servicoId: sgpServiceId }); }}
-                disabled={!sgpServiceId || sgpCpeSpeedTestMut.isPending}
-                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-purple-700/40 border-purple-600/50 text-purple-200 hover:bg-purple-700/70 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Gauge className="w-3 h-3" />
-                {sgpCpeSpeedTestMut.isPending ? "..." : "Speed Test"}
-              </button>
-
-              <button
-                onClick={() => { setSgpCpeResult(null); sgpServiceId && sgpCpeRebootMut.mutate({ servicoId: sgpServiceId }); }}
+                onClick={() => setShowRebootConfirm(true)}
                 disabled={!sgpServiceId || sgpCpeRebootMut.isPending}
                 className="col-span-2 flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-amber-700/30 border-amber-600/40 text-amber-200 hover:bg-amber-700/60 disabled:opacity-40 disabled:cursor-not-allowed"
               >
@@ -660,166 +383,11 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
                 {sgpCpeRebootMut.isPending ? "Reiniciando..." : "Reboot via SGP"}
               </button>
             </div>
-
-            <p className="text-xs text-slate-500 text-center">
-              Comandos enviados via SGP → GenieACS → ONT
-            </p>
-          </div>
-        </TabsContent>
-
-        {/* Aba Wi-Fi */}
-        <TabsContent value="wifi" className="space-y-3 mt-3">
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-300">
-              A alteração do Wi-Fi é aplicada imediatamente na ONT. Os clientes conectados serão desconectados.
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <Label className="text-slate-300 text-sm">Novo SSID (nome da rede)</Label>
-              <Input
-                value={wifiSsid}
-                onChange={e => setWifiSsid(e.target.value)}
-                placeholder={device.ssid24 || "Nome da rede Wi-Fi"}
-                className="mt-1 bg-slate-700 border-slate-600 text-white"
-                maxLength={32}
-              />
-            </div>
-            <div>
-              <Label className="text-slate-300 text-sm">Nova Senha</Label>
-              <div className="relative mt-1">
-                <Input
-                  type={showWifiPass ? "text" : "password"}
-                  value={wifiPass}
-                  onChange={e => setWifiPass(e.target.value)}
-                  placeholder="Mínimo 8 caracteres"
-                  className="bg-slate-700 border-slate-600 text-white pr-10"
-                  minLength={8}
-                  maxLength={63}
-                />
-                <button
-                  onClick={() => setShowWifiPass(!showWifiPass)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-                >
-                  {showWifiPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-            <div>
-              <Label className="text-slate-300 text-sm">Banda</Label>
-              <div className="flex gap-2 mt-1">
-                {(["2.4", "5", "both"] as const).map(b => (
-                  <button
-                    key={b}
-                    onClick={() => setWifiBand(b)}
-                    className={`flex-1 py-1.5 rounded text-xs font-medium border transition-colors ${
-                      wifiBand === b
-                        ? "bg-emerald-600 border-emerald-500 text-white"
-                        : "bg-slate-700 border-slate-600 text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    {b === "both" ? "Ambas" : `${b} GHz`}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <Button
-            onClick={() => setWifi.mutate({ deviceId, ssid: wifiSsid || undefined, password: wifiPass || undefined, band: wifiBand })}
-            disabled={setWifi.isPending || (!wifiSsid && !wifiPass)}
-            className="w-full bg-emerald-600 hover:bg-emerald-700"
-          >
-            <Wifi className="w-4 h-4 mr-2" />
-            {setWifi.isPending ? "Enviando..." : "Aplicar Configuração Wi-Fi"}
-          </Button>
-        </TabsContent>
-
-        {/* Aba Ping */}
-        <TabsContent value="ping" className="space-y-3 mt-3">
-          <p className="text-xs text-slate-400">
-            Executa um teste de ping a partir da ONT para verificar conectividade.
-          </p>
-          <div className="flex gap-2">
-            <Input
-              value={pingHost}
-              onChange={e => setPingHost(e.target.value)}
-              placeholder="8.8.8.8"
-              className="bg-slate-700 border-slate-600 text-white"
-            />
-            <Button
-              onClick={() => { setPingResult(null); ping.mutate({ deviceId, host: pingHost }); }}
-              disabled={ping.isPending}
-              className="bg-blue-600 hover:bg-blue-700 shrink-0"
-            >
-              {ping.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-            </Button>
-          </div>
-
-          {pingResult && (
-            <div className="bg-slate-700/30 rounded-lg p-3 space-y-2">
-              <div className="flex items-center gap-2">
-                {pingResult.successCount > 0
-                  ? <CheckCircle className="w-4 h-4 text-green-400" />
-                  : <XCircle className="w-4 h-4 text-red-400" />
-                }
-                <span className="text-sm font-medium text-white">
-                  {pingResult.host} — {pingResult.message || `${pingResult.successCount}/${(pingResult.successCount || 0) + (pingResult.failureCount || 0)} pacotes`}
-                </span>
-              </div>
-              {pingResult.avgResponseTime !== undefined && (
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div className="text-center">
-                    <div className="text-slate-400">Mín</div>
-                    <div className="text-white font-mono">{pingResult.minResponseTime}ms</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-slate-400">Méd</div>
-                    <div className="text-white font-mono">{pingResult.avgResponseTime}ms</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-slate-400">Máx</div>
-                    <div className="text-white font-mono">{pingResult.maxResponseTime}ms</div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* Aba Acções */}
-        <TabsContent value="actions" className="space-y-3 mt-3">
-          <div className="space-y-2">
-            <button
-              onClick={() => setShowRebootConfirm(true)}
-              className="w-full flex items-center gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors text-left"
-            >
-              <Power className="w-5 h-5 text-amber-400" />
-              <div>
-                <div className="text-sm font-medium text-amber-300">Reiniciar ONT</div>
-                <div className="text-xs text-slate-400">A ONT ficará offline por ~60 segundos</div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-slate-500 ml-auto" />
-            </button>
-
-            <button
-              onClick={() => setShowResetConfirm(true)}
-              className="w-full flex items-center gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-colors text-left"
-            >
-              <AlertTriangle className="w-5 h-5 text-red-400" />
-              <div>
-                <div className="text-sm font-medium text-red-300">Reset de Fábrica</div>
-                <div className="text-xs text-slate-400">Apaga todas as configurações da ONT</div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-slate-500 ml-auto" />
-            </button>
+            <p className="text-xs text-slate-500 text-center">Comandos enviados via Gerenciador CPE do SGP</p>
           </div>
         </TabsContent>
       </Tabs>
 
-      {/* Confirmação Reboot */}
       {showRebootConfirm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 max-w-sm mx-4 space-y-4">
@@ -828,47 +396,20 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
               <h3 className="font-semibold text-white">Confirmar Reinicialização</h3>
             </div>
             <p className="text-sm text-slate-300">
-              A ONT <span className="text-white font-mono">{deviceId}</span> será reiniciada.
+              A ONU <span className="text-white font-mono">{getOnuLogin(onu)}</span> será reiniciada via SGP.
               O cliente ficará sem internet por aproximadamente 60 segundos.
             </p>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowRebootConfirm(false)} className="flex-1 border-slate-600">
-                Cancelar
-              </Button>
+              <Button variant="outline" onClick={() => setShowRebootConfirm(false)} className="flex-1 border-slate-600">Cancelar</Button>
               <Button
-                onClick={() => reboot.mutate({ deviceId })}
-                disabled={reboot.isPending}
+                onClick={() => {
+                  if (sgpServiceId) { setCpeResult(null); sgpCpeRebootMut.mutate({ servicoId: sgpServiceId }); }
+                  setShowRebootConfirm(false);
+                }}
+                disabled={sgpCpeRebootMut.isPending}
                 className="flex-1 bg-amber-600 hover:bg-amber-700"
               >
-                {reboot.isPending ? "Enviando..." : "Reiniciar"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Confirmação Factory Reset */}
-      {showResetConfirm && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-slate-800 border border-red-500/30 rounded-xl p-5 max-w-sm mx-4 space-y-4">
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="w-6 h-6 text-red-400" />
-              <h3 className="font-semibold text-white">Reset de Fábrica</h3>
-            </div>
-            <p className="text-sm text-slate-300">
-              <strong className="text-red-400">Atenção:</strong> Esta acção apaga todas as configurações da ONT
-              <span className="text-white font-mono"> {deviceId}</span>. O cliente perderá a conexão e precisará de reconfiguração.
-            </p>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowResetConfirm(false)} className="flex-1 border-slate-600">
-                Cancelar
-              </Button>
-              <Button
-                onClick={() => factoryReset.mutate({ deviceId })}
-                disabled={factoryReset.isPending}
-                className="flex-1 bg-red-600 hover:bg-red-700"
-              >
-                {factoryReset.isPending ? "Enviando..." : "Confirmar Reset"}
+                {sgpCpeRebootMut.isPending ? "Enviando..." : "Reiniciar"}
               </Button>
             </div>
           </div>
@@ -878,13 +419,13 @@ function DevicePanel({ deviceId }: { deviceId: string }) {
   );
 }
 
-// ─── Página Principal ─────────────────────────────────────────────────────────
+// ─── Componente Principal ─────────────────────────────────────────────────────
 export default function CpeManager() {
+  const [selectedOltId, setSelectedOltId] = useState<number | null>(null);
+  const [selectedOnu, setSelectedOnu] = useState<SgpOnuItem | null>(null);
   const [search, setSearch] = useState("");
-  const [onlineOnly, setOnlineOnly] = useState(false);
-  const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
-  const [showConfig, setShowConfig] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [showConfig, setShowConfig] = useState(false);
 
   const handleSearch = (val: string) => {
     setSearch(val);
@@ -892,20 +433,33 @@ export default function CpeManager() {
     (window as any)._cpeSearchTimer = setTimeout(() => setDebouncedSearch(val), 400);
   };
 
-  const { data, isLoading, error, refetch } = trpc.genieacs.listDevices.useQuery({
-    search: debouncedSearch || undefined,
-    onlineOnly,
-    limit: 100,
-  });
+  const { data: oltsData, isLoading: oltsLoading, error: oltsError, refetch: refetchOlts } = (trpc as any).sgp.listOlts.useQuery(
+    undefined,
+    { retry: false }
+  );
+  const olts: SgpOlt[] = (oltsData?.olts as SgpOlt[]) || [];
 
-  const devices: CpeDevice[] = data?.devices || [];
-  const onlineCount = devices.filter(d => d.isOnline).length;
+  const { data: onusData, isLoading: onusLoading, refetch: refetchOnus } = (trpc as any).sgp.listOnusByOlt.useQuery(
+    { oltId: selectedOltId!, search: debouncedSearch || undefined, limit: 200 },
+    { enabled: selectedOltId !== null, retry: false }
+  );
+  const onus: SgpOnuItem[] = (onusData?.onus as SgpOnuItem[]) || [];
+
+  useEffect(() => {
+    if (olts.length > 0 && selectedOltId === null) {
+      setSelectedOltId(olts[0].id);
+    }
+  }, [olts]);
+
+  useEffect(() => {
+    setSelectedOnu(null);
+  }, [selectedOltId]);
+
+  const getOltName = (olt: SgpOlt) => olt.name || olt.nome || olt.ident || `OLT #${olt.id}`;
 
   return (
     <div className="flex h-full gap-4">
-      {/* Painel esquerdo — lista */}
       <div className="w-80 shrink-0 flex flex-col gap-3">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-white flex items-center gap-2">
@@ -913,146 +467,143 @@ export default function CpeManager() {
               CPE Manager
             </h1>
             <p className="text-xs text-slate-400">
-              {isLoading ? "Carregando..." : `${onlineCount} online / ${devices.length} total`}
+              {onusLoading ? "Carregando..." : `${onus.length} ONU(s) encontrada(s)`}
             </p>
           </div>
           <div className="flex gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => refetch()}
-              className="text-slate-400 hover:text-white w-8 h-8"
-            >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+            <Button variant="ghost" size="icon" onClick={() => { refetchOlts(); if (selectedOltId) refetchOnus(); }} className="text-slate-400 hover:text-white w-8 h-8">
+              <RefreshCw className={`w-4 h-4 ${oltsLoading || onusLoading ? "animate-spin" : ""}`} />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowConfig(true)}
-              className="text-slate-400 hover:text-white w-8 h-8"
-            >
+            <Button variant="ghost" size="icon" onClick={() => setShowConfig(true)} className="text-slate-400 hover:text-white w-8 h-8">
               <Settings className="w-4 h-4" />
             </Button>
           </div>
         </div>
 
-        {/* Filtros */}
-        <div className="space-y-2">
+        {oltsLoading ? (
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <RefreshCw className="w-3 h-3 animate-spin" /> Carregando OLTs...
+          </div>
+        ) : oltsError || oltsData?.error ? (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-center">
+            <XCircle className="w-5 h-5 text-red-400 mx-auto mb-1" />
+            <p className="text-xs text-red-300">SGP não configurado ou inacessível</p>
+            <Button variant="ghost" size="sm" onClick={() => setShowConfig(true)} className="mt-1 text-xs text-slate-400 hover:text-white">
+              <Settings className="w-3 h-3 mr-1" /> Configurar SGP
+            </Button>
+          </div>
+        ) : olts.length > 0 ? (
+          <div className="space-y-1">
+            <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">OLTs</p>
+            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+              {olts.map(olt => (
+                <button
+                  key={olt.id}
+                  onClick={() => setSelectedOltId(olt.id)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm border transition-all text-left ${
+                    selectedOltId === olt.id
+                      ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
+                      : "bg-slate-700/20 border-slate-700/50 text-slate-300 hover:bg-slate-700/40"
+                  }`}
+                >
+                  <Router className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{getOltName(olt)}</span>
+                  {olt.ip && <span className="text-xs text-slate-500 ml-auto font-mono shrink-0">{olt.ip}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-center">
+            <AlertTriangle className="w-5 h-5 text-amber-400 mx-auto mb-1" />
+            <p className="text-xs text-amber-300">Nenhuma OLT encontrada no SGP</p>
+          </div>
+        )}
+
+        {selectedOltId !== null && (
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input
-              value={search}
-              onChange={e => handleSearch(e.target.value)}
-              placeholder="Pesquisar por serial..."
-              className="pl-9 bg-slate-700/50 border-slate-600 text-white text-sm"
-            />
+            <Input value={search} onChange={e => handleSearch(e.target.value)} placeholder="Buscar por login, serial..." className="pl-9 bg-slate-700/50 border-slate-600 text-white text-sm" />
           </div>
-          <button
-            onClick={() => setOnlineOnly(!onlineOnly)}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
-              onlineOnly
-                ? "bg-green-500/15 border-green-500/30 text-green-400"
-                : "bg-slate-700/30 border-slate-600 text-slate-400 hover:text-white"
-            }`}
-          >
-            <div className={`w-2 h-2 rounded-full ${onlineOnly ? "bg-green-400" : "bg-slate-500"}`} />
-            {onlineOnly ? "Mostrando apenas online" : "Mostrar apenas online"}
-          </button>
-        </div>
+        )}
 
-        {/* Lista de dispositivos */}
         <div className="flex-1 overflow-y-auto space-y-1.5">
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-center">
-              <XCircle className="w-6 h-6 text-red-400 mx-auto mb-1" />
-              <p className="text-xs text-red-300">Erro ao conectar ao GenieACS</p>
-              <p className="text-xs text-slate-400 mt-1">Configure a URL nas Configurações</p>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowConfig(true)}
-                className="mt-2 text-xs text-slate-400 hover:text-white"
-              >
-                <Settings className="w-3 h-3 mr-1" />
-                Configurar
-              </Button>
-            </div>
-          )}
-
-          {isLoading && (
+          {onusLoading && (
             <div className="flex items-center justify-center py-12">
               <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin" />
             </div>
           )}
-
-          {!isLoading && !error && devices.length === 0 && (
+          {!onusLoading && selectedOltId !== null && onus.length === 0 && (
             <div className="text-center py-12 text-slate-400">
               <Router className="w-10 h-10 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">Nenhuma ONT encontrada</p>
-              <p className="text-xs mt-1">Configure as ONTs com o ACS URL do GenieACS</p>
+              <p className="text-sm">Nenhuma ONU encontrada</p>
+              {debouncedSearch && <p className="text-xs mt-1">Tente outro termo de busca</p>}
             </div>
           )}
-
-          {devices.map(device => (
-            <button
-              key={device.id}
-              onClick={() => setSelectedDevice(device.id === selectedDevice ? null : device.id)}
-              className={`w-full text-left p-3 rounded-lg border transition-all ${
-                selectedDevice === device.id
-                  ? "bg-emerald-500/15 border-emerald-500/30"
-                  : "bg-slate-700/20 border-slate-700/50 hover:bg-slate-700/40"
-              }`}
-            >
-              <div className="flex items-start gap-2">
-                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${device.isOnline ? "bg-green-400" : "bg-red-400"}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-xs font-mono text-white truncate">{device.id}</span>
-                    {device.rxPower !== null && (
-                      <span className={`text-xs font-mono shrink-0 ${getRxPowerColor(device.rxPower)}`}>
-                        {device.rxPower.toFixed(1)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-400 truncate">{device.manufacturer} {device.modelName}</div>
-                  {device.wanIp && (
-                    <div className="text-xs text-slate-500 font-mono mt-0.5">{device.wanIp}</div>
-                  )}
-                  <div className="text-[10px] text-slate-500 mt-0.5">
-                    {formatLastInform(device.lastInform)}
+          {!onusLoading && selectedOltId === null && (
+            <div className="text-center py-12 text-slate-400">
+              <Router className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Selecione uma OLT</p>
+            </div>
+          )}
+          {onus.map(onu => {
+            const status = getOnuStatus(onu);
+            return (
+              <button
+                key={onu.id}
+                onClick={() => setSelectedOnu(selectedOnu?.id === onu.id ? null : onu)}
+                className={`w-full text-left p-3 rounded-lg border transition-all ${
+                  selectedOnu?.id === onu.id
+                    ? "bg-emerald-500/15 border-emerald-500/30"
+                    : "bg-slate-700/20 border-slate-700/50 hover:bg-slate-700/40"
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
+                    status === "online" ? "bg-green-400" :
+                    status === "offline" ? "bg-red-400" : "bg-slate-500"
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-mono text-white truncate">{getOnuLogin(onu)}</span>
+                      {onu.signal && (
+                        <span className={`text-xs font-mono shrink-0 ${getSignalColor(onu.signal)}`}>{onu.signal}</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-400 truncate">Slot {onu.slot} · PON {onu.pon} · ONU {onu.onu}</div>
+                    {onu.address && <div className="text-xs text-slate-500 truncate mt-0.5">{onu.address}</div>}
                   </div>
                 </div>
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Painel direito — detalhes */}
       <div className="flex-1 min-w-0">
-        {selectedDevice ? (
+        {selectedOnu ? (
           <Card className="bg-slate-800/50 border-slate-700 h-full overflow-y-auto">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
                 <Router className="w-4 h-4 text-emerald-400" />
-                Detalhes da ONT
+                Detalhes da ONU
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <DevicePanel deviceId={selectedDevice} />
+              <OnuPanel key={selectedOnu.id} onu={selectedOnu} />
             </CardContent>
           </Card>
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-slate-400">
             <Cpu className="w-16 h-16 mb-4 opacity-20" />
-            <p className="text-lg font-medium">Seleccione uma ONT</p>
-            <p className="text-sm mt-1">Clique numa ONT da lista para ver detalhes e gerir</p>
+            <p className="text-lg font-medium">Selecione uma ONU</p>
+            <p className="text-sm mt-1">Escolha uma OLT e clique numa ONU para ver detalhes e gerir</p>
             <div className="mt-6 grid grid-cols-2 gap-3 max-w-md">
               {[
-                { icon: Wifi, label: "Alterar Wi-Fi", desc: "SSID e senha remotamente" },
-                { icon: Power, label: "Reiniciar ONT", desc: "Reboot remoto com confirmação" },
-                { icon: Activity, label: "Ping Diagnóstico", desc: "Teste de conectividade da ONT" },
-                { icon: Signal, label: "Sinal Óptico", desc: "RxPower em dBm em tempo real" },
+                { icon: Wifi, label: "Configurar Wi-Fi", desc: "SSID e senha via SGP" },
+                { icon: Globe, label: "Configurar PPPoE", desc: "Login WAN via SGP" },
+                { icon: Activity, label: "Ping / Speed Test", desc: "Diagnóstico via CPE Manager" },
+                { icon: Signal, label: "Sinal Óptico", desc: "RxPower em dBm" },
               ].map(({ icon: Icon, label, desc }) => (
                 <div key={label} className="bg-slate-700/20 border border-slate-700/50 rounded-lg p-3">
                   <Icon className="w-5 h-5 text-emerald-400 mb-2" />
@@ -1065,18 +616,89 @@ export default function CpeManager() {
         )}
       </div>
 
-      {/* Dialog de Configuração */}
       <Dialog open={showConfig} onOpenChange={setShowConfig}>
         <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Settings className="w-5 h-5 text-emerald-400" />
-              Configuração GenieACS
+              Configuração SGP
             </DialogTitle>
           </DialogHeader>
-          <GenieACSConfig onClose={() => setShowConfig(false)} />
+          <SgpConfigPanel onClose={() => setShowConfig(false)} />
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ─── Painel de Configuração SGP ───────────────────────────────────────────────
+function SgpConfigPanel({ onClose }: { onClose: () => void }) {
+  const { data: config } = (trpc as any).sgp.config.useQuery();
+  const [baseUrl, setBaseUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [app, setApp] = useState("");
+  const [showToken, setShowToken] = useState(false);
+
+  const saveConfig = (trpc as any).sgp.saveConfig.useMutation({
+    onSuccess: () => { toast.success("Configuração SGP salva com sucesso"); onClose(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const testConn = (trpc as any).sgp.testConnection.useMutation({
+    onSuccess: (r: any) => {
+      if (r.success) toast.success(r.message);
+      else toast.error(r.message);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  useEffect(() => {
+    if (config) {
+      setBaseUrl(config.baseUrl || "");
+      setToken(config.token || "");
+      setApp(config.app || "");
+    }
+  }, [config]);
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 flex gap-2">
+        <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+        <div className="text-xs text-blue-300">
+          <p className="font-medium mb-1">Configuração do SGP:</p>
+          <p>URL base do seu servidor SGP (ex: <code className="bg-slate-700 px-1 rounded">https://sgp.empresa.com.br</code>)</p>
+          <p className="mt-1">Token e App são as credenciais de API do SGP.</p>
+        </div>
+      </div>
+      <div className="space-y-3">
+        <div>
+          <Label className="text-slate-300 text-sm">URL Base do SGP</Label>
+          <Input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://sgp.empresa.com.br" className="mt-1 bg-slate-700 border-slate-600 text-white" />
+        </div>
+        <div>
+          <Label className="text-slate-300 text-sm">Token de API</Label>
+          <div className="relative mt-1">
+            <Input type={showToken ? "text" : "password"} value={token} onChange={e => setToken(e.target.value)} placeholder="Token de autenticação SGP" className="bg-slate-700 border-slate-600 text-white pr-10" />
+            <button onClick={() => setShowToken(!showToken)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white">
+              {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+        <div>
+          <Label className="text-slate-300 text-sm">App (identificador)</Label>
+          <Input value={app} onChange={e => setApp(e.target.value)} placeholder="Nome do app SGP" className="mt-1 bg-slate-700 border-slate-600 text-white" />
+        </div>
+      </div>
+      <div className="flex gap-2 pt-2">
+        <Button variant="outline" onClick={() => testConn.mutate()} disabled={testConn.isPending || !baseUrl} className="border-slate-600 text-slate-300 hover:text-white hover:bg-slate-700">
+          <Activity className="w-4 h-4 mr-2" />
+          {testConn.isPending ? "Testando..." : "Testar Conexão"}
+        </Button>
+        <Button onClick={() => saveConfig.mutate({ baseUrl, token, app, active: true })} disabled={saveConfig.isPending || !baseUrl || !token || !app} className="bg-emerald-600 hover:bg-emerald-700 ml-auto">
+          <CheckCircle className="w-4 h-4 mr-2" />
+          {saveConfig.isPending ? "Salvando..." : "Salvar"}
+        </Button>
+      </div>
     </div>
   );
 }
