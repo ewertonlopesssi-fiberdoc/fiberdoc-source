@@ -410,6 +410,9 @@ export default function InfrastructureMap() {
   const [detailPanel, setDetailPanel] = useState<{ type: "ceo" | "cto"; id: number } | null>(null);
   const [addingMode, setAddingMode] = useState<"ceo" | "cto" | null>(null);
   const addingModeRef = useRef<"ceo" | "cto" | null>(null);
+  const groupSelectModeRef = useRef(false);
+  const addingRouteModeRef = useRef(false);
+  const otdrModeRef = useRef(false);
   const [addingRouteMode, setAddingRouteMode] = useState(false);
   const [routeFrom, setRouteFrom] = useState<number | null>(null);
   const [routeTo, setRouteTo] = useState<number | null>(null);
@@ -1454,14 +1457,15 @@ export default function InfrastructureMap() {
           mapRef.current?.fire("click", { latlng: marker.getLatLng(), originalEvent: e.originalEvent });
           return;
         }
-        if (groupSelectMode) { toggleGroupElement(el.id); return; }
-        if (addingRouteMode) {
+        // Usar refs para evitar stale closures — o handler é criado uma vez e reutilizado
+        if (groupSelectModeRef.current) { toggleGroupElement(el.id); return; }
+        if (addingRouteModeRef.current) {
           const pos = marker.getLatLng();
           setDrawingPath(prev => [...prev, { lat: pos.lat, lng: pos.lng }]);
           toast.info(`Ponto adicionado: ${name}`);
           return;
         }
-        if (otdrMode) {
+        if (otdrModeRef.current) {
           setOtdrElementId(el.id);
           setOtdrTubeId("");
           setOtdrViaNumber("");
@@ -1739,8 +1743,11 @@ export default function InfrastructureMap() {
     return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
   }, [addingPoiMode, mapReady]);
 
-  // Sincronizar ref com estado para evitar stale closure
+  // Sincronizar refs com estados para evitar stale closures nos handlers de click
   useEffect(() => { addingModeRef.current = addingMode; }, [addingMode]);
+  useEffect(() => { groupSelectModeRef.current = groupSelectMode; }, [groupSelectMode]);
+  useEffect(() => { addingRouteModeRef.current = addingRouteMode; }, [addingRouteMode]);
+  useEffect(() => { otdrModeRef.current = otdrMode; }, [otdrMode]);
 
   // Modo de adição de elemento
   useEffect(() => {
@@ -4262,7 +4269,8 @@ export default function InfrastructureMap() {
             const isGroupHidden = hiddenGroupIds.has(group.id);
             const children = childGroups(group.id);
             const isExpanded = expandedGroups.has(group.id) || children.length === 0;
-            const isElemsExpanded = expandedGroupElements.has(group.id);
+            // Itens expandidos quando: clicou na seta (isExpanded) OU clicou no nome (expandedGroupElements)
+            const isElemsExpanded = isExpanded || expandedGroupElements.has(group.id);
             const counts = countAllElements(group);
             // Elementos e rotas directamente neste grupo
             const groupElems: any[] = (group.elements ?? []).map((e: any) => {

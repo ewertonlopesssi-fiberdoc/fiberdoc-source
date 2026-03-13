@@ -1642,3 +1642,7 @@
 - [x] Renderização no mapa respeita o estado do checkbox (visível/oculto)
 - [x] Persistir visibilidade no localStorage (hiddenGroupIds + hidden*Ids por tipo)
 - [x] Renderização incremental das polylines de cabos (diff incremental igual aos marcadores)
+
+## Bugs — Painel de Grupos e Seleção Múltipla
+- [x] Subpastas não expandem para mostrar os itens dentro delas (corrigido: seta expande subpastas + itens juntos)
+- [x] Seleção múltipla no mapa não consegue selecionar itens (corrigido: stale closure — usando groupSelectModeRef)
