@@ -1568,3 +1568,13 @@
 - [x] KMZ: seletor de grupo em árvore (raiz → subpastas) no diálogo de exportação
 - [x] KMZ: ícones PNG personalizados embutidos no arquivo KMZ (CTO, CEO, Poste, Reserva)
 - [x] Relatório de cabos com comprimento total por grupo (Haversine)
+
+## Melhorias na Importação KMZ
+- [x] Importação: suporte a Postes (Point com pasta/nome "Poste") e Reservas Técnicas
+- [x] Importação: atribuição automática a grupo/pasta com base na pasta KML (criar grupo se não existir)
+- [x] Importação: campos editáveis por tipo — fiberCount e cableType para cabos; capacity para CTOs
+- [x] Importação: barra de progresso durante a confirmação (item X de Y)
+- [x] Importação: resumo pós-importação com contagem por tipo (CTOs, CEOs, Cabos, Postes, Reservas)
+- [x] Importação: deteção melhorada de LineString sem palavras-chave (importar como cabo por padrão)
+- [x] Importação: suporte a MultiGeometry (ponto + linha no mesmo Placemark)
+- [x] Importação: campo "grupo de destino" no diálogo de upload para atribuir todos os elementos a um grupo existente

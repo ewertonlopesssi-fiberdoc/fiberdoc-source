@@ -452,24 +452,32 @@ export default function InfrastructureMap() {
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const [kmlImportOpen, setKmlImportOpen] = useState(false);
   const [kmlImportLoading, setKmlImportLoading] = useState(false);
-  const [kmlImportResult, setKmlImportResult] = useState<{ added: number; skipped: number; errors: string[] } | null>(null);
+  const [kmlImportResult, setKmlImportResult] = useState<{ added: number; skipped: number; errors: string[]; byType: Record<string, number> } | null>(null);
   const kmlFileRef = useRef<HTMLInputElement | null>(null);
   // Pré-visualização KML
   type KmlPreviewItem = {
     id: string;
     name: string;
-    type: "cto" | "ceo" | "cabo";
+    type: "cto" | "ceo" | "cabo" | "poste" | "reserva";
     color: string | null;
     lat: number | null;
     lng: number | null;
     path: string | null;
     fiberName: string | null;
     include: boolean;
+    folderName: string;
+    fiberCount: number;
+    cableType: string;
+    capacity: number;
+    sizeMeters: number;
   };
   const [kmlPreviewItems, setKmlPreviewItems] = useState<KmlPreviewItem[]>([]);
   const [kmlPreviewOpen, setKmlPreviewOpen] = useState(false);
   const [kmlImportingPreview, setKmlImportingPreview] = useState(false);
-  const [kmlPreviewFilter, setKmlPreviewFilter] = useState<"all" | "cto" | "ceo" | "cabo">("all");
+  const [kmlImportProgress, setKmlImportProgress] = useState(0);
+  const [kmlImportTotal, setKmlImportTotal] = useState(0);
+  const [kmlPreviewFilter, setKmlPreviewFilter] = useState<"all" | "cto" | "ceo" | "cabo" | "poste" | "reserva">("all");
+  const [kmlImportTargetGroupId, setKmlImportTargetGroupId] = useState<number | null>(null);
 
   // ─── Edição de Traçado de Cabo ────────────────────────────────────────────
   const [editingRouteId, setEditingRouteId] = useState<number | null>(null);
@@ -1993,7 +2001,7 @@ export default function InfrastructureMap() {
         if (descPara) return descPara[1].trim();
         return rawName;
       };
-      const detectType = (pm: Element, folderName: string): "cto" | "ceo" | "cabo" | null => {
+      const detectType = (pm: Element, folderName: string): "cto" | "ceo" | "cabo" | "poste" | "reserva" | null => {
         const name = pm.querySelector("name")?.textContent?.trim().toLowerCase() ?? "";
         const desc = pm.querySelector("description")?.textContent?.toLowerCase() ?? "";
         const styleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
@@ -2001,35 +2009,46 @@ export default function InfrastructureMap() {
         const folderLower = folderName.toLowerCase();
         const hasLine = !!pm.querySelector("LineString");
         if (hasLine) {
-          const isCabo = name.includes("cabo") || name.includes("fibra") || name.includes("caminho") ||
-            desc.includes("cabo") || desc.includes("fibra") || folderLower.includes("cabo") ||
-            folderLower.includes("fibra") || folderLower.includes("caminho");
-          return isCabo ? "cabo" : null;
+          // Qualquer LineString é importado como cabo (padrão)
+          return "cabo";
         }
+        // Poste
+        if (folderLower.includes("poste") || name.includes("poste") || iconHref.includes("pole")) return "poste";
+        // Reserva Técnica
+        if (folderLower.includes("reserva") || name.includes("reserva") || iconHref.includes("reserve")) return "reserva";
+        // CTO
         if (folderLower.includes("cto") || folderLower.includes("splitter")) return "cto";
-        if (folderLower.includes("ceo") || folderLower.includes("caixa")) return "ceo";
         if (iconHref.includes("square") || iconHref.includes("cto")) return "cto";
-        if (iconHref.includes("donut") || iconHref.includes("ceo")) return "ceo";
         if (name.includes("cto") || desc.includes("cto") || name.startsWith("sp ")) return "cto";
+        // CEO
+        if (folderLower.includes("ceo") || folderLower.includes("caixa")) return "ceo";
+        if (iconHref.includes("donut") || iconHref.includes("ceo")) return "ceo";
         if (name.includes("ceo") || desc.includes("ceo")) return "ceo";
+        // Ponto genérico → CEO por padrão
         return "ceo";
       };
-      const getFolderName = (pm: Element): string => {
+      const getFolderPath = (pm: Element): string[] => {
+        const path: string[] = [];
         let parent = pm.parentElement;
         while (parent) {
-          if (parent.tagName === "Folder") return parent.querySelector(":scope > name")?.textContent?.trim() ?? "";
+          if (parent.tagName === "Folder") {
+            const n = parent.querySelector(":scope > name")?.textContent?.trim();
+            if (n) path.unshift(n);
+          }
           parent = parent.parentElement;
         }
-        return "";
+        return path;
       };
       const placemarks = Array.from(doc.querySelectorAll("Placemark"));
       const items: KmlPreviewItem[] = [];
       let idx = 0;
       for (const pm of placemarks) {
         const name = pm.querySelector("name")?.textContent?.trim() ?? "";
-        const folderName = getFolderName(pm);
+        const folderPath = getFolderPath(pm);
+        const folderName = folderPath[folderPath.length - 1] ?? "";
         const type = detectType(pm, folderName);
         if (!type) continue;
+        const folderLabel = folderPath.join(" / ");
         if (type === "cabo") {
           const coordsText = pm.querySelector("LineString > coordinates")?.textContent?.trim() ?? "";
           if (!coordsText) continue;
@@ -2042,15 +2061,16 @@ export default function InfrastructureMap() {
           const styleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
           const inlineColor = pm.querySelector("LineStyle > color")?.textContent?.trim();
           const cableColor = (inlineColor ? kmlColorToHex(inlineColor) : null) ?? styleColorMap[styleUrl] ?? "#22d3ee";
-          items.push({ id: `kml-${idx}`, name: fiberName, type: "cabo", color: cableColor, lat: null, lng: null, path: JSON.stringify(pathPoints), fiberName, include: true });
+          items.push({ id: `kml-${idx}`, name: fiberName, type: "cabo", color: cableColor, lat: null, lng: null, path: JSON.stringify(pathPoints), fiberName, include: true, folderName: folderLabel, fiberCount: 12, cableType: "FO", capacity: 8, sizeMeters: 0 });
         } else {
-          const coordText = pm.querySelector("Point > coordinates")?.textContent?.trim();
+          // Tentar ponto direto ou dentro de MultiGeometry
+          const coordText = (pm.querySelector("Point > coordinates") ?? pm.querySelector("MultiGeometry Point > coordinates"))?.textContent?.trim();
           if (!coordText) continue;
           const parts = coordText.split(",");
           if (parts.length < 2) continue;
           const lng = parseFloat(parts[0]); const lat = parseFloat(parts[1]);
           if (isNaN(lat) || isNaN(lng)) continue;
-          items.push({ id: `kml-${idx}`, name: name || `${type.toUpperCase()}-KML-${idx + 1}`, type, color: null, lat, lng, path: null, fiberName: null, include: true });
+          items.push({ id: `kml-${idx}`, name: name || `${type.toUpperCase()}-KML-${idx + 1}`, type, color: null, lat, lng, path: null, fiberName: null, include: true, folderName: folderLabel, fiberCount: 12, cableType: "FO", capacity: 8, sizeMeters: 0 });
         }
         idx++;
       }
@@ -2071,31 +2091,79 @@ export default function InfrastructureMap() {
     const toImport = kmlPreviewItems.filter(it => it.include);
     if (toImport.length === 0) { toast.error("Nenhum elemento seleccionado para importar"); return; }
     setKmlImportingPreview(true);
-    let added = 0; const errors: string[] = [];
-    for (const item of toImport) {
+    setKmlImportProgress(0);
+    setKmlImportTotal(toImport.length);
+    let added = 0;
+    const errors: string[] = [];
+    const byType: Record<string, number> = {};
+    // Cache de grupos criados/encontrados por nome de pasta KML
+    const folderGroupCache: Record<string, number> = {};
+    const getOrCreateGroupId = async (folderName: string): Promise<number | null> => {
+      if (!folderName) return kmlImportTargetGroupId;
+      if (folderGroupCache[folderName] !== undefined) return folderGroupCache[folderName];
+      // Procurar grupo existente pelo nome
+      const existing = (mapGroups as any[]).find((g: any) => g.name.toLowerCase() === folderName.toLowerCase());
+      if (existing) { folderGroupCache[folderName] = existing.id; return existing.id; }
+      // Criar novo grupo
       try {
+        const res = await createGroupMut.mutateAsync({ name: folderName });
+        folderGroupCache[folderName] = (res as any).id;
+        return (res as any).id;
+      } catch { return kmlImportTargetGroupId; }
+    };
+    for (let i = 0; i < toImport.length; i++) {
+      const item = toImport[i];
+      setKmlImportProgress(i + 1);
+      try {
+        // Determinar grupo: pasta KML ou grupo manual selecionado
+        const targetFolder = item.folderName ? item.folderName.split(" / ").pop()! : "";
+        const groupId = await getOrCreateGroupId(targetFolder) ?? kmlImportTargetGroupId;
         if (item.type === "cabo") {
-          await createRouteMut.mutateAsync({ name: item.name, path: item.path!, fiberCount: 12, cableType: "FO", color: item.color ?? "#22d3ee" });
-          added++;
+          const res = await createRouteMut.mutateAsync({ name: item.name, path: item.path!, fiberCount: item.fiberCount, cableType: item.cableType, color: item.color ?? "#22d3ee" });
+          if (groupId !== null) {
+            try { await assignRouteToGroupMut.mutateAsync({ routeId: (res as any).id, groupId }); } catch {}
+          }
+          added++; byType["Cabos"] = (byType["Cabos"] ?? 0) + 1;
         } else if (item.type === "cto") {
-          const cto = await createCtoMut.mutateAsync({ name: item.name, capacity: 8, lat: item.lat!, lng: item.lng! });
-          await upsertElementMut.mutateAsync({ type: "cto", referenceId: (cto as any).id, lat: item.lat!, lng: item.lng! });
-          added++;
+          const cto = await createCtoMut.mutateAsync({ name: item.name, capacity: item.capacity, lat: item.lat!, lng: item.lng! });
+          const el = await upsertElementMut.mutateAsync({ type: "cto", referenceId: (cto as any).id, lat: item.lat!, lng: item.lng! });
+          if (groupId !== null) {
+            try { await assignElementToGroupMut.mutateAsync({ elementId: (el as any).id, groupId }); } catch {}
+          }
+          added++; byType["CTOs"] = (byType["CTOs"] ?? 0) + 1;
+        } else if (item.type === "poste") {
+          const pole = await createPoleMut.mutateAsync({ name: item.name, lat: item.lat!, lng: item.lng! });
+          if (groupId !== null) {
+            try { await assignPoleToGroupMut.mutateAsync({ poleId: (pole as any).id, groupId }); } catch {}
+          }
+          added++; byType["Postes"] = (byType["Postes"] ?? 0) + 1;
+        } else if (item.type === "reserva") {
+          const reserve = await createReserveMut.mutateAsync({ name: item.name, sizeMeters: item.sizeMeters, lat: item.lat!, lng: item.lng! });
+          if (groupId !== null) {
+            try { await assignReserveToGroupMut.mutateAsync({ reserveId: (reserve as any).id, groupId }); } catch {}
+          }
+          added++; byType["Reservas"] = (byType["Reservas"] ?? 0) + 1;
         } else {
           const ceo = await createCeoMut.mutateAsync({ name: item.name, location: "" });
-          await upsertElementMut.mutateAsync({ type: "ceo", referenceId: (ceo as any).id, lat: item.lat!, lng: item.lng! });
-          added++;
+          const el = await upsertElementMut.mutateAsync({ type: "ceo", referenceId: (ceo as any).id, lat: item.lat!, lng: item.lng! });
+          if (groupId !== null) {
+            try { await assignElementToGroupMut.mutateAsync({ elementId: (el as any).id, groupId }); } catch {}
+          }
+          added++; byType["CEOs"] = (byType["CEOs"] ?? 0) + 1;
         }
       } catch (e: any) { errors.push(`${item.name}: ${e.message}`); }
     }
     setKmlImportingPreview(false);
+    setKmlImportProgress(0);
     setKmlPreviewOpen(false);
     setKmlPreviewItems([]);
-    setKmlImportResult({ added, skipped: kmlPreviewItems.length - toImport.length, errors });
+    setKmlImportResult({ added, skipped: kmlPreviewItems.length - toImport.length, errors, byType });
     setKmlImportOpen(true);
-    if (added > 0) { refetchElements(); refetchRoutes?.(); toast.success(`${added} elemento${added !== 1 ? "s" : ""} importado${added !== 1 ? "s" : ""} do KML/KMZ`); }
-    else toast.error("Nenhum elemento importado");
-  }, [kmlPreviewItems, createCtoMut, createCeoMut, upsertElementMut, createRouteMut, refetchElements, refetchRoutes]);
+    if (added > 0) {
+      refetchElements(); refetchRoutes?.(); refetchPoles?.(); refetchReserves?.(); refetchGroups?.();
+      toast.success(`${added} elemento${added !== 1 ? "s" : ""} importado${added !== 1 ? "s" : ""} do KML/KMZ`);
+    } else toast.error("Nenhum elemento importado");
+  }, [kmlPreviewItems, kmlImportTargetGroupId, mapGroups, createCtoMut, createCeoMut, upsertElementMut, createRouteMut, createPoleMut, createReserveMut, assignElementToGroupMut, assignRouteToGroupMut, assignPoleToGroupMut, assignReserveToGroupMut, createGroupMut, refetchElements, refetchRoutes, refetchPoles, refetchReserves, refetchGroups]);
 
   // Exportar KML/KMZ
   const openExportDialog = () => {
@@ -4866,16 +4934,19 @@ export default function InfrastructureMap() {
           </div>
           {/* Filtros por tipo */}
           <div className="flex items-center gap-1.5 mb-2 flex-shrink-0 flex-wrap">
-            {(["all", "cabo", "cto", "ceo"] as const).map(f => {
-              const labels: Record<string, string> = { all: "Todos", cabo: "Cabos", cto: "CTOs", ceo: "CEOs" };
+            {(["all", "cabo", "cto", "ceo", "poste", "reserva"] as const).map(f => {
+              const labels: Record<string, string> = { all: "Todos", cabo: "Cabos", cto: "CTOs", ceo: "CEOs", poste: "Postes", reserva: "Reservas" };
               const counts: Record<string, number> = {
                 all: kmlPreviewItems.length,
                 cabo: kmlPreviewItems.filter(i => i.type === "cabo").length,
                 cto: kmlPreviewItems.filter(i => i.type === "cto").length,
                 ceo: kmlPreviewItems.filter(i => i.type === "ceo").length,
+                poste: kmlPreviewItems.filter(i => i.type === "poste").length,
+                reserva: kmlPreviewItems.filter(i => i.type === "reserva").length,
               };
-              const colors: Record<string, string> = { all: "bg-muted text-foreground", cabo: "bg-cyan-500/20 text-cyan-400 border-cyan-500/40", cto: "bg-purple-500/20 text-purple-400 border-purple-500/40", ceo: "bg-amber-500/20 text-amber-400 border-amber-500/40" };
-              const activeColors: Record<string, string> = { all: "bg-muted-foreground/20 text-foreground border-foreground/40", cabo: "bg-cyan-500/40 text-cyan-300 border-cyan-400", cto: "bg-purple-500/40 text-purple-300 border-purple-400", ceo: "bg-amber-500/40 text-amber-300 border-amber-400" };
+              if (f !== "all" && counts[f] === 0) return null;
+              const colors: Record<string, string> = { all: "bg-muted text-foreground", cabo: "bg-cyan-500/20 text-cyan-400 border-cyan-500/40", cto: "bg-purple-500/20 text-purple-400 border-purple-500/40", ceo: "bg-amber-500/20 text-amber-400 border-amber-500/40", poste: "bg-orange-500/20 text-orange-400 border-orange-500/40", reserva: "bg-pink-500/20 text-pink-400 border-pink-500/40" };
+              const activeColors: Record<string, string> = { all: "bg-muted-foreground/20 text-foreground border-foreground/40", cabo: "bg-cyan-500/40 text-cyan-300 border-cyan-400", cto: "bg-purple-500/40 text-purple-300 border-purple-400", ceo: "bg-amber-500/40 text-amber-300 border-amber-400", poste: "bg-orange-500/40 text-orange-300 border-orange-400", reserva: "bg-pink-500/40 text-pink-300 border-pink-400" };
               return (
                 <button key={f} onClick={() => setKmlPreviewFilter(f)}
                   className={`px-2.5 py-0.5 rounded-full text-xs border transition-colors ${kmlPreviewFilter === f ? activeColors[f] : colors[f]}`}>
@@ -4897,7 +4968,9 @@ export default function InfrastructureMap() {
                     />
                   </th>
                   <th className="px-3 py-2 text-left font-medium">Nome</th>
+                  <th className="px-3 py-2 text-left font-medium w-28 hidden md:table-cell">Pasta KML</th>
                   <th className="px-3 py-2 text-left font-medium w-32">Tipo</th>
+                  <th className="px-3 py-2 text-left font-medium w-20">Extra</th>
                   <th className="px-3 py-2 text-left font-medium w-24">Cor</th>
                 </tr>
               </thead>
@@ -4923,29 +4996,65 @@ export default function InfrastructureMap() {
                         disabled={!item.include}
                       />
                     </td>
+                    <td className="px-3 py-1.5 hidden md:table-cell">
+                      <span className="text-[10px] text-muted-foreground truncate max-w-[6rem] block" title={item.folderName}>{item.folderName || "—"}</span>
+                    </td>
                     <td className="px-3 py-1.5">
                       <select
                         value={item.type}
-                        onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, type: e.target.value as "cto" | "ceo" | "cabo" } : it))}
+                        onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, type: e.target.value as any } : it))}
                         disabled={!item.include}
                         className="w-full bg-muted/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:border-primary disabled:opacity-50"
                       >
                         <option value="cto">CTO</option>
                         <option value="ceo">CEO</option>
                         <option value="cabo">Cabo</option>
+                        <option value="poste">Poste</option>
+                        <option value="reserva">Reserva</option>
                       </select>
                     </td>
                     <td className="px-3 py-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="color"
-                          value={item.color ?? "#22d3ee"}
-                          onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, color: e.target.value } : it))}
+                      {item.type === "cabo" && (
+                        <input type="number" min={1} max={288} value={item.fiberCount}
+                          onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, fiberCount: parseInt(e.target.value) || 12 } : it))}
                           disabled={!item.include}
-                          className="w-6 h-6 rounded cursor-pointer border border-border/50 bg-transparent p-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                          title="Clique para alterar a cor"
+                          className="w-14 bg-muted/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:border-primary disabled:opacity-50"
+                          title="Nº de fibras"
                         />
-                        <span className="font-mono text-[10px] text-muted-foreground hidden sm:inline">{item.color ?? "—"}</span>
+                      )}
+                      {item.type === "cto" && (
+                        <input type="number" min={1} max={64} value={item.capacity}
+                          onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, capacity: parseInt(e.target.value) || 8 } : it))}
+                          disabled={!item.include}
+                          className="w-14 bg-muted/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:border-primary disabled:opacity-50"
+                          title="Capacidade"
+                        />
+                      )}
+                      {item.type === "reserva" && (
+                        <input type="number" min={0} value={item.sizeMeters}
+                          onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, sizeMeters: parseInt(e.target.value) || 0 } : it))}
+                          disabled={!item.include}
+                          className="w-14 bg-muted/50 border border-border rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:border-primary disabled:opacity-50"
+                          title="Tamanho (m)"
+                        />
+                      )}
+                      {(item.type === "ceo" || item.type === "poste") && <span className="text-muted-foreground text-[10px]">—</span>}
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center gap-1.5">
+                        {item.type === "cabo" ? (
+                          <>
+                            <input
+                              type="color"
+                              value={item.color ?? "#22d3ee"}
+                              onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, color: e.target.value } : it))}
+                              disabled={!item.include}
+                              className="w-6 h-6 rounded cursor-pointer border border-border/50 bg-transparent p-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                              title="Clique para alterar a cor"
+                            />
+                            <span className="font-mono text-[10px] text-muted-foreground hidden sm:inline">{item.color ?? "—"}</span>
+                          </>
+                        ) : <span className="text-muted-foreground text-[10px]">—</span>}
                       </div>
                     </td>
                   </tr>
@@ -4954,11 +5063,39 @@ export default function InfrastructureMap() {
               </tbody>
             </table>
           </ScrollArea>
-          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border text-xs text-muted-foreground">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "cabo").length} cabos</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "cto").length} CTOs</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "ceo").length} CEOs</span>
+          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border text-xs text-muted-foreground flex-wrap">
+            {kmlPreviewItems.filter(i => i.type === "cabo").length > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "cabo").length} cabos</span>}
+            {kmlPreviewItems.filter(i => i.type === "cto").length > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "cto").length} CTOs</span>}
+            {kmlPreviewItems.filter(i => i.type === "ceo").length > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "ceo").length} CEOs</span>}
+            {kmlPreviewItems.filter(i => i.type === "poste").length > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "poste").length} Postes</span>}
+            {kmlPreviewItems.filter(i => i.type === "reserva").length > 0 && <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-pink-400 inline-block" />{kmlPreviewItems.filter(i => i.type === "reserva").length} Reservas</span>}
           </div>
+          {/* Grupo de destino manual */}
+          <div className="flex items-center gap-2 mt-2 flex-shrink-0">
+            <label className="text-xs text-muted-foreground whitespace-nowrap">Grupo de destino (opcional):</label>
+            <select
+              value={kmlImportTargetGroupId ?? ""}
+              onChange={e => setKmlImportTargetGroupId(e.target.value ? parseInt(e.target.value) : null)}
+              className="flex-1 bg-muted/50 border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
+            >
+              <option value="">Auto (usar pasta KML)</option>
+              {(mapGroups as any[]).filter((g: any) => !g.parentId).map((g: any) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+          </div>
+          {/* Barra de progresso */}
+          {kmlImportingPreview && kmlImportTotal > 0 && (
+            <div className="mt-2 flex-shrink-0">
+              <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                <span>Importando...</span>
+                <span>{kmlImportProgress} / {kmlImportTotal}</span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-1.5">
+                <div className="bg-cyan-500 h-1.5 rounded-full transition-all duration-200" style={{ width: `${Math.round((kmlImportProgress / kmlImportTotal) * 100)}%` }} />
+              </div>
+            </div>
+          )}
           <DialogFooter className="mt-2 flex-shrink-0">
             <Button variant="outline" onClick={() => { setKmlPreviewOpen(false); setKmlPreviewItems([]); }} disabled={kmlImportingPreview}>Cancelar</Button>
             <Button
@@ -4966,7 +5103,7 @@ export default function InfrastructureMap() {
               disabled={kmlImportingPreview || kmlPreviewItems.filter(i => i.include).length === 0}
               onClick={confirmKmlImport}
             >
-              {kmlImportingPreview ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />Importando...</> : <><Check className="w-3.5 h-3.5 mr-1" />Confirmar Importação ({kmlPreviewItems.filter(i => i.include).length})</>}
+              {kmlImportingPreview ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />Importando {kmlImportProgress}/{kmlImportTotal}...</> : <><Check className="w-3.5 h-3.5 mr-1" />Confirmar Importação ({kmlPreviewItems.filter(i => i.include).length})</>}
             </Button>
           </DialogFooter>
           </div>
@@ -4997,9 +5134,16 @@ export default function InfrastructureMap() {
                 <div className="flex items-center gap-2 text-sm font-medium">
                   {kmlImportResult.added > 0 ? <span className="text-emerald-400">✓ {kmlImportResult.added} elemento{kmlImportResult.added !== 1 ? "s" : ""} importado{kmlImportResult.added !== 1 ? "s" : ""}</span> : <span className="text-red-400">Nenhum elemento importado</span>}
                 </div>
+                {kmlImportResult.byType && Object.keys(kmlImportResult.byType).length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(kmlImportResult.byType).map(([k, v]) => (
+                      <span key={k} className="text-xs bg-muted px-2 py-0.5 rounded-full text-foreground">{v} {k}</span>
+                    ))}
+                  </div>
+                )}
                 {kmlImportResult.skipped > 0 && <div className="text-xs text-muted-foreground">{kmlImportResult.skipped} ignorado{kmlImportResult.skipped !== 1 ? "s" : ""} (sem coordenadas de ponto)</div>}
                 {kmlImportResult.errors.length > 0 && (
-                  <div className="text-xs text-red-400 space-y-0.5">{kmlImportResult.errors.map((e, i) => <div key={i}>⚠ {e}</div>)}</div>
+                  <div className="text-xs text-red-400 space-y-0.5">{kmlImportResult.errors.slice(0, 5).map((e, i) => <div key={i}>⚠ {e}</div>)}{kmlImportResult.errors.length > 5 && <div>...e mais {kmlImportResult.errors.length - 5} erros</div>}</div>
                 )}
               </div>
             )}
