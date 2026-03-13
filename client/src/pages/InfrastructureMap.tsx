@@ -561,6 +561,9 @@ export default function InfrastructureMap() {
   const [expandedGroupItems, setExpandedGroupItems] = useState<Set<number>>(new Set()); // seta para minimizar itens dentro da pasta
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null); // confirmação exclusão de pasta
   const [dragOverGroupId, setDragOverGroupId] = useState<number | null>(null); // drag-and-drop entre pastas
+  const [dragFolderId, setDragFolderId] = useState<number | null>(null); // pasta sendo arrastada
+  const [dragFolderOverId, setDragFolderOverId] = useState<number | null>(null); // pasta alvo do arrasto de pasta
+  const [groupSearch, setGroupSearch] = useState(""); // filtro de busca no painel de grupos
   const [checkedItems, setCheckedItems] = useState<{ elements: Set<number>; routes: Set<number> }>({ elements: new Set(), routes: new Set() });
   const toggleCheckedElement = (id: number) => setCheckedItems(prev => { const e = new Set(prev.elements); if (e.has(id)) e.delete(id); else e.add(id); return { ...prev, elements: e }; });
   const toggleCheckedRoute = (id: number) => setCheckedItems(prev => { const r = new Set(prev.routes); if (r.has(id)) r.delete(id); else r.add(id); return { ...prev, routes: r }; });
@@ -672,6 +675,10 @@ export default function InfrastructureMap() {
   });
   const deleteGroupMapMut = trpc.mapGroups.delete.useMutation({
     onSuccess: () => { refetchGroups(); if (activeGroupFilter === editingGroupId) setActiveGroupFilter(null); toast.success("Grupo excluído"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const reorderGroupMut = trpc.mapGroups.reorder.useMutation({
+    onSuccess: () => refetchGroups(),
     onError: (e) => toast.error(e.message),
   });
   // Mutations de edição inline
@@ -2589,6 +2596,35 @@ export default function InfrastructureMap() {
         elementIds = elementIds ? elementIds.filter((id: number) => visibleElIds.includes(id)) : visibleElIds;
         routeIds = routeIds ? routeIds.filter((id: number) => visibleRtIds.includes(id)) : visibleRtIds;
       }
+      // Combinar filtro de grupo com filtro de visíveis
+      // Se exportGroupId está definido, filtrar elementos do grupo selecionado
+      if (exportGroupId !== null) {
+        const allGrps = mapGroups as any[];
+        // Coletar todos os IDs do grupo selecionado (recursivo)
+        const collectGroupIds = (gId: number): { elems: number[]; routes: number[]; poles: number[]; reserves: number[]; pois: number[]; olts: number[] } => {
+          const g = allGrps.find((x: any) => x.id === gId);
+          if (!g) return { elems: [], routes: [], poles: [], reserves: [], pois: [], olts: [] };
+          const kids = allGrps.filter((x: any) => x.parentId === gId);
+          const childData = kids.map((k: any) => collectGroupIds(k.id));
+          return {
+            elems: [...(g.elements ?? []).map((e: any) => e.elementId), ...childData.flatMap(d => d.elems)],
+            routes: [...(g.routes ?? []).map((r: any) => r.routeId), ...childData.flatMap(d => d.routes)],
+            poles: [...(g.poles ?? []).map((p: any) => p.poleId), ...childData.flatMap(d => d.poles)],
+            reserves: [...(g.reserves ?? []).map((r: any) => r.reserveId), ...childData.flatMap(d => d.reserves)],
+            pois: [...(g.pois ?? []).map((p: any) => p.poiId), ...childData.flatMap(d => d.pois)],
+            olts: [...(g.olts ?? []).map((o: any) => o.oltId), ...childData.flatMap(d => d.olts)],
+          };
+        };
+        const groupData = collectGroupIds(exportGroupId);
+        // Interseccionar com seleção manual
+        elementIds = elementIds ? elementIds.filter(id => groupData.elems.includes(id)) : groupData.elems;
+        routeIds = routeIds ? routeIds.filter(id => groupData.routes.includes(id)) : groupData.routes;
+        // Se exportOnlyVisible, filtrar também por visíveis
+        if (exportOnlyVisible) {
+          elementIds = elementIds.filter(id => !hiddenElementIds.has(id));
+          routeIds = routeIds.filter(id => !hiddenRouteIds.has(id));
+        }
+      }
       // Usar endpoint HTTP directo para evitar limitações do tRPC batch link com payloads grandes
       const resp = await fetch("/api/export-kml", {
         method: "POST",
@@ -4224,8 +4260,24 @@ export default function InfrastructureMap() {
           const poles = mapPoles as any[];
           const reserves = mapReserves as any[];
           const allPois = pois as any[];
-          const rootGroups = allGroups.filter((g: any) => !g.parentId);
-          const childGroups = (parentId: number) => allGroups.filter((g: any) => g.parentId === parentId);
+          // Ordenar por sortOrder
+          const sortedGroups = [...allGroups].sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+          const rootGroups = sortedGroups.filter((g: any) => !g.parentId);
+          const childGroups = (parentId: number) => sortedGroups.filter((g: any) => g.parentId === parentId);
+          // Filtro de busca
+          const searchLower = groupSearch.toLowerCase().trim();
+          const groupMatchesSearch = (g: any): boolean => {
+            if (!searchLower) return true;
+            if (g.name.toLowerCase().includes(searchLower)) return true;
+            // Verificar se algum item dentro do grupo corresponde
+            const elems = (g.elements ?? []).map((e: any) => (elements as any[]).find((x: any) => x.id === e.elementId)).filter(Boolean);
+            const rts = (g.routes ?? []).map((r: any) => (routes as any[]).find((x: any) => x.id === r.routeId)).filter(Boolean);
+            if (elems.some((e: any) => (e.elementName ?? e.name ?? "").toLowerCase().includes(searchLower))) return true;
+            if (rts.some((r: any) => (r.name ?? "").toLowerCase().includes(searchLower))) return true;
+            // Verificar subpastas recursivamente
+            return childGroups(g.id).some(groupMatchesSearch);
+          };
+          const filteredRootGroups = rootGroups.filter(groupMatchesSearch);
           const countAllElements = (g: any): { elems: number; routes: number } => {
             const children = childGroups(g.id);
             const childCounts = children.map(countAllElements);
@@ -4284,6 +4336,7 @@ export default function InfrastructureMap() {
             const isGroupHidden = hiddenGroupIds.has(group.id);
             const children = childGroups(group.id);
             const isExpanded = expandedGroups.has(group.id) || children.length === 0;
+            const isFolderDragOver = dragFolderOverId === group.id && dragFolderId !== group.id;
             // Itens expandidos quando: clicou na seta (isExpanded) OU clicou no nome (expandedGroupElements)
             const isElemsExpanded = isExpanded || expandedGroupElements.has(group.id);
             // Seta para minimizar/expandir a lista de itens dentro da pasta (feature 1)
@@ -4316,11 +4369,41 @@ export default function InfrastructureMap() {
               <div
                 key={group.id}
                 style={{ opacity: isGroupHidden ? 0.45 : 1 }}
-                onDragOver={(e) => { e.preventDefault(); setDragOverGroupId(group.id); }}
-                onDragLeave={() => setDragOverGroupId(null)}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (dragFolderId !== null && dragFolderId !== group.id) {
+                    setDragFolderOverId(group.id);
+                  } else {
+                    setDragOverGroupId(group.id);
+                  }
+                }}
+                onDragLeave={(e) => {
+                  if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+                    setDragOverGroupId(null);
+                    setDragFolderOverId(null);
+                  }
+                }}
                 onDrop={(e) => {
                   e.preventDefault();
                   setDragOverGroupId(null);
+                  setDragFolderOverId(null);
+                  // Drag de pasta para pasta (reordenar / mover para novo pai)
+                  const folderData = e.dataTransfer.getData('application/fiberdoc-folder');
+                  if (folderData) {
+                    try {
+                      const { id: folderId, currentParentId } = JSON.parse(folderData);
+                      if (folderId === group.id) return;
+                      // Mover pasta para dentro desta pasta (novo pai)
+                      const siblings = allGroups.filter((g: any) => g.parentId === group.id && g.id !== folderId);
+                      const updates = [
+                        { id: folderId, sortOrder: siblings.length, parentId: group.id },
+                        ...siblings.map((s: any, i: number) => ({ id: s.id, sortOrder: i, parentId: group.id }))
+                      ];
+                      reorderGroupMut.mutate({ updates });
+                      setDragFolderId(null);
+                    } catch {}
+                    return;
+                  }
                   const data = e.dataTransfer.getData('application/fiberdoc-item');
                   if (!data) return;
                   try {
@@ -4347,8 +4430,18 @@ export default function InfrastructureMap() {
                 }}
               >
                 <div
-                  className={`flex items-center gap-1.5 px-3 py-1.5 hover:bg-muted/30 ${dragOverGroupId === group.id ? 'bg-violet-500/10 ring-1 ring-violet-500/40 ring-inset' : ''}`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 hover:bg-muted/30 cursor-grab active:cursor-grabbing
+                    ${dragOverGroupId === group.id ? 'bg-violet-500/10 ring-1 ring-violet-500/40 ring-inset' : ''}
+                    ${isFolderDragOver ? 'bg-amber-500/10 ring-1 ring-amber-500/40 ring-inset' : ''}
+                  `}
                   style={{ paddingLeft: `${12 + depth * 16}px` }}
+                  draggable
+                  onDragStart={(e) => {
+                    setDragFolderId(group.id);
+                    e.dataTransfer.setData('application/fiberdoc-folder', JSON.stringify({ id: group.id, currentParentId: group.parentId ?? null }));
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onDragEnd={() => { setDragFolderId(null); setDragFolderOverId(null); }}
                 >
                   {/* Seta para subpastas */}
                   {children.length > 0 ? (
@@ -4608,7 +4701,43 @@ export default function InfrastructureMap() {
                   <button onClick={() => setGroupsPanelOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              {/* Caixa de busca rápida */}
+              <div className="px-3 py-2 border-b border-border/40">
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={groupSearch}
+                    onChange={(e) => setGroupSearch(e.target.value)}
+                    placeholder="Filtrar pastas e itens..."
+                    className="w-full pl-7 pr-7 py-1 text-xs bg-muted/30 border border-border/40 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-500/40 placeholder:text-muted-foreground/40"
+                  />
+                  {groupSearch && (
+                    <button onClick={() => setGroupSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto"
+                onDragOver={(e) => { if (dragFolderId !== null) { e.preventDefault(); } }}
+                onDrop={(e) => {
+                  const folderData = e.dataTransfer.getData('application/fiberdoc-folder');
+                  if (!folderData) return;
+                  e.preventDefault();
+                  try {
+                    const { id: folderId } = JSON.parse(folderData);
+                    // Mover para raiz (sem pai)
+                    const rootSiblings = sortedGroups.filter((g: any) => !g.parentId && g.id !== folderId);
+                    const updates = [
+                      { id: folderId, sortOrder: rootSiblings.length, parentId: null },
+                      ...rootSiblings.map((s: any, i: number) => ({ id: s.id, sortOrder: i, parentId: null }))
+                    ];
+                    reorderGroupMut.mutate({ updates });
+                    setDragFolderId(null);
+                  } catch {}
+                }}
+              >
                 {allGroups.length === 0 ? (
                   <div className="p-6 text-center text-sm text-muted-foreground">
                     <FolderTree className="w-10 h-10 mx-auto mb-2 opacity-30" />
@@ -4617,7 +4746,7 @@ export default function InfrastructureMap() {
                   </div>
                 ) : (
                   <div className="py-1">
-                    {rootGroups.map((g: any) => renderGroup(g, 0))}
+                    {filteredRootGroups.map((g: any) => renderGroup(g, 0))}
                     {/* Seção "Sem pasta" */}
                     {(() => {
                       const allGroupedElementIds = new Set<number>();
@@ -5048,7 +5177,7 @@ export default function InfrastructureMap() {
                   })()}
                 </div>
                 {exportGroupId !== null && (
-                  <p className="text-xs text-muted-foreground mt-1">Apenas elementos do grupo selecionado serão exportados.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Apenas elementos do grupo selecionado serão exportados.{exportOnlyVisible ? " Combinado com filtro de visíveis." : ""}</p>
                 )}
               </div>
             )}

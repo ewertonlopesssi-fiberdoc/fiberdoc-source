@@ -1654,3 +1654,8 @@
 - [x] Botão "Atribuir a pasta" para OLTs no painel de detalhes
 - [x] Arrastar itens entre pastas no painel lateral
 - [x] Exportar apenas itens visíveis (com checkbox marcado) no KML/KMZ
+
+## Melhorias Painel de Grupos — Lote 3
+- [x] Reordenar pastas por drag-and-drop (arrastar pasta para mudar ordem ou mover entre pais)
+- [x] Filtro rápido por nome no painel de grupos (caixa de busca no topo do painel)
+- [x] Exportação combinada: grupo selecionado + apenas itens visíveis juntos

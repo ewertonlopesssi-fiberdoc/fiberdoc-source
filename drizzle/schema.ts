@@ -716,6 +716,7 @@ export const mapGroups = mysqlTable("map_groups", {
   color: varchar("color", { length: 16 }).default("#6366f1").notNull(),
   description: text("description"),
   parentId: int("parentId"),
+  sortOrder: int("sortOrder").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

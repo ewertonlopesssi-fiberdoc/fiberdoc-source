@@ -153,6 +153,7 @@ import {
   getMapPois, getMapPoiById, createMapPoi, updateMapPoi, deleteMapPoi,
   addPoiToGroup, removePoiFromGroup, getAllPoiGroupMemberships,
   addOltToGroup, removeOltFromGroup, getAllOltGroupMemberships,
+  reorderMapGroups,
 } from "./db";
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
@@ -3410,6 +3411,30 @@ ${fiberFolder}
       .input(z.object({ oltId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await removeOltFromGroup(input.oltId, input.groupId);
+        return { ok: true };
+      }),
+    reorder: adminProcedure
+      .input(z.object({
+        updates: z.array(z.object({
+          id: z.number(),
+          sortOrder: z.number(),
+          parentId: z.number().nullable(),
+        }))
+      }))
+      .mutation(async ({ input }) => {
+        await reorderMapGroups(input.updates);
+        return { ok: true };
+      }),
+    addPoi: adminProcedure
+      .input(z.object({ poiId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await addPoiToGroup(input.poiId, input.groupId);
+        return { ok: true };
+      }),
+    removePoi: adminProcedure
+      .input(z.object({ poiId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await removePoiFromGroup(input.poiId, input.groupId);
         return { ok: true };
       }),
   }),

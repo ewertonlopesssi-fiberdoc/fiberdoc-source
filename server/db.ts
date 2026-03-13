@@ -2488,6 +2488,15 @@ export async function deleteMapGroup(id: number): Promise<void> {
   await db.delete(mapGroups).where(eq(mapGroups.id, id));
 }
 
+// Reordenar grupos: recebe array de { id, sortOrder, parentId } e atualiza em lote
+export async function reorderMapGroups(updates: { id: number; sortOrder: number; parentId: number | null }[]): Promise<void> {
+  const db = await getDb();
+  if (!db || updates.length === 0) return;
+  await Promise.all(updates.map(u =>
+    db.update(mapGroups).set({ sortOrder: u.sortOrder, parentId: u.parentId, updatedAt: new Date() }).where(eq(mapGroups.id, u.id))
+  ));
+}
+
 export async function getGroupMembers(groupId: number): Promise<{ elementIds: number[]; routeIds: number[] }> {
   const db = await getDb();
   if (!db) return { elementIds: [], routeIds: [] };
