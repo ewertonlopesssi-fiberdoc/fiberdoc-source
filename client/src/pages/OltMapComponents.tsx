@@ -155,6 +155,7 @@ export function OltDetailPanel({
   oltElementId,
   elements,
   ceos,
+  mapGroups = [],
   onClose,
   onUpdated,
 }: {
@@ -162,6 +163,7 @@ export function OltDetailPanel({
   elements: any[];
   ceos: any[];
   ctos?: any[];
+  mapGroups?: any[];
   onClose: () => void;
   onUpdated: () => void;
 }) {
@@ -277,6 +279,16 @@ export function OltDetailPanel({
       onUpdated();
       onClose();
     },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // Mutations para atribuição a pasta
+  const addOltToGroupMut = trpc.mapGroups.addOlt.useMutation({
+    onSuccess: () => { toast.success("OLT atribuída à pasta"); onUpdated(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const removeOltFromGroupMut = trpc.mapGroups.removeOlt.useMutation({
+    onSuccess: () => { toast.success("OLT removida da pasta"); onUpdated(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -821,6 +833,35 @@ export function OltDetailPanel({
               * Para splitters desbalanceados cadastrados com perda por via, o cálculo usa o valor real da via de saída.
             </p>
           </div>
+        </div>
+
+        {/* Seletor de Grupo (Pasta) */}
+        <div className="border-t border-border px-4 py-3 flex-shrink-0">
+          <div className="text-xs text-muted-foreground mb-1.5 font-medium flex items-center gap-1">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Atribuir a pasta
+          </div>
+          <Select
+            value={(() => { const g = mapGroups.find((g: any) => (g.olts ?? []).some((o: any) => o.oltId === oltElementId)); return g ? String(g.id) : "none"; })()}
+            onValueChange={(val) => {
+              const curGroup = mapGroups.find((g: any) => (g.olts ?? []).some((o: any) => o.oltId === oltElementId));
+              if (curGroup) removeOltFromGroupMut.mutate({ groupId: curGroup.id, oltId: oltElementId });
+              if (val !== "none") addOltToGroupMut.mutate({ groupId: Number(val), oltId: oltElementId });
+            }}
+          >
+            <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Sem pasta" /></SelectTrigger>
+            <SelectContent className="z-[99999]">
+              <SelectItem value="none">Sem pasta</SelectItem>
+              {mapGroups.map((g: any) => (
+                <SelectItem key={g.id} value={String(g.id)}>
+                  <span className="flex items-center gap-1.5">
+                    <span style={{ background: g.color ?? "#6366f1", width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />
+                    {g.name}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Footer */}

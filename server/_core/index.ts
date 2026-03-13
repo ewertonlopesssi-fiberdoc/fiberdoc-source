@@ -330,13 +330,20 @@ async function startServer() {
       if (routeIds?.length) routes = routes.filter((r: any) => routeIds.includes(r.id));
       if (exportGroupId) routes = routes.filter((r: any) => filterByGroup(r.id, allRouteMemberships as any[], "routeId"));
 
-      let poles = includePoles ? (allPoles as any[]) : [];
+      // includePoles/includeReserves/includePois podem ser boolean (todos) ou number[] (IDs específicos)
+      let poles = Array.isArray(includePoles)
+        ? (allPoles as any[]).filter((p: any) => (includePoles as number[]).includes(p.id))
+        : (includePoles ? (allPoles as any[]) : []);
       if (exportGroupId) poles = poles.filter((p: any) => filterByGroup(p.id, allPoleMemberships as any[], "poleId"));
 
-      let reserves = includeReserves ? (allReserves as any[]) : [];
+      let reserves = Array.isArray(includeReserves)
+        ? (allReserves as any[]).filter((r: any) => (includeReserves as number[]).includes(r.id))
+        : (includeReserves ? (allReserves as any[]) : []);
       if (exportGroupId) reserves = reserves.filter((r: any) => filterByGroup(r.id, allReserveMemberships as any[], "reserveId"));
 
-      let pois = includePois ? (allPois as any[]) : [];
+      let pois = Array.isArray(includePois)
+        ? (allPois as any[]).filter((p: any) => (includePois as number[]).includes(p.id))
+        : (includePois ? (allPois as any[]) : []);
       if (exportGroupId) pois = pois.filter((p: any) => (allPoiMemberships as any[]).some((m: any) => m.groupId === exportGroupId && m.poiId === p.id));
 
       const ctoMap = new Map(allCtos.map((c: any) => [c.id, c]));

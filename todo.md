@@ -1646,3 +1646,11 @@
 ## Bugs — Painel de Grupos e Seleção Múltipla
 - [x] Subpastas não expandem para mostrar os itens dentro delas (corrigido: seta expande subpastas + itens juntos)
 - [x] Seleção múltipla no mapa não consegue selecionar itens (corrigido: stale closure — usando groupSelectModeRef)
+
+## Melhorias Painel de Grupos — Lote 2
+- [x] Seta para minimizar/expandir itens dentro de cada subpasta individualmente
+- [x] Confirmação ao excluir pasta (dialog de confirmação)
+- [x] Postes, Reservas e POIs ocultos por padrão ao abrir o mapa
+- [x] Botão "Atribuir a pasta" para OLTs no painel de detalhes
+- [x] Arrastar itens entre pastas no painel lateral
+- [x] Exportar apenas itens visíveis (com checkbox marcado) no KML/KMZ

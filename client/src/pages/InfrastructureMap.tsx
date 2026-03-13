@@ -319,7 +319,7 @@ export default function InfrastructureMap() {
   const oltMarkersRef = useRef<Record<number, L.Marker>>({});
   // Postes no mapa
   const { data: mapPoles = [], refetch: refetchPoles } = trpc.mapPoles.list.useQuery(undefined, MAP_QUERY_OPTS);
-  const [showPoles, setShowPoles] = useState(true);
+  const [showPoles, setShowPoles] = useState(false);
   const [addingPoleMode, setAddingPoleMode] = useState(false);
   const [poleDialogOpen, setPoleDialogOpen] = useState(false);
   const [poleDialogLat, setPoleDialogLat] = useState(0);
@@ -330,7 +330,7 @@ export default function InfrastructureMap() {
   const poleMarkersRef = useRef<Record<number, L.Marker>>({});
   // Reservas Técnicas no mapa
   const { data: mapReserves = [], refetch: refetchReserves } = trpc.mapTechnicalReserves.list.useQuery(undefined, MAP_QUERY_OPTS);
-  const [showReserves, setShowReserves] = useState(true);
+  const [showReserves, setShowReserves] = useState(false);
   const [addingReserveMode, setAddingReserveMode] = useState(false);
   const [reserveDialogOpen, setReserveDialogOpen] = useState(false);
   const [reserveDialogLat, setReserveDialogLat] = useState(0);
@@ -340,7 +340,7 @@ export default function InfrastructureMap() {
   const [deleteReserveId, setDeleteReserveId] = useState<number | null>(null);
   const reserveMarkersRef = useRef<Record<number, L.Marker>>({});
   // POIs (Pontos de Interesse) no mapa
-  const [showPois, setShowPois] = useState(true);
+  const [showPois, setShowPois] = useState(false);
   const poiMarkersRef = useRef<Record<number, L.Marker>>({});
   const [editingPoi, setEditingPoi] = useState(false);
   const [poiEditForm, setPoiEditForm] = useState({ name: "", category: "geral", color: "#6366f1", notes: "" });
@@ -440,6 +440,7 @@ export default function InfrastructureMap() {
   const [exportIncludePois, setExportIncludePois] = useState(true);
   const [exportIncludeFusions, setExportIncludeFusions] = useState(true);
   const [exportGroupId, setExportGroupId] = useState<number | null>(null);
+  const [exportOnlyVisible, setExportOnlyVisible] = useState(false);
   const [groupSelectMode, setGroupSelectMode] = useState(false);
   const [groupSelectedElements, setGroupSelectedElements] = useState<Set<number>>(new Set());
   const [groupSelectedRoutes, setGroupSelectedRoutes] = useState<Set<number>>(new Set());
@@ -557,6 +558,9 @@ export default function InfrastructureMap() {
   const [expandedPickerGroups, setExpandedPickerGroups] = useState<Set<number>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
   const [expandedGroupElements, setExpandedGroupElements] = useState<Set<number>>(new Set());
+  const [expandedGroupItems, setExpandedGroupItems] = useState<Set<number>>(new Set()); // seta para minimizar itens dentro da pasta
+  const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null); // confirmação exclusão de pasta
+  const [dragOverGroupId, setDragOverGroupId] = useState<number | null>(null); // drag-and-drop entre pastas
   const [checkedItems, setCheckedItems] = useState<{ elements: Set<number>; routes: Set<number> }>({ elements: new Set(), routes: new Set() });
   const toggleCheckedElement = (id: number) => setCheckedItems(prev => { const e = new Set(prev.elements); if (e.has(id)) e.delete(id); else e.add(id); return { ...prev, elements: e }; });
   const toggleCheckedRoute = (id: number) => setCheckedItems(prev => { const r = new Set(prev.routes); if (r.has(id)) r.delete(id); else r.add(id); return { ...prev, routes: r }; });
@@ -1112,6 +1116,8 @@ export default function InfrastructureMap() {
     onError: (e) => toast.error(e.message),
   });
   const addPoiToGroupMut = trpc.mapPois.addToGroup.useMutation({ onError: (e) => toast.error(e.message) });
+  const assignOltToGroupMut = trpc.mapGroups.addOlt.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
+  const removeOltFromGroupMut = trpc.mapGroups.removeOlt.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
   const sgpQuery = trpc.sgp.queryClientsByCto.useQuery(
     {
       ctoName: sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? (sidePanel.element.name ?? "") : "",
@@ -2572,8 +2578,17 @@ export default function InfrastructureMap() {
   const handleExportKml = async () => {
     setExportLoading(true);
     try {
-      const elementIds = exportSelectAll ? undefined : Array.from(exportSelectedElements);
-      const routeIds = exportSelectAll ? undefined : Array.from(exportSelectedRoutes);
+      let elementIds = exportSelectAll ? undefined : Array.from(exportSelectedElements);
+      let routeIds = exportSelectAll ? undefined : Array.from(exportSelectedRoutes);
+      // Filtrar apenas itens visíveis (sem ocultos) quando exportOnlyVisible está ativo
+      if (exportOnlyVisible) {
+        const allElIds = (elements as any[]).map((e: any) => e.id);
+        const allRtIds = (routes as any[]).map((r: any) => r.id);
+        const visibleElIds = allElIds.filter((id: number) => !hiddenElementIds.has(id));
+        const visibleRtIds = allRtIds.filter((id: number) => !hiddenRouteIds.has(id));
+        elementIds = elementIds ? elementIds.filter((id: number) => visibleElIds.includes(id)) : visibleElIds;
+        routeIds = routeIds ? routeIds.filter((id: number) => visibleRtIds.includes(id)) : visibleRtIds;
+      }
       // Usar endpoint HTTP directo para evitar limitações do tRPC batch link com payloads grandes
       const resp = await fetch("/api/export-kml", {
         method: "POST",
@@ -2585,9 +2600,9 @@ export default function InfrastructureMap() {
           routeIds,
           includeFibers: exportIncludeFibers,
           exportTypes: { cto: exportTypeCto, ceo: exportTypeCeo, cabo: exportTypeCabo },
-          includePoles: exportIncludePoles,
-          includeReserves: exportIncludeReserves,
-          includePois: exportIncludePois,
+          includePoles: exportOnlyVisible ? (exportIncludePoles ? (mapPoles as any[]).filter((p: any) => !hiddenPoleIds.has(p.id)).map((p: any) => p.id) : []) : (exportIncludePoles ? undefined : []),
+          includeReserves: exportOnlyVisible ? (exportIncludeReserves ? (mapReserves as any[]).filter((r: any) => !hiddenReserveIds.has(r.id)).map((r: any) => r.id) : []) : (exportIncludeReserves ? undefined : []),
+          includePois: exportOnlyVisible ? (exportIncludePois ? (pois as any[]).filter((p: any) => !hiddenPoiIds.has(p.id)).map((p: any) => p.id) : []) : (exportIncludePois ? undefined : []),
           includeFusions: exportIncludeFusions,
           exportGroupId: exportGroupId ?? undefined,
         }),
@@ -4271,6 +4286,8 @@ export default function InfrastructureMap() {
             const isExpanded = expandedGroups.has(group.id) || children.length === 0;
             // Itens expandidos quando: clicou na seta (isExpanded) OU clicou no nome (expandedGroupElements)
             const isElemsExpanded = isExpanded || expandedGroupElements.has(group.id);
+            // Seta para minimizar/expandir a lista de itens dentro da pasta (feature 1)
+            const isItemsCollapsed = expandedGroupItems.has(group.id);
             const counts = countAllElements(group);
             // Elementos e rotas directamente neste grupo
             const groupElems: any[] = (group.elements ?? []).map((e: any) => {
@@ -4296,9 +4313,41 @@ export default function InfrastructureMap() {
             }).filter(Boolean);
             const hasItems = groupElems.length > 0 || groupRoutes.length > 0 || groupPoles.length > 0 || groupReserves.length > 0 || groupPois.length > 0 || groupOlts.length > 0;
             return (
-              <div key={group.id} style={{ opacity: isGroupHidden ? 0.45 : 1 }}>
+              <div
+                key={group.id}
+                style={{ opacity: isGroupHidden ? 0.45 : 1 }}
+                onDragOver={(e) => { e.preventDefault(); setDragOverGroupId(group.id); }}
+                onDragLeave={() => setDragOverGroupId(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOverGroupId(null);
+                  const data = e.dataTransfer.getData('application/fiberdoc-item');
+                  if (!data) return;
+                  try {
+                    const { type, id, fromGroupId } = JSON.parse(data);
+                    if (fromGroupId === group.id) return; // mesma pasta, ignorar
+                    // Remover do grupo antigo e adicionar ao novo
+                    if (type === 'element') {
+                      if (fromGroupId) removeElementFromGroupMut.mutate({ groupId: fromGroupId, elementId: id });
+                      assignElementToGroupMut.mutate({ groupId: group.id, elementId: id });
+                    } else if (type === 'route') {
+                      if (fromGroupId) removeRouteFromGroupMut.mutate({ groupId: fromGroupId, routeId: id });
+                      assignRouteToGroupMut.mutate({ groupId: group.id, routeId: id });
+                    } else if (type === 'pole') {
+                      if (fromGroupId) removePoleFromGroupMut.mutate({ groupId: fromGroupId, poleId: id });
+                      assignPoleToGroupMut.mutate({ groupId: group.id, poleId: id });
+                    } else if (type === 'reserve') {
+                      if (fromGroupId) removeReserveFromGroupMut.mutate({ groupId: fromGroupId, reserveId: id });
+                      assignReserveToGroupMut.mutate({ groupId: group.id, reserveId: id });
+                    } else if (type === 'olt') {
+                      if (fromGroupId) removeOltFromGroupMut.mutate({ groupId: fromGroupId, oltId: id });
+                      assignOltToGroupMut.mutate({ groupId: group.id, oltId: id });
+                    }
+                  } catch {}
+                }}
+              >
                 <div
-                  className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-muted/30"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 hover:bg-muted/30 ${dragOverGroupId === group.id ? 'bg-violet-500/10 ring-1 ring-violet-500/40 ring-inset' : ''}`}
                   style={{ paddingLeft: `${12 + depth * 16}px` }}
                 >
                   {/* Seta para subpastas */}
@@ -4345,6 +4394,16 @@ export default function InfrastructureMap() {
                   </span>
                   <div className="flex items-center gap-0.5 flex-shrink-0">
                     <span className="text-[10px] text-muted-foreground/60">{counts.elems + counts.routes}</span>
+                    {/* Seta para minimizar/expandir itens da pasta */}
+                    {hasItems && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setExpandedGroupItems(prev => { const n = new Set(prev); if (n.has(group.id)) n.delete(group.id); else n.add(group.id); return n; }); }}
+                        className="p-0.5 text-muted-foreground/50 hover:text-muted-foreground"
+                        title={isItemsCollapsed ? "Expandir itens" : "Minimizar itens"}
+                      >
+                        <ChevronDown className={`w-3 h-3 transition-transform ${isItemsCollapsed ? '-rotate-90' : ''}`} />
+                      </button>
+                    )}
                     {isAdmin && (
                       <>
                         <button
@@ -4362,7 +4421,7 @@ export default function InfrastructureMap() {
                           <Pencil className="w-3 h-3" />
                         </button>
                         <button
-                          onClick={() => deleteGroupMapMut.mutate({ id: group.id })}
+                          onClick={() => setDeletingGroupId(group.id)}
                           className="p-0.5 text-red-400/60 hover:text-red-400"
                           title="Excluir grupo"
                         >
@@ -4372,14 +4431,19 @@ export default function InfrastructureMap() {
                     )}
                   </div>
                 </div>
-                {/* Lista de elementos da pasta (expandida) */}
-                {isElemsExpanded && hasItems && (
+                {/* Lista de elementos da pasta (expandida) — oculta se minimizada pela seta */}
+                {isElemsExpanded && hasItems && !isItemsCollapsed && (
                   <div className="border-l border-border/40 ml-5 mb-1">
                     {groupElems.map((el: any) => {
                       const isHidden = hiddenElementIds.has(el.id);
                       const elName = el.elementName ?? el.name ?? el.label ?? `#${el.id}`;
                       return (
-                        <div key={`el-${el.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                        <div key={`el-${el.id}`}
+                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          draggable
+                          onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'element', id: el.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
+                        >
                           <Checkbox
                             checked={checkedItems.elements.has(el.id)}
                             onCheckedChange={() => toggleCheckedElement(el.id)}
@@ -4408,7 +4472,12 @@ export default function InfrastructureMap() {
                         else if (rt.path) { const pts = JSON.parse(rt.path); if (pts.length > 0) { midLat = pts[Math.floor(pts.length/2)].lat; midLng = pts[Math.floor(pts.length/2)].lng; } }
                       } catch {}
                       return (
-                        <div key={`rt-${rt.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                        <div key={`rt-${rt.id}`}
+                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          draggable
+                          onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'route', id: rt.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
+                        >
                           <Checkbox
                             checked={checkedItems.routes.has(rt.id)}
                             onCheckedChange={() => toggleCheckedRoute(rt.id)}
@@ -4428,7 +4497,12 @@ export default function InfrastructureMap() {
                       const isHidden = hiddenPoleIds.has(pole.id);
                       const poleName = pole.name ?? pole.label ?? `Poste #${pole.id}`;
                       return (
-                        <div key={`pole-${pole.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                        <div key={`pole-${pole.id}`}
+                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          draggable
+                          onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'pole', id: pole.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
+                        >
                           <span className="w-3 h-3 flex-shrink-0" />
                           <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("pole", pole.id)} />
                           <span
@@ -4444,7 +4518,12 @@ export default function InfrastructureMap() {
                       const isHidden = hiddenReserveIds.has(reserve.id);
                       const reserveName = reserve.name ?? reserve.label ?? `Reserva #${reserve.id}`;
                       return (
-                        <div key={`reserve-${reserve.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                        <div key={`reserve-${reserve.id}`}
+                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          draggable
+                          onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'reserve', id: reserve.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
+                        >
                           <span className="w-3 h-3 flex-shrink-0" />
                           <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("reserve", reserve.id)} />
                           <span
@@ -4461,7 +4540,12 @@ export default function InfrastructureMap() {
                       const poiColor = poi.color ?? POI_CAT_COLORS[(poi.category ?? "geral").toLowerCase()] ?? "#6366f1";
                       const isHidden = hiddenPoiIds.has(poi.id);
                       return (
-                        <div key={`poi-${poi.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                        <div key={`poi-${poi.id}`}
+                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          draggable
+                          onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'poi', id: poi.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
+                        >
                           <span className="w-3 h-3 flex-shrink-0 flex items-center justify-center">
                             <span style={{ width: 7, height: 7, borderRadius: "50%", background: poiColor, display: "inline-block" }} />
                           </span>
@@ -4479,7 +4563,12 @@ export default function InfrastructureMap() {
                       const isHidden = hiddenOltIds.has(olt.id);
                       const oltName = olt.equipmentName ?? `OLT #${olt.id}`;
                       return (
-                        <div key={`olt-${olt.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                        <div key={`olt-${olt.id}`}
+                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          draggable
+                          onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'olt', id: olt.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
+                        >
                           <span className="w-3 h-3 flex-shrink-0" />
                           <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("olt", olt.id)} />
                           <span
@@ -4963,6 +5052,25 @@ export default function InfrastructureMap() {
                 )}
               </div>
             )}
+            {/* Exportar apenas visíveis */}
+            <div className="bg-muted/10 rounded-lg p-3">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={exportOnlyVisible}
+                  onChange={e => setExportOnlyVisible(e.target.checked)}
+                  className="rounded"
+                />
+                <div>
+                  <span className="text-sm font-medium">Exportar apenas itens visíveis</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">Inclui somente os itens que estão visíveis no painel de grupos (sem checkbox desmarcado no mapa)</p>
+                </div>
+              </label>
+              {exportOnlyVisible && (
+                <p className="text-xs text-amber-500/80 mt-2">⚠ Os itens ocultos no painel lateral serão ignorados na exportação.</p>
+              )}
+            </div>
+
             {/* Seleção individual (avançado) */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -5250,6 +5358,35 @@ export default function InfrastructureMap() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setQuickAssignDialogOpen(false)}>Cancelar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de Confirmação de Exclusão de Pasta */}
+      <Dialog open={deletingGroupId !== null} onOpenChange={(open) => { if (!open) setDeletingGroupId(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-400">
+              <Trash2 className="w-4 h-4" /> Excluir pasta?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Tem certeza que deseja excluir a pasta <strong className="text-foreground">{(mapGroups as any[]).find((g: any) => g.id === deletingGroupId)?.name ?? ""}</strong>?
+            </p>
+            <p className="text-xs text-muted-foreground/70">Os itens atribuídos a esta pasta não serão excluídos — apenas a pasta será removida.</p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeletingGroupId(null)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deletingGroupId !== null) deleteGroupMapMut.mutate({ id: deletingGroupId });
+                setDeletingGroupId(null);
+              }}
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Excluir
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -6876,8 +7013,9 @@ export default function InfrastructureMap() {
           elements={elements as any[]}
           ceos={ceos}
           ctos={ctos as any[]}
+          mapGroups={mapGroups as any[]}
           onClose={() => { setOltDetailPanelOpen(false); setSelectedOltElementId(null); }}
-          onUpdated={() => refetchOltElements()}
+          onUpdated={() => { refetchOltElements(); refetchGroups(); }}
         />
       )}
 
