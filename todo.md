@@ -1697,3 +1697,9 @@
 - [x] Painel de detalhes usa sgp.getOnuDetail + sgp.configureOnt
 - [x] Aba CPE mantém comandos via genieacs.sgpCpe* (Gerenciador CPE do SGP)
 - [x] Dialog de configuração agora mostra configuração SGP (não GenieACS)
+
+## PWA Mobile — Melhorias Lote 6
+- [x] Ícones da barra inferior iguais ao web (Box para CEO, Radio para CTO, Map, Activity para OTDR, User, Server)
+- [x] Botão "Balanço Óptico" no PanelDetail da CTO no mapa
+- [x] Botão "OTDR" direto no PanelDetail do CEO/CTO no mapa
+- [x] Corrigir botão "Onde estou" para centralizar no GPS do técnico (não estava funcionando)

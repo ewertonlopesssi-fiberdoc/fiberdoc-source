@@ -8,7 +8,7 @@ import MobileCtos from "./screens/MobileCtos";
 import MobileMap from "./screens/MobileMap";
 import MobileProfile from "./screens/MobileProfile";
 import MobileOtdr from "./screens/MobileOtdr";
-import { Server, Cable, Activity, User, WifiOff, Radio, Map } from "lucide-react";
+import { Server, Box, Activity, User, WifiOff, Radio, Map } from "lucide-react";
 
 type Tab = "equipamentos" | "ceos" | "ctos" | "mapa" | "otdr" | "perfil";
 
@@ -74,7 +74,7 @@ function MobileShell() {
 
   const allTabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: "equipamentos", label: "Equip.",  icon: Server   },
-    { id: "ceos",         label: "CEO",     icon: Cable    },
+    { id: "ceos",         label: "CEO",     icon: Box      },
     { id: "ctos",         label: "CTO",     icon: Radio    },
     { id: "mapa",         label: "Mapa",    icon: Map      },
     { id: "otdr",         label: "OTDR",    icon: Activity },

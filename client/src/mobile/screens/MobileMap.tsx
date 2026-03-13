@@ -6,6 +6,7 @@ import { createMobileTrpcClient, isOnline, saveOfflineCache, loadOfflineCache } 
 import {
   Cable, Radio, MapPin, X, ChevronRight, Edit2, Check, ChevronLeft,
   Layers, Link2, Link2Off, RefreshCw, Loader2, AlertCircle, LocateFixed, Plus, Trash2, Users, Unlink,
+  BarChart2, Zap, Copy,
 } from "lucide-react";
 
 // ─── Cores de tubo ─────────────────────────────────────────────────────────
@@ -124,6 +125,55 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
   const [filterStatus, setFilterStatus] = useState<"all" | "active" | "inactive">("all");
   const [gpsLocating, setGpsLocating] = useState(false);
   const myLocationMarkerRef = useRef<L.CircleMarker | null>(null);
+  // ─── Balanço Óptico e OTDR no mapa ──────────────────────────────────────
+  const [mapBalanceOpen, setMapBalanceOpen] = useState(false);
+  const [mapBalance, setMapBalance] = useState<any | null>(null);
+  const [mapBalanceLoading, setMapBalanceLoading] = useState(false);
+  const [mapBalanceError, setMapBalanceError] = useState<string | null>(null);
+  const [mapOtdrOpen, setMapOtdrOpen] = useState(false);
+  const [mapOtdrTubes, setMapOtdrTubes] = useState<any[]>([]);
+  const [mapOtdrTubeId, setMapOtdrTubeId] = useState("");
+  const [mapOtdrViaNum, setMapOtdrViaNum] = useState("");
+  const [mapOtdrDist, setMapOtdrDist] = useState("");
+  const [mapOtdrResult, setMapOtdrResult] = useState<any | null>(null);
+  const [mapOtdrRunning, setMapOtdrRunning] = useState(false);
+  const [mapOtdrError, setMapOtdrError] = useState<string | null>(null);
+  const [mapOtdrCopied, setMapOtdrCopied] = useState(false);
+
+  async function handleMapBalance() {
+    if (!selectedEl) { setMapBalanceError("Elemento não encontrado no mapa"); return; }
+    setMapBalance(null); setMapBalanceError(null); setMapBalanceLoading(true); setMapBalanceOpen(true);
+    try {
+      const result = await client.infraMap.opticalBalance.query({ ctoElementId: selectedEl.id });
+      setMapBalance(result);
+    } catch (e: any) { setMapBalanceError(e?.message ?? "Erro ao calcular balanço"); }
+    setMapBalanceLoading(false);
+  }
+
+  async function handleMapOtdrOpen() {
+    if (!selectedEl) return;
+    setMapOtdrTubes([]); setMapOtdrTubeId(""); setMapOtdrViaNum(""); setMapOtdrDist(""); setMapOtdrResult(null); setMapOtdrError(null); setMapOtdrOpen(true);
+    try {
+      const data = await client.infraMap.tubesByElement.query({ elementId: selectedEl.id });
+      setMapOtdrTubes(data as any[]);
+    } catch { setMapOtdrTubes([]); }
+  }
+
+  async function runMapOtdr() {
+    if (!selectedEl || !mapOtdrTubeId || !mapOtdrViaNum || !mapOtdrDist) { setMapOtdrError("Preencha todos os campos"); return; }
+    setMapOtdrRunning(true); setMapOtdrError(null); setMapOtdrResult(null);
+    try {
+      const result = await client.infraMap.traceOtdr.query({
+        elementId: selectedEl.id,
+        tubeId: parseInt(mapOtdrTubeId),
+        viaNumber: parseInt(mapOtdrViaNum),
+        distanceMeters: parseFloat(mapOtdrDist),
+      });
+      setMapOtdrResult(result);
+    } catch (e: any) { setMapOtdrError(e?.message ?? "Erro ao executar OTDR"); }
+    setMapOtdrRunning(false);
+  }
+
   // ─── Vincular CTO ao SGP (mobile) ──────────────────────────────────
   const [linkSgpOpen, setLinkSgpOpen] = useState(false);
   const [linkSgpSearch, setLinkSgpSearch] = useState("");
@@ -275,19 +325,31 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
         if (mapRef.current) {
           // Remover marcador anterior
           if (myLocationMarkerRef.current) { myLocationMarkerRef.current.remove(); myLocationMarkerRef.current = null; }
-          // Adicionar marcador pulsante de posição actual
-          const circle = L.circleMarker([lat, lng], {
-            radius: 10, color: "#3b82f6", fillColor: "#3b82f6",
-            fillOpacity: 0.8, weight: 3, opacity: 1,
-          }).addTo(mapRef.current);
-          circle.bindPopup("<b>Você está aqui</b>").openPopup();
-          myLocationMarkerRef.current = circle;
-          mapRef.current.setView([lat, lng], 16, { animate: true });
+          // Marcador com anel externo pulsante (div icon)
+          const myIcon = L.divIcon({
+            html: `<div style="position:relative;width:24px;height:24px">
+              <div style="position:absolute;inset:0;border-radius:50%;background:#3b82f6;opacity:0.25;animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite"></div>
+              <div style="position:absolute;inset:4px;border-radius:50%;background:#3b82f6;border:2px solid white;box-shadow:0 0 8px rgba(59,130,246,0.8)"></div>
+            </div>`,
+            className: "",
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+          });
+          const marker = L.marker([lat, lng], { icon: myIcon }).addTo(mapRef.current);
+          marker.bindPopup(`<b>Você está aqui</b><br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`).openPopup();
+          myLocationMarkerRef.current = marker as unknown as L.CircleMarker;
+          mapRef.current.setView([lat, lng], 17, { animate: true });
         }
         setGpsLocating(false);
       },
-      () => { setGpsLocating(false); setError("Não foi possível obter a localização. Verifique as permissões de GPS."); },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      (err) => {
+        setGpsLocating(false);
+        const msg = err.code === 1 ? "Permissão de GPS negada. Habilite a localização no navegador."
+          : err.code === 2 ? "GPS indisponível. Tente ao ar livre."
+          : "Tempo esgotado ao obter GPS. Tente novamente.";
+        setError(msg);
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
   }
 
@@ -598,6 +660,23 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
               ) : (
                 <div className="text-xs text-zinc-500">Nenhuma ONU vinculada</div>
               )}
+            </div>
+          )}
+          {/* Botões Balanço Óptico e OTDR (apenas CTO online) */}
+          {panelType === "cto" && isOnline() && selectedEl && (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleMapBalance}
+                className="flex items-center justify-center gap-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-xl py-2.5 text-xs text-cyan-300 hover:bg-cyan-500/20 transition-colors"
+              >
+                <BarChart2 className="w-3.5 h-3.5" /> Balanço Óptico
+              </button>
+              <button
+                onClick={handleMapOtdrOpen}
+                className="flex items-center justify-center gap-1.5 bg-amber-500/10 border border-amber-500/30 rounded-xl py-2.5 text-xs text-amber-300 hover:bg-amber-500/20 transition-colors"
+              >
+                <Zap className="w-3.5 h-3.5" /> OTDR Virtual
+              </button>
             </div>
           )}
           {/* Botão Exportar PDF de Fusões */}
@@ -1246,9 +1325,187 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
           </div>
         )}
 
-        {/* ─── Modal: Vincular CTO ao SGP ───────────────────────────────── */}
-        {linkSgpOpen && (
+        {/* ─── Modal: Balanço Óptico ─────────────────────────────────────────────────────── */}
+        {mapBalanceOpen && (
           <div className="absolute inset-0 bg-black/70 flex items-end" style={{ zIndex: 30 }}>
+            <div className="w-full bg-zinc-950 border-t border-zinc-800 rounded-t-2xl p-4 space-y-3 max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BarChart2 className="w-4 h-4 text-cyan-400" />
+                  <span className="text-sm font-bold text-white">Balanço Óptico</span>
+                  <span className="text-xs text-zinc-400">{selectedCto?.name}</span>
+                </div>
+                <button onClick={() => setMapBalanceOpen(false)} className="text-zinc-500 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              {mapBalanceLoading ? (
+                <div className="flex-1 flex items-center justify-center gap-2 text-zinc-400 text-xs py-8">
+                  <Loader2 className="w-5 h-5 animate-spin text-cyan-400" /> Calculando balanço...
+                </div>
+              ) : mapBalanceError ? (
+                <div className="flex items-center gap-2 text-red-400 text-xs p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" /> {mapBalanceError}
+                </div>
+              ) : mapBalance ? (() => {
+                const b = mapBalance as any;
+                const q: string = b.quality ?? "";
+                const qColor = q === "excellent" ? "text-emerald-400" : q === "good" ? "text-cyan-400" : q === "marginal" ? "text-amber-400" : q === "poor" ? "text-orange-400" : "text-red-400";
+                return (
+                  <div className="flex-1 overflow-y-auto space-y-3">
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-zinc-400">Potência RX Estimada</span>
+                        <span className={`font-bold text-sm ${qColor}`}>{b.estimatedRxPower?.toFixed(2) ?? "--"} dBm</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-zinc-400">Qualidade</span>
+                        <span className={`font-semibold capitalize ${qColor}`}>{q === "excellent" ? "Excelente" : q === "good" ? "Bom" : q === "marginal" ? "Marginal" : q === "poor" ? "Fraco" : q}</span>
+                      </div>
+                      {b.totalDistance != null && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-zinc-400">Distância Total</span>
+                          <span className="text-zinc-200">{(b.totalDistance / 1000).toFixed(2)} km</span>
+                        </div>
+                      )}
+                      {b.splitterLoss != null && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-zinc-400">Perda Splitter</span>
+                          <span className="text-zinc-200">{b.splitterLoss?.toFixed(2)} dB</span>
+                        </div>
+                      )}
+                      {b.fiberLoss != null && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-zinc-400">Perda Fibra</span>
+                          <span className="text-zinc-200">{b.fiberLoss?.toFixed(2)} dB</span>
+                        </div>
+                      )}
+                    </div>
+                    {b.path && b.path.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs text-zinc-500 font-medium">Caminho Óptico</p>
+                        {b.path.map((step: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2 text-xs bg-zinc-900 rounded-lg px-2 py-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 flex-shrink-0" />
+                            <span className="text-zinc-300 truncate">{step.name ?? step.type}</span>
+                            {step.loss != null && <span className="ml-auto text-zinc-500 flex-shrink-0">{step.loss?.toFixed(2)} dB</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })() : null}
+            </div>
+          </div>
+        )}
+
+        {/* ─── Modal: OTDR Virtual ────────────────────────────────────────────────────────────── */}
+        {mapOtdrOpen && (
+          <div className="absolute inset-0 bg-black/70 flex items-end" style={{ zIndex: 30 }}>
+            <div className="w-full bg-zinc-950 border-t border-zinc-800 rounded-t-2xl p-4 space-y-3 max-h-[85vh] flex flex-col">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <span className="text-sm font-bold text-white">OTDR Virtual</span>
+                  <span className="text-xs text-zinc-400">{panelType === "cto" ? selectedCto?.name : selectedCeo?.name}</span>
+                </div>
+                <button onClick={() => setMapOtdrOpen(false)} className="text-zinc-500 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-3">
+                {mapOtdrTubes.length === 0 ? (
+                  <div className="text-xs text-zinc-500 text-center py-4">Nenhum tubo encontrado neste elemento</div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Tubo</label>
+                      <select
+                        value={mapOtdrTubeId}
+                        onChange={e => setMapOtdrTubeId(e.target.value)}
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+                      >
+                        <option value="">Selecionar tubo...</option>
+                        {mapOtdrTubes.map((t: any) => (
+                          <option key={t.id} value={String(t.id)}>{t.identifier} ({t.totalVias} vias)</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs text-zinc-400 mb-1 block">Nº da Via</label>
+                        <input type="number" min="1" value={mapOtdrViaNum} onChange={e => setMapOtdrViaNum(e.target.value)}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+                          placeholder="1" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-zinc-400 mb-1 block">Distância (m)</label>
+                        <input type="number" min="1" value={mapOtdrDist} onChange={e => setMapOtdrDist(e.target.value)}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+                          placeholder="500" />
+                      </div>
+                    </div>
+                    {mapOtdrError && (
+                      <div className="flex items-center gap-2 text-red-400 text-xs p-2 bg-red-500/10 border border-red-500/30 rounded-xl">
+                        <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> {mapOtdrError}
+                      </div>
+                    )}
+                    {mapOtdrResult && (() => {
+                      const r = mapOtdrResult as any;
+                      return (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 space-y-2">
+                          <p className="text-xs font-semibold text-amber-300">Resultado OTDR</p>
+                          {r.lat != null && r.lng != null && (
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-xs text-zinc-400">Coordenadas estimadas</p>
+                                <p className="text-xs text-white font-mono">{r.lat?.toFixed(6)}, {r.lng?.toFixed(6)}</p>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(`${r.lat?.toFixed(6)},${r.lng?.toFixed(6)}`);
+                                  setMapOtdrCopied(true);
+                                  setTimeout(() => setMapOtdrCopied(false), 2000);
+                                }}
+                                className="flex items-center gap-1 text-xs text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 rounded-lg px-2 py-1"
+                              >
+                                {mapOtdrCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                                {mapOtdrCopied ? "Copiado" : "Copiar"}
+                              </button>
+                            </div>
+                          )}
+                          {r.distanceFromStart != null && (
+                            <div className="flex justify-between text-xs">
+                              <span className="text-zinc-400">Distância da origem</span>
+                              <span className="text-zinc-200">{r.distanceFromStart?.toFixed(0)} m</span>
+                            </div>
+                          )}
+                          {r.segmentName && (
+                            <div className="flex justify-between text-xs">
+                              <span className="text-zinc-400">Segmento</span>
+                              <span className="text-zinc-200 truncate ml-2">{r.segmentName}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
+              </div>
+              <button
+                onClick={runMapOtdr}
+                disabled={mapOtdrRunning || !mapOtdrTubeId || !mapOtdrViaNum || !mapOtdrDist}
+                className="w-full py-3 rounded-xl text-sm font-semibold bg-amber-600 text-white disabled:opacity-40 flex items-center justify-center gap-2"
+              >
+                {mapOtdrRunning ? <><Loader2 className="w-4 h-4 animate-spin" /> Calculando...</> : <><Zap className="w-4 h-4" /> Executar OTDR</>}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Modal: Vincular CTO ao SGP ──────────────────────────────────────── */}
+        {linkSgpOpen && (       <div className="absolute inset-0 bg-black/70 flex items-end" style={{ zIndex: 30 }}>
             <div className="w-full bg-zinc-950 border-t border-zinc-800 rounded-t-2xl p-4 space-y-3 max-h-[80vh] flex flex-col">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
