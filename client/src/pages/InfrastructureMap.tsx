@@ -558,6 +558,31 @@ export default function InfrastructureMap() {
   const totalChecked = checkedItems.elements.size + checkedItems.routes.size;
   const handleExportChecked = () => { setExportSelectedElements(new Set(checkedItems.elements)); setExportSelectedRoutes(new Set(checkedItems.routes)); setExportSelectAll(false); setExportDialogOpen(true); };
 
+  // ─── Visibilidade por grupo e por item (bidirecional, estilo Google Earth) ───
+  const [hiddenGroupIds, setHiddenGroupIds] = useState<Set<number>>(new Set());
+  const [hiddenElementIds, setHiddenElementIds] = useState<Set<number>>(new Set());
+  const [hiddenRouteIds, setHiddenRouteIds] = useState<Set<number>>(new Set());
+  const [hiddenPoleIds, setHiddenPoleIds] = useState<Set<number>>(new Set());
+  const [hiddenReserveIds, setHiddenReserveIds] = useState<Set<number>>(new Set());
+  const [hiddenPoiIds, setHiddenPoiIds] = useState<Set<number>>(new Set());
+  const [hiddenOltIds, setHiddenOltIds] = useState<Set<number>>(new Set());
+  const toggleGroupVisibility = useCallback((groupId: number) => {
+    setHiddenGroupIds(prev => { const n = new Set(prev); if (n.has(groupId)) n.delete(groupId); else n.add(groupId); return n; });
+  }, []);
+  const toggleItemVisibility = useCallback((type: "element" | "route" | "pole" | "reserve" | "poi" | "olt", id: number) => {
+    if (type === "element") setHiddenElementIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+    else if (type === "route") setHiddenRouteIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+    else if (type === "pole") setHiddenPoleIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+    else if (type === "reserve") setHiddenReserveIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+    else if (type === "poi") setHiddenPoiIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+    else if (type === "olt") setHiddenOltIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }, []);
+  // Calcula se um elemento está oculto por grupo (pertence a pelo menos um grupo oculto)
+  const isHiddenByGroup = useCallback((itemGroupIds: number[]) => {
+    if (hiddenGroupIds.size === 0) return false;
+    return itemGroupIds.some(gid => hiddenGroupIds.has(gid));
+  }, [hiddenGroupIds]);
+
   const createGroupMut = trpc.mapGroups.create.useMutation({
     onSuccess: () => { refetchGroups(); setGroupDialogOpen(false); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null }); toast.success("Grupo criado"); },
     onError: (e) => toast.error(e.message),
@@ -848,6 +873,68 @@ export default function InfrastructureMap() {
         return group?.routes?.some((gr: any) => gr.routeId === r.id);
       })
     : (routes as any[]);
+
+  // Mapas de grupos por item — para isHiddenByGroup verificar rapidamente
+  const elementGroupMap = useMemo(() => {
+    const m: Record<number, number[]> = {};
+    (mapGroups as any[]).forEach((g: any) => {
+      (g.elements ?? []).forEach((e: any) => {
+        if (!m[e.elementId]) m[e.elementId] = [];
+        m[e.elementId].push(g.id);
+      });
+    });
+    return m;
+  }, [mapGroups]);
+  const routeGroupMap = useMemo(() => {
+    const m: Record<number, number[]> = {};
+    (mapGroups as any[]).forEach((g: any) => {
+      (g.routes ?? []).forEach((r: any) => {
+        if (!m[r.routeId]) m[r.routeId] = [];
+        m[r.routeId].push(g.id);
+      });
+    });
+    return m;
+  }, [mapGroups]);
+  const poleGroupMap = useMemo(() => {
+    const m: Record<number, number[]> = {};
+    (mapGroups as any[]).forEach((g: any) => {
+      (g.poles ?? []).forEach((p: any) => {
+        if (!m[p.poleId]) m[p.poleId] = [];
+        m[p.poleId].push(g.id);
+      });
+    });
+    return m;
+  }, [mapGroups]);
+  const reserveGroupMap = useMemo(() => {
+    const m: Record<number, number[]> = {};
+    (mapGroups as any[]).forEach((g: any) => {
+      (g.reserves ?? []).forEach((r: any) => {
+        if (!m[r.reserveId]) m[r.reserveId] = [];
+        m[r.reserveId].push(g.id);
+      });
+    });
+    return m;
+  }, [mapGroups]);
+  const poiGroupMap = useMemo(() => {
+    const m: Record<number, number[]> = {};
+    (mapGroups as any[]).forEach((g: any) => {
+      (g.pois ?? []).forEach((p: any) => {
+        if (!m[p.poiId]) m[p.poiId] = [];
+        m[p.poiId].push(g.id);
+      });
+    });
+    return m;
+  }, [mapGroups]);
+  const oltGroupMap = useMemo(() => {
+    const m: Record<number, number[]> = {};
+    (mapGroups as any[]).forEach((g: any) => {
+      (g.olts ?? []).forEach((o: any) => {
+        if (!m[o.oltId]) m[o.oltId] = [];
+        m[o.oltId].push(g.id);
+      });
+    });
+    return m;
+  }, [mapGroups]);
 
   const toggleGroupSelectMode = useCallback(() => {
     setGroupSelectMode(v => {
@@ -1233,6 +1320,12 @@ export default function InfrastructureMap() {
         if (markersRef.current[el.id]) { markersRef.current[el.id].remove(); delete markersRef.current[el.id]; }
         return;
       }
+      // Visibilidade por item ou por grupo
+      const isHiddenItem = hiddenElementIds.has(el.id) || isHiddenByGroup(elementGroupMap[el.id] ?? []);
+      if (isHiddenItem) {
+        if (markersRef.current[el.id]) { markersRef.current[el.id].remove(); delete markersRef.current[el.id]; delete prevMarkerStateRef.current[el.id]; }
+        return;
+      }
 
       const ref = isCto ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : ceos.find((c: any) => c.id === el.referenceId);
       const name = ref?.name ?? (isCto ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`);
@@ -1310,7 +1403,7 @@ export default function InfrastructureMap() {
       markersRef.current[el.id] = marker;
       prevMarkerStateRef.current[el.id] = stateKey;
     });
-  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, movingElementId, onuCountMap, otdrMode]);
+  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, movingElementId, onuCountMap, otdrMode, hiddenElementIds, elementGroupMap, isHiddenByGroup]);
 
   // Renderizar rotas
   const renderRoutes = useCallback(() => {
@@ -1328,6 +1421,8 @@ export default function InfrastructureMap() {
       if (r.path) { try { (JSON.parse(r.path) as any[]).forEach((pt: any) => latlngs.push([pt.lat, pt.lng])); } catch {} }
       if (toEl) latlngs.push([Number(toEl.lat), Number(toEl.lng)]);
       if (latlngs.length < 2) return;
+      // Visibilidade por item ou por grupo
+      if (hiddenRouteIds.has(r.id) || isHiddenByGroup(routeGroupMap[r.id] ?? [])) return;
       const isSelected = groupSelectedRoutes.has(r.id);
       // Ocultar a polyline da rota que está sendo editada (evita duplicação)
       const isBeingEdited = r.id === editingRouteId;
@@ -1351,7 +1446,7 @@ export default function InfrastructureMap() {
       const labelMarker = L.marker(midPt, { icon: labelIcon, interactive: false, keyboard: false, opacity: isBeingEdited ? 0 : 1 } as any).addTo(mapRef.current!);
       routeLabelsRef.current[r.id] = labelMarker;
     });
-  }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute, editingRouteId, occupancyMap, getOccupancyColor]);
+  }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute, editingRouteId, occupancyMap, getOccupancyColor, hiddenRouteIds, routeGroupMap, isHiddenByGroup]);
 
   useEffect(() => { renderMarkers(); }, [renderMarkers]);
   useEffect(() => { renderRoutes(); }, [renderRoutes]);
@@ -1364,6 +1459,7 @@ export default function InfrastructureMap() {
     oltMarkersRef.current = {};
     if (!showOlts) return;
     (oltElements as any[]).forEach((olt: any) => {
+      if (hiddenOltIds.has(olt.id) || isHiddenByGroup(oltGroupMap[olt.id] ?? [])) return;
       const icon = L.divIcon({
         className: "",
         iconSize: [36, 36],
@@ -1380,7 +1476,7 @@ export default function InfrastructureMap() {
       });
       oltMarkersRef.current[olt.id] = marker;
     });
-  }, [oltElements, showOlts, mapReady]);
+  }, [oltElements, showOlts, mapReady, hiddenOltIds, oltGroupMap, isHiddenByGroup]);
 
   // Renderizar postes no mapa
   useEffect(() => {
@@ -1389,6 +1485,7 @@ export default function InfrastructureMap() {
     poleMarkersRef.current = {};
     if (!showPoles) return;
     (mapPoles as any[]).forEach((pole: any) => {
+      if (hiddenPoleIds.has(pole.id) || isHiddenByGroup(poleGroupMap[pole.id] ?? [])) return;
       const icon = L.divIcon({
         className: "",
         iconSize: [32, 46],
@@ -1417,7 +1514,7 @@ export default function InfrastructureMap() {
       }
       poleMarkersRef.current[pole.id] = marker;
     });
-  }, [mapPoles, showPoles, mapReady, isAdmin]);
+  }, [mapPoles, showPoles, mapReady, isAdmin, hiddenPoleIds, poleGroupMap, isHiddenByGroup]);
 
   // Renderizar reservas técnicas no mapa
   useEffect(() => {
@@ -1426,6 +1523,7 @@ export default function InfrastructureMap() {
     reserveMarkersRef.current = {};
     if (!showReserves) return;
     (mapReserves as any[]).forEach((reserve: any) => {
+      if (hiddenReserveIds.has(reserve.id) || isHiddenByGroup(reserveGroupMap[reserve.id] ?? [])) return;
       const icon = L.divIcon({
         className: "",
         iconSize: [32, 46],
@@ -1454,7 +1552,7 @@ export default function InfrastructureMap() {
       }
       reserveMarkersRef.current[reserve.id] = marker;
     });
-   }, [mapReserves, showReserves, mapReady, isAdmin]);
+   }, [mapReserves, showReserves, mapReady, isAdmin, hiddenReserveIds, reserveGroupMap, isHiddenByGroup]);
   // Renderizar POIs no mapa
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
@@ -1473,6 +1571,7 @@ export default function InfrastructureMap() {
       geral: `<path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'/><circle cx='12' cy='10' r='3'/>`,
     };
     (pois as any[]).forEach((poi: any) => {
+      if (hiddenPoiIds.has(poi.id) || isHiddenByGroup(poiGroupMap[poi.id] ?? [])) return;
       const cat = (poi.category ?? "geral").toLowerCase();
       const bgColor = poi.color ?? POI_CATEGORY_COLORS[cat] ?? "#6366f1";
       const iconPath = POI_CATEGORY_ICONS[cat] ?? POI_CATEGORY_ICONS.geral;
@@ -1496,7 +1595,7 @@ export default function InfrastructureMap() {
       });
       poiMarkersRef.current[poi.id] = marker;
     });
-  }, [pois, showPois, mapReady]);
+  }, [pois, showPois, mapReady, hiddenPoiIds, poiGroupMap, isHiddenByGroup]);
   // Modo adicionar poste — clique no mapa
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
@@ -4014,8 +4113,23 @@ export default function InfrastructureMap() {
               routes: (g.routes?.length ?? 0) + childCounts.reduce((s: number, c: any) => s + c.routes, 0),
             };
           };
+          // Helper: flyTo para um item
+          const flyToItem = (lat: number | null | undefined, lng: number | null | undefined) => {
+            if (lat == null || lng == null || !mapRef.current) return;
+            mapRef.current.flyTo([Number(lat), Number(lng)], Math.max(mapRef.current.getZoom(), 17));
+          };
+          // Helper: ícone de visibilidade por item
+          const VisibilityBtn = ({ hidden, onToggle, title }: { hidden: boolean; onToggle: () => void; title?: string }) => (
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggle(); }}
+              className={`p-0.5 flex-shrink-0 ${hidden ? "text-muted-foreground/30" : "text-muted-foreground hover:text-foreground"}`}
+              title={title ?? (hidden ? "Mostrar no mapa" : "Ocultar do mapa")}
+            >
+              {hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+            </button>
+          );
           const renderGroup = (group: any, depth: number = 0) => {
-            const isActive = activeGroupFilter === group.id;
+            const isGroupHidden = hiddenGroupIds.has(group.id);
             const children = childGroups(group.id);
             const isExpanded = expandedGroups.has(group.id) || children.length === 0;
             const isElemsExpanded = expandedGroupElements.has(group.id);
@@ -4038,13 +4152,15 @@ export default function InfrastructureMap() {
               return reserve ? { ...reserve, _type: "reserve" } : null;
             }).filter(Boolean);
             const groupPois: any[] = allPois.filter((p: any) => (p.groups ?? []).includes(group.id));
-            const hasItems = groupElems.length > 0 || groupRoutes.length > 0 || groupPoles.length > 0 || groupReserves.length > 0 || groupPois.length > 0;
+            const groupOlts: any[] = (group.olts ?? []).map((o: any) => {
+              const olt = (oltElements as any[]).find((x: any) => x.id === o.oltId);
+              return olt ? { ...olt, _type: "olt" } : null;
+            }).filter(Boolean);
+            const hasItems = groupElems.length > 0 || groupRoutes.length > 0 || groupPoles.length > 0 || groupReserves.length > 0 || groupPois.length > 0 || groupOlts.length > 0;
             return (
-              <div key={group.id}>
+              <div key={group.id} style={{ opacity: isGroupHidden ? 0.45 : 1 }}>
                 <div
-                  className={`flex items-center gap-1.5 px-3 py-2 ${
-                    isActive ? "bg-violet-500/10" : "hover:bg-muted/30"
-                  }`}
+                  className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-muted/30"
                   style={{ paddingLeft: `${12 + depth * 16}px` }}
                 >
                   {/* Seta para subpastas */}
@@ -4062,31 +4178,21 @@ export default function InfrastructureMap() {
                   ) : (
                     <span className="w-3.5 flex-shrink-0" />
                   )}
-                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: group.color ?? "#6366f1" }} />
-                  <span className="text-xs font-medium flex-1 truncate cursor-pointer" onClick={() => setActiveGroupFilter(isActive ? null : group.id)}>{group.name}</span>
+                  {/* Olho: toggle visibilidade do grupo inteiro */}
+                  <button
+                    onClick={() => toggleGroupVisibility(group.id)}
+                    className={`flex-shrink-0 p-0.5 ${isGroupHidden ? "text-muted-foreground/30" : "text-muted-foreground hover:text-foreground"}`}
+                    title={isGroupHidden ? "Mostrar grupo no mapa" : "Ocultar grupo do mapa"}
+                  >
+                    {isGroupHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: group.color ?? "#6366f1" }} />
+                  <span className="text-xs font-medium flex-1 truncate cursor-pointer" title={group.name}
+                    onClick={() => setExpandedGroupElements(prev => { const n = new Set(prev); if (n.has(group.id)) n.delete(group.id); else n.add(group.id); return n; })}>
+                    {group.name}
+                  </span>
                   <div className="flex items-center gap-0.5 flex-shrink-0">
-                    {/* Seta para listar elementos da pasta */}
-                    {hasItems && (
-                      <button
-                        onClick={() => setExpandedGroupElements(prev => {
-                          const n = new Set(prev);
-                          if (n.has(group.id)) n.delete(group.id); else n.add(group.id);
-                          return n;
-                        })}
-                        className="p-0.5 text-muted-foreground hover:text-foreground"
-                        title={isElemsExpanded ? "Ocultar itens" : "Ver itens da pasta"}
-                      >
-                        {isElemsExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3 opacity-50" />}
-                      </button>
-                    )}
-                    <span className="text-xs text-muted-foreground">{counts.elems + counts.routes}</span>
-                    <button
-                      onClick={() => setActiveGroupFilter(isActive ? null : group.id)}
-                      className={`p-0.5 rounded ${isActive ? "text-violet-400" : "text-muted-foreground hover:text-foreground"}`}
-                      title={isActive ? "Remover filtro" : "Filtrar por este grupo"}
-                    >
-                      {isActive ? <Check className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                    </button>
+                    <span className="text-[10px] text-muted-foreground/60">{counts.elems + counts.routes}</span>
                     {isAdmin && (
                       <>
                         <button
@@ -4116,54 +4222,120 @@ export default function InfrastructureMap() {
                 </div>
                 {/* Lista de elementos da pasta (expandida) */}
                 {isElemsExpanded && hasItems && (
-                  <div className="border-l border-border/40 ml-6 mb-1">
-                    {groupElems.map((el: any) => (
-                      <div key={`el-${el.id}`} className="flex items-center gap-2 px-2 py-1 hover:bg-muted/20 text-xs" style={{ paddingLeft: `${8 + depth * 16}px` }}>
-                        <Checkbox
-                          checked={checkedItems.elements.has(el.id)}
-                          onCheckedChange={() => toggleCheckedElement(el.id)}
-                          className="w-3.5 h-3.5 flex-shrink-0"
-                        />
-                        <span className="text-muted-foreground truncate flex-1" title={el.elementName ?? el.name ?? el.label}>{el.elementName ?? el.name ?? el.label ?? `#${el.id}`}</span>
-                        <span className="text-muted-foreground/50 uppercase text-[10px]">{el.type ?? ""}</span>
-                      </div>
-                    ))}
-                    {groupRoutes.map((rt: any) => (
-                      <div key={`rt-${rt.id}`} className="flex items-center gap-2 px-2 py-1 hover:bg-muted/20 text-xs" style={{ paddingLeft: `${8 + depth * 16}px` }}>
-                        <Checkbox
-                          checked={checkedItems.routes.has(rt.id)}
-                          onCheckedChange={() => toggleCheckedRoute(rt.id)}
-                          className="w-3.5 h-3.5 flex-shrink-0"
-                        />
-                        <span className="text-muted-foreground truncate flex-1" title={rt.name ?? rt.label}>{rt.name ?? rt.label ?? `Cabo #${rt.id}`}</span>
-                        <span className="text-muted-foreground/50 uppercase text-[10px]">cabo</span>
-                      </div>
-                    ))}
-                    {groupPoles.map((pole: any) => (
-                      <div key={`pole-${pole.id}`} className="flex items-center gap-2 px-2 py-1 hover:bg-muted/20 text-xs" style={{ paddingLeft: `${8 + depth * 16}px` }}>
-                        <span className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="text-muted-foreground truncate flex-1" title={pole.name ?? pole.label}>{pole.name ?? pole.label ?? `Poste #${pole.id}`}</span>
-                        <span className="text-muted-foreground/50 uppercase text-[10px]">poste</span>
-                      </div>
-                    ))}
-                    {groupReserves.map((reserve: any) => (
-                      <div key={`reserve-${reserve.id}`} className="flex items-center gap-2 px-2 py-1 hover:bg-muted/20 text-xs" style={{ paddingLeft: `${8 + depth * 16}px` }}>
-                        <span className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="text-muted-foreground truncate flex-1" title={reserve.name ?? reserve.label}>{reserve.name ?? reserve.label ?? `Reserva #${reserve.id}`}</span>
-                        <span className="text-muted-foreground/50 uppercase text-[10px]">reserva</span>
-                      </div>
-                    ))}
+                  <div className="border-l border-border/40 ml-5 mb-1">
+                    {groupElems.map((el: any) => {
+                      const isHidden = hiddenElementIds.has(el.id);
+                      const elName = el.elementName ?? el.name ?? el.label ?? `#${el.id}`;
+                      return (
+                        <div key={`el-${el.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                          <Checkbox
+                            checked={checkedItems.elements.has(el.id)}
+                            onCheckedChange={() => toggleCheckedElement(el.id)}
+                            className="w-3 h-3 flex-shrink-0"
+                          />
+                          <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("element", el.id)} />
+                          <span
+                            className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground"
+                            title={`${elName} — clique para localizar`}
+                            onClick={() => { flyToItem(el.lat, el.lng); }}
+                          >{elName}</span>
+                          <span className="text-muted-foreground/40 uppercase text-[9px]">{el.type ?? ""}</span>
+                        </div>
+                      );
+                    })}
+                    {groupRoutes.map((rt: any) => {
+                      const isHidden = hiddenRouteIds.has(rt.id);
+                      const rtName = rt.name ?? rt.label ?? `Cabo #${rt.id}`;
+                      // Ponto médio do cabo para flyTo
+                      let midLat: number | null = null; let midLng: number | null = null;
+                      try {
+                        const fromEl = (elements as any[]).find((e: any) => e.id === rt.fromElementId);
+                        const toEl = (elements as any[]).find((e: any) => e.id === rt.toElementId);
+                        if (fromEl && toEl) { midLat = (Number(fromEl.lat) + Number(toEl.lat)) / 2; midLng = (Number(fromEl.lng) + Number(toEl.lng)) / 2; }
+                        else if (fromEl) { midLat = Number(fromEl.lat); midLng = Number(fromEl.lng); }
+                        else if (rt.path) { const pts = JSON.parse(rt.path); if (pts.length > 0) { midLat = pts[Math.floor(pts.length/2)].lat; midLng = pts[Math.floor(pts.length/2)].lng; } }
+                      } catch {}
+                      return (
+                        <div key={`rt-${rt.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                          <Checkbox
+                            checked={checkedItems.routes.has(rt.id)}
+                            onCheckedChange={() => toggleCheckedRoute(rt.id)}
+                            className="w-3 h-3 flex-shrink-0"
+                          />
+                          <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("route", rt.id)} />
+                          <span
+                            className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground"
+                            title={`${rtName} — clique para localizar`}
+                            onClick={() => flyToItem(midLat, midLng)}
+                          >{rtName}</span>
+                          <span className="text-muted-foreground/40 uppercase text-[9px]">cabo</span>
+                        </div>
+                      );
+                    })}
+                    {groupPoles.map((pole: any) => {
+                      const isHidden = hiddenPoleIds.has(pole.id);
+                      const poleName = pole.name ?? pole.label ?? `Poste #${pole.id}`;
+                      return (
+                        <div key={`pole-${pole.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                          <span className="w-3 h-3 flex-shrink-0" />
+                          <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("pole", pole.id)} />
+                          <span
+                            className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground"
+                            title={`${poleName} — clique para localizar`}
+                            onClick={() => flyToItem(pole.lat, pole.lng)}
+                          >{poleName}</span>
+                          <span className="text-muted-foreground/40 uppercase text-[9px]">poste</span>
+                        </div>
+                      );
+                    })}
+                    {groupReserves.map((reserve: any) => {
+                      const isHidden = hiddenReserveIds.has(reserve.id);
+                      const reserveName = reserve.name ?? reserve.label ?? `Reserva #${reserve.id}`;
+                      return (
+                        <div key={`reserve-${reserve.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                          <span className="w-3 h-3 flex-shrink-0" />
+                          <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("reserve", reserve.id)} />
+                          <span
+                            className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground"
+                            title={`${reserveName} — clique para localizar`}
+                            onClick={() => flyToItem(reserve.lat, reserve.lng)}
+                          >{reserveName}</span>
+                          <span className="text-muted-foreground/40 uppercase text-[9px]">reserva</span>
+                        </div>
+                      );
+                    })}
                     {groupPois.map((poi: any) => {
                       const POI_CAT_COLORS: Record<string, string> = { camera: "#ef4444", predio: "#8b5cf6", antena: "#f59e0b", torre: "#06b6d4", geral: "#6366f1" };
                       const poiColor = poi.color ?? POI_CAT_COLORS[(poi.category ?? "geral").toLowerCase()] ?? "#6366f1";
+                      const isHidden = hiddenPoiIds.has(poi.id);
                       return (
-                        <div key={`poi-${poi.id}`} className="flex items-center gap-2 px-2 py-1 hover:bg-muted/20 text-xs cursor-pointer" style={{ paddingLeft: `${8 + depth * 16}px` }}
-                          onClick={() => { setSidePanel({ kind: "poi", poi }); setEditingPoi(false); setPoiEditForm({ name: poi.name ?? "", category: poi.category ?? "geral", color: poi.color ?? poiColor, notes: poi.notes ?? "" }); }}>
-                          <span className="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center">
-                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: poiColor, display: "inline-block" }} />
+                        <div key={`poi-${poi.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                          <span className="w-3 h-3 flex-shrink-0 flex items-center justify-center">
+                            <span style={{ width: 7, height: 7, borderRadius: "50%", background: poiColor, display: "inline-block" }} />
                           </span>
-                          <span className="text-muted-foreground truncate flex-1" title={poi.name}>{poi.name ?? `POI #${poi.id}`}</span>
-                          <span className="text-muted-foreground/50 uppercase text-[10px]">{poi.category ?? "poi"}</span>
+                          <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("poi", poi.id)} />
+                          <span
+                            className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground"
+                            title={`${poi.name ?? `POI #${poi.id}`} — clique para localizar`}
+                            onClick={() => { flyToItem(poi.lat, poi.lng); setSidePanel({ kind: "poi", poi }); setEditingPoi(false); setPoiEditForm({ name: poi.name ?? "", category: poi.category ?? "geral", color: poi.color ?? poiColor, notes: poi.notes ?? "" }); }}
+                          >{poi.name ?? `POI #${poi.id}`}</span>
+                          <span className="text-muted-foreground/40 uppercase text-[9px]">{poi.category ?? "poi"}</span>
+                        </div>
+                      );
+                    })}
+                    {groupOlts.map((olt: any) => {
+                      const isHidden = hiddenOltIds.has(olt.id);
+                      const oltName = olt.equipmentName ?? `OLT #${olt.id}`;
+                      return (
+                        <div key={`olt-${olt.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                          <span className="w-3 h-3 flex-shrink-0" />
+                          <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("olt", olt.id)} />
+                          <span
+                            className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground"
+                            title={`${oltName} — clique para localizar`}
+                            onClick={() => { flyToItem(olt.lat, olt.lng); setSelectedOltElementId(olt.id); setOltDetailPanelOpen(true); }}
+                          >{oltName}</span>
+                          <span className="text-muted-foreground/40 uppercase text-[9px]">olt</span>
                         </div>
                       );
                     })}
@@ -4195,12 +4367,6 @@ export default function InfrastructureMap() {
                   <button onClick={() => setGroupsPanelOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
                 </div>
               </div>
-              {activeGroupFilter !== null && (
-                <div className="px-3 py-2 bg-violet-500/10 border-b border-violet-500/20 flex items-center gap-2">
-                  <span className="text-xs text-violet-400 flex-1">Filtrando por pasta</span>
-                  <button onClick={() => setActiveGroupFilter(null)} className="text-xs text-violet-300 hover:text-violet-200 underline">Limpar filtro</button>
-                </div>
-              )}
               <div className="flex-1 overflow-y-auto">
                 {allGroups.length === 0 ? (
                   <div className="p-6 text-center text-sm text-muted-foreground">
@@ -4209,7 +4375,133 @@ export default function InfrastructureMap() {
                     {isAdmin && <p className="text-xs mt-1">Clique em <strong>+</strong> para criar uma pasta.</p>}
                   </div>
                 ) : (
-                  <div className="py-1">{rootGroups.map((g: any) => renderGroup(g, 0))}</div>
+                  <div className="py-1">
+                    {rootGroups.map((g: any) => renderGroup(g, 0))}
+                    {/* Seção "Sem pasta" */}
+                    {(() => {
+                      const allGroupedElementIds = new Set<number>();
+                      const allGroupedRouteIds = new Set<number>();
+                      const allGroupedPoleIds = new Set<number>();
+                      const allGroupedReserveIds = new Set<number>();
+                      const allGroupedPoiIds = new Set<number>();
+                      const allGroupedOltIds = new Set<number>();
+                      allGroups.forEach((g: any) => {
+                        (g.elements ?? []).forEach((e: any) => allGroupedElementIds.add(e.elementId));
+                        (g.routes ?? []).forEach((r: any) => allGroupedRouteIds.add(r.routeId));
+                        (g.poles ?? []).forEach((p: any) => allGroupedPoleIds.add(p.poleId));
+                        (g.reserves ?? []).forEach((r: any) => allGroupedReserveIds.add(r.reserveId));
+                        (g.pois ?? []).forEach((p: any) => allGroupedPoiIds.add(p.poiId));
+                        (g.olts ?? []).forEach((o: any) => allGroupedOltIds.add(o.oltId));
+                      });
+                      const ungroupedElems = (elements as any[]).filter((e: any) => !allGroupedElementIds.has(e.id));
+                      const ungroupedRoutes = (routes as any[]).filter((r: any) => !allGroupedRouteIds.has(r.id));
+                      const ungroupedPoles = (poles as any[]).filter((p: any) => !allGroupedPoleIds.has(p.id));
+                      const ungroupedReserves = (reserves as any[]).filter((r: any) => !allGroupedReserveIds.has(r.id));
+                      const ungroupedPois = allPois.filter((p: any) => !allGroupedPoiIds.has(p.id));
+                      const ungroupedOlts = (oltElements as any[]).filter((o: any) => !allGroupedOltIds.has(o.id));
+                      const totalUngrouped = ungroupedElems.length + ungroupedRoutes.length + ungroupedPoles.length + ungroupedReserves.length + ungroupedPois.length + ungroupedOlts.length;
+                      if (totalUngrouped === 0) return null;
+                      const isExpanded = expandedGroupElements.has(-1);
+                      return (
+                        <div className="mt-1 border-t border-border/30 pt-1">
+                          <div
+                            className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-muted/30 cursor-pointer"
+                            onClick={() => setExpandedGroupElements(prev => { const n = new Set(prev); if (n.has(-1)) n.delete(-1); else n.add(-1); return n; })}
+                          >
+                            <span className="w-3.5 flex-shrink-0" />
+                            <span className="w-3.5 flex-shrink-0" />
+                            <span className="text-xs font-medium flex-1 text-muted-foreground/70 italic">Sem pasta</span>
+                            <span className="text-[10px] text-muted-foreground/50">{totalUngrouped}</span>
+                            {isExpanded ? <ChevronDown className="w-3 h-3 text-muted-foreground/50" /> : <ChevronRight className="w-3 h-3 text-muted-foreground/50" />}
+                          </div>
+                          {isExpanded && (
+                            <div className="border-l border-border/30 ml-5 mb-1">
+                              {ungroupedElems.map((el: any) => {
+                                const isHidden = hiddenElementIds.has(el.id);
+                                const elName = el.elementName ?? el.name ?? el.label ?? `#${el.id}`;
+                                return (
+                                  <div key={`unel-${el.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
+                                    <span className="w-3 h-3 flex-shrink-0" />
+                                    <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("element", el.id)} />
+                                    <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => flyToItem(el.lat, el.lng)} title={elName}>{elName}</span>
+                                    <span className="text-muted-foreground/40 uppercase text-[9px]">{el.type ?? ""}</span>
+                                  </div>
+                                );
+                              })}
+                              {ungroupedRoutes.map((rt: any) => {
+                                const isHidden = hiddenRouteIds.has(rt.id);
+                                const rtName = rt.name ?? rt.label ?? `Cabo #${rt.id}`;
+                                let midLat: number | null = null; let midLng: number | null = null;
+                                try {
+                                  const fromEl = (elements as any[]).find((e: any) => e.id === rt.fromElementId);
+                                  const toEl = (elements as any[]).find((e: any) => e.id === rt.toElementId);
+                                  if (fromEl && toEl) { midLat = (Number(fromEl.lat) + Number(toEl.lat)) / 2; midLng = (Number(fromEl.lng) + Number(toEl.lng)) / 2; }
+                                  else if (fromEl) { midLat = Number(fromEl.lat); midLng = Number(fromEl.lng); }
+                                  else if (rt.path) { const pts = JSON.parse(rt.path); if (pts.length > 0) { midLat = pts[Math.floor(pts.length/2)].lat; midLng = pts[Math.floor(pts.length/2)].lng; } }
+                                } catch {}
+                                return (
+                                  <div key={`unrt-${rt.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
+                                    <span className="w-3 h-3 flex-shrink-0" />
+                                    <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("route", rt.id)} />
+                                    <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => flyToItem(midLat, midLng)} title={rtName}>{rtName}</span>
+                                    <span className="text-muted-foreground/40 uppercase text-[9px]">cabo</span>
+                                  </div>
+                                );
+                              })}
+                              {ungroupedPoles.map((pole: any) => {
+                                const isHidden = hiddenPoleIds.has(pole.id);
+                                const poleName = pole.name ?? `Poste #${pole.id}`;
+                                return (
+                                  <div key={`unpole-${pole.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
+                                    <span className="w-3 h-3 flex-shrink-0" />
+                                    <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("pole", pole.id)} />
+                                    <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => flyToItem(pole.lat, pole.lng)} title={poleName}>{poleName}</span>
+                                    <span className="text-muted-foreground/40 uppercase text-[9px]">poste</span>
+                                  </div>
+                                );
+                              })}
+                              {ungroupedReserves.map((reserve: any) => {
+                                const isHidden = hiddenReserveIds.has(reserve.id);
+                                const reserveName = reserve.name ?? `Reserva #${reserve.id}`;
+                                return (
+                                  <div key={`unreserve-${reserve.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
+                                    <span className="w-3 h-3 flex-shrink-0" />
+                                    <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("reserve", reserve.id)} />
+                                    <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => flyToItem(reserve.lat, reserve.lng)} title={reserveName}>{reserveName}</span>
+                                    <span className="text-muted-foreground/40 uppercase text-[9px]">reserva</span>
+                                  </div>
+                                );
+                              })}
+                              {ungroupedPois.map((poi: any) => {
+                                const isHidden = hiddenPoiIds.has(poi.id);
+                                const poiName = poi.name ?? `POI #${poi.id}`;
+                                return (
+                                  <div key={`unpoi-${poi.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
+                                    <span className="w-3 h-3 flex-shrink-0" />
+                                    <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("poi", poi.id)} />
+                                    <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => { flyToItem(poi.lat, poi.lng); setSidePanel({ kind: "poi", poi }); }} title={poiName}>{poiName}</span>
+                                    <span className="text-muted-foreground/40 uppercase text-[9px]">{poi.category ?? "poi"}</span>
+                                  </div>
+                                );
+                              })}
+                              {ungroupedOlts.map((olt: any) => {
+                                const isHidden = hiddenOltIds.has(olt.id);
+                                const oltName = olt.equipmentName ?? `OLT #${olt.id}`;
+                                return (
+                                  <div key={`unolt-${olt.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
+                                    <span className="w-3 h-3 flex-shrink-0" />
+                                    <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("olt", olt.id)} />
+                                    <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => { flyToItem(olt.lat, olt.lng); setSelectedOltElementId(olt.id); setOltDetailPanelOpen(true); }} title={oltName}>{oltName}</span>
+                                    <span className="text-muted-foreground/40 uppercase text-[9px]">olt</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 )}
               </div>
               {totalChecked > 0 && (

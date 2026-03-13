@@ -1215,3 +1215,12 @@ export const mapPoiGroups = mysqlTable("map_poi_groups", {
   poiId: int("poiId").notNull().references(() => mapPois.id, { onDelete: "cascade" }),
   groupId: int("groupId").notNull().references(() => mapGroups.id, { onDelete: "cascade" }),
 });
+export type MapPoiGroup = typeof mapPoiGroups.$inferSelect;
+
+// ─── Associação de OLTs a Grupos ─────────────────────────────────────────────
+export const mapOltGroups = mysqlTable("map_olt_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  oltId: int("oltId").notNull().references(() => mapOltElements.id, { onDelete: "cascade" }),
+  groupId: int("groupId").notNull().references(() => mapGroups.id, { onDelete: "cascade" }),
+});
+export type MapOltGroup = typeof mapOltGroups.$inferSelect;

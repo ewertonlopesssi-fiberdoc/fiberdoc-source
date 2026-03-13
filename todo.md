@@ -1613,3 +1613,20 @@
 - [x] getRoutesOccupancy: reescrita com batch queries (elimina N+1 — de ~3×N queries para ≤8 queries fixas)
 - [x] renderMarkers: renderização incremental com diff (só recria marcadores que mudaram)
 - [x] Cache de ícones Leaflet (iconCacheRef): evita recriar L.divIcon quando nada mudou no marcador
+
+## Painel de Grupos Bidirecional (Google Earth style)
+- [x] Suporte a grupos para OLTs: tabela map_olt_groups no schema + migração SQL
+- [x] Backend: getAllOltGroupMemberships, addOltToGroup, removeOltFromGroup no db.ts
+- [x] Backend: procedures mapGroups.addOlt, removeOlt, list inclui OLTs
+- [x] Frontend: hiddenGroupIds — toggle visibilidade por grupo (olho na pasta)
+- [x] Frontend: hidden*Ids por tipo — toggle visibilidade por item individual
+- [x] Frontend: renderMarkers respeita hiddenGroupIds e hiddenElementIds
+- [x] Frontend: renderRoutes respeita hiddenGroupIds e hiddenRouteIds
+- [x] Frontend: postes/reservas/POIs/OLTs respeitam hiddenGroupIds e hidden*Ids
+- [x] Painel lateral: ícone olho por grupo (toggle hiddenGroupIds)
+- [x] Painel lateral: checkbox por item (toggle hidden*Ids)
+- [x] Painel lateral: clique no nome do item → flyTo + abre detalhes
+- [x] Painel lateral: OLTs listados dentro dos grupos
+- [x] Painel lateral: seção "Sem pasta" com todos os itens não agrupados
+- [x] Painel lateral: contagem visíveis/total por grupo
+- [ ] Script SQL de migração com URL pública para produção

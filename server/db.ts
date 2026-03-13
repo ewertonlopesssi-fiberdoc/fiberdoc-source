@@ -3523,7 +3523,7 @@ export async function traceOtdrPath(
 }
 
 // ─── OLT no Mapa ─────────────────────────────────────────────────────────────
-import { mapOltElements, MapOltElement, InsertMapOltElement, oltPortFiberLinks, OltPortFiberLink, InsertOltPortFiberLink } from "../drizzle/schema";
+import { mapOltElements, MapOltElement, InsertMapOltElement, oltPortFiberLinks, OltPortFiberLink, InsertOltPortFiberLink, mapOltGroups, MapOltGroup } from "../drizzle/schema";
 // Note: ceos, ceoTubes, ceoVias, ceoSplitters, ceoSplitterVias, ctoTubes, ctoVias, ctos, mapElements, mapRoutes already imported above
 
 export async function getMapOltElements(): Promise<(MapOltElement & { equipmentName: string })[]> {
@@ -4527,4 +4527,27 @@ export async function getAllPoiGroupMemberships(): Promise<{ poiId: number; grou
   const db = await getDb();
   if (!db) return [];
   return db.select({ poiId: mapPoiGroups.poiId, groupId: mapPoiGroups.groupId }).from(mapPoiGroups);
+}
+
+// ─── Grupos de OLTs ───────────────────────────────────────────────────────────
+export async function addOltToGroup(oltId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const exists = await db.select().from(mapOltGroups).where(and(eq(mapOltGroups.oltId, oltId), eq(mapOltGroups.groupId, groupId)));
+  if (exists.length === 0) await db.insert(mapOltGroups).values({ oltId, groupId });
+}
+export async function removeOltFromGroup(oltId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapOltGroups).where(and(eq(mapOltGroups.oltId, oltId), eq(mapOltGroups.groupId, groupId)));
+}
+export async function removeOltFromAllGroups(oltId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapOltGroups).where(eq(mapOltGroups.oltId, oltId));
+}
+export async function getAllOltGroupMemberships(): Promise<MapOltGroup[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapOltGroups);
 }

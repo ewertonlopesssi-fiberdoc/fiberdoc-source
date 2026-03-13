@@ -152,6 +152,7 @@ import {
   createMapTechnicalReserve, updateMapTechnicalReserve, deleteMapTechnicalReserve,
   getMapPois, getMapPoiById, createMapPoi, updateMapPoi, deleteMapPoi,
   addPoiToGroup, removePoiFromGroup, getAllPoiGroupMemberships,
+  addOltToGroup, removeOltFromGroup, getAllOltGroupMemberships,
 } from "./db";
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
@@ -3280,12 +3281,16 @@ ${fiberFolder}
         const allRoutes = await getAllRouteGroupMemberships();
         const allPoles = await getAllPoleGroupMemberships();
         const allReserves = await getAllReserveGroupMemberships();
+        const allPois = await getAllPoiGroupMemberships();
+        const allOlts = await getAllOltGroupMemberships();
         return groups.map(g => ({
           ...g,
           elements: allElements.filter((e: any) => e.groupId === g.id),
           routes: allRoutes.filter((r: any) => r.groupId === g.id),
           poles: allPoles.filter((p: any) => p.groupId === g.id),
           reserves: allReserves.filter((r: any) => r.groupId === g.id),
+          pois: allPois.filter((p: any) => p.groupId === g.id),
+          olts: allOlts.filter((o: any) => o.groupId === g.id),
         }));
       }),
     memberships: protectedProcedure
@@ -3294,7 +3299,9 @@ ${fiberFolder}
         const routes = await getAllRouteGroupMemberships();
         const poles = await getAllPoleGroupMemberships();
         const reserves = await getAllReserveGroupMemberships();
-        return { elements, routes, poles, reserves };
+        const pois = await getAllPoiGroupMemberships();
+        const olts = await getAllOltGroupMemberships();
+        return { elements, routes, poles, reserves, pois, olts };
       }),
     members: protectedProcedure
       .input(z.object({ groupId: z.number() }))
@@ -3380,6 +3387,18 @@ ${fiberFolder}
       .input(z.object({ reserveId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await removeReserveFromGroup(input.reserveId, input.groupId);
+        return { ok: true };
+      }),
+    addOlt: adminProcedure
+      .input(z.object({ oltId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await addOltToGroup(input.oltId, input.groupId);
+        return { ok: true };
+      }),
+    removeOlt: adminProcedure
+      .input(z.object({ oltId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await removeOltFromGroup(input.oltId, input.groupId);
         return { ok: true };
       }),
   }),
