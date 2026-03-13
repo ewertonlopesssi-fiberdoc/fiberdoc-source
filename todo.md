@@ -1587,3 +1587,10 @@
 - [x] Backend: tabela map_pois para Pontos de Interesse (name, lat, lng, category, notes)
 - [x] Backend: procedure mapPois.create/list/update/delete e addPoi ao grupo
 - [ ] Mapa: renderizar POIs no mapa com ícone de pin/localização
+
+## POI no Mapa e Painel de Grupos
+- [x] Mapa: renderizar POIs como marcadores com ícone de pin/localização (cor por categoria)
+- [x] Mapa: camada de visibilidade para POIs (toggle no painel de camadas)
+- [x] Mapa: painel lateral de detalhes ao clicar num POI (nome, categoria, grupos, notas)
+- [x] Mapa: editar/excluir POI no painel lateral
+- [x] Painel de grupos: listar POIs associados a cada grupo junto com CTOs, CEOs, Postes e Reservas

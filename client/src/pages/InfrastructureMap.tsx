@@ -234,7 +234,8 @@ type MapRoute = {
   name?: string | null; cableType?: string | null; fiberCount?: number | null;
   color?: string | null; notes?: string | null; path?: string | null;
 };
-type SidePanelContent = { kind: "element"; element: MapElement } | { kind: "route"; route: MapRoute } | null;
+type MapPoi = { id: number; name: string; category: string; lat: number | string; lng: number | string; color: string | null; notes: string | null; groups?: number[] };
+type SidePanelContent = { kind: "element"; element: MapElement } | { kind: "route"; route: MapRoute } | { kind: "poi"; poi: MapPoi } | null;
 
 const STATUS_COLOR: Record<string, string> = {
   active: "#22c55e", maintenance: "#f59e0b", inactive: "#ef4444",
@@ -336,6 +337,11 @@ export default function InfrastructureMap() {
   const [editingReserveId, setEditingReserveId] = useState<number | null>(null);
   const [deleteReserveId, setDeleteReserveId] = useState<number | null>(null);
   const reserveMarkersRef = useRef<Record<number, L.Marker>>({});
+  // POIs (Pontos de Interesse) no mapa
+  const [showPois, setShowPois] = useState(true);
+  const poiMarkersRef = useRef<Record<number, L.Marker>>({});
+  const [editingPoi, setEditingPoi] = useState(false);
+  const [poiEditForm, setPoiEditForm] = useState({ name: "", category: "geral", color: "#6366f1", notes: "" });
   // Contagem de ONUs por sgpId (total do splitter/all, online actualizado após clique)
   const { data: onuCountsData } = trpc.sgp.getOnuCounts.useQuery(undefined, { staleTime: 5 * 60 * 1000 });
   // Estado local para guardar contagem online após cada consulta ao /onu/all/
@@ -923,6 +929,14 @@ export default function InfrastructureMap() {
     onSuccess: () => { refetchPois(); toast.success("Ponto de interesse adicionado"); },
     onError: (e) => toast.error(e.message),
   });
+  const updatePoiMut = trpc.mapPois.update.useMutation({
+    onSuccess: () => { refetchPois(); toast.success("POI atualizado"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deletePoiMut = trpc.mapPois.delete.useMutation({
+    onSuccess: () => { refetchPois(); setSidePanel(null); toast.success("POI excluído"); },
+    onError: (e) => toast.error(e.message),
+  });
   const addPoiToGroupMut = trpc.mapPois.addToGroup.useMutation({ onError: (e) => toast.error(e.message) });
   const sgpQuery = trpc.sgp.queryClientsByCto.useQuery(
     {
@@ -1390,8 +1404,49 @@ export default function InfrastructureMap() {
       }
       reserveMarkersRef.current[reserve.id] = marker;
     });
-  }, [mapReserves, showReserves, mapReady, isAdmin]);
-
+   }, [mapReserves, showReserves, mapReady, isAdmin]);
+  // Renderizar POIs no mapa
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    Object.values(poiMarkersRef.current).forEach(m => m.remove());
+    poiMarkersRef.current = {};
+    if (!showPois) return;
+    const POI_CATEGORY_COLORS: Record<string, string> = {
+      camera: "#ef4444", predio: "#8b5cf6", antena: "#f59e0b",
+      torre: "#06b6d4", geral: "#6366f1",
+    };
+    const POI_CATEGORY_ICONS: Record<string, string> = {
+      camera: `<circle cx='12' cy='12' r='3'/><path d='M20 7h-3l-2-3H9L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z'/>`,
+      predio: `<rect x='2' y='3' width='20' height='18' rx='2'/><path d='M9 3v18'/><path d='M15 3v18'/><path d='M2 9h20'/><path d='M2 15h20'/>`,
+      antena: `<path d='M2 12 C2 6.5 6.5 2 12 2 S22 6.5 22 12'/><path d='M6 12 C6 8.7 8.7 6 12 6 S18 8.7 18 12'/><line x1='12' y1='12' x2='12' y2='22'/>`,
+      torre: `<line x1='12' y1='2' x2='12' y2='22'/><path d='M4 6h16'/><path d='M4 6l4 4'/><path d='M20 6l-4 4'/>`,
+      geral: `<path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'/><circle cx='12' cy='10' r='3'/>`,
+    };
+    (pois as any[]).forEach((poi: any) => {
+      const cat = (poi.category ?? "geral").toLowerCase();
+      const bgColor = poi.color ?? POI_CATEGORY_COLORS[cat] ?? "#6366f1";
+      const iconPath = POI_CATEGORY_ICONS[cat] ?? POI_CATEGORY_ICONS.geral;
+      const safeName = (poi.name ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const icon = L.divIcon({
+        className: "",
+        iconSize: [32, 46],
+        iconAnchor: [16, 46],
+        html: `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
+          <div style="width:32px;height:32px;background:${bgColor};border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);">
+            <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>${iconPath}</svg>
+          </div>
+          <div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>
+        </div>`,
+      });
+      const marker = L.marker([Number(poi.lat), Number(poi.lng)], { icon }).addTo(mapRef.current!);
+      marker.on("click", () => {
+        setSidePanel({ kind: "poi", poi: poi as MapPoi });
+        setEditingPoi(false);
+        setPoiEditForm({ name: poi.name ?? "", category: poi.category ?? "geral", color: poi.color ?? "#6366f1", notes: poi.notes ?? "" });
+      });
+      poiMarkersRef.current[poi.id] = marker;
+    });
+  }, [pois, showPois, mapReady]);
   // Modo adicionar poste — clique no mapa
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
@@ -2367,6 +2422,93 @@ export default function InfrastructureMap() {
   // Painel lateral
   const renderSidePanel = () => {
     if (!sidePanel) return null;
+    if (sidePanel.kind === "poi") {
+      const poi = sidePanel.poi;
+      const POI_CATEGORY_LABELS: Record<string, string> = {
+        camera: "Câmera", predio: "Prédio", antena: "Antena", torre: "Torre", geral: "Geral",
+      };
+      const POI_CATEGORY_COLORS: Record<string, string> = {
+        camera: "#ef4444", predio: "#8b5cf6", antena: "#f59e0b", torre: "#06b6d4", geral: "#6366f1",
+      };
+      const cat = (poi.category ?? "geral").toLowerCase();
+      const catColor = poi.color ?? POI_CATEGORY_COLORS[cat] ?? "#6366f1";
+      const catLabel = POI_CATEGORY_LABELS[cat] ?? poi.category ?? "Geral";
+      const poiGroups = (mapGroups as any[]).filter((g: any) => (poi.groups ?? []).includes(g.id));
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: catColor, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='white' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'/><circle cx='12' cy='10' r='3'/></svg>
+            </div>
+            <h3 className="font-semibold truncate flex-1">{poi.name}</h3>
+          </div>
+          {!editingPoi ? (
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Categoria</span><span style={{ color: catColor }} className="font-medium">{catLabel}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Lat</span><span className="font-mono text-xs">{Number(poi.lat).toFixed(6)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Lng</span><span className="font-mono text-xs">{Number(poi.lng).toFixed(6)}</span></div>
+              {poi.notes && <div className="mt-2 p-2 rounded bg-muted/30 text-xs text-muted-foreground">{poi.notes}</div>}
+              {poiGroups.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-xs text-muted-foreground mb-1">Grupos</div>
+                  <div className="flex flex-wrap gap-1">
+                    {poiGroups.map((g: any) => (
+                      <span key={g.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs" style={{ background: (g.color ?? "#6366f1") + "33", color: g.color ?? "#6366f1" }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: g.color ?? "#6366f1", display: "inline-block" }} />
+                        {g.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {isAdmin && (
+                <div className="flex gap-2 mt-3">
+                  <button onClick={() => setEditingPoi(true)} className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-muted/40 hover:bg-muted/70 text-xs">
+                    <Pencil className="w-3 h-3" /> Editar
+                  </button>
+                  <button onClick={() => { if (confirm("Excluir este POI?")) deletePoiMut.mutate({ id: poi.id }); }} className="flex items-center justify-center gap-1 px-3 py-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs">
+                    <Trash2 className="w-3 h-3" /> Excluir
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2 text-sm">
+              <div>
+                <label className="text-xs text-muted-foreground">Nome</label>
+                <input className="w-full mt-0.5 bg-muted/50 border border-border rounded px-2 py-1 text-sm" value={poiEditForm.name} onChange={e => setPoiEditForm(p => ({ ...p, name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Categoria</label>
+                <select className="w-full mt-0.5 bg-muted/50 border border-border rounded px-2 py-1 text-sm" value={poiEditForm.category} onChange={e => setPoiEditForm(p => ({ ...p, category: e.target.value }))}>
+                  <option value="geral">Geral</option>
+                  <option value="camera">Câmera</option>
+                  <option value="predio">Prédio</option>
+                  <option value="antena">Antena</option>
+                  <option value="torre">Torre</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Cor</label>
+                <input type="color" className="w-full mt-0.5 h-8 rounded cursor-pointer" value={poiEditForm.color} onChange={e => setPoiEditForm(p => ({ ...p, color: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Notas</label>
+                <textarea className="w-full mt-0.5 bg-muted/50 border border-border rounded px-2 py-1 text-sm resize-none" rows={2} value={poiEditForm.notes} onChange={e => setPoiEditForm(p => ({ ...p, notes: e.target.value }))} />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { updatePoiMut.mutate({ id: poi.id, ...poiEditForm }); setEditingPoi(false); setSidePanel({ kind: "poi", poi: { ...poi, ...poiEditForm } }); }} className="flex-1 py-1.5 rounded bg-primary/80 hover:bg-primary text-primary-foreground text-xs font-medium">
+                  Guardar
+                </button>
+                <button onClick={() => setEditingPoi(false)} className="px-3 py-1.5 rounded bg-muted/40 hover:bg-muted/70 text-xs">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
     if (sidePanel.kind === "route") {
       const r = sidePanel.route;
       const fromEl = (elements as any[]).find((e: any) => e.id === r.fromElementId) as any;
@@ -3355,6 +3497,9 @@ export default function InfrastructureMap() {
         <Button size="sm" variant={showReserves ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowReserves(v => !v)} title="Mostrar/ocultar reservas técnicas">
           <Codesandbox className="w-3 h-3" />Reservas {showReserves ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
         </Button>
+        <Button size="sm" variant={showPois ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowPois(v => !v)} title="Mostrar/ocultar pontos de interesse">
+          <MapPin className="w-3 h-3" />POIs {showPois ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+        </Button>
         {isAdmin && (
           <>
             <div className="w-px h-4 bg-border mx-1" />
@@ -3751,6 +3896,7 @@ export default function InfrastructureMap() {
           const allGroups = mapGroups as any[];
           const poles = mapPoles as any[];
           const reserves = mapReserves as any[];
+          const allPois = pois as any[];
           const rootGroups = allGroups.filter((g: any) => !g.parentId);
           const childGroups = (parentId: number) => allGroups.filter((g: any) => g.parentId === parentId);
           const countAllElements = (g: any): { elems: number; routes: number } => {
@@ -3784,7 +3930,8 @@ export default function InfrastructureMap() {
               const reserve = (reserves as any[]).find((x: any) => x.id === r.reserveId);
               return reserve ? { ...reserve, _type: "reserve" } : null;
             }).filter(Boolean);
-            const hasItems = groupElems.length > 0 || groupRoutes.length > 0 || groupPoles.length > 0 || groupReserves.length > 0;
+            const groupPois: any[] = allPois.filter((p: any) => (p.groups ?? []).includes(group.id));
+            const hasItems = groupElems.length > 0 || groupRoutes.length > 0 || groupPoles.length > 0 || groupReserves.length > 0 || groupPois.length > 0;
             return (
               <div key={group.id}>
                 <div
@@ -3899,6 +4046,20 @@ export default function InfrastructureMap() {
                         <span className="text-muted-foreground/50 uppercase text-[10px]">reserva</span>
                       </div>
                     ))}
+                    {groupPois.map((poi: any) => {
+                      const POI_CAT_COLORS: Record<string, string> = { camera: "#ef4444", predio: "#8b5cf6", antena: "#f59e0b", torre: "#06b6d4", geral: "#6366f1" };
+                      const poiColor = poi.color ?? POI_CAT_COLORS[(poi.category ?? "geral").toLowerCase()] ?? "#6366f1";
+                      return (
+                        <div key={`poi-${poi.id}`} className="flex items-center gap-2 px-2 py-1 hover:bg-muted/20 text-xs cursor-pointer" style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          onClick={() => { setSidePanel({ kind: "poi", poi }); setEditingPoi(false); setPoiEditForm({ name: poi.name ?? "", category: poi.category ?? "geral", color: poi.color ?? poiColor, notes: poi.notes ?? "" }); }}>
+                          <span className="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center">
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: poiColor, display: "inline-block" }} />
+                          </span>
+                          <span className="text-muted-foreground truncate flex-1" title={poi.name}>{poi.name ?? `POI #${poi.id}`}</span>
+                          <span className="text-muted-foreground/50 uppercase text-[10px]">{poi.category ?? "poi"}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {isExpanded && children.length > 0 && (
