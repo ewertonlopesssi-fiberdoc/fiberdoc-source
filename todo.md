@@ -1555,3 +1555,16 @@
 - [x] KMZ: usar cor personalizada do mapElement no ícone
 - [x] KMZ: adicionar checkboxes Postes e Reservas no diálogo de exportação
 - [x] KMZ: opção de exportar por grupo específico
+
+## Bug: Select Grupo/Pasta em Poste e Reserva
+- [ ] Select de Grupo/Pasta no diálogo de edição de Poste não abre as opções
+- [ ] Select de Grupo/Pasta no diálogo de edição de Reserva não abre as opções
+
+## Bug: Grupos/Pastas sumiram no servidor
+- [ ] Grupos existentes sumiram após atualização v5.94
+- [ ] Novos grupos criados não aparecem no painel
+
+## Melhorias KMZ v2
+- [x] KMZ: seletor de grupo em árvore (raiz → subpastas) no diálogo de exportação
+- [x] KMZ: ícones PNG personalizados embutidos no arquivo KMZ (CTO, CEO, Poste, Reserva)
+- [x] Relatório de cabos com comprimento total por grupo (Haversine)

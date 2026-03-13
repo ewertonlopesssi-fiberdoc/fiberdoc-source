@@ -402,6 +402,8 @@ export default function InfrastructureMap() {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [cablesReportOpen, setCablesReportOpen] = useState(false);
   const [cablesReportLoading, setCablesReportLoading] = useState(false);
+  const [cablesGroupSummary, setCablesGroupSummary] = useState<any[] | null>(null);
+  const [expandedExportGrps, setExpandedExportGrps] = useState<Set<number>>(new Set());
   const [exportFormat, setExportFormat] = useState<"kml" | "kmz">("kmz");
   const [exportLoading, setExportLoading] = useState(false);
   const [exportSelectedElements, setExportSelectedElements] = useState<Set<number>>(new Set());
@@ -4041,29 +4043,61 @@ export default function InfrastructureMap() {
                 </label>
               </div>
             </div>
-            {/* Filtro por grupo */}
+            {/* Filtro por grupo - árvore hierárquica */}
             {(mapGroups as any[]).length > 0 && (
               <div>
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide mb-2 block">Filtrar por Grupo</Label>
-                <Select
-                  value={exportGroupId !== null ? String(exportGroupId) : "all"}
-                  onValueChange={v => setExportGroupId(v === "all" ? null : Number(v))}
-                >
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue placeholder="Todos os grupos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos os grupos</SelectItem>
-                    {(mapGroups as any[]).map((g: any) => (
-                      <SelectItem key={g.id} value={String(g.id)}>
-                        <span className="flex items-center gap-2">
-                          {g.color && <span className="w-2.5 h-2.5 rounded-full inline-block" style={{background: g.color}} />}
-                          {g.name}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="border border-border rounded-lg overflow-hidden">
+                  {/* Opção Todos */}
+                  <button
+                    type="button"
+                    onClick={() => setExportGroupId(null)}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                      exportGroupId === null ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/30 text-foreground"
+                    }`}
+                  >
+                    <Folder className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span>Todos os grupos</span>
+                    {exportGroupId === null && <Check className="w-3 h-3 ml-auto" />}
+                  </button>
+                  {/* Árvore de grupos */}
+                  {(() => {
+                    const allGrps = mapGroups as any[];
+                    const renderGrp = (g: any, depth: number): React.ReactNode => {
+                      const children = allGrps.filter((c: any) => c.parentId === g.id);
+                      const isExpanded = expandedExportGrps.has(g.id);
+                      const isSelected = exportGroupId === g.id;
+                      return (
+                        <div key={g.id}>
+                          <button
+                            type="button"
+                            className={`w-full flex items-center gap-1.5 py-2 text-sm text-left transition-colors ${
+                              isSelected ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/30 text-foreground"
+                            }`}
+                            style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: '12px' }}
+                            onClick={() => setExportGroupId(isSelected ? null : g.id)}
+                          >
+                            {children.length > 0 ? (
+                              <button
+                                type="button"
+                                className="flex-shrink-0 p-0.5 hover:bg-muted/50 rounded"
+                                onClick={e => { e.stopPropagation(); setExpandedExportGrps(prev => { const n = new Set(prev); if (n.has(g.id)) n.delete(g.id); else n.add(g.id); return n; }); }}
+                              >
+                                {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                              </button>
+                            ) : <span className="w-4 flex-shrink-0" />}
+                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{background: g.color ?? '#888'}} />
+                            <span className="flex-1 truncate">{g.name}</span>
+                            {isSelected && <Check className="w-3 h-3 ml-auto flex-shrink-0" />}
+                          </button>
+                          {isExpanded && children.map((c: any) => renderGrp(c, depth + 1))}
+                        </div>
+                      );
+                    };
+                    const roots = allGrps.filter((g: any) => !g.parentId);
+                    return roots.map((g: any) => renderGrp(g, 0));
+                  })()}
+                </div>
                 {exportGroupId !== null && (
                   <p className="text-xs text-muted-foreground mt-1">Apenas elementos do grupo selecionado serão exportados.</p>
                 )}
@@ -5478,10 +5512,10 @@ export default function InfrastructureMap() {
         </DialogContent>
       </Dialog>
       {/* Diálogo de Relatório de Cabos */}
-      <Dialog open={cablesReportOpen} onOpenChange={setCablesReportOpen}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={cablesReportOpen} onOpenChange={open => { setCablesReportOpen(open); if (!open) setCablesGroupSummary(null); }}>
+        <DialogContent className="max-w-xl flex flex-col" style={{maxHeight:"88vh"}}>
           <DialogHeader><DialogTitle className="flex items-center gap-2"><FileText className="w-4 h-4" /> Relatório de Cabos</DialogTitle></DialogHeader>
-          <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1">
             <p className="text-sm text-muted-foreground">
               Exporta todos os cabos cadastrados no mapa com nome, tipo, quantidade de fibras, origem, destino, comprimento estimado do traçado e status de conexão.
             </p>
@@ -5489,9 +5523,51 @@ export default function InfrastructureMap() {
               <div className="flex justify-between"><span className="text-muted-foreground">Total de cabos</span><span className="font-medium">{(routes as any[]).length}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Cabos soltos</span><span className="font-medium text-amber-400">{(routes as any[]).filter((r: any) => !(elements as any[]).find((e: any) => e.id === r.fromElementId) || !(elements as any[]).find((e: any) => e.id === r.toElementId)).length}</span></div>
             </div>
+            {/* Resumo por grupo */}
+            {cablesGroupSummary && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Resumo por Grupo / Pasta</Label>
+                  <span className="text-xs text-muted-foreground">{(cablesGroupSummary as any[]).length} grupos</span>
+                </div>
+                <div className="rounded-lg border border-border divide-y divide-border overflow-hidden">
+                  {(cablesGroupSummary as any[]).map((g: any) => (
+                    <div key={g.groupId ?? 'none'} className="flex items-center gap-3 px-3 py-2 text-sm">
+                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{background: g.groupColor ?? '#888'}} />
+                      <span className="flex-1 font-medium truncate">{g.groupName}</span>
+                      <span className="text-xs text-muted-foreground">{g.cabos} cabo{g.cabos !== 1 ? 's' : ''}</span>
+                      <span className="text-xs font-mono text-cyan-400 ml-2">{g.metros >= 1000 ? `${(g.metros/1000).toFixed(2)} km` : `${Math.round(g.metros)} m`}</span>
+                    </div>
+                  ))}
+                  {(cablesGroupSummary as any[]).length > 0 && (
+                    <div className="flex items-center gap-3 px-3 py-2 text-sm bg-muted/20 font-semibold">
+                      <span className="w-3 h-3 flex-shrink-0" />
+                      <span className="flex-1">Total</span>
+                      <span className="text-xs text-muted-foreground">{(cablesGroupSummary as any[]).reduce((s: number, g: any) => s + g.cabos, 0)} cabos</span>
+                      <span className="text-xs font-mono text-cyan-400 ml-2">{(() => { const t = (cablesGroupSummary as any[]).reduce((s: number, g: any) => s + g.metros, 0); return t >= 1000 ? `${(t/1000).toFixed(2)} km` : `${Math.round(t)} m`; })()}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setCablesReportOpen(false)}>Cancelar</Button>
+          <DialogFooter className="gap-2 flex-shrink-0 pt-2">
+            <Button variant="outline" onClick={() => { setCablesReportOpen(false); setCablesGroupSummary(null); }}>Cancelar</Button>
+            <Button
+              variant="outline"
+              disabled={cablesReportLoading}
+              onClick={async () => {
+                setCablesReportLoading(true);
+                try {
+                  const result = await (trpc as any).infraMap.exportCables.query({ format: "group_summary" });
+                  setCablesGroupSummary(result.summary);
+                  toast.success("Resumo por grupo carregado");
+                } catch (e: any) { toast.error(e.message ?? "Erro ao carregar resumo"); }
+                finally { setCablesReportLoading(false); }
+              }}
+            >
+              {cablesReportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Folder className="w-3.5 h-3.5" /> Resumo por Grupo</>}
+            </Button>
             <Button
               variant="outline"
               disabled={cablesReportLoading}

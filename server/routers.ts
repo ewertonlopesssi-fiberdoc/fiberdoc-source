@@ -2408,15 +2408,17 @@ ${fiberFolder}
       }),
     exportCables: protectedProcedure
       .input(z.object({
-        format: z.enum(["csv", "pdf"]).default("csv"),
+        format: z.enum(["csv", "pdf", "group_summary"]).default("csv"),
       }))
       .query(async ({ input }) => {
         const dbMod = await import("./db");
-        const [allRoutes, allElements, allCtos, allCeos] = await Promise.all([
+        const [allRoutes, allElements, allCtos, allCeos, allGroups, allRouteGroups] = await Promise.all([
           getMapRoutes(),
           getMapElements(),
           dbMod.getCtos(),
           dbMod.getCeos(),
+          dbMod.getMapGroups(),
+          dbMod.getAllRouteGroupMemberships(),
         ]);
 
         // Calcular comprimento do traçado em km
@@ -2445,6 +2447,10 @@ ${fiberFolder}
           let path: {lat:number;lng:number}[] = [];
           try { if (r.path) path = JSON.parse(r.path); } catch {}
           const lenKm = path.length >= 2 ? calcLen(path) : null;
+          const lenM  = lenKm != null ? lenKm * 1000 : null;
+          // Grupos desta rota
+          const routeGroupIds = (allRouteGroups as any[]).filter((rg: any) => rg.routeId === r.id).map((rg: any) => rg.groupId);
+          const routeGroupNames = routeGroupIds.map((gid: number) => (allGroups as any[]).find((g: any) => g.id === gid)?.name ?? "?").join("; ");
           return {
             id: r.id,
             nome: r.name ?? `Cabo ${r.id}`,
@@ -2453,25 +2459,47 @@ ${fiberFolder}
             de: fromRef?.name ?? (fromEl ? `${fromEl.type?.toUpperCase()}-${fromEl.referenceId}` : "—"),
             para: toRef?.name ?? (toEl ? `${toEl.type?.toUpperCase()}-${toEl.referenceId}` : "—"),
             comprimento_km: lenKm != null ? lenKm.toFixed(3) : "—",
+            comprimento_m: lenM != null ? Math.round(lenM) : null,
             status: (!fromEl || !toEl) ? "Solto" : "Conectado",
             pontos: path.length,
             notas: r.notes ?? "",
+            grupos: routeGroupNames || "Sem grupo",
+            groupIds: routeGroupIds,
           };
         });
 
+        if (input.format === "group_summary") {
+          // Resumo por grupo: nome do grupo, total de cabos, comprimento total em metros
+          const groupMap: Record<string, { groupId: number | null; groupName: string; groupColor: string; cabos: number; metros: number; fibras: number }> = {};
+          for (const row of rows as any[]) {
+            const gids: number[] = row.groupIds;
+            const keys = gids.length > 0 ? gids : [-1];
+            for (const gid of keys) {
+              const g = (allGroups as any[]).find((x: any) => x.id === gid);
+              const key = String(gid);
+              if (!groupMap[key]) groupMap[key] = { groupId: gid === -1 ? null : gid, groupName: g?.name ?? "Sem grupo", groupColor: g?.color ?? "#888", cabos: 0, metros: 0, fibras: 0 };
+              groupMap[key].cabos++;
+              if (row.comprimento_m != null) groupMap[key].metros += row.comprimento_m;
+              groupMap[key].fibras += Number(row.fibras) || 0;
+            }
+          }
+          const summary = Object.values(groupMap).sort((a, b) => b.metros - a.metros);
+          return { format: "group_summary", csv: null, rows: null, summary, allRows: rows };
+        }
+
         if (input.format === "csv") {
-          const header = ["ID","Nome","Tipo","Fibras","De","Para","Comprimento (km)","Status","Pontos no Traçado","Notas"];
-          const lines = rows.map((r: any) => [
+          const header = ["ID","Nome","Tipo","Fibras","De","Para","Comprimento (km)","Comprimento (m)","Status","Grupos","Pontos no Traçado","Notas"];
+          const lines = (rows as any[]).map((r: any) => [
             r.id, `"${r.nome}"`, r.tipo, r.fibras,
-            `"${r.de}"`, `"${r.para}"`, r.comprimento_km,
-            r.status, r.pontos, `"${r.notas}"`
+            `"${r.de}"`, `"${r.para}"`, r.comprimento_km, r.comprimento_m ?? "",
+            r.status, `"${r.grupos}"`, r.pontos, `"${r.notas}"`
           ].join(","));
           const csv = [header.join(","), ...lines].join("\n");
-          return { format: "csv", csv, rows: null };
+          return { format: "csv", csv, rows: null, summary: null, allRows: null };
         }
 
         // PDF: retorna dados para o frontend gerar
-        return { format: "pdf", csv: null, rows };
+        return { format: "pdf", csv: null, rows, summary: null, allRows: null };
       }),
     routesOccupancy: protectedProcedure
       .query(async () => {

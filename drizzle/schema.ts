@@ -741,16 +741,16 @@ export type MapRouteGroup = typeof mapRouteGroups.$inferSelect;
 // ─── Associação de Postes a Grupos ──────────────────────────────────────────
 export const mapPoleGroups = mysqlTable("map_pole_groups", {
   id: int("id").autoincrement().primaryKey(),
-  poleId: int("poleId").notNull(),
-  groupId: int("groupId").notNull(),
+  poleId: int("pole_id").notNull(),
+  groupId: int("group_id").notNull(),
 });
 export type MapPoleGroup = typeof mapPoleGroups.$inferSelect;
 
 // ─── Associação de Reservas Técnicas a Grupos ─────────────────────────────────
 export const mapReserveGroups = mysqlTable("map_reserve_groups", {
   id: int("id").autoincrement().primaryKey(),
-  reserveId: int("reserveId").notNull(),
-  groupId: int("groupId").notNull(),
+  reserveId: int("reserve_id").notNull(),
+  groupId: int("group_id").notNull(),
 });
 export type MapReserveGroup = typeof mapReserveGroups.$inferSelect;
 

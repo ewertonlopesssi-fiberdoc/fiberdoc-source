@@ -529,7 +529,7 @@ async function startServer() {
         const elColor = el.color ? hexToKml(el.color) : null;
         const iconColor = elColor ?? statusColor(ref?.status, "cto");
         const desc = await buildCtoDescription(el.referenceId, ref);
-        ctoPlacemarksList.push(`    <Placemark>\n      <name>${name}</name>\n      <description>${desc}</description>\n      <Style><IconStyle><color>${iconColor}</color><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/square.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${el.lng},${el.lat},0</coordinates></Point>\n    </Placemark>`);
+        ctoPlacemarksList.push(`    <Placemark>\n      <name>${name}</name>\n      <description>${desc}</description>\n      <Style><IconStyle><color>${iconColor}</color><scale>1.2</scale><Icon><href>icons/cto.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${el.lng},${el.lat},0</coordinates></Point>\n    </Placemark>`);
       }
 
       // ── Construir placemarks de CEOs ─────────────────────────────────────────
@@ -540,7 +540,7 @@ async function startServer() {
         const elColor = el.color ? hexToKml(el.color) : null;
         const iconColor = elColor ?? statusColor(ref?.status, "ceo");
         const desc = await buildCeoDescription(el.referenceId, ref);
-        ceoPlacemarksList.push(`    <Placemark>\n      <name>${name}</name>\n      <description>${desc}</description>\n      <Style><IconStyle><color>${iconColor}</color><scale>1.2</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/donut.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${el.lng},${el.lat},0</coordinates></Point>\n    </Placemark>`);
+        ceoPlacemarksList.push(`    <Placemark>\n      <name>${name}</name>\n      <description>${desc}</description>\n      <Style><IconStyle><color>${iconColor}</color><scale>1.2</scale><Icon><href>icons/ceo.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${el.lng},${el.lat},0</coordinates></Point>\n    </Placemark>`);
       }
 
       // ── Construir placemarks de Postes ───────────────────────────────────────
@@ -551,7 +551,7 @@ async function startServer() {
           p.effort ? `Esforço: ${esc(p.effort)}` : "",
           p.notes ? `Notas: ${esc(p.notes)}` : "",
         ].filter(Boolean).join("&#10;");
-        return `    <Placemark>\n      <name>${name}</name>\n      <description>${desc}</description>\n      <Style><IconStyle><color>ff0088ff</color><scale>0.9</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${p.lng},${p.lat},0</coordinates></Point>\n    </Placemark>`;
+        return `    <Placemark>\n      <name>${name}</name>\n      <description>${desc}</description>\n      <Style><IconStyle><color>ff0088ff</color><scale>0.9</scale><Icon><href>icons/pole.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${p.lng},${p.lat},0</coordinates></Point>\n    </Placemark>`;
       }).join("\n");
 
       // ── Construir placemarks de Reservas ─────────────────────────────────────
@@ -563,7 +563,7 @@ async function startServer() {
           routeRef ? `Rota: ${esc(routeRef.name ?? `Cabo ${routeRef.id}`)}` : "",
           r.notes ? `Notas: ${esc(r.notes)}` : "",
         ].filter(Boolean).join("&#10;");
-        return `    <Placemark>\n      <name>${name}</name>\n      <description>${desc}</description>\n      <Style><IconStyle><color>ff00aaff</color><scale>0.9</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_square.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${r.lng},${r.lat},0</coordinates></Point>\n    </Placemark>`;
+        return `    <Placemark>\n      <name>${name}</name>\n      <description>${desc}</description>\n      <Style><IconStyle><color>ff00aaff</color><scale>0.9</scale><Icon><href>icons/reserve.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${r.lng},${r.lat},0</coordinates></Point>\n    </Placemark>`;
       }).join("\n");
 
       // ── Organizar em pastas por grupo ────────────────────────────────────────
@@ -726,7 +726,13 @@ async function startServer() {
       const filename = `fiberdoc-infraestrutura-${new Date().toISOString().slice(0,10)}`;
       if (format === "kmz") {
         const kmlU8 = strToU8(kml);
-        const zipped = zipSync({ "doc.kml": [kmlU8, { level: 0 }] });
+        // Incluir ícones PNG embutidos para funcionamento offline no Google Earth Desktop
+        const { KMZ_ICONS } = await import("../kmzIcons");
+        const iconEntries: Record<string, [Uint8Array, { level: number }]> = {};
+        for (const [iconPath, b64] of Object.entries(KMZ_ICONS)) {
+          iconEntries[iconPath] = [Buffer.from(b64, "base64") as unknown as Uint8Array, { level: 0 }];
+        }
+        const zipped = zipSync({ "doc.kml": [kmlU8, { level: 0 }], ...iconEntries });
         res.setHeader("Content-Type", "application/vnd.google-earth.kmz");
         res.setHeader("Content-Disposition", `attachment; filename="${filename}.kmz"`);
         res.send(Buffer.from(zipped));

@@ -39,7 +39,7 @@ export function registerLocalAuthRoutes(app: Express) {
 
       // Gerar token de sessão usando o mesmo mecanismo do OAuth
       const sessionToken = await sdk.signSession(
-        { openId: user.openId, appId: "local", name: user.name ?? "" },
+        { openId: user.openId, appId: "local", name: user.name || user.email || "usuario" },
         { expiresInMs: ONE_YEAR_MS }
       );
 
