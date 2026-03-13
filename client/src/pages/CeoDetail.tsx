@@ -327,6 +327,8 @@ function TubePanel({
     onSuccess: () => {
       toast.success("Fusão identificada!");
       utils.ceoVias.byTube.invalidate(); utils.ceoVias.byCeo.invalidate({ ceoId });
+      utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
+      utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
       notifyCeoParent(ceoId);
       setFusionDialog(null); setFusionTubeId(""); setFusionViaNumber("");
     },
@@ -336,6 +338,8 @@ function TubePanel({
     onSuccess: () => {
       toast.success("Fusão removida!");
       utils.ceoVias.byTube.invalidate(); utils.ceoVias.byCeo.invalidate({ ceoId });
+      utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
+      utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
       notifyCeoParent(ceoId);
     },
     onError: e => toast.error("Erro: " + e.message),
@@ -367,6 +371,9 @@ function TubePanel({
     onSuccess: () => {
       toast.success("Fusão registrada!");
       utils.ceoVias.byTube.invalidate(); utils.ceoVias.byCeo.invalidate({ ceoId });
+      utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
+      utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
+      utils.ceoSplitterVias.bySplitter.invalidate();
       notifyCeoParent(ceoId);
       setFusionDialog(null); setFusionTubeId(""); setFusionViaNumber("");
     },
@@ -390,7 +397,9 @@ function TubePanel({
       toast.success("Fusão removida!");
       utils.ceoViaAssociations.byCeo.invalidate({ ceoId });
       utils.ceoSplitterVias.byCeo.invalidate({ ceoId });
+      utils.ceoSplitterVias.bySplitter.invalidate();
       utils.ceoVias.byCeo.invalidate({ ceoId });
+      utils.ceoVias.byTube.invalidate();
       notifyCeoParent(ceoId);
     },
     onError: e => toast.error("Erro: " + e.message),
@@ -541,11 +550,17 @@ function TubePanel({
                   <SelectContent>
                     <SelectItem value="__none__">Selecione...</SelectItem>
                     {isFusionTargetSplitter
-                      ? targetSplVias.map(v => (
-                          <SelectItem key={v.id} value={String(v.id)}>
-                            {v.viaNumber === 0 ? "ENT (Entrada)" : `Saída ${String(v.viaNumber).padStart(2,"0")}`}{v.label ? ` — ${v.label}` : ""}
+                      ? targetSplVias.map(v => {
+                          const splViaOccupied = (associations ?? []).some((a: any) =>
+                            (a.sourceType === "splitter" && a.sourceViaId === v.id) ||
+                            (a.targetType === "splitter" && a.targetViaId === v.id)
+                          );
+                          return (
+                          <SelectItem key={v.id} value={String(v.id)} disabled={splViaOccupied}>
+                            {v.viaNumber === 0 ? "ENT (Entrada)" : `Saída ${String(v.viaNumber).padStart(2,"0")}`}{v.label ? ` — ${v.label}` : ""}{splViaOccupied ? " (ocupada)" : ""}
                           </SelectItem>
-                        ))
+                          );
+                        })
                       : targetTubeVias.map(v => (
                           <SelectItem key={v.id} value={String(v.viaNumber)}>
                             VIA {String(v.viaNumber).padStart(2,"0")}{v.label ? ` — ${v.label}` : ""}{v.fusedToViaId !== null ? " (ocupada)" : ""}
@@ -741,8 +756,18 @@ function SplitterPanel({
                   <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione..." /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">Selecione...</SelectItem>
-                    {assocTargetTubeVias.map(v => <SelectItem key={v.id} value={String(v.id)}>VIA {String(v.viaNumber).padStart(2,"0")}{v.label ? ` — ${v.label}` : ""}</SelectItem>)}
-                  </SelectContent>
+                    {assocTargetTubeVias.map(v => {
+                      const isOccupied = v.fusedToViaId !== null || v.fusedToSplitterId !== null ||
+                        (associations ?? []).some((a: any) =>
+                          (a.sourceType === "tube" && a.sourceViaId === v.id) ||
+                          (a.targetType === "tube" && a.targetViaId === v.id)
+                        );
+                      return (
+                        <SelectItem key={v.id} value={String(v.id)} disabled={isOccupied}>
+                          VIA {String(v.viaNumber).padStart(2,"0")}{v.label ? ` — ${v.label}` : ""}{isOccupied ? " (ocupada)" : ""}
+                        </SelectItem>
+                      );
+                    })}                  </SelectContent>
                 </Select>
               </div>
             )}
@@ -752,8 +777,17 @@ function SplitterPanel({
                 <Select value={assocTargetViaId || "__none__"} onValueChange={v => setAssocTargetViaId(v === "__none__" ? "" : v)}>
                   <SelectTrigger className="bg-background border-border/50"><SelectValue placeholder="Selecione..." /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">Selecione...</SelectItem>
-                    {(allSplVias as SplitterVia[]).filter(v => v.splitterId !== splitter.id).map(v => <SelectItem key={v.id} value={String(v.id)}>VIA {String(v.viaNumber).padStart(2,"0")} · Splitter #{v.splitterId}</SelectItem>)}
+                    <SelectItem value="__none__">Selecione...</SelectItem>                    {(allSplVias as SplitterVia[]).filter(v => v.splitterId !== splitter.id).map(v => {
+                      const splOccupied = (associations ?? []).some((a: any) =>
+                        (a.sourceType === "splitter" && a.sourceViaId === v.id) ||
+                        (a.targetType === "splitter" && a.targetViaId === v.id)
+                      );
+                      return (
+                        <SelectItem key={v.id} value={String(v.id)} disabled={splOccupied}>
+                          VIA {String(v.viaNumber).padStart(2,"0")} · Splitter #{v.splitterId}{splOccupied ? " (ocupada)" : ""}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>

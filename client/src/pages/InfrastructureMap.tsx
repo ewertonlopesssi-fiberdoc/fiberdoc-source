@@ -563,6 +563,7 @@ export default function InfrastructureMap() {
   const [dragOverGroupId, setDragOverGroupId] = useState<number | null>(null); // drag-and-drop entre pastas
   const [dragFolderId, setDragFolderId] = useState<number | null>(null); // pasta sendo arrastada
   const [dragFolderOverId, setDragFolderOverId] = useState<number | null>(null); // pasta alvo do arrasto de pasta
+  const [folderDropPosition, setFolderDropPosition] = useState<{ groupId: number; pos: 'before' | 'after' | 'inside' } | null>(null); // indicador de posição no drag de pasta
   const [groupSearch, setGroupSearch] = useState(""); // filtro de busca no painel de grupos
   const [checkedItems, setCheckedItems] = useState<{ elements: Set<number>; routes: Set<number> }>({ elements: new Set(), routes: new Set() });
   const toggleCheckedElement = (id: number) => setCheckedItems(prev => { const e = new Set(prev.elements); if (e.has(id)) e.delete(id); else e.add(id); return { ...prev, elements: e }; });
@@ -4365,14 +4366,22 @@ export default function InfrastructureMap() {
               return olt ? { ...olt, _type: "olt" } : null;
             }).filter(Boolean);
             const hasItems = groupElems.length > 0 || groupRoutes.length > 0 || groupPoles.length > 0 || groupReserves.length > 0 || groupPois.length > 0 || groupOlts.length > 0;
+            const showLineBefore = folderDropPosition !== null && folderDropPosition.groupId === group.id && folderDropPosition.pos === 'before';
+            const showLineAfter = folderDropPosition !== null && folderDropPosition.groupId === group.id && folderDropPosition.pos === 'after';
             return (
               <div
                 key={group.id}
-                style={{ opacity: isGroupHidden ? 0.45 : 1 }}
+                style={{ opacity: isGroupHidden ? 0.45 : 1, position: 'relative' }}
                 onDragOver={(e) => {
                   e.preventDefault();
                   if (dragFolderId !== null && dragFolderId !== group.id) {
-                    setDragFolderOverId(group.id);
+                    // Calcular posição: before (top 30%), inside (middle 40%), after (bottom 30%)
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const relY = e.clientY - rect.top;
+                    const pct = relY / rect.height;
+                    const pos = pct < 0.3 ? 'before' : pct > 0.7 ? 'after' : 'inside';
+                    setFolderDropPosition({ groupId: group.id, pos });
+                    setDragFolderOverId(pos === 'inside' ? group.id : null);
                   } else {
                     setDragOverGroupId(group.id);
                   }
@@ -4381,25 +4390,39 @@ export default function InfrastructureMap() {
                   if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
                     setDragOverGroupId(null);
                     setDragFolderOverId(null);
+                    setFolderDropPosition(null);
                   }
                 }}
                 onDrop={(e) => {
                   e.preventDefault();
                   setDragOverGroupId(null);
                   setDragFolderOverId(null);
+                  const dropPos = folderDropPosition;
+                  setFolderDropPosition(null);
                   // Drag de pasta para pasta (reordenar / mover para novo pai)
                   const folderData = e.dataTransfer.getData('application/fiberdoc-folder');
                   if (folderData) {
                     try {
-                      const { id: folderId, currentParentId } = JSON.parse(folderData);
+                      const { id: folderId } = JSON.parse(folderData);
                       if (folderId === group.id) return;
-                      // Mover pasta para dentro desta pasta (novo pai)
-                      const siblings = allGroups.filter((g: any) => g.parentId === group.id && g.id !== folderId);
-                      const updates = [
-                        { id: folderId, sortOrder: siblings.length, parentId: group.id },
-                        ...siblings.map((s: any, i: number) => ({ id: s.id, sortOrder: i, parentId: group.id }))
-                      ];
-                      reorderGroupMut.mutate({ updates });
+                      if (!dropPos || dropPos.pos === 'inside') {
+                        // Mover pasta para dentro desta pasta (novo pai)
+                        const siblings = sortedGroups.filter((g: any) => g.parentId === group.id && g.id !== folderId);
+                        const updates = [
+                          { id: folderId, sortOrder: siblings.length, parentId: group.id },
+                          ...siblings.map((s: any, i: number) => ({ id: s.id, sortOrder: i, parentId: group.id }))
+                        ];
+                        reorderGroupMut.mutate({ updates });
+                      } else {
+                        // Reordenar como irmão (before/after) — mesmo parentId do grupo alvo
+                        const targetParentId = group.parentId ?? null;
+                        const siblings = sortedGroups.filter((g: any) => (g.parentId ?? null) === targetParentId && g.id !== folderId);
+                        const targetIdx = siblings.findIndex((g: any) => g.id === group.id);
+                        const insertIdx = dropPos.pos === 'before' ? targetIdx : targetIdx + 1;
+                        siblings.splice(insertIdx, 0, { id: folderId });
+                        const updates = siblings.map((s: any, i: number) => ({ id: s.id, sortOrder: i, parentId: targetParentId }));
+                        reorderGroupMut.mutate({ updates });
+                      }
                       setDragFolderId(null);
                     } catch {}
                     return;
@@ -4429,6 +4452,10 @@ export default function InfrastructureMap() {
                   } catch {}
                 }}
               >
+                {/* Indicador de posição BEFORE */}
+                {showLineBefore && (
+                  <div className="h-0.5 mx-2 rounded-full bg-amber-400 shadow-[0_0_4px_rgba(251,191,36,0.8)]" style={{ marginLeft: `${12 + depth * 16}px` }} />
+                )}
                 <div
                   className={`flex items-center gap-1.5 px-3 py-1.5 hover:bg-muted/30 cursor-grab active:cursor-grabbing
                     ${dragOverGroupId === group.id ? 'bg-violet-500/10 ring-1 ring-violet-500/40 ring-inset' : ''}
@@ -4677,6 +4704,10 @@ export default function InfrastructureMap() {
                 )}
                 {isExpanded && children.length > 0 && (
                   <div>{children.map((c: any) => renderGroup(c, depth + 1))}</div>
+                )}
+                {/* Indicador de posição AFTER */}
+                {showLineAfter && (
+                  <div className="h-0.5 mx-2 rounded-full bg-amber-400 shadow-[0_0_4px_rgba(251,191,36,0.8)]" style={{ marginLeft: `${12 + depth * 16}px` }} />
                 )}
               </div>
             );

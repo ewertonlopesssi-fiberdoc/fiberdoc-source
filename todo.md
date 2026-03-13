@@ -1659,3 +1659,12 @@
 - [x] Reordenar pastas por drag-and-drop (arrastar pasta para mudar ordem ou mover entre pais)
 - [x] Filtro rápido por nome no painel de grupos (caixa de busca no topo do painel)
 - [x] Exportação combinada: grupo selecionado + apenas itens visíveis juntos
+
+## Melhorias Painel de Grupos — Lote 4
+- [x] Indicador de posição no drag de pastas (linha horizontal entre pastas)
+- [x] Exportação KMZ hierárquica por pasta (pasta KML por grupo, com subpastas)
+
+## Bugs CEO — Fusões Splitter↔Tubo
+- [x] Fusão de tubo em via de splitter não atualiza sem sair e entrar nos detalhes
+- [x] Via do splitter não mostra como ocupada quando já está fusionada
+- [x] Excluir fusão no splitter ainda mostra no tubo como associada

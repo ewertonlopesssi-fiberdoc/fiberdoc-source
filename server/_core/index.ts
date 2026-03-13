@@ -636,17 +636,18 @@ async function startServer() {
       let folders = "";
 
       if ((allGroups as any[]).length > 0 && !exportGroupId) {
-        // Organizar por grupo
-        const groupFolders: string[] = [];
+        // Organizar por grupo — estrutura hierárquica (subpastas dentro de pastas pai)
         const assignedElIds = new Set<number>();
         const assignedRouteIds = new Set<number>();
         const assignedPoleIds = new Set<number>();
         const assignedReserveIds = new Set<number>();
         const assignedPoiIds = new Set<number>();
 
-        for (const group of (allGroups as any[])) {
-          const gColor = group.color ? hexToKml(group.color) : "ff4488ff";
+        // Função recursiva para gerar pasta KML de um grupo e seus filhos
+        const buildGroupFolder = (group: any, depth: number): string => {
+          const children = (allGroups as any[]).filter((g: any) => g.parentId === group.id);
           const groupItems: string[] = [];
+          const indent = '  '.repeat(depth + 1);
 
           // CTOs do grupo
           if (typeCto) {
@@ -710,10 +711,17 @@ async function startServer() {
             }
           });
 
-          if (groupItems.length > 0) {
-            groupFolders.push(`  <Folder>\n    <name>${esc(group.name)}</name>${group.description ? `\n    <description>${esc(group.description)}</description>` : ""}\n${groupItems.join("\n")}\n  </Folder>`);
-          }
-        }
+          // Subpastas recursivamente
+          const childFolders = children.map((c: any) => buildGroupFolder(c, depth + 1));
+
+          if (groupItems.length === 0 && childFolders.every(f => f === "")) return "";
+          const colorStyle = group.color ? `\n${indent}<Style><IconStyle><color>${hexToKml(group.color)}</color></IconStyle><LineStyle><color>${hexToKml(group.color)}</color></LineStyle></Style>` : "";
+          return `${indent}<Folder>\n${indent}  <name>${esc(group.name)}</name>${group.description ? `\n${indent}  <description>${esc(group.description)}</description>` : ""}${colorStyle}\n${groupItems.join("\n")}\n${childFolders.filter(Boolean).join("\n")}\n${indent}</Folder>`;
+        };
+
+        // Gerar pastas apenas para grupos raiz (sem parentId)
+        const rootGroups = (allGroups as any[]).filter((g: any) => !g.parentId);
+        const groupFolders: string[] = rootGroups.map((g: any) => buildGroupFolder(g, 0)).filter(Boolean);
 
         // Pasta "Sem Grupo" para elementos não atribuídos
         const semGrupoItems: string[] = [];
