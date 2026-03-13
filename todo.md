@@ -1578,3 +1578,12 @@
 - [x] Importação: deteção melhorada de LineString sem palavras-chave (importar como cabo por padrão)
 - [x] Importação: suporte a MultiGeometry (ponto + linha no mesmo Placemark)
 - [x] Importação: campo "grupo de destino" no diálogo de upload para atribuir todos os elementos a um grupo existente
+
+## Importação KMZ — Edição em Lote e POI
+- [x] Importação: seleção múltipla de linhas na tabela de pré-visualização (checkbox por linha)
+- [x] Importação: barra de ações em lote (alterar tipo de todos os selecionados de uma vez)
+- [x] Importação: agrupamento por ícone KML — mostrar painel lateral com ícones únicos detetados e permitir mapear cada ícone a um tipo
+- [x] Importação: novo tipo "Ponto de Interesse" (poi) com ícone neutro de localização (câmeras, prédios, antenas, etc.)
+- [x] Backend: tabela map_pois para Pontos de Interesse (name, lat, lng, category, notes)
+- [x] Backend: procedure mapPois.create/list/update/delete e addPoi ao grupo
+- [ ] Mapa: renderizar POIs no mapa com ícone de pin/localização

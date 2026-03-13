@@ -150,6 +150,8 @@ import {
   getMapPoles, getMapPoleById, createMapPole, updateMapPole, deleteMapPole,
   getMapTechnicalReserves, getMapTechnicalReserveById, getMapTechnicalReservesByRoute,
   createMapTechnicalReserve, updateMapTechnicalReserve, deleteMapTechnicalReserve,
+  getMapPois, getMapPoiById, createMapPoi, updateMapPoi, deleteMapPoi,
+  addPoiToGroup, removePoiFromGroup, getAllPoiGroupMemberships,
 } from "./db";
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
@@ -3516,6 +3518,63 @@ ${fiberFolder}
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteMapTechnicalReserve(input.id);
+        return { ok: true };
+      }),
+  }),
+  mapPois: router({
+    list: protectedProcedure
+      .query(async () => {
+        const pois = await getMapPois();
+        const memberships = await getAllPoiGroupMemberships();
+        return pois.map(p => ({ ...p, groups: memberships.filter(m => m.poiId === p.id).map(m => m.groupId) }));
+      }),
+    byId: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => getMapPoiById(input.id)),
+    create: adminProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        category: z.string().optional(),
+        lat: z.number(),
+        lng: z.number(),
+        notes: z.string().optional(),
+        color: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createMapPoi(input as any);
+        return { id };
+      }),
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().optional(),
+        category: z.string().optional(),
+        lat: z.number().optional(),
+        lng: z.number().optional(),
+        notes: z.string().optional(),
+        color: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateMapPoi(id, data as any);
+        return { ok: true };
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteMapPoi(input.id);
+        return { ok: true };
+      }),
+    addToGroup: adminProcedure
+      .input(z.object({ poiId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await addPoiToGroup(input.poiId, input.groupId);
+        return { ok: true };
+      }),
+    removeFromGroup: adminProcedure
+      .input(z.object({ poiId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await removePoiFromGroup(input.poiId, input.groupId);
         return { ok: true };
       }),
   }),

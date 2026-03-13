@@ -1191,3 +1191,27 @@ export const mapTechnicalReserves = mysqlTable("map_technical_reserves", {
 });
 export type MapTechnicalReserve = typeof mapTechnicalReserves.$inferSelect;
 export type InsertMapTechnicalReserve = typeof mapTechnicalReserves.$inferInsert;
+
+// ─── Pontos de Interesse (POI) ────────────────────────────────────────────────
+// Elementos genéricos no mapa: câmeras, prédios, antenas, etc.
+// Não têm fibra associada — servem apenas como referência visual/geográfica.
+export const mapPois = mysqlTable("map_pois", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  category: varchar("category", { length: 64 }).notNull().default("geral"), // ex: camera, predio, antena, geral
+  lat: double("lat").notNull(),
+  lng: double("lng").notNull(),
+  notes: text("notes"),
+  color: varchar("color", { length: 16 }).default("#6366f1"),
+  createdAt: timestamp("poi_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("poi_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type MapPoi = typeof mapPois.$inferSelect;
+export type InsertMapPoi = typeof mapPois.$inferInsert;
+
+// ─── Memberships: POI ↔ Grupo ─────────────────────────────────────────────────
+export const mapPoiGroups = mysqlTable("map_poi_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  poiId: int("poiId").notNull().references(() => mapPois.id, { onDelete: "cascade" }),
+  groupId: int("groupId").notNull().references(() => mapGroups.id, { onDelete: "cascade" }),
+});

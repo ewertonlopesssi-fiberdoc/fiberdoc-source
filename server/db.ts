@@ -67,6 +67,10 @@ import {
   mapTechnicalReserves,
   MapTechnicalReserve,
   InsertMapTechnicalReserve,
+  mapPois,
+  MapPoi,
+  InsertMapPoi,
+  mapPoiGroups,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -4412,4 +4416,49 @@ export async function getTechnicalReserveExtraMeters(routeId: number): Promise<n
     .from(mapTechnicalReserves)
     .where(eq(mapTechnicalReserves.routeId, routeId));
   return rows.reduce((sum, r) => sum + (r.sizeMeters ?? 0), 0);
+}
+
+// ─── Pontos de Interesse (POI) ────────────────────────────────────────────────
+export async function getMapPois(): Promise<MapPoi[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapPois).orderBy(mapPois.name);
+}
+export async function getMapPoiById(id: number): Promise<MapPoi | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(mapPois).where(eq(mapPois.id, id));
+  return rows[0] ?? null;
+}
+export async function createMapPoi(data: InsertMapPoi): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const [result] = await db.insert(mapPois).values(data);
+  return (result as any).insertId ?? 0;
+}
+export async function updateMapPoi(id: number, data: Partial<InsertMapPoi>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(mapPois).set({ ...data, updatedAt: new Date() } as any).where(eq(mapPois.id, id));
+}
+export async function deleteMapPoi(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapPois).where(eq(mapPois.id, id));
+}
+export async function addPoiToGroup(poiId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const exists = await db.select().from(mapPoiGroups).where(and(eq(mapPoiGroups.poiId, poiId), eq(mapPoiGroups.groupId, groupId)));
+  if (exists.length === 0) await db.insert(mapPoiGroups).values({ poiId, groupId });
+}
+export async function removePoiFromGroup(poiId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapPoiGroups).where(and(eq(mapPoiGroups.poiId, poiId), eq(mapPoiGroups.groupId, groupId)));
+}
+export async function getAllPoiGroupMemberships(): Promise<{ poiId: number; groupId: number }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ poiId: mapPoiGroups.poiId, groupId: mapPoiGroups.groupId }).from(mapPoiGroups);
 }

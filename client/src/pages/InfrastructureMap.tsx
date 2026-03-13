@@ -458,7 +458,7 @@ export default function InfrastructureMap() {
   type KmlPreviewItem = {
     id: string;
     name: string;
-    type: "cto" | "ceo" | "cabo" | "poste" | "reserva";
+    type: "cto" | "ceo" | "cabo" | "poste" | "reserva" | "poi";
     color: string | null;
     lat: number | null;
     lng: number | null;
@@ -470,14 +470,19 @@ export default function InfrastructureMap() {
     cableType: string;
     capacity: number;
     sizeMeters: number;
+    iconHref: string;     // URL do ícone original do KML
+    selected: boolean;    // selecionado para edição em lote
+    poiCategory: string;  // categoria do POI
   };
   const [kmlPreviewItems, setKmlPreviewItems] = useState<KmlPreviewItem[]>([]);
   const [kmlPreviewOpen, setKmlPreviewOpen] = useState(false);
   const [kmlImportingPreview, setKmlImportingPreview] = useState(false);
   const [kmlImportProgress, setKmlImportProgress] = useState(0);
   const [kmlImportTotal, setKmlImportTotal] = useState(0);
-  const [kmlPreviewFilter, setKmlPreviewFilter] = useState<"all" | "cto" | "ceo" | "cabo" | "poste" | "reserva">("all");
+  const [kmlPreviewFilter, setKmlPreviewFilter] = useState<"all" | "cto" | "ceo" | "cabo" | "poste" | "reserva" | "poi">("all");
   const [kmlImportTargetGroupId, setKmlImportTargetGroupId] = useState<number | null>(null);
+  const [kmlBatchType, setKmlBatchType] = useState<string>("");  // tipo para edição em lote
+  const [kmlIconPanelOpen, setKmlIconPanelOpen] = useState(false); // painel de reconhecimento por ícone
 
   // ─── Edição de Traçado de Cabo ────────────────────────────────────────────
   const [editingRouteId, setEditingRouteId] = useState<number | null>(null);
@@ -912,6 +917,13 @@ export default function InfrastructureMap() {
     onSuccess: () => { refetchReserves(); setDeleteReserveId(null); toast.success("Reserva técnica excluída"); },
     onError: (e) => toast.error(e.message),
   });
+  // ─── POI ─────────────────────────────────────────────────────────────────────
+  const { data: pois = [], refetch: refetchPois } = trpc.mapPois.list.useQuery(undefined, { refetchOnWindowFocus: false });
+  const createPoiMut = trpc.mapPois.create.useMutation({
+    onSuccess: () => { refetchPois(); toast.success("Ponto de interesse adicionado"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const addPoiToGroupMut = trpc.mapPois.addToGroup.useMutation({ onError: (e) => toast.error(e.message) });
   const sgpQuery = trpc.sgp.queryClientsByCto.useQuery(
     {
       ctoName: sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? (sidePanel.element.name ?? "") : "",
@@ -2001,17 +2013,14 @@ export default function InfrastructureMap() {
         if (descPara) return descPara[1].trim();
         return rawName;
       };
-      const detectType = (pm: Element, folderName: string): "cto" | "ceo" | "cabo" | "poste" | "reserva" | null => {
+      const detectType = (pm: Element, folderName: string): "cto" | "ceo" | "cabo" | "poste" | "reserva" | "poi" => {
         const name = pm.querySelector("name")?.textContent?.trim().toLowerCase() ?? "";
         const desc = pm.querySelector("description")?.textContent?.toLowerCase() ?? "";
         const styleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
         const iconHref = styleIconMap[styleUrl] ?? "";
         const folderLower = folderName.toLowerCase();
         const hasLine = !!pm.querySelector("LineString");
-        if (hasLine) {
-          // Qualquer LineString é importado como cabo (padrão)
-          return "cabo";
-        }
+        if (hasLine) return "cabo";
         // Poste
         if (folderLower.includes("poste") || name.includes("poste") || iconHref.includes("pole")) return "poste";
         // Reserva Técnica
@@ -2024,7 +2033,19 @@ export default function InfrastructureMap() {
         if (folderLower.includes("ceo") || folderLower.includes("caixa")) return "ceo";
         if (iconHref.includes("donut") || iconHref.includes("ceo")) return "ceo";
         if (name.includes("ceo") || desc.includes("ceo")) return "ceo";
-        // Ponto genérico → CEO por padrão
+        // POI: câmera, prédio, antena, torre, etc.
+        if (
+          folderLower.includes("camera") || folderLower.includes("câmera") ||
+          folderLower.includes("predio") || folderLower.includes("prédio") ||
+          folderLower.includes("antena") || folderLower.includes("torre") ||
+          folderLower.includes("poi") || folderLower.includes("ponto de interesse") ||
+          name.includes("camera") || name.includes("câmera") ||
+          name.includes("predio") || name.includes("prédio") ||
+          name.includes("antena") || name.includes("torre")
+        ) return "poi";
+        // Ponto genérico com ícone padrão do Google Earth → POI
+        if (iconHref.includes("placemark") || iconHref.includes("ylw-pushpin") || iconHref.includes("paddle") || iconHref === "") return "poi";
+        // Fallback → CEO
         return "ceo";
       };
       const getFolderPath = (pm: Element): string[] => {
@@ -2047,8 +2068,16 @@ export default function InfrastructureMap() {
         const folderPath = getFolderPath(pm);
         const folderName = folderPath[folderPath.length - 1] ?? "";
         const type = detectType(pm, folderName);
-        if (!type) continue;
         const folderLabel = folderPath.join(" / ");
+        // Extrair o href do ícone para reconhecimento visual
+        const pmStyleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
+        const pmIconHref = styleIconMap[pmStyleUrl] ?? pm.querySelector("IconStyle > Icon > href")?.textContent?.trim() ?? "";
+        // Categoria POI derivada do nome/pasta
+        const poiCatRaw = (folderName || name).toLowerCase();
+        const poiCategory = poiCatRaw.includes("camera") || poiCatRaw.includes("c\u00e2mera") ? "camera" :
+          poiCatRaw.includes("predio") || poiCatRaw.includes("pr\u00e9dio") ? "predio" :
+          poiCatRaw.includes("antena") ? "antena" :
+          poiCatRaw.includes("torre") ? "torre" : "geral";
         if (type === "cabo") {
           const coordsText = pm.querySelector("LineString > coordinates")?.textContent?.trim() ?? "";
           if (!coordsText) continue;
@@ -2058,10 +2087,9 @@ export default function InfrastructureMap() {
           if (pathPoints.length < 2) continue;
           const desc = pm.querySelector("description")?.textContent?.trim() ?? "";
           const fiberName = extractFiberName(name || `Cabo-KML-${idx + 1}`, desc);
-          const styleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
           const inlineColor = pm.querySelector("LineStyle > color")?.textContent?.trim();
-          const cableColor = (inlineColor ? kmlColorToHex(inlineColor) : null) ?? styleColorMap[styleUrl] ?? "#22d3ee";
-          items.push({ id: `kml-${idx}`, name: fiberName, type: "cabo", color: cableColor, lat: null, lng: null, path: JSON.stringify(pathPoints), fiberName, include: true, folderName: folderLabel, fiberCount: 12, cableType: "FO", capacity: 8, sizeMeters: 0 });
+          const cableColor = (inlineColor ? kmlColorToHex(inlineColor) : null) ?? styleColorMap[pmStyleUrl] ?? "#22d3ee";
+          items.push({ id: `kml-${idx}`, name: fiberName, type: "cabo", color: cableColor, lat: null, lng: null, path: JSON.stringify(pathPoints), fiberName, include: true, folderName: folderLabel, fiberCount: 12, cableType: "FO", capacity: 8, sizeMeters: 0, iconHref: pmIconHref, selected: false, poiCategory });
         } else {
           // Tentar ponto direto ou dentro de MultiGeometry
           const coordText = (pm.querySelector("Point > coordinates") ?? pm.querySelector("MultiGeometry Point > coordinates"))?.textContent?.trim();
@@ -2070,7 +2098,7 @@ export default function InfrastructureMap() {
           if (parts.length < 2) continue;
           const lng = parseFloat(parts[0]); const lat = parseFloat(parts[1]);
           if (isNaN(lat) || isNaN(lng)) continue;
-          items.push({ id: `kml-${idx}`, name: name || `${type.toUpperCase()}-KML-${idx + 1}`, type, color: null, lat, lng, path: null, fiberName: null, include: true, folderName: folderLabel, fiberCount: 12, cableType: "FO", capacity: 8, sizeMeters: 0 });
+          items.push({ id: `kml-${idx}`, name: name || `${type.toUpperCase()}-KML-${idx + 1}`, type, color: null, lat, lng, path: null, fiberName: null, include: true, folderName: folderLabel, fiberCount: 12, cableType: "FO", capacity: 8, sizeMeters: 0, iconHref: pmIconHref, selected: false, poiCategory });
         }
         idx++;
       }
@@ -2143,6 +2171,12 @@ export default function InfrastructureMap() {
             try { await assignReserveToGroupMut.mutateAsync({ reserveId: (reserve as any).id, groupId }); } catch {}
           }
           added++; byType["Reservas"] = (byType["Reservas"] ?? 0) + 1;
+        } else if (item.type === "poi") {
+          const poi = await createPoiMut.mutateAsync({ name: item.name, category: item.poiCategory, lat: item.lat!, lng: item.lng!, color: "#6366f1" });
+          if (groupId !== null) {
+            try { await addPoiToGroupMut.mutateAsync({ poiId: (poi as any).id, groupId }); } catch {}
+          }
+          added++; byType["POIs"] = (byType["POIs"] ?? 0) + 1;
         } else {
           const ceo = await createCeoMut.mutateAsync({ name: item.name, location: "" });
           const el = await upsertElementMut.mutateAsync({ type: "ceo", referenceId: (ceo as any).id, lat: item.lat!, lng: item.lng! });
@@ -2160,10 +2194,10 @@ export default function InfrastructureMap() {
     setKmlImportResult({ added, skipped: kmlPreviewItems.length - toImport.length, errors, byType });
     setKmlImportOpen(true);
     if (added > 0) {
-      refetchElements(); refetchRoutes?.(); refetchPoles?.(); refetchReserves?.(); refetchGroups?.();
+      refetchElements(); refetchRoutes?.(); refetchPoles?.(); refetchReserves?.(); refetchGroups?.(); refetchPois?.();
       toast.success(`${added} elemento${added !== 1 ? "s" : ""} importado${added !== 1 ? "s" : ""} do KML/KMZ`);
     } else toast.error("Nenhum elemento importado");
-  }, [kmlPreviewItems, kmlImportTargetGroupId, mapGroups, createCtoMut, createCeoMut, upsertElementMut, createRouteMut, createPoleMut, createReserveMut, assignElementToGroupMut, assignRouteToGroupMut, assignPoleToGroupMut, assignReserveToGroupMut, createGroupMut, refetchElements, refetchRoutes, refetchPoles, refetchReserves, refetchGroups]);
+  }, [kmlPreviewItems, kmlImportTargetGroupId, mapGroups, createCtoMut, createCeoMut, upsertElementMut, createRouteMut, createPoleMut, createReserveMut, createPoiMut, addPoiToGroupMut, assignElementToGroupMut, assignRouteToGroupMut, assignPoleToGroupMut, assignReserveToGroupMut, createGroupMut, refetchElements, refetchRoutes, refetchPoles, refetchReserves, refetchGroups, refetchPois]);
 
   // Exportar KML/KMZ
   const openExportDialog = () => {
@@ -4934,8 +4968,8 @@ export default function InfrastructureMap() {
           </div>
           {/* Filtros por tipo */}
           <div className="flex items-center gap-1.5 mb-2 flex-shrink-0 flex-wrap">
-            {(["all", "cabo", "cto", "ceo", "poste", "reserva"] as const).map(f => {
-              const labels: Record<string, string> = { all: "Todos", cabo: "Cabos", cto: "CTOs", ceo: "CEOs", poste: "Postes", reserva: "Reservas" };
+            {(["all", "cabo", "cto", "ceo", "poste", "reserva", "poi"] as const).map(f => {
+              const labels: Record<string, string> = { all: "Todos", cabo: "Cabos", cto: "CTOs", ceo: "CEOs", poste: "Postes", reserva: "Reservas", poi: "POIs" };
               const counts: Record<string, number> = {
                 all: kmlPreviewItems.length,
                 cabo: kmlPreviewItems.filter(i => i.type === "cabo").length,
@@ -4943,10 +4977,11 @@ export default function InfrastructureMap() {
                 ceo: kmlPreviewItems.filter(i => i.type === "ceo").length,
                 poste: kmlPreviewItems.filter(i => i.type === "poste").length,
                 reserva: kmlPreviewItems.filter(i => i.type === "reserva").length,
+                poi: kmlPreviewItems.filter(i => i.type === "poi").length,
               };
               if (f !== "all" && counts[f] === 0) return null;
-              const colors: Record<string, string> = { all: "bg-muted text-foreground", cabo: "bg-cyan-500/20 text-cyan-400 border-cyan-500/40", cto: "bg-purple-500/20 text-purple-400 border-purple-500/40", ceo: "bg-amber-500/20 text-amber-400 border-amber-500/40", poste: "bg-orange-500/20 text-orange-400 border-orange-500/40", reserva: "bg-pink-500/20 text-pink-400 border-pink-500/40" };
-              const activeColors: Record<string, string> = { all: "bg-muted-foreground/20 text-foreground border-foreground/40", cabo: "bg-cyan-500/40 text-cyan-300 border-cyan-400", cto: "bg-purple-500/40 text-purple-300 border-purple-400", ceo: "bg-amber-500/40 text-amber-300 border-amber-400", poste: "bg-orange-500/40 text-orange-300 border-orange-400", reserva: "bg-pink-500/40 text-pink-300 border-pink-400" };
+              const colors: Record<string, string> = { all: "bg-muted text-foreground", cabo: "bg-cyan-500/20 text-cyan-400 border-cyan-500/40", cto: "bg-purple-500/20 text-purple-400 border-purple-500/40", ceo: "bg-amber-500/20 text-amber-400 border-amber-500/40", poste: "bg-orange-500/20 text-orange-400 border-orange-500/40", reserva: "bg-pink-500/20 text-pink-400 border-pink-500/40", poi: "bg-indigo-500/20 text-indigo-400 border-indigo-500/40" };
+              const activeColors: Record<string, string> = { all: "bg-muted-foreground/20 text-foreground border-foreground/40", cabo: "bg-cyan-500/40 text-cyan-300 border-cyan-400", cto: "bg-purple-500/40 text-purple-300 border-purple-400", ceo: "bg-amber-500/40 text-amber-300 border-amber-400", poste: "bg-orange-500/40 text-orange-300 border-orange-400", reserva: "bg-pink-500/40 text-pink-300 border-pink-400", poi: "bg-indigo-500/40 text-indigo-300 border-indigo-400" };
               return (
                 <button key={f} onClick={() => setKmlPreviewFilter(f)}
                   className={`px-2.5 py-0.5 rounded-full text-xs border transition-colors ${kmlPreviewFilter === f ? activeColors[f] : colors[f]}`}>
@@ -4954,17 +4989,121 @@ export default function InfrastructureMap() {
                 </button>
               );
             })}
+            {/* Botão painel de reconhecimento por ícone */}
+            {kmlPreviewItems.some(i => i.iconHref) && (
+              <button onClick={() => setKmlIconPanelOpen(v => !v)}
+                className={`ml-auto px-2.5 py-0.5 rounded-full text-xs border transition-colors ${kmlIconPanelOpen ? "bg-primary/20 text-primary border-primary/40" : "bg-muted text-muted-foreground border-border"}`}>
+                🔍 Por ícone
+              </button>
+            )}
           </div>
+          {/* Painel de reconhecimento por ícone */}
+          {kmlIconPanelOpen && (() => {
+            const iconGroups: Record<string, { href: string; count: number; items: string[] }> = {};
+            kmlPreviewItems.forEach(it => {
+              if (!it.iconHref) return;
+              const key = it.iconHref;
+              if (!iconGroups[key]) iconGroups[key] = { href: key, count: 0, items: [] };
+              iconGroups[key].count++;
+              if (iconGroups[key].items.length < 3) iconGroups[key].items.push(it.name);
+            });
+            const uniqueIcons = Object.values(iconGroups);
+            if (uniqueIcons.length === 0) return null;
+            return (
+              <div className="mb-3 flex-shrink-0 rounded-lg border border-border bg-muted/30 p-3">
+                <div className="text-xs font-medium text-foreground mb-2">Ícones detetados no KML — mapear para tipo:</div>
+                <div className="space-y-1.5">
+                  {uniqueIcons.map(ig => {
+                    const shortHref = ig.href.split("/").pop()?.split("?")[0] ?? ig.href;
+                    return (
+                      <div key={ig.href} className="flex items-center gap-2">
+                        <div className="w-5 h-5 flex-shrink-0 rounded overflow-hidden bg-muted border border-border">
+                          <img src={ig.href} alt="" className="w-full h-full object-contain" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        </div>
+                        <span className="text-xs text-muted-foreground flex-1 truncate" title={ig.href}>{shortHref} <span className="opacity-60">({ig.count}x)</span></span>
+                        <select
+                          defaultValue=""
+                          onChange={e => {
+                            const newType = e.target.value as KmlPreviewItem["type"];
+                            if (!newType) return;
+                            setKmlPreviewItems(prev => prev.map(it => it.iconHref === ig.href ? { ...it, type: newType } : it));
+                          }}
+                          className="bg-muted border border-border rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none"
+                        >
+                          <option value="">Manter atual</option>
+                          <option value="cto">CTO</option>
+                          <option value="ceo">CEO</option>
+                          <option value="poste">Poste</option>
+                          <option value="reserva">Reserva</option>
+                          <option value="poi">Ponto de Interesse</option>
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+          {/* Barra de edição em lote */}
+          {kmlPreviewItems.some(i => i.selected && (kmlPreviewFilter === "all" || i.type === kmlPreviewFilter)) && (
+            <div className="mb-2 flex-shrink-0 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2">
+              <span className="text-xs text-primary font-medium">
+                {kmlPreviewItems.filter(i => i.selected && (kmlPreviewFilter === "all" || i.type === kmlPreviewFilter)).length} selecionados
+              </span>
+              <span className="text-xs text-muted-foreground">Alterar tipo para:</span>
+              <select
+                value={kmlBatchType}
+                onChange={e => setKmlBatchType(e.target.value)}
+                className="bg-muted border border-border rounded px-2 py-0.5 text-xs text-foreground focus:outline-none"
+              >
+                <option value="">Escolher tipo...</option>
+                <option value="cto">CTO</option>
+                <option value="ceo">CEO</option>
+                <option value="cabo">Cabo</option>
+                <option value="poste">Poste</option>
+                <option value="reserva">Reserva Técnica</option>
+                <option value="poi">Ponto de Interesse</option>
+              </select>
+              <button
+                disabled={!kmlBatchType}
+                onClick={() => {
+                  if (!kmlBatchType) return;
+                  setKmlPreviewItems(prev => prev.map(it => it.selected ? { ...it, type: kmlBatchType as KmlPreviewItem["type"], selected: false } : it));
+                  setKmlBatchType("");
+                }}
+                className="px-2.5 py-0.5 rounded text-xs bg-primary text-primary-foreground disabled:opacity-40 hover:bg-primary/90 transition-colors"
+              >
+                Aplicar
+              </button>
+              <button
+                onClick={() => setKmlPreviewItems(prev => prev.map(it => ({ ...it, selected: false })))}
+                className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Limpar seleção
+              </button>
+            </div>
+          )}
           <ScrollArea className="flex-1 min-h-0 rounded-md border border-border">
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
                 <tr className="border-b border-border">
                   <th className="px-3 py-2 text-left font-medium w-8">
+                    {/* Incluir/excluir todos */}
                     <input
                       type="checkbox"
                       checked={kmlPreviewItems.filter(i => kmlPreviewFilter === "all" || i.type === kmlPreviewFilter).length > 0 && kmlPreviewItems.filter(i => kmlPreviewFilter === "all" || i.type === kmlPreviewFilter).every(i => i.include)}
                       onChange={e => setKmlPreviewItems(prev => prev.map(it => (kmlPreviewFilter === "all" || it.type === kmlPreviewFilter) ? { ...it, include: e.target.checked } : it))}
                       className="rounded border-border"
+                    />
+                  </th>
+                  <th className="px-2 py-2 text-left font-medium w-6" title="Selecionar para edição em lote">
+                    {/* Selecionar todos para lote */}
+                    <input
+                      type="checkbox"
+                      checked={kmlPreviewItems.filter(i => kmlPreviewFilter === "all" || i.type === kmlPreviewFilter).length > 0 && kmlPreviewItems.filter(i => kmlPreviewFilter === "all" || i.type === kmlPreviewFilter).every(i => i.selected)}
+                      onChange={e => setKmlPreviewItems(prev => prev.map(it => (kmlPreviewFilter === "all" || it.type === kmlPreviewFilter) ? { ...it, selected: e.target.checked } : it))}
+                      className="rounded border-border accent-primary"
+                      title="Selecionar todos para edição em lote"
                     />
                   </th>
                   <th className="px-3 py-2 text-left font-medium">Nome</th>
@@ -4978,13 +5117,22 @@ export default function InfrastructureMap() {
                 {kmlPreviewItems.filter(i => kmlPreviewFilter === "all" || i.type === kmlPreviewFilter).map((item) => {
                   const i = kmlPreviewItems.indexOf(item);
                   return (
-                  <tr key={item.id} className={`border-b border-border/50 transition-colors ${item.include ? "hover:bg-muted/30" : "opacity-40 hover:bg-muted/20"}`}>
+                  <tr key={item.id} className={`border-b border-border/50 transition-colors ${item.selected ? "bg-primary/5" : item.include ? "hover:bg-muted/30" : "opacity-40 hover:bg-muted/20"}`}>
                     <td className="px-3 py-1.5">
                       <input
                         type="checkbox"
                         checked={item.include}
                         onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, include: e.target.checked } : it))}
                         className="rounded border-border"
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={item.selected}
+                        onChange={e => setKmlPreviewItems(prev => prev.map((it, j) => j === i ? { ...it, selected: e.target.checked } : it))}
+                        className="rounded border-border accent-primary"
+                        title="Selecionar para edição em lote"
                       />
                     </td>
                     <td className="px-3 py-1.5">
@@ -5011,6 +5159,7 @@ export default function InfrastructureMap() {
                         <option value="cabo">Cabo</option>
                         <option value="poste">Poste</option>
                         <option value="reserva">Reserva</option>
+                        <option value="poi">POI</option>
                       </select>
                     </td>
                     <td className="px-3 py-1.5">
