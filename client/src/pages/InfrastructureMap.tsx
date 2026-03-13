@@ -2045,21 +2045,55 @@ export default function InfrastructureMap() {
       const doc = parser.parseFromString(kmlText!, "application/xml");
       const styleIconMap: Record<string, string> = {};
       const styleColorMap: Record<string, string> = {};
+      // Indexar todos os <Style id="..."> com href do ícone e cor da linha
       doc.querySelectorAll("Style").forEach(style => {
         const id = style.getAttribute("id");
+        if (!id) return;
         const href = style.querySelector("IconStyle > Icon > href")?.textContent ?? "";
-        if (id) styleIconMap["#" + id] = href.toLowerCase();
+        styleIconMap["#" + id] = href; // preservar case original
         const kmlColor = style.querySelector("LineStyle > color")?.textContent?.trim();
-        if (id && kmlColor && kmlColor.length === 8) {
+        if (kmlColor && kmlColor.length === 8) {
           const rr = kmlColor.slice(6, 8); const gg = kmlColor.slice(4, 6); const bb = kmlColor.slice(2, 4);
           styleColorMap["#" + id] = `#${rr}${gg}${bb}`;
         }
       });
-      const kmlColorToHex = (kmlColor: string): string | null => {
-        if (!kmlColor || kmlColor.length !== 8) return null;
-        const rr = kmlColor.slice(6, 8); const gg = kmlColor.slice(4, 6); const bb = kmlColor.slice(2, 4);
-        return `#${rr}${gg}${bb}`;
+      // Indexar <StyleMap id="..."> → resolver para o par normalStyle (key=normal)
+      const styleMapMap: Record<string, string> = {};
+      doc.querySelectorAll("StyleMap").forEach(sm => {
+        const id = sm.getAttribute("id");
+        if (!id) return;
+        // Preferir o Pair com key=normal; fallback para o primeiro
+        let resolvedUrl = "";
+        sm.querySelectorAll("Pair").forEach(pair => {
+          const key = pair.querySelector("key")?.textContent?.trim();
+          const url = pair.querySelector("styleUrl")?.textContent?.trim() ?? "";
+          if (key === "normal" || resolvedUrl === "") resolvedUrl = url;
+        });
+        styleMapMap["#" + id] = resolvedUrl;
+      });
+      // Função para resolver styleUrl → iconHref (suporta StyleMap e Style directo)
+      const resolveIconHref = (styleUrl: string, pmElement: Element): string => {
+        if (!styleUrl) {
+          // Tentar estilo inline no próprio Placemark
+          return pmElement.querySelector("IconStyle > Icon > href")?.textContent?.trim() ?? "";
+        }
+        // Se aponta para um StyleMap, resolver para o Style normal
+        let resolved = styleUrl;
+        if (styleMapMap[styleUrl]) resolved = styleMapMap[styleUrl];
+        return styleIconMap[resolved] ?? pmElement.querySelector("IconStyle > Icon > href")?.textContent?.trim() ?? "";
       };
+      // Função para resolver cor da linha
+      const resolveLineColor = (styleUrl: string, pmElement: Element): string | null => {
+        let resolved = styleUrl;
+        if (styleMapMap[styleUrl]) resolved = styleMapMap[styleUrl];
+        const inlineColor = pmElement.querySelector("LineStyle > color")?.textContent?.trim();
+        if (inlineColor && inlineColor.length === 8) {
+          const rr = inlineColor.slice(6, 8); const gg = inlineColor.slice(4, 6); const bb = inlineColor.slice(2, 4);
+          return `#${rr}${gg}${bb}`;
+        }
+        return styleColorMap[resolved] ?? null;
+      };
+
       const extractFiberName = (rawName: string, desc: string): string => {
         const pattern = /^(.+?)\s+(?:para|sentido|sent)\s+/i;
         const namePara = rawName.match(pattern);
@@ -2072,7 +2106,7 @@ export default function InfrastructureMap() {
         const name = pm.querySelector("name")?.textContent?.trim().toLowerCase() ?? "";
         const desc = pm.querySelector("description")?.textContent?.toLowerCase() ?? "";
         const styleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
-        const iconHref = styleIconMap[styleUrl] ?? "";
+        const iconHref = resolveIconHref(styleUrl, pm).toLowerCase();
         const folderLower = folderName.toLowerCase();
         const hasLine = !!pm.querySelector("LineString");
         if (hasLine) return "cabo";
@@ -2124,9 +2158,9 @@ export default function InfrastructureMap() {
         const folderName = folderPath[folderPath.length - 1] ?? "";
         const type = detectType(pm, folderName);
         const folderLabel = folderPath.join(" / ");
-        // Extrair o href do ícone para reconhecimento visual
+        // Extrair o href do ícone para reconhecimento visual (resolve StyleMap e Style)
         const pmStyleUrl = pm.querySelector("styleUrl")?.textContent?.trim() ?? "";
-        const pmIconHref = styleIconMap[pmStyleUrl] ?? pm.querySelector("IconStyle > Icon > href")?.textContent?.trim() ?? "";
+        const pmIconHref = resolveIconHref(pmStyleUrl, pm);
         // Categoria POI derivada do nome/pasta
         const poiCatRaw = (folderName || name).toLowerCase();
         const poiCategory = poiCatRaw.includes("camera") || poiCatRaw.includes("c\u00e2mera") ? "camera" :
@@ -2142,8 +2176,7 @@ export default function InfrastructureMap() {
           if (pathPoints.length < 2) continue;
           const desc = pm.querySelector("description")?.textContent?.trim() ?? "";
           const fiberName = extractFiberName(name || `Cabo-KML-${idx + 1}`, desc);
-          const inlineColor = pm.querySelector("LineStyle > color")?.textContent?.trim();
-          const cableColor = (inlineColor ? kmlColorToHex(inlineColor) : null) ?? styleColorMap[pmStyleUrl] ?? "#22d3ee";
+          const cableColor = resolveLineColor(pmStyleUrl, pm) ?? "#22d3ee";
           items.push({ id: `kml-${idx}`, name: fiberName, type: "cabo", color: cableColor, lat: null, lng: null, path: JSON.stringify(pathPoints), fiberName, include: true, folderName: folderLabel, fiberCount: 12, cableType: "FO", capacity: 8, sizeMeters: 0, iconHref: pmIconHref, selected: false, poiCategory });
         } else {
           // Tentar ponto direto ou dentro de MultiGeometry

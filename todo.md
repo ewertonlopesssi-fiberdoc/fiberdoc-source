@@ -1594,3 +1594,6 @@
 - [x] Mapa: painel lateral de detalhes ao clicar num POI (nome, categoria, grupos, notas)
 - [x] Mapa: editar/excluir POI no painel lateral
 - [x] Painel de grupos: listar POIs associados a cada grupo junto com CTOs, CEOs, Postes e Reservas
+
+## Bug: Parser KML — Ícones
+- [x] Corrigir parser KML: resolver StyleMap e Style por Placemark (actualmente só extrai o href do primeiro Style encontrado, ignorando StyleMap e estilos inline)
