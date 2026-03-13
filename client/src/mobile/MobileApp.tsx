@@ -6,12 +6,11 @@ import MobileEquipments from "./screens/MobileEquipments";
 import MobileCeos from "./screens/MobileCeos";
 import MobileCtos from "./screens/MobileCtos";
 import MobileMap from "./screens/MobileMap";
-import MobileReport from "./screens/MobileReport";
 import MobileProfile from "./screens/MobileProfile";
-import MobileSshCommander from "./screens/MobileSshCommander";
-import { Server, Cable, BarChart2, User, WifiOff, Radio, Map, Terminal } from "lucide-react";
+import MobileOtdr from "./screens/MobileOtdr";
+import { Server, Cable, Activity, User, WifiOff, Radio, Map } from "lucide-react";
 
-type Tab = "equipamentos" | "ceos" | "ctos" | "mapa" | "relatorio" | "ssh" | "perfil";
+type Tab = "equipamentos" | "ceos" | "ctos" | "mapa" | "otdr" | "perfil";
 
 function MobileShell() {
   const { isConfigured, isAuthenticated, user } = useMobileAuth();
@@ -22,7 +21,7 @@ function MobileShell() {
   // Deep-link via URL: /mobile?eq=ID abre directamente o equipamento
   const params = new URLSearchParams(window.location.search);
   const deepEqId = params.get("eq") ? Number(params.get("eq")) : null;
-  const [activeTab, setActiveTab] = useState<Tab>(deepEqId ? "equipamentos" : "equipamentos");
+  const [activeTab, setActiveTab] = useState<Tab>("equipamentos");
 
   // Deep-link interno: ao tocar "Abrir detalhes" no mapa, navegar para CEO/CTO
   const [deepCeoId, setDeepCeoId] = useState<number | null>(null);
@@ -73,16 +72,15 @@ function MobileShell() {
   if (!isConfigured)    return <MobileSetup />;
   if (!isAuthenticated) return <MobileLogin />;
 
-  const allTabs: { id: Tab; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
-    { id: "equipamentos", label: "Equip.",    icon: Server    },
-    { id: "ceos",         label: "CEO",       icon: Cable     },
-    { id: "ctos",         label: "CTO",       icon: Radio     },
-    { id: "mapa",         label: "Mapa",      icon: Map       },
-    { id: "relatorio",    label: "Relatório", icon: BarChart2 },
-    { id: "ssh",          label: "SSH",       icon: Terminal, adminOnly: true },
-    { id: "perfil",       label: "Perfil",    icon: User      },
+  const allTabs: { id: Tab; label: string; icon: React.ElementType }[] = [
+    { id: "equipamentos", label: "Equip.",  icon: Server   },
+    { id: "ceos",         label: "CEO",     icon: Cable    },
+    { id: "ctos",         label: "CTO",     icon: Radio    },
+    { id: "mapa",         label: "Mapa",    icon: Map      },
+    { id: "otdr",         label: "OTDR",    icon: Activity },
+    { id: "perfil",       label: "Perfil",  icon: User     },
   ];
-  const tabs = allTabs.filter(t => !t.adminOnly || isAdmin); // adminOnly=true => só admin vê
+  const tabs = allTabs;
 
   return (
     <div className="flex flex-col h-screen bg-[#0a0f1e] overflow-hidden">
@@ -100,8 +98,7 @@ function MobileShell() {
         {activeTab === "ceos"         && <MobileCeos initialCeoId={deepCeoId} onDeepLinkConsumed={() => setDeepCeoId(null)} onGoToMap={handleGoToMap} />}
         {activeTab === "ctos"         && <MobileCtos initialCtoId={deepCtoId} onDeepLinkConsumed={() => setDeepCtoId(null)} onGoToMap={handleGoToMap} />}
         {activeTab === "mapa"         && <MobileMap onOpenDetail={handleOpenDetail} focusType={mapFocusType} focusId={mapFocusId} onFocusConsumed={() => { setMapFocusType(null); setMapFocusId(null); }} />}
-        {activeTab === "relatorio"    && <MobileReport />}
-        {activeTab === "ssh"          && <MobileSshCommander />}
+        {activeTab === "otdr"         && <MobileOtdr />}
         {activeTab === "perfil"       && <MobileProfile />}
       </div>
 

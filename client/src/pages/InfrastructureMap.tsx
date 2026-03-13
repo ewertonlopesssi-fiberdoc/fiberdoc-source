@@ -115,7 +115,7 @@ import {
   Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw,
   Lock, Unlock, ExternalLink, Move, CheckCircle2,
   Zap, Crosshair, MapPin, Copy, Signal, Wifi, FolderTree, ChevronDown, CornerDownRight,
-  Milestone, Codesandbox
+  Milestone, Codesandbox, Wand2
 } from "lucide-react";
 import L from "leaflet";
 import { unzipSync, strFromU8 } from "fflate";
@@ -371,14 +371,9 @@ export default function InfrastructureMap() {
     return m;
   }, [routesOccupancy]);
   const getOccupancyColor = useCallback((routeId: number, baseColor: string) => {
-    const pct = occupancyMap[routeId];
-    if (pct === undefined) return baseColor;
-    if (pct === 0) return "#22c55e";        // verde — livre
-    if (pct < 50)  return "#22d3ee";        // ciano — uso baixo
-    if (pct < 80)  return "#eab308";        // amarelo — parcial
-    if (pct < 100) return "#f97316";        // laranja — quase saturado
-    return "#ef4444";                       // vermelho — saturado
-  }, [occupancyMap]);
+    // Sempre usar a cor do cadastro do cabo, independente da ocupação das vias
+    return baseColor ?? "#22d3ee";
+  }, []);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -565,6 +560,7 @@ export default function InfrastructureMap() {
   const [dragFolderOverId, setDragFolderOverId] = useState<number | null>(null); // pasta alvo do arrasto de pasta
   const [folderDropPosition, setFolderDropPosition] = useState<{ groupId: number; pos: 'before' | 'after' | 'inside' } | null>(null); // indicador de posição no drag de pasta
   const [groupSearch, setGroupSearch] = useState(""); // filtro de busca no painel de grupos
+  const [isOrganizing, setIsOrganizing] = useState(false); // auto-organizar postes e reservas em pastas
   const [checkedItems, setCheckedItems] = useState<{ elements: Set<number>; routes: Set<number> }>({ elements: new Set(), routes: new Set() });
   const toggleCheckedElement = (id: number) => setCheckedItems(prev => { const e = new Set(prev.elements); if (e.has(id)) e.delete(id); else e.add(id); return { ...prev, elements: e }; });
   const toggleCheckedRoute = (id: number) => setCheckedItems(prev => { const r = new Set(prev.routes); if (r.has(id)) r.delete(id); else r.add(id); return { ...prev, routes: r }; });
@@ -682,6 +678,58 @@ export default function InfrastructureMap() {
     onSuccess: () => refetchGroups(),
     onError: (e) => toast.error(e.message),
   });
+
+  // Auto-organizar: criar pastas "Postes" e "Reservas Técnicas" e atribuir itens não agrupados
+  const handleAutoOrganize = async () => {
+    setIsOrganizing(true);
+    try {
+      const groups = mapGroups as any[];
+      const poles = mapPoles as any[];
+      const reserves = mapReserves as any[];
+      // Postes sem pasta
+      const unassignedPoles = poles.filter((p: any) => !(poleGroupMap[p.id]?.length));
+      if (unassignedPoles.length > 0) {
+        let posteGroup = groups.find((g: any) => g.name.toLowerCase() === "postes" && !g.parentId);
+        if (!posteGroup) {
+          const res = await createGroupMut.mutateAsync({ name: "Postes", color: "#78716c", description: "Postes cadastrados no mapa" });
+          await refetchGroups();
+          const updatedGroups = (mapGroups as any[]);
+          posteGroup = updatedGroups.find((g: any) => g.name.toLowerCase() === "postes" && !g.parentId);
+          if (!posteGroup) posteGroup = { id: (res as any).id };
+        }
+        for (const pole of unassignedPoles) {
+          try { await assignPoleToGroupMut.mutateAsync({ poleId: pole.id, groupId: posteGroup.id }); } catch {}
+        }
+      }
+      // Reservas Técnicas sem pasta
+      const unassignedReserves = reserves.filter((r: any) => !(reserveGroupMap[r.id]?.length));
+      if (unassignedReserves.length > 0) {
+        let reserveGroup = groups.find((g: any) => g.name.toLowerCase().includes("reserva") && !g.parentId);
+        if (!reserveGroup) {
+          const res = await createGroupMut.mutateAsync({ name: "Reservas Técnicas", color: "#0891b2", description: "Reservas técnicas cadastradas no mapa" });
+          await refetchGroups();
+          const updatedGroups = (mapGroups as any[]);
+          reserveGroup = updatedGroups.find((g: any) => g.name.toLowerCase().includes("reserva") && !g.parentId);
+          if (!reserveGroup) reserveGroup = { id: (res as any).id };
+        }
+        for (const reserve of unassignedReserves) {
+          try { await assignReserveToGroupMut.mutateAsync({ reserveId: reserve.id, groupId: reserveGroup.id }); } catch {}
+        }
+      }
+      await refetchGroups();
+      const totalOrganized = unassignedPoles.length + unassignedReserves.length;
+      if (totalOrganized > 0) {
+        toast.success(`${totalOrganized} item(s) organizados em pastas`);
+      } else {
+        toast.info("Todos os postes e reservas já estão em pastas");
+      }
+    } catch (e: any) {
+      toast.error("Erro ao organizar: " + (e?.message ?? "desconhecido"));
+    } finally {
+      setIsOrganizing(false);
+    }
+  };
+
   // Mutations de edição inline
   const updateCeoMut = trpc.ceos.update.useMutation({
     onSuccess: () => {
@@ -4721,13 +4769,23 @@ export default function InfrastructureMap() {
                 </div>
                 <div className="flex items-center gap-1">
                   {isAdmin && (
-                    <button
-                      onClick={() => { setEditingGroupId(null); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null }); setGroupDialogOpen(true); }}
-                      className="text-violet-400 hover:text-violet-300"
-                      title="Nova pasta raiz"
-                    >
-                      <FolderPlus className="w-4 h-4" />
-                    </button>
+                    <>
+                      <button
+                        onClick={handleAutoOrganize}
+                        disabled={isOrganizing}
+                        className="text-amber-400 hover:text-amber-300 disabled:opacity-50"
+                        title="Auto-organizar: criar pastas Postes e Reservas Técnicas"
+                      >
+                        {isOrganizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                      </button>
+                      <button
+                        onClick={() => { setEditingGroupId(null); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null }); setGroupDialogOpen(true); }}
+                        className="text-violet-400 hover:text-violet-300"
+                        title="Nova pasta raiz"
+                      >
+                        <FolderPlus className="w-4 h-4" />
+                      </button>
+                    </>
                   )}
                   <button onClick={() => setGroupsPanelOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
                 </div>

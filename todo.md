@@ -1668,3 +1668,12 @@
 - [x] Fusão de tubo em via de splitter não atualiza sem sair e entrar nos detalhes
 - [x] Via do splitter não mostra como ocupada quando já está fusionada
 - [x] Excluir fusão no splitter ainda mostra no tubo como associada
+
+## Lote 5 — Correções e Melhorias
+- [x] Cor do cabo sempre usar a cor do cadastro (ignorar lógica de ocupação máxima)
+- [x] Cabos importados via KMZ/KML também usar cor do cadastro (não verde padrão)
+- [x] Auto-criar pasta "Postes" com todos os postes cadastrados no mapa
+- [x] Auto-criar pasta "Reservas Técnicas" com todas as reservas cadastradas no mapa
+- [x] Mobile: remover SSH Commander e Relatórios do menu
+- [x] Mobile: adicionar OTDR Virtual
+- [x] Mobile: adicionar balanço óptico estimado na CTO
