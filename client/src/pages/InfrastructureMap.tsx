@@ -389,6 +389,8 @@ export default function InfrastructureMap() {
   const iconCacheRef = useRef<Record<string, any>>({});
   // Estado anterior dos marcadores para diff incremental
   const prevMarkerStateRef = useRef<Record<number, string>>({});
+  // Estado anterior das polylines para diff incremental
+  const prevRouteStateRef = useRef<Record<number, string>>({});
   const previewPolylineRef = useRef<L.Polyline | null>(null);
   const mousePolylineRef = useRef<L.Polyline | null>(null);
   const drawingMarkersRef = useRef<L.CircleMarker[]>([]);
@@ -559,13 +561,83 @@ export default function InfrastructureMap() {
   const handleExportChecked = () => { setExportSelectedElements(new Set(checkedItems.elements)); setExportSelectedRoutes(new Set(checkedItems.routes)); setExportSelectAll(false); setExportDialogOpen(true); };
 
   // ─── Visibilidade por grupo e por item (bidirecional, estilo Google Earth) ───
-  const [hiddenGroupIds, setHiddenGroupIds] = useState<Set<number>>(new Set());
-  const [hiddenElementIds, setHiddenElementIds] = useState<Set<number>>(new Set());
-  const [hiddenRouteIds, setHiddenRouteIds] = useState<Set<number>>(new Set());
-  const [hiddenPoleIds, setHiddenPoleIds] = useState<Set<number>>(new Set());
-  const [hiddenReserveIds, setHiddenReserveIds] = useState<Set<number>>(new Set());
-  const [hiddenPoiIds, setHiddenPoiIds] = useState<Set<number>>(new Set());
-  const [hiddenOltIds, setHiddenOltIds] = useState<Set<number>>(new Set());
+  // Helpers de persistência no localStorage
+  const LS_KEY = "fiberdoc_map_visibility";
+  const loadVisibility = () => {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return null;
+      const d = JSON.parse(raw);
+      return {
+        groups: new Set<number>(d.groups ?? []),
+        elements: new Set<number>(d.elements ?? []),
+        routes: new Set<number>(d.routes ?? []),
+        poles: new Set<number>(d.poles ?? []),
+        reserves: new Set<number>(d.reserves ?? []),
+        pois: new Set<number>(d.pois ?? []),
+        olts: new Set<number>(d.olts ?? []),
+      };
+    } catch { return null; }
+  };
+  const saveVisibility = useCallback((groups: Set<number>, elements: Set<number>, routes: Set<number>, poles: Set<number>, reserves: Set<number>, pois: Set<number>, olts: Set<number>) => {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        groups: Array.from(groups), elements: Array.from(elements), routes: Array.from(routes),
+        poles: Array.from(poles), reserves: Array.from(reserves), pois: Array.from(pois), olts: Array.from(olts),
+      }));
+    } catch {}
+  }, []);
+  const _initVis = loadVisibility();
+  const [hiddenGroupIds, setHiddenGroupIds] = useState<Set<number>>(_initVis?.groups ?? new Set());
+  const [hiddenElementIds, setHiddenElementIds] = useState<Set<number>>(_initVis?.elements ?? new Set());
+  const [hiddenRouteIds, setHiddenRouteIds] = useState<Set<number>>(_initVis?.routes ?? new Set());
+  const [hiddenPoleIds, setHiddenPoleIds] = useState<Set<number>>(_initVis?.poles ?? new Set());
+  const [hiddenReserveIds, setHiddenReserveIds] = useState<Set<number>>(_initVis?.reserves ?? new Set());
+  const [hiddenPoiIds, setHiddenPoiIds] = useState<Set<number>>(_initVis?.pois ?? new Set());
+  const [hiddenOltIds, setHiddenOltIds] = useState<Set<number>>(_initVis?.olts ?? new Set());
+  // Persiste no localStorage sempre que qualquer estado de visibilidade muda
+  useEffect(() => {
+    saveVisibility(hiddenGroupIds, hiddenElementIds, hiddenRouteIds, hiddenPoleIds, hiddenReserveIds, hiddenPoiIds, hiddenOltIds);
+  }, [hiddenGroupIds, hiddenElementIds, hiddenRouteIds, hiddenPoleIds, hiddenReserveIds, hiddenPoiIds, hiddenOltIds, saveVisibility]);
+  // Propaga visibilidade de grupo para todos os filhos recursivamente (estilo Google Earth)
+  const setGroupVisibilityRecursive = useCallback((groupId: number, hide: boolean, allGroups: any[]) => {
+    const childIds = allGroups.filter((g: any) => g.parentId === groupId).map((g: any) => g.id);
+    setHiddenGroupIds(prev => {
+      const n = new Set(prev);
+      if (hide) n.add(groupId); else n.delete(groupId);
+      const propagate = (gid: number) => {
+        const kids = allGroups.filter((g: any) => g.parentId === gid).map((g: any) => g.id);
+        kids.forEach((kid: number) => { if (hide) n.add(kid); else n.delete(kid); propagate(kid); });
+      };
+      propagate(groupId);
+      return n;
+    });
+    // Propaga para itens do grupo e subgrupos
+    const collectGroupIds = (gid: number): number[] => {
+      const kids = allGroups.filter((g: any) => g.parentId === gid).map((g: any) => g.id);
+      return [gid, ...kids.flatMap((kid: number) => collectGroupIds(kid))];
+    };
+    const allAffectedGroupIds = collectGroupIds(groupId);
+    allAffectedGroupIds.forEach(gid => {
+      const grp = allGroups.find((g: any) => g.id === gid);
+      if (!grp) return;
+      if (hide) {
+        (grp.elements ?? []).forEach((e: any) => setHiddenElementIds(prev => { const n = new Set(prev); n.add(e.elementId); return n; }));
+        (grp.routes ?? []).forEach((r: any) => setHiddenRouteIds(prev => { const n = new Set(prev); n.add(r.routeId); return n; }));
+        (grp.poles ?? []).forEach((p: any) => setHiddenPoleIds(prev => { const n = new Set(prev); n.add(p.poleId); return n; }));
+        (grp.reserves ?? []).forEach((r: any) => setHiddenReserveIds(prev => { const n = new Set(prev); n.add(r.reserveId); return n; }));
+        (grp.pois ?? []).forEach((p: any) => setHiddenPoiIds(prev => { const n = new Set(prev); n.add(p.poiId); return n; }));
+        (grp.olts ?? []).forEach((o: any) => setHiddenOltIds(prev => { const n = new Set(prev); n.add(o.oltId); return n; }));
+      } else {
+        (grp.elements ?? []).forEach((e: any) => setHiddenElementIds(prev => { const n = new Set(prev); n.delete(e.elementId); return n; }));
+        (grp.routes ?? []).forEach((r: any) => setHiddenRouteIds(prev => { const n = new Set(prev); n.delete(r.routeId); return n; }));
+        (grp.poles ?? []).forEach((p: any) => setHiddenPoleIds(prev => { const n = new Set(prev); n.delete(p.poleId); return n; }));
+        (grp.reserves ?? []).forEach((r: any) => setHiddenReserveIds(prev => { const n = new Set(prev); n.delete(r.reserveId); return n; }));
+        (grp.pois ?? []).forEach((p: any) => setHiddenPoiIds(prev => { const n = new Set(prev); n.delete(p.poiId); return n; }));
+        (grp.olts ?? []).forEach((o: any) => setHiddenOltIds(prev => { const n = new Set(prev); n.delete(o.oltId); return n; }));
+      }
+    });
+  }, []);
   const toggleGroupVisibility = useCallback((groupId: number) => {
     setHiddenGroupIds(prev => { const n = new Set(prev); if (n.has(groupId)) n.delete(groupId); else n.add(groupId); return n; });
   }, []);
@@ -1405,46 +1477,73 @@ export default function InfrastructureMap() {
     });
   }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, movingElementId, onuCountMap, otdrMode, hiddenElementIds, elementGroupMap, isHiddenByGroup]);
 
-  // Renderizar rotas
+  // Renderizar rotas (diff incremental — só cria/actualiza/remove o que mudou)
   const renderRoutes = useCallback(() => {
     if (!mapRef.current || !mapReady) return;
-    Object.values(polylinesRef.current).forEach(p => p.remove());
-    polylinesRef.current = {};
-    Object.values(routeLabelsRef.current).forEach(m => m.remove());
-    routeLabelsRef.current = {};
-    if (!showRoutes) return;
-    (routes as any[]).forEach((r: any) => {
-      const fromEl = (elements as any[]).find((e: any) => e.id === r.fromElementId);
-      const toEl = (elements as any[]).find((e: any) => e.id === r.toElementId);
-      const latlngs: L.LatLngExpression[] = [];
-      if (fromEl) latlngs.push([Number(fromEl.lat), Number(fromEl.lng)]);
-      if (r.path) { try { (JSON.parse(r.path) as any[]).forEach((pt: any) => latlngs.push([pt.lat, pt.lng])); } catch {} }
-      if (toEl) latlngs.push([Number(toEl.lat), Number(toEl.lng)]);
-      if (latlngs.length < 2) return;
-      // Visibilidade por item ou por grupo
-      if (hiddenRouteIds.has(r.id) || isHiddenByGroup(routeGroupMap[r.id] ?? [])) return;
-      const isSelected = groupSelectedRoutes.has(r.id);
-      // Ocultar a polyline da rota que está sendo editada (evita duplicação)
-      const isBeingEdited = r.id === editingRouteId;
-      // Cor baseada na ocupação de fibras
-      const routeColor = getOccupancyColor(r.id, r.color ?? "#22d3ee");
-      const polyline = L.polyline(latlngs, { color: routeColor, weight: isSelected ? 6 : 3, opacity: isBeingEdited ? 0 : 0.9 }).addTo(mapRef.current!);
-      polyline.on("click", () => {
-        if (groupSelectMode) { toggleGroupRoute(r.id); return; }
-        setSidePanel({ kind: "route", route: r });
+    const activeIds = new Set<number>();
+    if (showRoutes) {
+      (routes as any[]).forEach((r: any) => {
+        const fromEl = (elements as any[]).find((e: any) => e.id === r.fromElementId);
+        const toEl = (elements as any[]).find((e: any) => e.id === r.toElementId);
+        const latlngs: L.LatLngExpression[] = [];
+        if (fromEl) latlngs.push([Number(fromEl.lat), Number(fromEl.lng)]);
+        if (r.path) { try { (JSON.parse(r.path) as any[]).forEach((pt: any) => latlngs.push([pt.lat, pt.lng])); } catch {} }
+        if (toEl) latlngs.push([Number(toEl.lat), Number(toEl.lng)]);
+        if (latlngs.length < 2) return;
+        // Visibilidade por item ou por grupo
+        if (hiddenRouteIds.has(r.id) || isHiddenByGroup(routeGroupMap[r.id] ?? [])) {
+          // Remover se estava visível antes
+          if (polylinesRef.current[r.id]) { polylinesRef.current[r.id].remove(); delete polylinesRef.current[r.id]; }
+          if (routeLabelsRef.current[r.id]) { routeLabelsRef.current[r.id].remove(); delete routeLabelsRef.current[r.id]; }
+          delete prevRouteStateRef.current[r.id];
+          return;
+        }
+        activeIds.add(r.id);
+        const isSelected = groupSelectedRoutes.has(r.id);
+        const isBeingEdited = r.id === editingRouteId;
+        const routeColor = getOccupancyColor(r.id, r.color ?? "#22d3ee");
+        const pathKey = r.path ?? "";
+        const stateKey = `${routeColor}|${isSelected ? 1 : 0}|${isBeingEdited ? 1 : 0}|${pathKey}|${fromEl?.lat ?? ''}|${fromEl?.lng ?? ''}|${toEl?.lat ?? ''}|${toEl?.lng ?? ''}`;
+        const existing = polylinesRef.current[r.id];
+        if (existing) {
+          // Actualizar apenas se o estado visual mudou
+          if (stateKey !== prevRouteStateRef.current[r.id]) {
+            existing.setStyle({ color: routeColor, weight: isSelected ? 6 : 3, opacity: isBeingEdited ? 0 : 0.9 });
+            existing.setLatLngs(latlngs);
+            if (routeLabelsRef.current[r.id]) { routeLabelsRef.current[r.id].setOpacity(isBeingEdited ? 0 : 1); }
+            prevRouteStateRef.current[r.id] = stateKey;
+          }
+          return;
+        }
+        // Criar nova polyline
+        const polyline = L.polyline(latlngs, { color: routeColor, weight: isSelected ? 6 : 3, opacity: isBeingEdited ? 0 : 0.9 }).addTo(mapRef.current!);
+        polyline.on("click", () => {
+          if (groupSelectMode) { toggleGroupRoute(r.id); return; }
+          setSidePanel({ kind: "route", route: r });
+        });
+        polylinesRef.current[r.id] = polyline;
+        prevRouteStateRef.current[r.id] = stateKey;
+        // Rótulo de distância no ponto médio do cabo
+        const distMeters = haversineDistance(latlngs);
+        const distText = formatDistance(distMeters);
+        const midIdx = Math.floor(latlngs.length / 2);
+        const midPt = latlngs[midIdx] as [number, number];
+        const labelIcon = L.divIcon({
+          html: `<div style="background:rgba(0,0,0,0.72);color:#fff;font-size:10px;font-weight:600;padding:2px 5px;border-radius:4px;white-space:nowrap;pointer-events:none;border:1px solid rgba(255,255,255,0.15);">${distText}</div>`,
+          className: "", iconSize: [0, 0], iconAnchor: [0, 0],
+        });
+        const labelMarker = L.marker(midPt, { icon: labelIcon, interactive: false, keyboard: false, opacity: isBeingEdited ? 0 : 1 } as any).addTo(mapRef.current!);
+        routeLabelsRef.current[r.id] = labelMarker;
       });
-      polylinesRef.current[r.id] = polyline;
-      // Rótulo de distância no ponto médio do cabo
-      const distMeters = haversineDistance(latlngs);
-      const distText = formatDistance(distMeters);
-      const midIdx = Math.floor(latlngs.length / 2);
-      const midPt = latlngs[midIdx] as [number, number];
-      const labelIcon = L.divIcon({
-        html: `<div style="background:rgba(0,0,0,0.72);color:#fff;font-size:10px;font-weight:600;padding:2px 5px;border-radius:4px;white-space:nowrap;pointer-events:none;border:1px solid rgba(255,255,255,0.15);">${distText}</div>`,
-        className: "", iconSize: [0, 0], iconAnchor: [0, 0],
-      });
-      const labelMarker = L.marker(midPt, { icon: labelIcon, interactive: false, keyboard: false, opacity: isBeingEdited ? 0 : 1 } as any).addTo(mapRef.current!);
-      routeLabelsRef.current[r.id] = labelMarker;
+    }
+    // Remover polylines de rotas que já não existem ou foram ocultadas globalmente
+    Object.keys(polylinesRef.current).forEach(idStr => {
+      const id = Number(idStr);
+      if (!activeIds.has(id)) {
+        polylinesRef.current[id].remove(); delete polylinesRef.current[id];
+        if (routeLabelsRef.current[id]) { routeLabelsRef.current[id].remove(); delete routeLabelsRef.current[id]; }
+        delete prevRouteStateRef.current[id];
+      }
     });
   }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute, editingRouteId, occupancyMap, getOccupancyColor, hiddenRouteIds, routeGroupMap, isHiddenByGroup]);
 
@@ -4118,16 +4217,47 @@ export default function InfrastructureMap() {
             if (lat == null || lng == null || !mapRef.current) return;
             mapRef.current.flyTo([Number(lat), Number(lng)], Math.max(mapRef.current.getZoom(), 17));
           };
-          // Helper: ícone de visibilidade por item
+          // Helper: checkbox de visibilidade por item (estilo Google Earth)
           const VisibilityBtn = ({ hidden, onToggle, title }: { hidden: boolean; onToggle: () => void; title?: string }) => (
             <button
               onClick={(e) => { e.stopPropagation(); onToggle(); }}
-              className={`p-0.5 flex-shrink-0 ${hidden ? "text-muted-foreground/30" : "text-muted-foreground hover:text-foreground"}`}
+              className={`w-3.5 h-3.5 flex-shrink-0 rounded-sm border flex items-center justify-center transition-colors ${
+                hidden
+                  ? "border-muted-foreground/20 bg-transparent"
+                  : "border-violet-500/60 bg-violet-500/20 hover:bg-violet-500/30"
+              }`}
               title={title ?? (hidden ? "Mostrar no mapa" : "Ocultar do mapa")}
             >
-              {hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+              {!hidden && <span className="w-2 h-2 block" style={{ background: "currentColor", clipPath: "polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%)" }} />}
             </button>
           );
+          // Calcula estado do checkbox da pasta: true=todos visíveis, false=todos ocultos, 'indeterminate'=misto
+          const getGroupCheckState = (group: any): boolean | 'indeterminate' => {
+            const collectAll = (g: any): { elems: number[]; routes: number[]; poles: number[]; reserves: number[]; pois: number[]; olts: number[] } => {
+              const kids = allGroups.filter((c: any) => c.parentId === g.id);
+              const childData = kids.map(collectAll);
+              return {
+                elems: [...(g.elements ?? []).map((e: any) => e.elementId), ...childData.flatMap(d => d.elems)],
+                routes: [...(g.routes ?? []).map((r: any) => r.routeId), ...childData.flatMap(d => d.routes)],
+                poles: [...(g.poles ?? []).map((p: any) => p.poleId), ...childData.flatMap(d => d.poles)],
+                reserves: [...(g.reserves ?? []).map((r: any) => r.reserveId), ...childData.flatMap(d => d.reserves)],
+                pois: [...(g.pois ?? []).map((p: any) => p.poiId), ...childData.flatMap(d => d.pois)],
+                olts: [...(g.olts ?? []).map((o: any) => o.oltId), ...childData.flatMap(d => d.olts)],
+              };
+            };
+            const all = collectAll(group);
+            const allIds = [...all.elems.map(id => `e${id}`), ...all.routes.map(id => `r${id}`), ...all.poles.map(id => `po${id}`), ...all.reserves.map(id => `re${id}`), ...all.pois.map(id => `pi${id}`), ...all.olts.map(id => `ol${id}`)];
+            if (allIds.length === 0) return !hiddenGroupIds.has(group.id);
+            const hiddenCount = all.elems.filter(id => hiddenElementIds.has(id)).length
+              + all.routes.filter(id => hiddenRouteIds.has(id)).length
+              + all.poles.filter(id => hiddenPoleIds.has(id)).length
+              + all.reserves.filter(id => hiddenReserveIds.has(id)).length
+              + all.pois.filter(id => hiddenPoiIds.has(id)).length
+              + all.olts.filter(id => hiddenOltIds.has(id)).length;
+            if (hiddenCount === 0) return true;
+            if (hiddenCount === allIds.length) return false;
+            return 'indeterminate';
+          };
           const renderGroup = (group: any, depth: number = 0) => {
             const isGroupHidden = hiddenGroupIds.has(group.id);
             const children = childGroups(group.id);
@@ -4178,14 +4308,28 @@ export default function InfrastructureMap() {
                   ) : (
                     <span className="w-3.5 flex-shrink-0" />
                   )}
-                  {/* Olho: toggle visibilidade do grupo inteiro */}
-                  <button
-                    onClick={() => toggleGroupVisibility(group.id)}
-                    className={`flex-shrink-0 p-0.5 ${isGroupHidden ? "text-muted-foreground/30" : "text-muted-foreground hover:text-foreground"}`}
-                    title={isGroupHidden ? "Mostrar grupo no mapa" : "Ocultar grupo do mapa"}
-                  >
-                    {isGroupHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
+                  {/* Checkbox hierárquico da pasta (estilo Google Earth) */}
+                  {(() => {
+                    const checkState = getGroupCheckState(group);
+                    const isChecked = checkState === true;
+                    const isIndet = checkState === 'indeterminate';
+                    return (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setGroupVisibilityRecursive(group.id, isChecked, allGroups); }}
+                        className={`w-3.5 h-3.5 flex-shrink-0 rounded-sm border flex items-center justify-center transition-colors ${
+                          isChecked
+                            ? "border-violet-500/60 bg-violet-500/20 hover:bg-violet-500/30"
+                            : isIndet
+                              ? "border-violet-500/40 bg-violet-500/10 hover:bg-violet-500/20"
+                              : "border-muted-foreground/20 bg-transparent hover:border-muted-foreground/40"
+                        }`}
+                        title={isChecked ? "Ocultar pasta do mapa" : "Mostrar pasta no mapa"}
+                      >
+                        {isChecked && <span className="w-2 h-2 block" style={{ background: "currentColor", clipPath: "polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%)" }} />}
+                        {isIndet && <span className="w-1.5 h-0.5 block bg-violet-400/70 rounded" />}
+                      </button>
+                    );
+                  })()}
                   <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: group.color ?? "#6366f1" }} />
                   <span className="text-xs font-medium flex-1 truncate cursor-pointer" title={group.name}
                     onClick={() => setExpandedGroupElements(prev => { const n = new Set(prev); if (n.has(group.id)) n.delete(group.id); else n.add(group.id); return n; })}>
@@ -4402,17 +4546,55 @@ export default function InfrastructureMap() {
                       const totalUngrouped = ungroupedElems.length + ungroupedRoutes.length + ungroupedPoles.length + ungroupedReserves.length + ungroupedPois.length + ungroupedOlts.length;
                       if (totalUngrouped === 0) return null;
                       const isExpanded = expandedGroupElements.has(-1);
+                      const ungroupedHiddenCount =
+                        ungroupedElems.filter((e: any) => hiddenElementIds.has(e.id)).length +
+                        ungroupedRoutes.filter((r: any) => hiddenRouteIds.has(r.id)).length +
+                        ungroupedPoles.filter((p: any) => hiddenPoleIds.has(p.id)).length +
+                        ungroupedReserves.filter((r: any) => hiddenReserveIds.has(r.id)).length +
+                        ungroupedPois.filter((p: any) => hiddenPoiIds.has(p.id)).length +
+                        ungroupedOlts.filter((o: any) => hiddenOltIds.has(o.id)).length;
+                      const ungroupedAllHidden = ungroupedHiddenCount === totalUngrouped;
+                      const ungroupedIndet = ungroupedHiddenCount > 0 && !ungroupedAllHidden;
+                      const ungroupedAllVisible = ungroupedHiddenCount === 0;
+                      const toggleUngroupedVisibility = () => {
+                        const hide = ungroupedAllVisible;
+                        ungroupedElems.forEach((e: any) => setHiddenElementIds(prev => { const n = new Set(prev); hide ? n.add(e.id) : n.delete(e.id); return n; }));
+                        ungroupedRoutes.forEach((r: any) => setHiddenRouteIds(prev => { const n = new Set(prev); hide ? n.add(r.id) : n.delete(r.id); return n; }));
+                        ungroupedPoles.forEach((p: any) => setHiddenPoleIds(prev => { const n = new Set(prev); hide ? n.add(p.id) : n.delete(p.id); return n; }));
+                        ungroupedReserves.forEach((r: any) => setHiddenReserveIds(prev => { const n = new Set(prev); hide ? n.add(r.id) : n.delete(r.id); return n; }));
+                        ungroupedPois.forEach((p: any) => setHiddenPoiIds(prev => { const n = new Set(prev); hide ? n.add(p.id) : n.delete(p.id); return n; }));
+                        ungroupedOlts.forEach((o: any) => setHiddenOltIds(prev => { const n = new Set(prev); hide ? n.add(o.id) : n.delete(o.id); return n; }));
+                      };
                       return (
                         <div className="mt-1 border-t border-border/30 pt-1">
                           <div
-                            className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-muted/30 cursor-pointer"
-                            onClick={() => setExpandedGroupElements(prev => { const n = new Set(prev); if (n.has(-1)) n.delete(-1); else n.add(-1); return n; })}
+                            className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-muted/30"
                           >
-                            <span className="w-3.5 flex-shrink-0" />
-                            <span className="w-3.5 flex-shrink-0" />
-                            <span className="text-xs font-medium flex-1 text-muted-foreground/70 italic">Sem pasta</span>
+                            <button
+                              onClick={() => setExpandedGroupElements(prev => { const n = new Set(prev); if (n.has(-1)) n.delete(-1); else n.add(-1); return n; })}
+                              className="text-muted-foreground hover:text-foreground flex-shrink-0"
+                            >
+                              {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            </button>
+                            {/* Checkbox da seção Sem pasta */}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleUngroupedVisibility(); }}
+                              className={`w-3.5 h-3.5 flex-shrink-0 rounded-sm border flex items-center justify-center transition-colors ${
+                                ungroupedAllVisible
+                                  ? "border-violet-500/60 bg-violet-500/20 hover:bg-violet-500/30"
+                                  : ungroupedIndet
+                                    ? "border-violet-500/40 bg-violet-500/10 hover:bg-violet-500/20"
+                                    : "border-muted-foreground/20 bg-transparent hover:border-muted-foreground/40"
+                              }`}
+                              title={ungroupedAllVisible ? "Ocultar itens sem pasta" : "Mostrar itens sem pasta"}
+                            >
+                              {ungroupedAllVisible && <span className="w-2 h-2 block" style={{ background: "currentColor", clipPath: "polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%)" }} />}
+                              {ungroupedIndet && <span className="w-1.5 h-0.5 block bg-violet-400/70 rounded" />}
+                            </button>
+                            <span className="text-xs font-medium flex-1 text-muted-foreground/70 italic cursor-pointer"
+                              onClick={() => setExpandedGroupElements(prev => { const n = new Set(prev); if (n.has(-1)) n.delete(-1); else n.add(-1); return n; })}
+                            >Sem pasta</span>
                             <span className="text-[10px] text-muted-foreground/50">{totalUngrouped}</span>
-                            {isExpanded ? <ChevronDown className="w-3 h-3 text-muted-foreground/50" /> : <ChevronRight className="w-3 h-3 text-muted-foreground/50" />}
                           </div>
                           {isExpanded && (
                             <div className="border-l border-border/30 ml-5 mb-1">

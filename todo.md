@@ -1633,3 +1633,12 @@
 
 ## Bugs
 - [x] Painel de Grupos/Pastas aparece vazio após atualização do painel bidirecional (corrigido com Promise.allSettled — resiliente a tabelas inexistentes)
+
+## Painel de Grupos — Checkboxes Hierárquicos (Google Earth)
+- [x] Substituir ícone de olho por checkbox nativo por pasta e por item
+- [x] Lógica hierárquica: marcar/desmarcar pasta propaga para todos os filhos e itens
+- [x] Estado indeterminado (—) na pasta quando filhos têm estados mistos
+- [x] Checkbox da pasta "Sem pasta" controla todos os itens não agrupados
+- [x] Renderização no mapa respeita o estado do checkbox (visível/oculto)
+- [x] Persistir visibilidade no localStorage (hiddenGroupIds + hidden*Ids por tipo)
+- [x] Renderização incremental das polylines de cabos (diff incremental igual aos marcadores)
