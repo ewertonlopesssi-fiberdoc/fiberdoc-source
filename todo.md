@@ -1601,3 +1601,9 @@
 ## Melhoria: Painel de Ícones KML
 - [x] Mostrar fallback visual colorido para ícones internos do Google Earth (icon-N_COLOR_0.png) que não carregam no browser
 - [x] Extrair cor e forma do nome do ícone (ex: icon-3_4_0 → cor índice 4) para identificação visual
+
+## Adicionar POI no Mapa e Exportação KMZ
+- [x] Mapa: botão "Adicionar POI" na toolbar do modo de edição
+- [x] Mapa: ao clicar no mapa em modo POI, abrir diálogo com nome, categoria, notas e grupo
+- [x] Mapa: criar POI via procedure mapPois.create e adicionar ao grupo selecionado
+- [x] KMZ: exportar POIs com ícone de localização (pin) e categoria na descrição

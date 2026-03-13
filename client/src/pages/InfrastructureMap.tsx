@@ -342,6 +342,11 @@ export default function InfrastructureMap() {
   const poiMarkersRef = useRef<Record<number, L.Marker>>({});
   const [editingPoi, setEditingPoi] = useState(false);
   const [poiEditForm, setPoiEditForm] = useState({ name: "", category: "geral", color: "#6366f1", notes: "" });
+  const [addingPoiMode, setAddingPoiMode] = useState(false);
+  const [poiDialogOpen, setPoiDialogOpen] = useState(false);
+  const [poiDialogLat, setPoiDialogLat] = useState(0);
+  const [poiDialogLng, setPoiDialogLng] = useState(0);
+  const [poiCreateForm, setPoiCreateForm] = useState({ name: "", category: "geral", notes: "", groupId: null as number | null });
   // Contagem de ONUs por sgpId (total do splitter/all, online actualizado após clique)
   const { data: onuCountsData } = trpc.sgp.getOnuCounts.useQuery(undefined, { staleTime: 5 * 60 * 1000 });
   // Estado local para guardar contagem online após cada consulta ao /onu/all/
@@ -421,6 +426,7 @@ export default function InfrastructureMap() {
   const [exportTypeCabo, setExportTypeCabo] = useState(true);
   const [exportIncludePoles, setExportIncludePoles] = useState(true);
   const [exportIncludeReserves, setExportIncludeReserves] = useState(true);
+  const [exportIncludePois, setExportIncludePois] = useState(true);
   const [exportIncludeFusions, setExportIncludeFusions] = useState(true);
   const [exportGroupId, setExportGroupId] = useState<number | null>(null);
   const [groupSelectMode, setGroupSelectMode] = useState(false);
@@ -1476,6 +1482,20 @@ export default function InfrastructureMap() {
     map.once("click", handler);
     return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
   }, [addingReserveMode, mapReady]);
+  // Modo adicionar POI — clique no mapa
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const map = mapRef.current;
+    if (!addingPoiMode) { map.getContainer().style.cursor = ""; return; }
+    map.getContainer().style.cursor = "crosshair";
+    const handler = (e: L.LeafletMouseEvent) => {
+      setPoiDialogLat(e.latlng.lat); setPoiDialogLng(e.latlng.lng);
+      setPoiCreateForm({ name: "", category: "geral", notes: "", groupId: null });
+      setPoiDialogOpen(true); setAddingPoiMode(false); map.getContainer().style.cursor = "";
+    };
+    map.once("click", handler);
+    return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
+  }, [addingPoiMode, mapReady]);
 
   // Sincronizar ref com estado para evitar stale closure
   useEffect(() => { addingModeRef.current = addingMode; }, [addingMode]);
@@ -2318,6 +2338,7 @@ export default function InfrastructureMap() {
           exportTypes: { cto: exportTypeCto, ceo: exportTypeCeo, cabo: exportTypeCabo },
           includePoles: exportIncludePoles,
           includeReserves: exportIncludeReserves,
+          includePois: exportIncludePois,
           includeFusions: exportIncludeFusions,
           exportGroupId: exportGroupId ?? undefined,
         }),
@@ -3565,6 +3586,9 @@ export default function InfrastructureMap() {
             <Button size="sm" variant={addingReserveMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${addingReserveMode ? "bg-cyan-700 hover:bg-cyan-800 border-cyan-600 text-white" : "border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10"}`} onClick={() => setAddingReserveMode(v => !v)}>
               <Codesandbox className="w-3 h-3" />{addingReserveMode ? "Cancelar Reserva" : "Add Reserva"}
             </Button>
+            <Button size="sm" variant={addingPoiMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${addingPoiMode ? "bg-indigo-600 hover:bg-indigo-700 border-indigo-500 text-white" : "border-indigo-500/40 text-indigo-400 hover:bg-indigo-500/10"}`} onClick={() => setAddingPoiMode(v => !v)} title="Clique no mapa para adicionar um Ponto de Interesse">
+              <MapPin className="w-3 h-3" />{addingPoiMode ? "Cancelar POI" : "Add POI"}
+            </Button>
           </>
         )}
         <div className="ml-auto flex items-center gap-2">
@@ -3680,6 +3704,12 @@ export default function InfrastructureMap() {
         <div className="px-4 py-2 bg-cyan-500/10 border-b border-cyan-500/30 text-cyan-400 text-xs flex items-center gap-2">
           <Codesandbox className="w-3.5 h-3.5" />Clique no mapa para posicionar a reserva técnica
           <button onClick={() => setAddingReserveMode(false)} className="ml-auto text-cyan-300 hover:text-cyan-200 underline">Cancelar</button>
+        </div>
+      )}
+      {addingPoiMode && (
+        <div className="px-4 py-2 bg-indigo-500/10 border-b border-indigo-500/30 text-indigo-400 text-xs flex items-center gap-2">
+          <MapPin className="w-3.5 h-3.5" />Clique no mapa para posicionar o Ponto de Interesse
+          <button onClick={() => setAddingPoiMode(false)} className="ml-auto text-indigo-300 hover:text-indigo-200 underline">Cancelar</button>
         </div>
       )}
       {otdrMode && (
@@ -4305,7 +4335,7 @@ export default function InfrastructureMap() {
                   {exportTypeCabo ? <span className="text-xs font-medium">✓ Incluído</span> : <span className="text-xs">Excluído</span>}
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-2 mt-2">
+              <div className="grid grid-cols-3 gap-2 mt-2">
                 <button
                   onClick={() => setExportIncludePoles(v => !v)}
                   className={`flex flex-col items-center gap-1 p-2.5 rounded-lg border-2 transition-all ${exportIncludePoles ? "border-yellow-500 bg-yellow-500/10 text-yellow-400" : "border-border text-muted-foreground"}`}
@@ -4321,6 +4351,14 @@ export default function InfrastructureMap() {
                   <span className="text-sm font-bold">Reservas</span>
                   <span className="text-xs">{(mapReserves as any[]).length} itens</span>
                   {exportIncludeReserves ? <span className="text-xs font-medium">✓ Incluído</span> : <span className="text-xs">Excluído</span>}
+                </button>
+                <button
+                  onClick={() => setExportIncludePois(v => !v)}
+                  className={`flex flex-col items-center gap-1 p-2.5 rounded-lg border-2 transition-all ${exportIncludePois ? "border-indigo-500 bg-indigo-500/10 text-indigo-400" : "border-border text-muted-foreground"}`}
+                >
+                  <span className="text-sm font-bold">POIs</span>
+                  <span className="text-xs">{(pois as any[]).length} itens</span>
+                  {exportIncludePois ? <span className="text-xs font-medium">✓ Incluído</span> : <span className="text-xs">Excluído</span>}
                 </button>
               </div>
             </div>
@@ -4421,13 +4459,13 @@ export default function InfrastructureMap() {
             {/* Resumo */}
             <div className="bg-muted/20 rounded-lg px-3 py-2 text-xs text-muted-foreground space-y-0.5">
               <div>Serão exportados: {exportTypeCto ? `${(elements as any[]).filter((e: any) => e.type === "cto").length} CTOs` : "0 CTOs"} · {exportTypeCeo ? `${(elements as any[]).filter((e: any) => e.type === "ceo").length} CEOs` : "0 CEOs"} · {exportTypeCabo ? `${(routes as any[]).length} Cabos` : "0 Cabos"}</div>
-              <div>{exportIncludePoles ? `${(mapPoles as any[]).length} Postes` : "0 Postes"} · {exportIncludeReserves ? `${(mapReserves as any[]).length} Reservas` : "0 Reservas"}{exportGroupId !== null ? ` (filtrado por grupo)` : ""}</div>
+              <div>{exportIncludePoles ? `${(mapPoles as any[]).length} Postes` : "0 Postes"} · {exportIncludeReserves ? `${(mapReserves as any[]).length} Reservas` : "0 Reservas"} · {exportIncludePois ? `${(pois as any[]).length} POIs` : "0 POIs"}{exportGroupId !== null ? ` (filtrado por grupo)` : ""}</div>
               {exportIncludeFusions && <div className="text-yellow-500/80">⚠ Mapa de fusões ativo — exportação pode ser mais lenta</div>}
             </div>
           </div>
           <DialogFooter className="flex-shrink-0 pt-2">
             <Button variant="outline" onClick={() => setExportDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={handleExportKml} disabled={exportLoading || (!exportTypeCto && !exportTypeCeo && !exportTypeCabo && !exportIncludePoles && !exportIncludeReserves)}>{exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Download className="w-4 h-4 mr-1" />Exportar {exportFormat.toUpperCase()}</>}</Button>
+            <Button onClick={handleExportKml} disabled={exportLoading || (!exportTypeCto && !exportTypeCeo && !exportTypeCabo && !exportIncludePoles && !exportIncludeReserves && !exportIncludePois)}>{exportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Download className="w-4 h-4 mr-1" />Exportar {exportFormat.toUpperCase()}</>}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -6554,6 +6592,93 @@ export default function InfrastructureMap() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Diálogo de criação de POI ──────────────────────────────────────────────────────── */}
+      <Dialog open={poiDialogOpen} onOpenChange={v => { if (!v) setPoiDialogOpen(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-indigo-400" />
+              Adicionar Ponto de Interesse
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Nome *</Label>
+              <Input
+                value={poiCreateForm.name}
+                onChange={e => setPoiCreateForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="Ex: Câmera Praça Central, Prédio Sede..."
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Categoria</Label>
+              <Select value={poiCreateForm.category} onValueChange={v => setPoiCreateForm(f => ({ ...f, category: v }))}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="geral">Geral</SelectItem>
+                  <SelectItem value="camera">Câmera</SelectItem>
+                  <SelectItem value="predio">Prédio / Edifício</SelectItem>
+                  <SelectItem value="antena">Antena</SelectItem>
+                  <SelectItem value="torre">Torre</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1"><Folder className="w-3 h-3" /> Grupo / Pasta (opcional)</Label>
+              <Select value={poiCreateForm.groupId !== null ? String(poiCreateForm.groupId) : "none"} onValueChange={v => setPoiCreateForm(f => ({ ...f, groupId: v === "none" ? null : Number(v) }))}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sem grupo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem grupo</SelectItem>
+                  {(mapGroups as any[]).map((g: any) => (
+                    <SelectItem key={g.id} value={String(g.id)}>
+                      <span className="flex items-center gap-1.5"><span style={{ background: g.color, width: 8, height: 8, borderRadius: "50%", display: "inline-block" }} />{g.name}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Localização GPS</Label>
+              <div className="text-xs bg-muted rounded px-3 py-2 text-muted-foreground font-mono">
+                {poiDialogLat.toFixed(6)}, {poiDialogLng.toFixed(6)}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Observações</Label>
+              <Textarea value={poiCreateForm.notes} onChange={e => setPoiCreateForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Observações opcionais..." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPoiDialogOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={createPoiMut.isPending}
+              onClick={async () => {
+                if (!poiCreateForm.name.trim()) { toast.error("Nome obrigatório"); return; }
+                try {
+                  const poi = await createPoiMut.mutateAsync({
+                    name: poiCreateForm.name.trim(),
+                    category: poiCreateForm.category,
+                    lat: poiDialogLat,
+                    lng: poiDialogLng,
+                    color: "#6366f1",
+                    notes: poiCreateForm.notes || undefined,
+                  });
+                  if (poiCreateForm.groupId !== null) {
+                    try { await addPoiToGroupMut.mutateAsync({ poiId: (poi as any).id, groupId: poiCreateForm.groupId }); } catch {}
+                  }
+                  setPoiDialogOpen(false);
+                  toast.success(`POI "${poiCreateForm.name}" adicionado!`);
+                } catch (e: any) {
+                  toast.error(e.message ?? "Erro ao criar POI");
+                }
+              }}
+            >
+              {createPoiMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Adicionar POI"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* ── Painel de detalhes CEO/CTO sobreposto ao mapa (redimensionável) ── */}
       <ResizableDetailPanel
         open={detailPanel !== null}

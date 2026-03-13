@@ -291,6 +291,7 @@ async function startServer() {
         exportGroupId,       // se definido, exportar apenas elementos deste grupo
         includePoles = true,
         includeReserves = true,
+        includePois = true,
         includeFusions = true,
       } = req.body ?? {};
       const typeCto = exportTypes?.cto !== false;
@@ -299,10 +300,10 @@ async function startServer() {
 
       const { zipSync, strToU8 } = await import("fflate");
       const dbMod = await import("../db");
-
-      // ── Carregar todos os dados em paralelo ──────────────────────────────────
+      // ── Carregar todos os dados em paralelo ──────────────────────────────────────────
       const [allElements, allRoutes, allCtos, allCeos, allPoles, allReserves, allGroups,
-             allElementMemberships, allRouteMemberships, allPoleMemberships, allReserveMemberships] = await Promise.all([
+             allElementMemberships, allRouteMemberships, allPoleMemberships, allReserveMemberships,
+             allPois, allPoiMemberships] = await Promise.all([
         getMapElements(),
         getMapRoutes(),
         getCtos(),
@@ -314,9 +315,10 @@ async function startServer() {
         dbMod.getAllRouteGroupMemberships(),
         dbMod.getAllPoleGroupMemberships(),
         dbMod.getAllReserveGroupMemberships(),
+        dbMod.getMapPois(),
+        dbMod.getAllPoiGroupMemberships(),
       ]);
-
-      // ── Filtrar por grupo se solicitado ─────────────────────────────────────
+      // ── Filtrar por grupo se solicitado ─────────────────────────────────────────────────────
       const filterByGroup = (id: number, memberships: any[], key: string) =>
         exportGroupId ? memberships.some((m: any) => m.groupId === exportGroupId && m[key] === id) : true;
 
@@ -333,6 +335,9 @@ async function startServer() {
 
       let reserves = includeReserves ? (allReserves as any[]) : [];
       if (exportGroupId) reserves = reserves.filter((r: any) => filterByGroup(r.id, allReserveMemberships as any[], "reserveId"));
+
+      let pois = includePois ? (allPois as any[]) : [];
+      if (exportGroupId) pois = pois.filter((p: any) => (allPoiMemberships as any[]).some((m: any) => m.groupId === exportGroupId && m.poiId === p.id));
 
       const ctoMap = new Map(allCtos.map((c: any) => [c.id, c]));
       const ceoMap = new Map((allCeos as any[]).map((c: any) => [c.id, c]));
@@ -566,8 +571,29 @@ async function startServer() {
         return `    <Placemark>\n      <name>${name}</name>\n      <description>${desc}</description>\n      <Style><IconStyle><color>ff00aaff</color><scale>0.9</scale><Icon><href>icons/reserve.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${r.lng},${r.lat},0</coordinates></Point>\n    </Placemark>`;
       }).join("\n");
 
+
+      // ── Construir placemarks de POIs ─────────────────────────────────────────
+      const poiCategoryColor = (cat: string | null | undefined) => {
+        switch ((cat ?? "").toLowerCase()) {
+          case "camera": return "ff0000ff";
+          case "predio": case "prédio": return "ffaa00ff";
+          case "antena": return "ff00aaff";
+          case "torre": return "ff00ffaa";
+          default: return "ff4488ff";
+        }
+      };
+      const poiPlacemarks = pois.map((p: any) => {
+        const name = esc(p.name ?? `POI-${p.id}`);
+        const desc = [
+          p.category ? `Categoria: ${esc(p.category)}` : "",
+          p.notes ? `Notas: ${esc(p.notes)}` : "",
+        ].filter(Boolean).join("&#10;");
+        const color = poiCategoryColor(p.category);
+        return `    <Placemark>\n      <name>${name}</name>\n      <description>${desc}</description>\n      <Style><IconStyle><color>${color}</color><scale>1.0</scale><Icon><href>https://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href></Icon></IconStyle></Style>\n      <Point><coordinates>${p.lng},${p.lat},0</coordinates></Point>\n    </Placemark>`;
+      }).join("\n");
+
       // ── Organizar em pastas por grupo ────────────────────────────────────────
-      const buildGroupFolders = () => {
+        const buildGroupFolders = () => {
         if (!exportGroupId && (allGroups as any[]).length === 0) return null;
         // Mapear cada elemento ao(s) seu(s) grupo(s)
         const elGroupMap = new Map<number, number[]>();
@@ -590,7 +616,12 @@ async function startServer() {
           if (!reserveGroupMap.has(m.reserveId)) reserveGroupMap.set(m.reserveId, []);
           reserveGroupMap.get(m.reserveId)!.push(m.groupId);
         });
-        return { elGroupMap, routeGroupMap, poleGroupMap, reserveGroupMap };
+        const poiGroupMap = new Map<number, number[]>();
+        (allPoiMemberships as any[]).forEach((m: any) => {
+          if (!poiGroupMap.has(m.poiId)) poiGroupMap.set(m.poiId, []);
+          poiGroupMap.get(m.poiId)!.push(m.groupId);
+        });
+        return { elGroupMap, routeGroupMap, poleGroupMap, reserveGroupMap, poiGroupMap };
       };
       const groupMaps = buildGroupFolders();
 
@@ -604,6 +635,7 @@ async function startServer() {
         const assignedRouteIds = new Set<number>();
         const assignedPoleIds = new Set<number>();
         const assignedReserveIds = new Set<number>();
+        const assignedPoiIds = new Set<number>();
 
         for (const group of (allGroups as any[])) {
           const gColor = group.color ? hexToKml(group.color) : "ff4488ff";
@@ -662,6 +694,14 @@ async function startServer() {
               }
             });
           }
+          // POIs do grupo
+          pois.forEach((p: any, i: number) => {
+            if (groupMaps?.poiGroupMap.get(p.id)?.includes(group.id)) {
+              const pm = poiPlacemarks.split("\n    <Placemark>")[i+1];
+              if (pm) { groupItems.push("    <Placemark>" + pm.split("</Placemark>")[0] + "</Placemark>"); }
+              assignedPoiIds.add(p.id);
+            }
+          });
 
           if (groupItems.length > 0) {
             groupFolders.push(`  <Folder>\n    <name>${esc(group.name)}</name>${group.description ? `\n    <description>${esc(group.description)}</description>` : ""}\n${groupItems.join("\n")}\n  </Folder>`);
@@ -706,6 +746,12 @@ async function startServer() {
             }
           });
         }
+        pois.forEach((p: any, i: number) => {
+          if (!assignedPoiIds.has(p.id)) {
+            const pm = poiPlacemarks.split("\n    <Placemark>")[i+1];
+            if (pm) semGrupoItems.push("    <Placemark>" + pm.split("</Placemark>")[0] + "</Placemark>");
+          }
+        });
         if (semGrupoItems.length > 0) {
           groupFolders.push(`  <Folder>\n    <name>Sem Grupo</name>\n${semGrupoItems.join("\n")}\n  </Folder>`);
         }
@@ -717,8 +763,9 @@ async function startServer() {
         const ceoFolder = (typeCeo && ceoPlacemarksList.length > 0) ? `  <Folder>\n    <name>CEOs</name>\n${ceoPlacemarksList.join("\n")}\n  </Folder>` : "";
         const cableFolder = (typeCabo && linemarks) ? `  <Folder>\n    <name>Cabos de Fibra</name>\n${linemarks}\n  </Folder>` : "";
         const poleFolder = (includePoles && polePlacemarks) ? `  <Folder>\n    <name>Postes</name>\n${polePlacemarks}\n  </Folder>` : "";
-        const reserveFolder = (includeReserves && reservePlacemarks) ? `  <Folder>\n    <name>Reservas Técnicas</name>\n${reservePlacemarks}\n  </Folder>` : "";
-        folders = [ctoFolder, ceoFolder, cableFolder, poleFolder, reserveFolder].filter(Boolean).join("\n");
+        const reserveFolder = (includeReserves && reservePlacemarks) ? `  <Folder>\n    <name>Reservas T\u00e9cnicas</name>\n${reservePlacemarks}\n  </Folder>` : "";
+        const poiFolder = (pois.length > 0 && poiPlacemarks) ? `  <Folder>\n    <name>Pontos de Interesse</name>\n${poiPlacemarks}\n  </Folder>` : "";
+        folders = [ctoFolder, ceoFolder, cableFolder, poleFolder, reserveFolder, poiFolder].filter(Boolean).join("\n");
       }
 
       const kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n  <name>FiberDoc — Infraestrutura de Rede</name>\n  <description>Exportado em ${new Date().toLocaleString("pt-BR")}</description>\n${folders}\n</Document>\n</kml>`;
