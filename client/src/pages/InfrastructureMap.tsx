@@ -293,15 +293,17 @@ export default function InfrastructureMap() {
   const isAdmin = user?.role === "admin";
 
   const utils = trpc.useUtils();
-  const { data: elements = [], refetch: refetchElements } = trpc.infraMap.elements.useQuery();
-  const { data: routes = [], refetch: refetchRoutes } = trpc.infraMap.routes.useQuery();
-  const { data: routesOccupancy = [] } = trpc.infraMap.routesOccupancy.useQuery();
-  const { data: ctos = [], refetch: refetchCtos } = trpc.ctos.list.useQuery();
-  const { data: ceosRaw = [], refetch: refetchCeos } = trpc.ceos.list.useQuery({});
+  // staleTime: 2 min — dados do mapa mudam raramente, não precisam recarregar a cada foco de janela
+  const MAP_QUERY_OPTS = { staleTime: 2 * 60 * 1000, refetchOnWindowFocus: false } as const;
+  const { data: elements = [], refetch: refetchElements } = trpc.infraMap.elements.useQuery(undefined, MAP_QUERY_OPTS);
+  const { data: routes = [], refetch: refetchRoutes } = trpc.infraMap.routes.useQuery(undefined, MAP_QUERY_OPTS);
+  const { data: routesOccupancy = [] } = trpc.infraMap.routesOccupancy.useQuery(undefined, MAP_QUERY_OPTS);
+  const { data: ctos = [], refetch: refetchCtos } = trpc.ctos.list.useQuery(undefined, MAP_QUERY_OPTS);
+  const { data: ceosRaw = [], refetch: refetchCeos } = trpc.ceos.list.useQuery({}, MAP_QUERY_OPTS);
   const ceos = ceosRaw as any[];
-  const { data: sysConfig } = trpc.systemConfig.get.useQuery();
+  const { data: sysConfig } = trpc.systemConfig.get.useQuery(undefined, { staleTime: 10 * 60 * 1000, refetchOnWindowFocus: false });
   // OLT elements no mapa
-  const { data: oltElements = [], refetch: refetchOltElements } = trpc.infraMap.oltElements.useQuery();
+  const { data: oltElements = [], refetch: refetchOltElements } = trpc.infraMap.oltElements.useQuery(undefined, MAP_QUERY_OPTS);
   const [showOlts, setShowOlts] = useState(true);
   const [addingOltMode, setAddingOltMode] = useState(false);
   const [oltAddDialogOpen, setOltAddDialogOpen] = useState(false);
@@ -316,7 +318,7 @@ export default function InfrastructureMap() {
   const [oltDetailPanelOpen, setOltDetailPanelOpen] = useState(false);
   const oltMarkersRef = useRef<Record<number, L.Marker>>({});
   // Postes no mapa
-  const { data: mapPoles = [], refetch: refetchPoles } = trpc.mapPoles.list.useQuery();
+  const { data: mapPoles = [], refetch: refetchPoles } = trpc.mapPoles.list.useQuery(undefined, MAP_QUERY_OPTS);
   const [showPoles, setShowPoles] = useState(true);
   const [addingPoleMode, setAddingPoleMode] = useState(false);
   const [poleDialogOpen, setPoleDialogOpen] = useState(false);
@@ -327,7 +329,7 @@ export default function InfrastructureMap() {
   const [deletePoleId, setDeletePoleId] = useState<number | null>(null);
   const poleMarkersRef = useRef<Record<number, L.Marker>>({});
   // Reservas Técnicas no mapa
-  const { data: mapReserves = [], refetch: refetchReserves } = trpc.mapTechnicalReserves.list.useQuery();
+  const { data: mapReserves = [], refetch: refetchReserves } = trpc.mapTechnicalReserves.list.useQuery(undefined, MAP_QUERY_OPTS);
   const [showReserves, setShowReserves] = useState(true);
   const [addingReserveMode, setAddingReserveMode] = useState(false);
   const [reserveDialogOpen, setReserveDialogOpen] = useState(false);
@@ -383,6 +385,10 @@ export default function InfrastructureMap() {
   const markersRef = useRef<Record<number, L.Marker>>({});
   const polylinesRef = useRef<Record<number, L.Polyline>>({});
   const routeLabelsRef = useRef<Record<number, L.Marker>>({});
+  // Cache de ícones Leaflet: evita recriar L.divIcon quando nada mudou no marcador
+  const iconCacheRef = useRef<Record<string, any>>({});
+  // Estado anterior dos marcadores para diff incremental
+  const prevMarkerStateRef = useRef<Record<number, string>>({});
   const previewPolylineRef = useRef<L.Polyline | null>(null);
   const mousePolylineRef = useRef<L.Polyline | null>(null);
   const drawingMarkersRef = useRef<L.CircleMarker[]>([]);
@@ -533,7 +539,7 @@ export default function InfrastructureMap() {
   const [linkEndpointsToSearch, setLinkEndpointsToSearch] = useState("");
 
   // Grupos/Pastas
-  const { data: mapGroups = [], refetch: refetchGroups } = trpc.mapGroups.list.useQuery();
+  const { data: mapGroups = [], refetch: refetchGroups } = trpc.mapGroups.list.useQuery(undefined, MAP_QUERY_OPTS);
   const [groupsPanelOpen, setGroupsPanelOpen] = useState(false);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [groupForm, setGroupForm] = useState({ name: "", color: "#6366f1", description: "", parentId: null as number | null });
@@ -930,7 +936,7 @@ export default function InfrastructureMap() {
     onError: (e) => toast.error(e.message),
   });
   // ─── POI ─────────────────────────────────────────────────────────────────────
-  const { data: pois = [], refetch: refetchPois } = trpc.mapPois.list.useQuery(undefined, { refetchOnWindowFocus: false });
+  const { data: pois = [], refetch: refetchPois } = trpc.mapPois.list.useQuery(undefined, MAP_QUERY_OPTS);
   const createPoiMut = trpc.mapPois.create.useMutation({
     onSuccess: () => { refetchPois(); toast.success("Ponto de interesse adicionado"); },
     onError: (e) => toast.error(e.message),
@@ -1201,47 +1207,85 @@ export default function InfrastructureMap() {
     return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; };
   }, []);
 
-  // Renderizar marcadores
+  // Renderizar marcadores — diff incremental: só recria marcadores que mudaram
   const renderMarkers = useCallback(() => {
     if (!mapRef.current || !mapReady) return;
-    Object.values(markersRef.current).forEach(m => m.remove());
-    markersRef.current = {};
+
+    const currentIds = new Set<number>((elements as any[]).map((el: any) => el.id as number));
+    const prevIds = Object.keys(markersRef.current).map(Number);
+
+    // Remover marcadores de elementos que já não existem
+    for (const id of prevIds) {
+      if (!currentIds.has(id)) {
+        markersRef.current[id]?.remove();
+        delete markersRef.current[id];
+        delete prevMarkerStateRef.current[id];
+      }
+    }
+
     (elements as any[]).forEach((el: any) => {
       const isCto = el.type === "cto";
-      if (isCto && !showCtos) return;
-      if (!isCto && !showCeos) return;
+      if (isCto && !showCtos) {
+        if (markersRef.current[el.id]) { markersRef.current[el.id].remove(); delete markersRef.current[el.id]; }
+        return;
+      }
+      if (!isCto && !showCeos) {
+        if (markersRef.current[el.id]) { markersRef.current[el.id].remove(); delete markersRef.current[el.id]; }
+        return;
+      }
+
       const ref = isCto ? (ctos as any[]).find((c: any) => c.id === el.referenceId) : ceos.find((c: any) => c.id === el.referenceId);
       const name = ref?.name ?? (isCto ? `CTO-${el.referenceId}` : `CEO-${el.referenceId}`);
       const status = ref?.status ?? "active";
       const isSelected = groupSelectedElements.has(el.id);
-      // Badge de ONUs: usar sgpId da CTO para buscar contagem no onuCountMap
       const sgpIdForBadge = isCto ? (ref?.sgpId ?? null) : null;
       const onuBadgeData = sgpIdForBadge != null ? (onuCountMap[sgpIdForBadge] ?? null) : null;
-      const icon = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null);
-      // Drag só ativo em modo edição global OU quando este elemento específico está em modo mover
       const isDraggable = isAdmin && (editMode || movingElementId === el.id);
-      // bubblingMouseEvents: false impede que o clique num marcador propague para o mapa
-      // (evita que durante addingMode o clique num marcador existente abra o diálogo de pick)
+
+      // Chave de estado: se igual ao anterior, apenas actualiza posição se mudou
+      const badgeKey = onuBadgeData ? `${onuBadgeData.total}/${onuBadgeData.online ?? ''}` : '';
+      const stateKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}|${isDraggable ? 1 : 0}`;
+      const existingMarker = markersRef.current[el.id];
+
+      if (existingMarker) {
+        // Actualizar posição se mudou (drag salvo)
+        const pos = existingMarker.getLatLng();
+        if (Math.abs(pos.lat - Number(el.lat)) > 1e-8 || Math.abs(pos.lng - Number(el.lng)) > 1e-8) {
+          existingMarker.setLatLng([Number(el.lat), Number(el.lng)]);
+        }
+        // Actualizar ícone apenas se o estado visual mudou
+        if (stateKey !== prevMarkerStateRef.current[el.id]) {
+          const iconKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}`;
+          if (!iconCacheRef.current[iconKey]) {
+            iconCacheRef.current[iconKey] = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null);
+          }
+          existingMarker.setIcon(iconCacheRef.current[iconKey]);
+          (existingMarker as any).dragging?.[isDraggable ? 'enable' : 'disable']();
+          prevMarkerStateRef.current[el.id] = stateKey;
+        }
+        return;
+      }
+
+      // Criar novo marcador
+      const iconKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}`;
+      if (!iconCacheRef.current[iconKey]) {
+        iconCacheRef.current[iconKey] = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null);
+      }
+      const icon = iconCacheRef.current[iconKey];
       const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isDraggable, bubblingMouseEvents: false } as any).addTo(mapRef.current!);
       if (isAdmin) {
         marker.on("dragend", () => {
           if (!editMode && movingElementId !== el.id) return;
           const pos = marker.getLatLng();
           if (movingElementId === el.id) {
-            // Modo mover individual: guardar posição pendente, aguardar confirmação
             setPendingMovePos({ id: el.id, lat: pos.lat, lng: pos.lng });
           } else {
-            // Modo edição global: salvar imediatamente
             upsertElementMut.mutate({ type: el.type, referenceId: el.referenceId, lat: pos.lat, lng: pos.lng });
           }
         });
       }
       marker.on("click", (e: any) => {
-        // Durante addingMode (CEO/CTO), ignorar cliques em marcadores existentes
-        // para que apenas cliques em áreas vazias do mapa sejam processados
         if (addingModeRef.current) {
-          // Propagar manualmente para o mapa com as coordenadas do marcador
-          // para que o handler de addição receba o evento
           mapRef.current?.fire("click", { latlng: marker.getLatLng(), originalEvent: e.originalEvent });
           return;
         }
@@ -1252,7 +1296,6 @@ export default function InfrastructureMap() {
           toast.info(`Ponto adicionado: ${name}`);
           return;
         }
-        // Modo OTDR: seleccionar elemento de partida
         if (otdrMode) {
           setOtdrElementId(el.id);
           setOtdrTubeId("");
@@ -1265,6 +1308,7 @@ export default function InfrastructureMap() {
         setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts, sgpId: ref?.sgpId ?? null, color: el.color ?? null } });
       });
       markersRef.current[el.id] = marker;
+      prevMarkerStateRef.current[el.id] = stateKey;
     });
   }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, movingElementId, onuCountMap, otdrMode]);
 

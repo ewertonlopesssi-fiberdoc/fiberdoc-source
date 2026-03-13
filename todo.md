@@ -1607,3 +1607,9 @@
 - [x] Mapa: ao clicar no mapa em modo POI, abrir diálogo com nome, categoria, notas e grupo
 - [x] Mapa: criar POI via procedure mapPois.create e adicionar ao grupo selecionado
 - [x] KMZ: exportar POIs com ícone de localização (pin) e categoria na descrição
+
+## Performance do Mapa
+- [x] staleTime: 2 min + refetchOnWindowFocus: false em todas as queries do mapa (elements, routes, ctos, ceos, poles, reserves, groups, pois, olts)
+- [x] getRoutesOccupancy: reescrita com batch queries (elimina N+1 — de ~3×N queries para ≤8 queries fixas)
+- [x] renderMarkers: renderização incremental com diff (só recria marcadores que mudaram)
+- [x] Cache de ícones Leaflet (iconCacheRef): evita recriar L.divIcon quando nada mudou no marcador

@@ -2626,76 +2626,142 @@ export async function getAllRouteGroupMemberships(): Promise<MapRouteGroup[]> {
 
 // ─── Ocupação de Fibras por Rota ─────────────────────────────────────────────
 export async function getRoutesOccupancy(): Promise<{ routeId: number; fiberCount: number; fusedCount: number; pct: number; tubeLabel: string | null }[]> {
-  const db = await getDb();
-  if (!db) return [];
-  const routes = await db.select().from(mapRoutes);
+  // Versão otimizada: substitui N+1 queries por batch queries agrupadas
+  if (!_pool) _pool = createPool();
+  const pool = _pool.promise();
+
+  // 1. Buscar todas as rotas
+  const [routeRows] = await pool.execute<any[]>(
+    `SELECT id, fiberCount, fromElementId, fromTubeId FROM map_routes`
+  );
+  if (!routeRows.length) return [];
+
+  // 2. Buscar tipo de todos os elementos referenciados como fromElementId
+  const fromElementIds: number[] = Array.from(
+    new Set(routeRows.map((r: any) => r.fromElementId).filter((id: any) => id != null))
+  );
+  const elementTypeMap = new Map<number, { type: string; referenceId: number }>();
+  if (fromElementIds.length > 0) {
+    const ph = fromElementIds.map(() => '?').join(',');
+    const [elRows] = await pool.execute<any[]>(
+      `SELECT id, type, referenceId FROM map_elements WHERE id IN (${ph})`,
+      fromElementIds
+    );
+    for (const el of elRows) elementTypeMap.set(el.id, { type: el.type, referenceId: el.referenceId });
+  }
+
+  // 3. Batch: buscar stats de tubos CEO e CTO vinculados via fromTubeId
+  const ceoTubeIds: number[] = Array.from(new Set(
+    routeRows
+      .filter((r: any) => r.fromTubeId && elementTypeMap.get(r.fromElementId)?.type === 'ceo')
+      .map((r: any) => r.fromTubeId as number)
+  ));
+  const ctoTubeIds: number[] = Array.from(new Set(
+    routeRows
+      .filter((r: any) => r.fromTubeId && elementTypeMap.get(r.fromElementId)?.type === 'cto')
+      .map((r: any) => r.fromTubeId as number)
+  ));
+
+  const ceoTubeStats = new Map<number, { fusedCount: number; label: string; totalVias: number }>();
+  const ctoTubeStats = new Map<number, { fusedCount: number; label: string; totalVias: number }>();
+
+  if (ceoTubeIds.length > 0) {
+    const ph = ceoTubeIds.map(() => '?').join(',');
+    const [tubeRows] = await pool.execute<any[]>(
+      `SELECT id, identifier, totalVias FROM ceo_tubes WHERE id IN (${ph})`, ceoTubeIds
+    );
+    const [fusedRows] = await pool.execute<any[]>(
+      `SELECT tubeId, COUNT(*) AS cnt FROM ceo_vias WHERE tubeId IN (${ph}) AND fusedToViaId IS NOT NULL GROUP BY tubeId`, ceoTubeIds
+    );
+    const fusedMap = new Map<number, number>();
+    for (const f of fusedRows) fusedMap.set(Number(f.tubeId), Number(f.cnt));
+    for (const t of tubeRows) ceoTubeStats.set(Number(t.id), { fusedCount: fusedMap.get(Number(t.id)) ?? 0, label: t.identifier, totalVias: Number(t.totalVias) });
+  }
+
+  if (ctoTubeIds.length > 0) {
+    const ph = ctoTubeIds.map(() => '?').join(',');
+    const [tubeRows] = await pool.execute<any[]>(
+      `SELECT id, identifier, totalVias FROM cto_tubes WHERE id IN (${ph})`, ctoTubeIds
+    );
+    const [fusedRows] = await pool.execute<any[]>(
+      `SELECT tubeId, COUNT(*) AS cnt FROM cto_vias WHERE tubeId IN (${ph}) AND fusedToViaId IS NOT NULL GROUP BY tubeId`, ctoTubeIds
+    );
+    const fusedMap = new Map<number, number>();
+    for (const f of fusedRows) fusedMap.set(Number(f.tubeId), Number(f.cnt));
+    for (const t of tubeRows) ctoTubeStats.set(Number(t.id), { fusedCount: fusedMap.get(Number(t.id)) ?? 0, label: t.identifier, totalVias: Number(t.totalVias) });
+  }
+
+  // 4. Fallback: rotas sem fromTubeId — contar vias fusionadas por elemento (batch)
+  const fallbackElementIds: number[] = Array.from(new Set(
+    routeRows
+      .filter((r: any) => !r.fromTubeId && r.fromElementId != null)
+      .map((r: any) => r.fromElementId as number)
+  ));
+  const elementFusedMap = new Map<number, number>();
+
+  if (fallbackElementIds.length > 0) {
+    // CEO fallback
+    const ceoElIds = fallbackElementIds.filter(id => elementTypeMap.get(id)?.type === 'ceo');
+    if (ceoElIds.length > 0) {
+      const ph = ceoElIds.map(() => '?').join(',');
+      const refIds = ceoElIds.map(id => elementTypeMap.get(id)!.referenceId);
+      const phRef = refIds.map(() => '?').join(',');
+      const [rows] = await pool.execute<any[]>(
+        `SELECT ct.ceoId, COUNT(cv.id) AS cnt
+         FROM ceo_tubes ct
+         JOIN ceo_vias cv ON cv.tubeId = ct.id AND cv.fusedToViaId IS NOT NULL
+         WHERE ct.ceoId IN (${phRef})
+         GROUP BY ct.ceoId`, refIds
+      );
+      const ceoFusedMap = new Map<number, number>();
+      for (const r of rows) ceoFusedMap.set(Number(r.ceoId), Number(r.cnt));
+      for (const elId of ceoElIds) {
+        const refId = elementTypeMap.get(elId)?.referenceId;
+        elementFusedMap.set(elId, refId != null ? (ceoFusedMap.get(refId) ?? 0) : 0);
+      }
+    }
+    // CTO fallback
+    const ctoElIds = fallbackElementIds.filter(id => elementTypeMap.get(id)?.type === 'cto');
+    if (ctoElIds.length > 0) {
+      const refIds = ctoElIds.map(id => elementTypeMap.get(id)!.referenceId);
+      const phRef = refIds.map(() => '?').join(',');
+      const [rows] = await pool.execute<any[]>(
+        `SELECT ct.ctoId, COUNT(cv.id) AS cnt
+         FROM cto_tubes ct
+         JOIN cto_vias cv ON cv.tubeId = ct.id AND cv.fusedToViaId IS NOT NULL
+         WHERE ct.ctoId IN (${phRef})
+         GROUP BY ct.ctoId`, refIds
+      );
+      const ctoFusedMap = new Map<number, number>();
+      for (const r of rows) ctoFusedMap.set(Number(r.ctoId), Number(r.cnt));
+      for (const elId of ctoElIds) {
+        const refId = elementTypeMap.get(elId)?.referenceId;
+        elementFusedMap.set(elId, refId != null ? (ctoFusedMap.get(refId) ?? 0) : 0);
+      }
+    }
+  }
+
+  // 5. Montar resultado
   const result: { routeId: number; fiberCount: number; fusedCount: number; pct: number; tubeLabel: string | null }[] = [];
+  for (const route of routeRows) {
+    const fiberCount = Number(route.fiberCount ?? 12);
+    const elInfo = route.fromElementId != null ? elementTypeMap.get(route.fromElementId) : undefined;
 
-  // Helper: contar vias fusionadas em um tubo específico (CEO ou CTO)
-  async function countFusedInTube(tubeId: number, elType: "ceo" | "cto"): Promise<{ count: number; label: string | null; totalVias: number }> {
-    if (elType === "ceo") {
-      const [tube] = await db!.select().from(ceoTubes).where(eq(ceoTubes.id, tubeId)).limit(1);
-      if (!tube) return { count: 0, label: null, totalVias: 0 };
-      const fused = await db!.select().from(ceoVias).where(and(eq(ceoVias.tubeId, tubeId), isNotNull(ceoVias.fusedToViaId)));
-      return { count: fused.length, label: tube.identifier, totalVias: tube.totalVias };
-    } else {
-      const [tube] = await db!.select().from(ctoTubes).where(eq(ctoTubes.id, tubeId)).limit(1);
-      if (!tube) return { count: 0, label: null, totalVias: 0 };
-      const fused = await db!.select().from(ctoVias).where(and(eq(ctoVias.tubeId, tubeId), isNotNull(ctoVias.fusedToViaId)));
-      return { count: fused.length, label: tube.identifier, totalVias: tube.totalVias };
-    }
-  }
-
-  // Helper: contar vias fusionadas em todos os tubos de um elemento
-  async function countFusedInElement(elementId: number): Promise<number> {
-    const [el] = await db!.select().from(mapElements).where(eq(mapElements.id, elementId)).limit(1);
-    if (!el) return 0;
-    let total = 0;
-    if (el.type === "ceo") {
-      const tubes = await db!.select().from(ceoTubes).where(eq(ceoTubes.ceoId, el.referenceId!));
-      for (const tube of tubes) {
-        const fused = await db!.select().from(ceoVias).where(and(eq(ceoVias.tubeId, tube.id), isNotNull(ceoVias.fusedToViaId)));
-        total += fused.length;
-      }
-    } else if (el.type === "cto") {
-      const tubes = await db!.select().from(ctoTubes).where(eq(ctoTubes.ctoId, el.referenceId!));
-      for (const tube of tubes) {
-        const fused = await db!.select().from(ctoVias).where(and(eq(ctoVias.tubeId, tube.id), isNotNull(ctoVias.fusedToViaId)));
-        total += fused.length;
-      }
-    }
-    return total;
-  }
-
-  for (const route of routes) {
-    const fiberCount = route.fiberCount ?? 12;
-    let fusedCount = 0;
-    let tubeLabel: string | null = null;
-
-    // Prioridade: usar tubo vinculado (fromTubeId) para ocupação precisa
     if (route.fromTubeId) {
-      // Precisamos saber o tipo do elemento de origem para buscar na tabela certa
-      const [fromEl] = route.fromElementId
-        ? await db.select().from(mapElements).where(eq(mapElements.id, route.fromElementId)).limit(1)
-        : [null];
-      const elType = (fromEl?.type ?? "ceo") as "ceo" | "cto";
-      const { count, label, totalVias } = await countFusedInTube(route.fromTubeId, elType);
-      fusedCount = count;
-      tubeLabel = label;
-      // Usar totalVias do tubo como referência se fiberCount não estiver definido
-      const effectiveFiberCount = fiberCount > 0 ? fiberCount : totalVias;
+      const stats = elInfo?.type === 'ceo'
+        ? ceoTubeStats.get(Number(route.fromTubeId))
+        : ctoTubeStats.get(Number(route.fromTubeId));
+      const fusedCount = stats?.fusedCount ?? 0;
+      const tubeLabel = stats?.label ?? null;
+      const effectiveFiberCount = fiberCount > 0 ? fiberCount : (stats?.totalVias ?? 12);
       const pct = effectiveFiberCount > 0 ? Math.min(100, Math.round((fusedCount / effectiveFiberCount) * 100)) : 0;
-      result.push({ routeId: route.id, fiberCount: effectiveFiberCount, fusedCount, pct, tubeLabel });
+      result.push({ routeId: Number(route.id), fiberCount: effectiveFiberCount, fusedCount, pct, tubeLabel });
       continue;
     }
 
-    // Fallback: contar em todos os tubos do elemento de origem
-    if (route.fromElementId) {
-      fusedCount = await countFusedInElement(route.fromElementId);
-    }
-
+    const fusedCount = route.fromElementId != null ? (elementFusedMap.get(route.fromElementId) ?? 0) : 0;
     const pct = fiberCount > 0 ? Math.min(100, Math.round((fusedCount / fiberCount) * 100)) : 0;
-    result.push({ routeId: route.id, fiberCount, fusedCount, pct, tubeLabel });
+    result.push({ routeId: Number(route.id), fiberCount, fusedCount, pct, tubeLabel: null });
   }
   return result;
 }
