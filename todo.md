@@ -1629,4 +1629,7 @@
 - [x] Painel lateral: OLTs listados dentro dos grupos
 - [x] Painel lateral: seção "Sem pasta" com todos os itens não agrupados
 - [x] Painel lateral: contagem visíveis/total por grupo
-- [ ] Script SQL de migração com URL pública para produção
+- [x] Script SQL de migração com URL pública para produção
+
+## Bugs
+- [x] Painel de Grupos/Pastas aparece vazio após atualização do painel bidirecional (corrigido com Promise.allSettled — resiliente a tabelas inexistentes)

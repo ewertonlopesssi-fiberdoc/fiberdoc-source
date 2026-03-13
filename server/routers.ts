@@ -3276,21 +3276,32 @@ ${fiberFolder}
   mapGroups: router({
     list: protectedProcedure
       .query(async () => {
-        const groups = await getMapGroups();
-        const allElements = await getAllElementGroupMemberships();
-        const allRoutes = await getAllRouteGroupMemberships();
-        const allPoles = await getAllPoleGroupMemberships();
-        const allReserves = await getAllReserveGroupMemberships();
-        const allPois = await getAllPoiGroupMemberships();
-        const allOlts = await getAllOltGroupMemberships();
-        return groups.map(g => ({
-          ...g,
-          elements: allElements.filter((e: any) => e.groupId === g.id),
-          routes: allRoutes.filter((r: any) => r.groupId === g.id),
-          poles: allPoles.filter((p: any) => p.groupId === g.id),
-          reserves: allReserves.filter((r: any) => r.groupId === g.id),
-          pois: allPois.filter((p: any) => p.groupId === g.id),
-          olts: allOlts.filter((o: any) => o.groupId === g.id),
+        // Promise.allSettled garante que uma tabela inexistente (migração pendente)
+        // não derruba toda a query — retorna [] para o tipo afectado.
+        const [groups, elems, routes, poles, reserves, pois, olts] = await Promise.allSettled([
+          getMapGroups(),
+          getAllElementGroupMemberships(),
+          getAllRouteGroupMemberships(),
+          getAllPoleGroupMemberships(),
+          getAllReserveGroupMemberships(),
+          getAllPoiGroupMemberships(),
+          getAllOltGroupMemberships(),
+        ]);
+        const g = groups.status === 'fulfilled' ? groups.value : [];
+        const allElements = elems.status === 'fulfilled' ? elems.value : [];
+        const allRoutes = routes.status === 'fulfilled' ? routes.value : [];
+        const allPoles = poles.status === 'fulfilled' ? poles.value : [];
+        const allReserves = reserves.status === 'fulfilled' ? reserves.value : [];
+        const allPois = pois.status === 'fulfilled' ? pois.value : [];
+        const allOlts = olts.status === 'fulfilled' ? olts.value : [];
+        return g.map((grp: any) => ({
+          ...grp,
+          elements: allElements.filter((e: any) => e.groupId === grp.id),
+          routes: allRoutes.filter((r: any) => r.groupId === grp.id),
+          poles: allPoles.filter((p: any) => p.groupId === grp.id),
+          reserves: allReserves.filter((r: any) => r.groupId === grp.id),
+          pois: allPois.filter((p: any) => p.groupId === grp.id),
+          olts: allOlts.filter((o: any) => o.groupId === grp.id),
         }));
       }),
     memberships: protectedProcedure
