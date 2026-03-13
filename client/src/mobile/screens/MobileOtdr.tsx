@@ -3,7 +3,7 @@ import { useMobileAuth } from "../MobileAuthContext";
 import { createMobileTrpcClient, isOnline } from "../mobileTrpc";
 import {
   Activity, Zap, Radio, Search, ChevronRight, ChevronLeft,
-  AlertCircle, Loader2, Copy, Check, BarChart2,
+  AlertCircle, Loader2, Copy, Check, BarChart2, MapPin,
 } from "lucide-react";
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────
@@ -29,7 +29,11 @@ function qualityLabel(q: string) {
   return q;
 }
 
-export default function MobileOtdr() {
+interface MobileOtdrProps {
+  onGoToMap?: (lat: number, lng: number) => void;
+}
+
+export default function MobileOtdr({ onGoToMap }: MobileOtdrProps = {}) {
   const { serverUrl, token } = useMobileAuth();
   const client = createMobileTrpcClient(serverUrl, token);
 
@@ -377,8 +381,8 @@ export default function MobileOtdr() {
                   </div>
 
                   {otdrResult.found && otdrResult.lat != null && otdrResult.lng != null && (
-                    <div className="bg-zinc-900/80 rounded-xl p-3 border border-zinc-800">
-                      <div className="flex items-center justify-between mb-1">
+                    <div className="bg-zinc-900/80 rounded-xl p-3 border border-zinc-800 space-y-2">
+                      <div className="flex items-center justify-between">
                         <p className="text-xs text-zinc-500">Coordenadas GPS</p>
                         <button onClick={copyGps} className="flex items-center gap-1 text-xs text-cyan-400">
                           {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -386,6 +390,14 @@ export default function MobileOtdr() {
                         </button>
                       </div>
                       <p className="text-sm font-mono text-white">{otdrResult.lat.toFixed(6)}, {otdrResult.lng.toFixed(6)}</p>
+                      {onGoToMap && (
+                        <button
+                          onClick={() => onGoToMap(otdrResult.lat, otdrResult.lng)}
+                          className="w-full flex items-center justify-center gap-1.5 bg-amber-500/10 border border-amber-500/30 rounded-xl py-2 text-xs text-amber-300 hover:bg-amber-500/20 transition-colors"
+                        >
+                          <MapPin className="w-3.5 h-3.5" /> Ver no Mapa
+                        </button>
+                      )}
                     </div>
                   )}
 

@@ -71,12 +71,13 @@ function makeCtoIcon() {
 
 interface MobileMapProps {
   onOpenDetail?: (type: "ceo" | "cto", id: number) => void;
-  focusType?: "ceo" | "cto" | null;
+  focusType?: "ceo" | "cto" | "coords" | null;
   focusId?: number | null;
+  focusCoords?: { lat: number; lng: number } | null;
   onFocusConsumed?: () => void;
 }
 
-export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusConsumed }: MobileMapProps = {}) {
+export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoords, onFocusConsumed }: MobileMapProps = {}) {
   const { serverUrl, token, user: mobileUser } = useMobileAuth();
   const isMobileAdmin = mobileUser?.role === "admin";
   const client = createMobileTrpcClient(serverUrl, token);
@@ -125,6 +126,11 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
   const [filterStatus, setFilterStatus] = useState<"all" | "active" | "inactive">("all");
   const [gpsLocating, setGpsLocating] = useState(false);
   const myLocationMarkerRef = useRef<L.CircleMarker | null>(null);
+  // ─── Cabos/Rotas no mapa ────────────────────────────────────────────────
+  const [routes, setRoutes] = useState<any[]>([]);
+  const polylinesRef = useRef<Record<number, L.Polyline>>({});
+  const [showCables, setShowCables] = useState(true);
+
   // ─── Balanço Óptico e OTDR no mapa ──────────────────────────────────────
   const [mapBalanceOpen, setMapBalanceOpen] = useState(false);
   const [mapBalance, setMapBalance] = useState<any | null>(null);
@@ -139,6 +145,16 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
   const [mapOtdrRunning, setMapOtdrRunning] = useState(false);
   const [mapOtdrError, setMapOtdrError] = useState<string | null>(null);
   const [mapOtdrCopied, setMapOtdrCopied] = useState(false);
+
+  // ─── Carregar rotas/cabos ──────────────────────────────────────────────
+  const loadRoutes = useCallback(async () => {
+    try {
+      if (isOnline()) {
+        const data = await client.infraMap.routes.query();
+        setRoutes(data as any[]);
+      }
+    } catch { setRoutes([]); }
+  }, [serverUrl, token]);
 
   async function handleMapBalance() {
     if (!selectedEl) { setMapBalanceError("Elemento não encontrado no mapa"); return; }
@@ -205,6 +221,9 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
   }, [selectedCto?.id, selectedCto?.sgpId]);
 
   // ─── Carregar dados ─────────────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadRoutes(); }, [loadRoutes]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -277,9 +296,26 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ─── Auto-focus em CEO/CTO quando vindo de outra tela ────────────────────
+  // ─── Auto-focus em CEO/CTO/coords quando vindo de outra tela ────────────
   useEffect(() => {
-    if (!focusType || !focusId || loading) return;
+    if (!focusType || loading) return;
+    if (focusType === "coords" && focusCoords && mapRef.current) {
+      mapRef.current.setView([focusCoords.lat, focusCoords.lng], 17, { animate: true });
+      // Adicionar marcador temporário
+      const pinIcon = L.divIcon({
+        html: `<div style="position:relative;width:28px;height:28px">
+          <div style="position:absolute;inset:0;border-radius:50%;background:#f59e0b;opacity:0.25;animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite"></div>
+          <div style="position:absolute;inset:4px;border-radius:50%;background:#f59e0b;border:2px solid white;box-shadow:0 0 8px rgba(245,158,11,0.8)"></div>
+        </div>`,
+        className: "", iconSize: [28, 28], iconAnchor: [14, 14],
+      });
+      const m = L.marker([focusCoords.lat, focusCoords.lng], { icon: pinIcon }).addTo(mapRef.current);
+      m.bindPopup(`<b>Ponto OTDR</b><br><small>${focusCoords.lat.toFixed(6)}, ${focusCoords.lng.toFixed(6)}</small>`).openPopup();
+      setTimeout(() => { try { m.remove(); } catch {} }, 10000);
+      onFocusConsumed?.();
+      return;
+    }
+    if (!focusId) return;
     const el = elements.find(e => e.type === focusType && e.referenceId === focusId);
     if (!el || !mapRef.current) return;
     const ref = focusType === "ceo"
@@ -288,17 +324,17 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
     if (!ref) return;
     mapRef.current.setView([el.lat, el.lng], 17, { animate: true });
     setSelectedEl(el);
-    setPanelType(focusType);
+    setPanelType(focusType as "ceo" | "cto");
     if (focusType === "ceo") { setSelectedCeo(ref as Ceo); setSelectedCto(null); }
     else { setSelectedCto(ref as Cto); setSelectedCeo(null); }
     setTubes([]); setVias([]); setAllVias([]);
     setPanelView("detail");
     setError(null);
     setPanelOpen(true);
-    loadTubes(focusId, focusType);
+    loadTubes(focusId, focusType as "ceo" | "cto");
     onFocusConsumed?.();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusType, focusId, loading, elements, ceos, ctos]);
+  }, [focusType, focusId, focusCoords, loading, elements, ceos, ctos]);
 
   // ─── Inicializar mapa ───────────────────────────────────────────────────
   useEffect(() => {
@@ -318,40 +354,62 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
   // ─── Função de localização do técnico ─────────────────────────────────
   function handleMyLocation() {
     if (!navigator.geolocation) { setError("Geolocalização não suportada neste dispositivo"); return; }
+    if (!mapRef.current) { setError("Mapa ainda não inicializado. Aguarde."); return; }
     setGpsLocating(true);
+    setError(null);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        if (mapRef.current) {
-          // Remover marcador anterior
-          if (myLocationMarkerRef.current) { myLocationMarkerRef.current.remove(); myLocationMarkerRef.current = null; }
-          // Marcador com anel externo pulsante (div icon)
-          const myIcon = L.divIcon({
-            html: `<div style="position:relative;width:24px;height:24px">
-              <div style="position:absolute;inset:0;border-radius:50%;background:#3b82f6;opacity:0.25;animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite"></div>
-              <div style="position:absolute;inset:4px;border-radius:50%;background:#3b82f6;border:2px solid white;box-shadow:0 0 8px rgba(59,130,246,0.8)"></div>
-            </div>`,
-            className: "",
-            iconSize: [24, 24],
-            iconAnchor: [12, 12],
-          });
-          const marker = L.marker([lat, lng], { icon: myIcon }).addTo(mapRef.current);
-          marker.bindPopup(`<b>Você está aqui</b><br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`).openPopup();
-          myLocationMarkerRef.current = marker as unknown as L.CircleMarker;
-          mapRef.current.setView([lat, lng], 17, { animate: true });
-        }
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        if (myLocationMarkerRef.current) { myLocationMarkerRef.current.remove(); myLocationMarkerRef.current = null; }
+        const myIcon = L.divIcon({
+          html: `<div style="position:relative;width:32px;height:32px">
+            <div style="position:absolute;inset:-4px;border-radius:50%;background:#3b82f6;opacity:0.18;animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite"></div>
+            <div style="position:absolute;inset:0;border-radius:50%;background:#3b82f6;border:3px solid white;box-shadow:0 0 12px rgba(59,130,246,0.9);display:flex;align-items:center;justify-content:center">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="0"><circle cx="12" cy="12" r="5"/></svg>
+            </div>
+          </div>`,
+          className: "",
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+        });
+        const marker = L.marker([lat, lng], { icon: myIcon }).addTo(mapRef.current!);
+        marker.bindPopup(`<b>📍 Você está aqui</b><br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small><br><small>Precisão: ~${Math.round(accuracy)}m</small>`).openPopup();
+        myLocationMarkerRef.current = marker as unknown as L.CircleMarker;
+        mapRef.current!.setView([lat, lng], 17, { animate: true });
         setGpsLocating(false);
       },
       (err) => {
         setGpsLocating(false);
         const msg = err.code === 1 ? "Permissão de GPS negada. Habilite a localização no navegador."
-          : err.code === 2 ? "GPS indisponível. Tente ao ar livre."
-          : "Tempo esgotado ao obter GPS. Tente novamente.";
+          : err.code === 2 ? "GPS indisponível. Verifique se o GPS está ativado."
+          : "Tempo esgotado ao obter GPS. Tente novamente ao ar livre.";
         setError(msg);
       },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
     );
   }
+
+  // ─── Renderizar cabos/rotas ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current || loading || routes.length === 0) return;
+    // Limpar polylines antigas
+    Object.values(polylinesRef.current).forEach(p => p.remove());
+    polylinesRef.current = {};
+    if (!showCables) return;
+    routes.forEach((r: any) => {
+      const latlngs: L.LatLngExpression[] = [];
+      const fromEl = elements.find((e: any) => e.id === r.fromElementId);
+      const toEl = elements.find((e: any) => e.id === r.toElementId);
+      if (fromEl) latlngs.push([Number(fromEl.lat), Number(fromEl.lng)]);
+      if (r.path) { try { (JSON.parse(r.path) as any[]).forEach((pt: any) => latlngs.push([pt.lat, pt.lng])); } catch {} }
+      if (toEl) latlngs.push([Number(toEl.lat), Number(toEl.lng)]);
+      if (latlngs.length < 2) return;
+      const color = r.color ?? "#22d3ee";
+      const polyline = L.polyline(latlngs, { color, weight: 3, opacity: 0.85 }).addTo(mapRef.current!);
+      polyline.bindTooltip(r.name ?? "Cabo", { sticky: true, className: "leaflet-cable-tooltip" });
+      polylinesRef.current[r.id] = polyline;
+    });
+  }, [routes, elements, loading, showCables]);
 
   // ─── Renderizar marcadores ──────────────────────────────────────────────
   useEffect(() => {
@@ -1294,19 +1352,30 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
           </div>
         </div>
 
+        {/* Botão toggle de cabos */}
+        <button
+          onClick={() => setShowCables(v => !v)}
+          className={`absolute top-3 right-3 flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl border transition-colors ${
+            showCables
+              ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300"
+              : "bg-zinc-800/80 border-zinc-700 text-zinc-400"
+          }`}
+          style={{ zIndex: 5 }}
+        >
+          <Cable className="w-3.5 h-3.5" /> Cabos
+        </button>
+
         {/* Botão Minha Localização — rodapé do mapa */}
-        {!panelOpen && (
-          <button
-            onClick={handleMyLocation}
-            disabled={gpsLocating}
-            className="absolute bottom-4 right-4 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-lg shadow-blue-900/40 transition-colors"
-            style={{ zIndex: 10 }}
-          >
-            {gpsLocating
-              ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Localizando...</>
-              : <><LocateFixed className="w-4 h-4" /> Onde estou</>}
-          </button>
-        )}
+        <button
+          onClick={handleMyLocation}
+          disabled={gpsLocating}
+          className="absolute bottom-4 right-4 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-60 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-lg shadow-blue-900/40 transition-colors"
+          style={{ zIndex: 10 }}
+        >
+          {gpsLocating
+            ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Localizando...</>
+            : <><LocateFixed className="w-4 h-4" /> Onde estou</>}
+        </button>
 
         {/* Painel deslizante */}
         {panelOpen && (
@@ -1457,21 +1526,42 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, onFocusCon
                         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 space-y-2">
                           <p className="text-xs font-semibold text-amber-300">Resultado OTDR</p>
                           {r.lat != null && r.lng != null && (
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="text-xs text-zinc-400">Coordenadas estimadas</p>
-                                <p className="text-xs text-white font-mono">{r.lat?.toFixed(6)}, {r.lng?.toFixed(6)}</p>
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-xs text-zinc-400">Coordenadas estimadas</p>
+                                  <p className="text-xs text-white font-mono">{r.lat?.toFixed(6)}, {r.lng?.toFixed(6)}</p>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(`${r.lat?.toFixed(6)},${r.lng?.toFixed(6)}`);
+                                    setMapOtdrCopied(true);
+                                    setTimeout(() => setMapOtdrCopied(false), 2000);
+                                  }}
+                                  className="flex items-center gap-1 text-xs text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 rounded-lg px-2 py-1"
+                                >
+                                  {mapOtdrCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                                  {mapOtdrCopied ? "Copiado" : "Copiar"}
+                                </button>
                               </div>
+                              {/* Botão Ver no Mapa — centraliza o mapa nas coordenadas */}
                               <button
                                 onClick={() => {
-                                  navigator.clipboard.writeText(`${r.lat?.toFixed(6)},${r.lng?.toFixed(6)}`);
-                                  setMapOtdrCopied(true);
-                                  setTimeout(() => setMapOtdrCopied(false), 2000);
+                                  if (mapRef.current) {
+                                    mapRef.current.setView([r.lat, r.lng], 17, { animate: true });
+                                    const pinIcon = L.divIcon({
+                                      html: `<div style="position:relative;width:28px;height:28px"><div style="position:absolute;inset:0;border-radius:50%;background:#f59e0b;opacity:0.25;animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite"></div><div style="position:absolute;inset:4px;border-radius:50%;background:#f59e0b;border:2px solid white;box-shadow:0 0 8px rgba(245,158,11,0.8)"></div></div>`,
+                                      className: "", iconSize: [28, 28], iconAnchor: [14, 14],
+                                    });
+                                    const m = L.marker([r.lat, r.lng], { icon: pinIcon }).addTo(mapRef.current!);
+                                    m.bindPopup(`<b>Ponto OTDR</b><br><small>${r.lat?.toFixed(6)}, ${r.lng?.toFixed(6)}</small>`).openPopup();
+                                    setTimeout(() => { try { m.remove(); } catch {} }, 15000);
+                                    setMapOtdrOpen(false);
+                                  }
                                 }}
-                                className="flex items-center gap-1 text-xs text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 rounded-lg px-2 py-1"
+                                className="w-full flex items-center justify-center gap-1.5 bg-amber-500/10 border border-amber-500/30 rounded-xl py-2 text-xs text-amber-300 hover:bg-amber-500/20 transition-colors"
                               >
-                                {mapOtdrCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                                {mapOtdrCopied ? "Copiado" : "Copiar"}
+                                <MapPin className="w-3.5 h-3.5" /> Ver no Mapa
                               </button>
                             </div>
                           )}

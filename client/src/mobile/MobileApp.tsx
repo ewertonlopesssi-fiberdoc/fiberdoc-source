@@ -15,7 +15,6 @@ type Tab = "equipamentos" | "ceos" | "ctos" | "mapa" | "otdr" | "perfil";
 function MobileShell() {
   const { isConfigured, isAuthenticated, user } = useMobileAuth();
   const isAdmin = user?.role === "admin";
-  // operator e user não vêem o SSH Commander
   const [online, setOnline] = useState(navigator.onLine);
 
   // Deep-link via URL: /mobile?eq=ID abre directamente o equipamento
@@ -27,9 +26,10 @@ function MobileShell() {
   const [deepCeoId, setDeepCeoId] = useState<number | null>(null);
   const [deepCtoId, setDeepCtoId] = useState<number | null>(null);
 
-  // Foco no mapa: ao tocar "Ver no Mapa" no CEO/CTO, navegar para o mapa e centrar
-  const [mapFocusType, setMapFocusType] = useState<"ceo" | "cto" | null>(null);
+  // Foco no mapa: ao tocar "Ver no Mapa" no CEO/CTO ou OTDR, navegar para o mapa e centrar
+  const [mapFocusType, setMapFocusType] = useState<"ceo" | "cto" | "coords" | null>(null);
   const [mapFocusId, setMapFocusId] = useState<number | null>(null);
+  const [mapFocusCoords, setMapFocusCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
     const onOnline  = () => setOnline(true);
@@ -59,6 +59,15 @@ function MobileShell() {
   function handleGoToMap(type: "ceo" | "cto", id: number) {
     setMapFocusType(type);
     setMapFocusId(id);
+    setMapFocusCoords(null);
+    setActiveTab("mapa");
+  }
+
+  // Callback chamado pelo OTDR ao tocar "Ver no Mapa" com coordenadas
+  function handleGoToMapCoords(lat: number, lng: number) {
+    setMapFocusType("coords");
+    setMapFocusId(null);
+    setMapFocusCoords({ lat, lng });
     setActiveTab("mapa");
   }
 
@@ -97,13 +106,21 @@ function MobileShell() {
         {activeTab === "equipamentos" && <MobileEquipments initialEquipmentId={deepEqId} />}
         {activeTab === "ceos"         && <MobileCeos initialCeoId={deepCeoId} onDeepLinkConsumed={() => setDeepCeoId(null)} onGoToMap={handleGoToMap} />}
         {activeTab === "ctos"         && <MobileCtos initialCtoId={deepCtoId} onDeepLinkConsumed={() => setDeepCtoId(null)} onGoToMap={handleGoToMap} />}
-        {activeTab === "mapa"         && <MobileMap onOpenDetail={handleOpenDetail} focusType={mapFocusType} focusId={mapFocusId} onFocusConsumed={() => { setMapFocusType(null); setMapFocusId(null); }} />}
-        {activeTab === "otdr"         && <MobileOtdr />}
+        {activeTab === "mapa"         && (
+          <MobileMap
+            onOpenDetail={handleOpenDetail}
+            focusType={mapFocusType}
+            focusId={mapFocusId}
+            focusCoords={mapFocusCoords}
+            onFocusConsumed={() => { setMapFocusType(null); setMapFocusId(null); setMapFocusCoords(null); }}
+          />
+        )}
+        {activeTab === "otdr"         && <MobileOtdr onGoToMap={handleGoToMapCoords} />}
         {activeTab === "perfil"       && <MobileProfile />}
       </div>
 
       {/* Bottom navigation */}
-      <nav className="flex-shrink-0 bg-zinc-900 border-t border-zinc-800 pb-safe">
+      <nav className="flex-shrink-0 bg-zinc-900/95 border-t border-zinc-800 pb-safe backdrop-blur-sm">
         <div className="flex">
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -112,12 +129,22 @@ function MobileShell() {
               <button
                 key={tab.id}
                 onClick={() => handleTabChange(tab.id)}
-                className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 transition-colors relative ${active ? "text-cyan-400" : "text-zinc-500 hover:text-zinc-300"}`}
+                className={`flex-1 flex flex-col items-center justify-center pt-2 pb-2.5 gap-0.5 transition-all relative ${active ? "text-cyan-400" : "text-zinc-500 hover:text-zinc-300"}`}
               >
-                <Icon className="w-5 h-5" />
-                <span className="text-[9px] font-medium leading-tight">{tab.label}</span>
+                {/* Pill de fundo no ativo */}
                 {active && (
-                  <div className="absolute bottom-0 w-6 h-0.5 bg-cyan-400 rounded-full" />
+                  <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-10 h-8 bg-cyan-400/10 rounded-xl" />
+                )}
+                <Icon
+                  className={`relative z-10 transition-all ${active ? "w-[22px] h-[22px]" : "w-5 h-5"}`}
+                  strokeWidth={active ? 2.5 : 1.8}
+                />
+                <span className={`relative z-10 text-[10px] leading-tight transition-all ${active ? "font-semibold" : "font-medium"}`}>
+                  {tab.label}
+                </span>
+                {/* Indicador inferior */}
+                {active && (
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-[2px] bg-cyan-400 rounded-full" />
                 )}
               </button>
             );
