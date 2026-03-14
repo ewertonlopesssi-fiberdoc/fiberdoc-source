@@ -167,8 +167,8 @@ export default function Backup() {
   const handleUpdateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.name.endsWith(".tar.gz") && !file.name.endsWith(".gz")) {
-      toast.error("Selecione um arquivo .tar.gz de atualização");
+    if (!file.name.endsWith(".zip")) {
+      toast.error("Selecione um arquivo .zip de atualização");
       return;
     }
     setUpdateFile(file);
@@ -612,7 +612,7 @@ export default function Backup() {
             Atualizar Sistema
           </CardTitle>
           <CardDescription>
-            Faça upload de um arquivo <span className="font-mono text-xs">.tar.gz</span> de atualização para instalar uma nova versão.
+            Faça upload de um arquivo <span className="font-mono text-xs">.zip</span> de atualização para instalar uma nova versão.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -626,7 +626,7 @@ export default function Backup() {
           <input
             ref={updateInputRef}
             type="file"
-            accept=".tar.gz,.gz"
+            accept=".zip"
             className="hidden"
             onChange={handleUpdateFileChange}
           />
@@ -639,7 +639,7 @@ export default function Backup() {
               <Upload className="w-8 h-8 text-muted-foreground" />
               <div className="text-center">
                 <p className="text-sm font-medium text-foreground">Clique para selecionar o arquivo de atualização</p>
-                <p className="text-xs text-muted-foreground mt-1">Formato: <span className="font-mono">fiberdoc-update-*.tar.gz</span></p>
+                <p className="text-xs text-muted-foreground mt-1">Formato: <span className="font-mono">fiberdoc-update-*.zip</span></p>
               </div>
             </button>
           ) : (
