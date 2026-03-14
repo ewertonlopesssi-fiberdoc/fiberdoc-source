@@ -247,7 +247,8 @@ function createLeafletIcon(
   name: string,
   selected = false,
   onuBadge?: { total: number; online?: number } | null,
-  customColor?: string | null
+  customColor?: string | null,
+  showName = true
 ) {
   const color = customColor ?? STATUS_COLOR[status] ?? "#6b7280";
   const outline = selected ? "3px solid #22d3ee" : "3px solid white";
@@ -265,7 +266,8 @@ function createLeafletIcon(
     const badgeText = hasOnline ? `${onuBadge.online}/${onuBadge.total}` : `${onuBadge.total}`;
     badgeHtml = `<div style="background:${badgeColor};color:white;font-size:9px;font-weight:700;padding:0px 3px;border-radius:3px;margin-top:1px;white-space:nowrap;line-height:14px;">${badgeText}</div>`;
   }
-  const iconHtml = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><div style="width:28px;height:28px;background:${color};border:${outline};border-radius:${type === "cto" ? "4px" : "50%"};box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;"><svg width="14" height="14" viewBox="0 0 24 24">${shape}</svg></div><div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>${badgeHtml}</div>`;
+  const nameHtml = showName ? `<div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>` : "";
+  const iconHtml = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><div style="width:28px;height:28px;background:${color};border:${outline};border-radius:${type === "cto" ? "4px" : "50%"};box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;"><svg width="14" height="14" viewBox="0 0 24 24">${shape}</svg></div>${nameHtml}${badgeHtml}</div>`;
   return L.divIcon({ html: iconHtml, className: "", iconSize: [80, onuBadge && onuBadge.total > 0 ? 58 : 46], iconAnchor: [40, 14] });
 }
 
@@ -395,6 +397,8 @@ export default function InfrastructureMap() {
   const [showCeos, setShowCeos] = useState(true);
   const [showCtos, setShowCtos] = useState(true);
   const [showRoutes, setShowRoutes] = useState(true);
+  const [showElementNames, setShowElementNames] = useState(true);
+  const [showCableLabels, setShowCableLabels] = useState(true);
   // Modo edição: quando false, os markers ficam bloqueados (não arrastáveis)
   const [editMode, setEditMode] = useState(false);
   // Elemento em modo de mover individualmente (drag individual sem modo edição global)
@@ -1474,7 +1478,7 @@ export default function InfrastructureMap() {
 
       // Chave de estado: se igual ao anterior, apenas actualiza posição se mudou
       const badgeKey = onuBadgeData ? `${onuBadgeData.total}/${onuBadgeData.online ?? ''}` : '';
-      const stateKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}|${isDraggable ? 1 : 0}`;
+      const stateKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}|${isDraggable ? 1 : 0}|${showElementNames ? 1 : 0}`;
       const existingMarker = markersRef.current[el.id];
 
       if (existingMarker) {
@@ -1485,9 +1489,9 @@ export default function InfrastructureMap() {
         }
         // Actualizar ícone apenas se o estado visual mudou
         if (stateKey !== prevMarkerStateRef.current[el.id]) {
-          const iconKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}`;
+          const iconKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}|${showElementNames ? 1 : 0}`;
           if (!iconCacheRef.current[iconKey]) {
-            iconCacheRef.current[iconKey] = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null);
+            iconCacheRef.current[iconKey] = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null, showElementNames);
           }
           existingMarker.setIcon(iconCacheRef.current[iconKey]);
           (existingMarker as any).dragging?.[isDraggable ? 'enable' : 'disable']();
@@ -1497,9 +1501,9 @@ export default function InfrastructureMap() {
       }
 
       // Criar novo marcador
-      const iconKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}`;
+      const iconKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}|${showElementNames ? 1 : 0}`;
       if (!iconCacheRef.current[iconKey]) {
-        iconCacheRef.current[iconKey] = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null);
+        iconCacheRef.current[iconKey] = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null, showElementNames);
       }
       const icon = iconCacheRef.current[iconKey];
       const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isDraggable, bubblingMouseEvents: false } as any).addTo(mapRef.current!);
@@ -1541,7 +1545,7 @@ export default function InfrastructureMap() {
       markersRef.current[el.id] = marker;
       prevMarkerStateRef.current[el.id] = stateKey;
     });
-  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, movingElementId, onuCountMap, otdrMode, hiddenElementIds, elementGroupMap, isHiddenByGroup]);
+  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, movingElementId, onuCountMap, otdrMode, hiddenElementIds, elementGroupMap, isHiddenByGroup, showElementNames]);
 
   // Renderizar rotas (diff incremental — só cria/actualiza/remove o que mudou)
   const renderRoutes = useCallback(() => {
@@ -1598,7 +1602,7 @@ export default function InfrastructureMap() {
           html: `<div style="background:rgba(0,0,0,0.72);color:#fff;font-size:10px;font-weight:600;padding:2px 5px;border-radius:4px;white-space:nowrap;pointer-events:none;border:1px solid rgba(255,255,255,0.15);">${distText}</div>`,
           className: "", iconSize: [0, 0], iconAnchor: [0, 0],
         });
-        const labelMarker = L.marker(midPt, { icon: labelIcon, interactive: false, keyboard: false, opacity: isBeingEdited ? 0 : 1 } as any).addTo(mapRef.current!);
+        const labelMarker = L.marker(midPt, { icon: labelIcon, interactive: false, keyboard: false, opacity: isBeingEdited ? 0 : (showCableLabels ? 1 : 0) } as any).addTo(mapRef.current!);
         routeLabelsRef.current[r.id] = labelMarker;
       });
     }
@@ -1611,7 +1615,7 @@ export default function InfrastructureMap() {
         delete prevRouteStateRef.current[id];
       }
     });
-  }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute, editingRouteId, occupancyMap, getOccupancyColor, hiddenRouteIds, routeGroupMap, isHiddenByGroup]);
+  }, [routes, elements, showRoutes, mapReady, groupSelectMode, groupSelectedRoutes, toggleGroupRoute, editingRouteId, occupancyMap, getOccupancyColor, hiddenRouteIds, routeGroupMap, isHiddenByGroup, showCableLabels]);
 
   useEffect(() => { renderMarkers(); }, [renderMarkers]);
   useEffect(() => { renderRoutes(); }, [renderRoutes]);
@@ -3902,6 +3906,13 @@ export default function InfrastructureMap() {
         </Button>
         <Button size="sm" variant={showPois ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowPois(v => !v)} title="Mostrar/ocultar pontos de interesse">
           <MapPin className="w-3 h-3" />POIs {showPois ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+        </Button>
+        <div className="w-px h-4 bg-border mx-1" />
+        <Button size="sm" variant={showElementNames ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowElementNames(v => !v)} title="Mostrar/ocultar nomes dos elementos (CEO/CTO)">
+          <Tag className="w-3 h-3" />Nomes {showElementNames ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+        </Button>
+        <Button size="sm" variant={showCableLabels ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowCableLabels(v => !v)} title="Mostrar/ocultar metragem dos cabos">
+          <Milestone className="w-3 h-3" />Metragem {showCableLabels ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
         </Button>
         {isAdmin && (
           <>
