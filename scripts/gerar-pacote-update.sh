@@ -163,11 +163,11 @@ if [[ -d "${PROJECT_DIR}/dist" ]]; then
   rm -rf "${PROJECT_DIR}/dist"
 fi
 
-# Executar build
+# Executar build (NODE_ENV=production garante build minificado sem código de debug)
 if [[ "${BUILD_CMD}" == "pnpm" ]]; then
-  pnpm build 2>&1
+  NODE_ENV=production pnpm build 2>&1
 else
-  npm run build 2>&1
+  NODE_ENV=production npm run build 2>&1
 fi
 
 # Verificar resultado do build

@@ -6994,8 +6994,9 @@ export default function InfrastructureMap() {
               onClick={async () => {
                 setCablesReportLoading(true);
                 try {
-                  const result = await (trpc as any).infraMap.exportCables.query({ format: "group_summary" });
-                  setCablesGroupSummary(result.summary);
+                  const result = await (trpc as any).infraMap.exportCables.mutate({ format: "group_summary" });
+                  const summaryArr = Array.isArray(result.summary) ? result.summary : Object.values(result.summary ?? {});
+                  setCablesGroupSummary(summaryArr);
                   toast.success("Resumo por grupo carregado");
                 } catch (e: any) { toast.error(e.message ?? "Erro ao carregar resumo"); }
                 finally { setCablesReportLoading(false); }
@@ -7009,7 +7010,7 @@ export default function InfrastructureMap() {
               onClick={async () => {
                 setCablesReportLoading(true);
                 try {
-                  const result = await (trpc as any).infraMap.exportCables.query({ format: "csv" });
+                  const result = await (trpc as any).infraMap.exportCables.mutate({ format: "csv" });
                   const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
@@ -7027,7 +7028,7 @@ export default function InfrastructureMap() {
               onClick={async () => {
                 setCablesReportLoading(true);
                 try {
-                  const result = await (trpc as any).infraMap.exportCables.query({ format: "pdf" });
+                  const result = await (trpc as any).infraMap.exportCables.mutate({ format: "pdf" });
                   const rows = result.rows as any[];
                   // Gerar PDF via HTML/CSS usando window.print
                   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório de Cabos</title><style>

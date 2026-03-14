@@ -1,5 +1,7 @@
-// FiberDoc Service Worker — v1.0
-const CACHE_NAME = "fiberdoc-v1";
+// FiberDoc Service Worker — v5.95.0
+// IMPORTANTE: altere APP_VERSION a cada release para forçar limpeza do cache
+const APP_VERSION = "6.2.2";
+const CACHE_NAME = `fiberdoc-${APP_VERSION}`;
 
 // Recursos estáticos para cache imediato (app shell)
 const APP_SHELL = [
@@ -14,40 +16,46 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
   );
+  // Força activação imediata sem esperar pelo fecho de abas antigas
   self.skipWaiting();
 });
 
-// ─── Activate: limpar caches antigos ─────────────────────────────────────────
+// ─── Activate: limpar TODOS os caches antigos ────────────────────────────────
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
         keys
           .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
+          .map((key) => {
+            console.log("[SW] Removendo cache antigo: " + key);
+            return caches.delete(key);
+          })
       )
-    )
+    ).then(() => self.clients.claim())
+     .then(() =>
+       self.clients.matchAll({ type: "window" }).then((clients) =>
+         clients.forEach((client) =>
+           client.postMessage({ type: "SW_UPDATED", version: APP_VERSION })
+         )
+       )
+     )
   );
-  self.clients.claim();
 });
 
-// ─── Fetch: estratégia Network-first para API, Cache-first para assets ────────
+// ─── Fetch ────────────────────────────────────────────────────────────────────
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Requisições de API: sempre buscar na rede, sem cache
+  // API: sempre rede, sem cache
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(fetch(event.request));
     return;
   }
 
-  // Assets estáticos (JS, CSS, imagens, fontes): Cache-first
-  if (
-    event.request.destination === "script" ||
-    event.request.destination === "style" ||
-    event.request.destination === "image" ||
-    event.request.destination === "font"
-  ) {
+  // Assets com hash no nome (imutáveis): Cache-first
+  const hasHash = /\/assets\/[^/]+-[A-Za-z0-9]{8,}\.(js|css)$/.test(url.pathname);
+  if (hasHash) {
     event.respondWith(
       caches.match(event.request).then((cached) => {
         if (cached) return cached;
@@ -63,22 +71,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Navegação (HTML): Network-first, fallback para cache
-  if (event.request.mode === "navigate") {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
+  // Tudo o resto: Network-first (garante conteúdo fresco após actualizações)
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          return response;
-        })
-        .catch(() => caches.match("/") || caches.match(event.request))
-    );
-    return;
-  }
-
-  // Demais requisições: Network-first
-  event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });

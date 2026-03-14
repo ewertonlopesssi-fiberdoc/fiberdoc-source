@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves, Bell, RefreshCw, CheckCircle2, XCircle, Clock, History, PackageOpen, Cpu, Plus, Pencil, Trash2, MapPin, LocateFixed, Loader2 } from "lucide-react";
+import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves, Bell, RefreshCw, CheckCircle2, XCircle, Clock, History, PackageOpen, Cpu, Plus, Pencil, Trash2, MapPin, LocateFixed, Loader2, Globe, Copy, Check, Eye } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -210,8 +210,12 @@ export default function SystemSettingsPage() {
   const [mapDefaultLng, setMapDefaultLng] = useState("");
   const [mapDefaultZoom, setMapDefaultZoom] = useState("13");
   const [geoLoadingMap, setGeoLoadingMap] = useState(false);
-
-  // ─── Atualização Remota ──────────────────────────────────────────────────────
+  // ─── URL Pública do Servidor ─────────────────────────────────────────────────
+  const [serverPublicUrl, setServerPublicUrl] = useState("");
+  const [copiedUrl, setCopiedUrl] = useState(false);
+  // ─── Visibilidade de Menus ────────────────────────────────────────────────────────
+  const [hiddenMenus, setHiddenMenus] = useState<string[]>([]);
+  // ─── Atualização Remota ────────────────────────────────────────────────────────────────────────────────────────
   const [updateFile, setUpdateFile] = useState<File | null>(null);
   const [isDraggingUpdate, setIsDraggingUpdate] = useState(false);
   const [updateRunning, setUpdateRunning] = useState(false);
@@ -341,6 +345,8 @@ export default function SystemSettingsPage() {
     setMapDefaultLat((settings as any).mapDefaultLat ?? "");
     setMapDefaultLng((settings as any).mapDefaultLng ?? "");
     setMapDefaultZoom((settings as any).mapDefaultZoom ?? "13");
+    setServerPublicUrl((settings as any).serverPublicUrl ?? "");
+    try { setHiddenMenus(JSON.parse((settings as any).hiddenMenus ?? "[]")); } catch { setHiddenMenus([]); }
     setInitialized(true);
   }
 
@@ -380,6 +386,8 @@ export default function SystemSettingsPage() {
         ...(!isNaN(mapLat) ? { mapDefaultLat: mapLat } : {}),
         ...(!isNaN(mapLng) ? { mapDefaultLng: mapLng } : {}),
         ...(!isNaN(mapZoom) ? { mapDefaultZoom: mapZoom } : {}),
+        serverPublicUrl: serverPublicUrl.trim(),
+        hiddenMenus,
       });
       applyTheme(selectedTheme);
       await refetch();
@@ -942,6 +950,133 @@ export default function SystemSettingsPage() {
               {geoLoadingMap ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
               {geoLoadingMap ? "Obtendo localização..." : "Usar Minha Localização"}
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* URL Pública do Servidor */}
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Globe className="h-4 w-4 text-cyan-400" />
+              Endereço de Acesso
+            </CardTitle>
+            <CardDescription>
+              URL ou IP pelo qual o sistema é acessado. Usado no app mobile para pré-configurar a conexão.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="serverPublicUrl">URL ou IP do Servidor</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="serverPublicUrl"
+                  value={serverPublicUrl}
+                  onChange={(e) => setServerPublicUrl(e.target.value)}
+                  placeholder="Ex: http://172.31.141.2 ou https://fiberdoc.empresa.com.br"
+                  className="font-mono text-sm flex-1"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                />
+                {serverPublicUrl && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      navigator.clipboard.writeText(serverPublicUrl).then(() => {
+                        setCopiedUrl(true);
+                        setTimeout(() => setCopiedUrl(false), 2000);
+                      });
+                    }}
+                    className="shrink-0"
+                    title="Copiar URL"
+                  >
+                    {copiedUrl ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Inclua o protocolo (<code className="font-mono">http://</code> ou <code className="font-mono">https://</code>) e a porta se necessário (ex: <code className="font-mono">:3000</code>). Não inclua barra no final.
+              </p>
+            </div>
+            {serverPublicUrl && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                <Globe className="h-4 w-4 text-cyan-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-xs text-cyan-300 font-medium">URL configurada</p>
+                  <p className="text-xs text-muted-foreground">
+                    O app mobile usará <span className="font-mono text-cyan-400">{serverPublicUrl}</span> como servidor padrão.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Acesse <span className="font-mono text-cyan-400">{serverPublicUrl}/mobile</span> para abrir o app mobile.
+                  </p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Visibilidade de Menus */}
+        <Card className="border-border/50">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Eye className="h-4 w-4 text-primary" />
+              Visibilidade de Menus
+            </CardTitle>
+            <CardDescription>
+              Oculte itens do menu lateral que não são necessários neste ambiente. As rotas continuam funcionando normalmente.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {[
+                { path: "/", label: "Dashboard" },
+                { path: "/salas", label: "Salas / Locais" },
+                { path: "/equipamentos", label: "Equipamentos" },
+                { path: "/cpe-manager", label: "CPE Manager" },
+                { path: "/ip-doc", label: "IP DOC" },
+                { path: "/topologia", label: "Topologia" },
+                { path: "/ceo", label: "CEO" },
+                { path: "/cto", label: "CTO" },
+                { path: "/mapa", label: "Mapa de Infraestrutura" },
+                { path: "/fibras", label: "Fibras Ópticas" },
+                { path: "/portas", label: "Portas" },
+                { path: "/busca-porta", label: "Busca de Porta" },
+                { path: "/conexoes", label: "Conexões" },
+                { path: "/historico", label: "Histórico" },
+                { path: "/importar", label: "Importar CSV" },
+                { path: "/relatorio-ocupacao", label: "Relatório de Ocupação" },
+                { path: "/fontes-energia", label: "Fontes de Energia" },
+                { path: "/alertas", label: "Alertas" },
+                { path: "/monitor-rede", label: "Monitor de Rede" },
+                { path: "/ssh-commander", label: "SSH Commander" },
+                { path: "/sensores-tuya", label: "Sensores Tuya" },
+                { path: "/sgp", label: "SGP Config" },
+                { path: "/usuarios", label: "Usuários" },
+                { path: "/backup", label: "Backup & Atualização" },
+                { path: "/sistema", label: "Sistema" },
+                { path: "/rede", label: "Configuração de Rede" },
+              ].map(({ path, label }) => (
+                <label key={path} className="flex items-center gap-2 p-2 rounded-md hover:bg-accent/30 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!hiddenMenus.includes(path)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setHiddenMenus(prev => prev.filter(p => p !== path));
+                      } else {
+                        setHiddenMenus(prev => [...prev, path]);
+                      }
+                    }}
+                    className="accent-primary h-4 w-4"
+                  />
+                  <span className="text-sm text-foreground">{label}</span>
+                  {hiddenMenus.includes(path) && (
+                    <span className="ml-auto text-xs text-muted-foreground">oculto</span>
+                  )}
+                </label>
+              ))}
+            </div>
           </CardContent>
         </Card>
 

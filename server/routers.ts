@@ -1416,6 +1416,8 @@ export const appRouter = router({
         mapDefaultLat: z.number().optional(),
         mapDefaultLng: z.number().optional(),
         mapDefaultZoom: z.number().min(1).max(20).optional(),
+        serverPublicUrl: z.string().optional(),
+        hiddenMenus: z.array(z.string()).optional(),
       }))
       .mutation(async ({ input }) => {
         const settings: Record<string, string> = {};
@@ -1428,6 +1430,8 @@ export const appRouter = router({
         if (input.mapDefaultLat !== undefined) settings.mapDefaultLat = String(input.mapDefaultLat);
         if (input.mapDefaultLng !== undefined) settings.mapDefaultLng = String(input.mapDefaultLng);
         if (input.mapDefaultZoom !== undefined) settings.mapDefaultZoom = String(input.mapDefaultZoom);
+        if (input.serverPublicUrl !== undefined) settings.serverPublicUrl = input.serverPublicUrl;
+        if (input.hiddenMenus !== undefined) settings.hiddenMenus = JSON.stringify(input.hiddenMenus);
         await setSystemSettings(settings);
         return { success: true };
       }),
@@ -2414,7 +2418,7 @@ ${fiberFolder}
       .input(z.object({
         format: z.enum(["csv", "pdf", "group_summary"]).default("csv"),
       }))
-      .query(async ({ input }) => {
+      .mutation(async ({ input }) => {
         const dbMod = await import("./db");
         const [allRoutes, allElements, allCtos, allCeos, allGroups, allRouteGroups] = await Promise.all([
           getMapRoutes(),
@@ -2453,21 +2457,21 @@ ${fiberFolder}
           const lenKm = path.length >= 2 ? calcLen(path) : null;
           const lenM  = lenKm != null ? lenKm * 1000 : null;
           // Grupos desta rota
-          const routeGroupIds = (allRouteGroups as any[]).filter((rg: any) => rg.routeId === r.id).map((rg: any) => rg.groupId);
-          const routeGroupNames = routeGroupIds.map((gid: number) => (allGroups as any[]).find((g: any) => g.id === gid)?.name ?? "?").join("; ");
+          const routeGroupIds = (allRouteGroups as any[]).filter((rg: any) => Number(rg.routeId) === Number(r.id)).map((rg: any) => Number(rg.groupId));
+          const routeGroupNames = routeGroupIds.map((gid: number) => (allGroups as any[]).find((g: any) => Number(g.id) === gid)?.name ?? "?").join("; ");
           return {
-            id: r.id,
-            nome: r.name ?? `Cabo ${r.id}`,
-            tipo: r.cableType ?? "FO",
-            fibras: r.fiberCount ?? 0,
-            de: fromRef?.name ?? (fromEl ? `${fromEl.type?.toUpperCase()}-${fromEl.referenceId}` : "—"),
-            para: toRef?.name ?? (toEl ? `${toEl.type?.toUpperCase()}-${toEl.referenceId}` : "—"),
+            id: Number(r.id),
+            nome: String(r.name ?? `Cabo ${r.id}`),
+            tipo: String(r.cableType ?? "FO"),
+            fibras: Number(r.fiberCount ?? 0),
+            de: String(fromRef?.name ?? (fromEl ? `${fromEl.type?.toUpperCase()}-${fromEl.referenceId}` : "—")),
+            para: String(toRef?.name ?? (toEl ? `${toEl.type?.toUpperCase()}-${toEl.referenceId}` : "—")),
             comprimento_km: lenKm != null ? lenKm.toFixed(3) : "—",
-            comprimento_m: lenM != null ? Math.round(lenM) : null,
+            comprimento_m: lenM != null ? Math.round(lenM) : 0,
             status: (!fromEl || !toEl) ? "Solto" : "Conectado",
-            pontos: path.length,
-            notas: r.notes ?? "",
-            grupos: routeGroupNames || "Sem grupo",
+            pontos: Number(path.length),
+            notas: String(r.notes ?? ""),
+            grupos: String(routeGroupNames || "Sem grupo"),
             groupIds: routeGroupIds,
           };
         });
@@ -2487,8 +2491,15 @@ ${fiberFolder}
               groupMap[key].fibras += Number(row.fibras) || 0;
             }
           }
-          const summary = Object.values(groupMap).sort((a, b) => b.metros - a.metros);
-          return { format: "group_summary", csv: null, rows: null, summary, allRows: rows };
+          const summary = Object.values(groupMap).sort((a, b) => b.metros - a.metros).map(s => ({
+            groupId: s.groupId,
+            groupName: String(s.groupName),
+            groupColor: String(s.groupColor),
+            cabos: Number(s.cabos),
+            metros: Number(s.metros),
+            fibras: Number(s.fibras),
+          }));
+          return { format: "group_summary" as const, csv: null, rows: null, summary, allRows: null };
         }
 
         if (input.format === "csv") {

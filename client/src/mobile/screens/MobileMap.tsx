@@ -51,22 +51,35 @@ const STATUS_COLOR: Record<string, string> = {
   maintenance: "bg-amber-500/20 text-amber-300",
 };
 
-// ─── Ícone SVG para CEO ─────────────────────────────────────────────────────
-function makeCeoIcon() {
-  return L.divIcon({
-    html: `<div style="width:36px;height:36px;border-radius:50%;background:#7c3aed;border:3px solid #a78bfa;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(124,58,237,0.6)">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z"/><path d="M14 15v4"/><path d="M10 15v4"/><path d="M6 19h12"/></svg>
-    </div>`,
-    className: "", iconSize: [36, 36], iconAnchor: [18, 18],
-  });
+// ─── Ícones de marcador (igual à versão web) ────────────────────────────────
+const STATUS_COLOR_HEX: Record<string, string> = {
+  active: "#22c55e", maintenance: "#f59e0b", inactive: "#ef4444",
+};
+
+function makeCeoIcon(status = "active", name = "", selected = false) {
+  const color = STATUS_COLOR_HEX[status] ?? "#6b7280";
+  const outline = selected ? "3px solid #22d3ee" : "3px solid white";
+  const safeName = name.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const html = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
+    <div style="width:28px;height:28px;background:${color};border:${outline};border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;">
+      <svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="white"/></svg>
+    </div>
+    <div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>
+  </div>`;
+  return L.divIcon({ html, className: "", iconSize: [80, 46], iconAnchor: [40, 14] });
 }
-function makeCtoIcon() {
-  return L.divIcon({
-    html: `<div style="width:36px;height:36px;border-radius:50%;background:#059669;border:3px solid #34d399;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(5,150,105,0.6)">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
-    </div>`,
-    className: "", iconSize: [36, 36], iconAnchor: [18, 18],
-  });
+
+function makeCtoIcon(status = "active", name = "", selected = false) {
+  const color = STATUS_COLOR_HEX[status] ?? "#6b7280";
+  const outline = selected ? "3px solid #22d3ee" : "3px solid white";
+  const safeName = name.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const html = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
+    <div style="width:28px;height:28px;background:${color};border:${outline};border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;">
+      <svg width="14" height="14" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="white"/></svg>
+    </div>
+    <div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>
+  </div>`;
+  return L.divIcon({ html, className: "", iconSize: [80, 46], iconAnchor: [40, 14] });
 }
 
 interface MobileMapProps {
@@ -352,42 +365,59 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
   }, []);
 
   // ─── Função de localização do técnico ─────────────────────────────────
-  function handleMyLocation() {
-    if (!navigator.geolocation) { setError("Geolocalização não suportada neste dispositivo"); return; }
-    if (!mapRef.current) { setError("Mapa ainda não inicializado. Aguarde."); return; }
+  const handleMyLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setError("Geolocalização não suportada neste dispositivo");
+      return;
+    }
     setGpsLocating(true);
     setError(null);
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-        if (myLocationMarkerRef.current) { myLocationMarkerRef.current.remove(); myLocationMarkerRef.current = null; }
+        const map = mapRef.current;
+        if (!map) {
+          setGpsLocating(false);
+          setError("Mapa não inicializado. Aguarde e tente novamente.");
+          return;
+        }
+        // Remove marcador anterior
+        if (myLocationMarkerRef.current) {
+          try { (myLocationMarkerRef.current as any).remove(); } catch {}
+          myLocationMarkerRef.current = null;
+        }
         const myIcon = L.divIcon({
           html: `<div style="position:relative;width:32px;height:32px">
-            <div style="position:absolute;inset:-4px;border-radius:50%;background:#3b82f6;opacity:0.18;animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite"></div>
+            <div style="position:absolute;inset:-6px;border-radius:50%;background:#3b82f6;opacity:0.15;animation:ping 1.5s cubic-bezier(0,0,0.2,1) infinite"></div>
             <div style="position:absolute;inset:0;border-radius:50%;background:#3b82f6;border:3px solid white;box-shadow:0 0 12px rgba(59,130,246,0.9);display:flex;align-items:center;justify-content:center">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="0"><circle cx="12" cy="12" r="5"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="5"/></svg>
             </div>
           </div>`,
           className: "",
           iconSize: [32, 32],
           iconAnchor: [16, 16],
         });
-        const marker = L.marker([lat, lng], { icon: myIcon }).addTo(mapRef.current!);
-        marker.bindPopup(`<b>📍 Você está aqui</b><br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small><br><small>Precisão: ~${Math.round(accuracy)}m</small>`).openPopup();
+        // Navega até a posição e coloca o marcador
+        map.setView([lat, lng], 17, { animate: true });
+        const marker = L.marker([lat, lng], { icon: myIcon }).addTo(map);
+        marker.bindPopup(
+          `<b>&#128205; Você está aqui</b><br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small><br><small>Precisão: ~${Math.round(accuracy)}m</small>`
+        ).openPopup();
         myLocationMarkerRef.current = marker as unknown as L.CircleMarker;
-        mapRef.current!.setView([lat, lng], 17, { animate: true });
         setGpsLocating(false);
       },
       (err) => {
         setGpsLocating(false);
-        const msg = err.code === 1 ? "Permissão de GPS negada. Habilite a localização no navegador."
+        const msg =
+          err.code === 1 ? "Permissão de GPS negada. Habilite a localização no navegador."
           : err.code === 2 ? "GPS indisponível. Verifique se o GPS está ativado."
           : "Tempo esgotado ao obter GPS. Tente novamente ao ar livre.";
         setError(msg);
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
-  }
+  }, []);
 
   // ─── Renderizar cabos/rotas ─────────────────────────────────────────────
   useEffect(() => {
@@ -436,12 +466,14 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
 
     filteredElements.forEach(el => {
       const isCeo = el.type === "ceo";
-      const icon = isCeo ? makeCeoIcon() : makeCtoIcon();
+      const ref = isCeo
+        ? ceos.find(c => c.id === el.referenceId)
+        : ctos.find(c => c.id === el.referenceId);
+      const status = (ref as any)?.status ?? "active";
+      const name = (ref as any)?.name ?? "";
+      const icon = isCeo ? makeCeoIcon(status, name) : makeCtoIcon(status, name);
       const marker = L.marker([el.lat, el.lng], { icon }).addTo(mapRef.current!);
       marker.on("click", () => {
-        const ref = isCeo
-          ? ceos.find(c => c.id === el.referenceId)
-          : ctos.find(c => c.id === el.referenceId);
         if (!ref) return;
         setSelectedEl(el);
         setPanelType(isCeo ? "ceo" : "cto");
@@ -1340,17 +1372,7 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
           </div>
         )}
 
-        {/* Legenda */}
-        <div className="absolute top-3 left-3 bg-zinc-900/90 backdrop-blur-sm border border-zinc-800 rounded-xl p-2.5 flex flex-col gap-1.5" style={{ zIndex: 5 }}>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-violet-600 border border-violet-400 flex-shrink-0" />
-            <span className="text-[11px] text-zinc-300">CEO</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-emerald-600 border border-emerald-400 flex-shrink-0" />
-            <span className="text-[11px] text-zinc-300">CTO</span>
-          </div>
-        </div>
+
 
         {/* Botão toggle de cabos */}
         <button
@@ -1370,7 +1392,7 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
           onClick={handleMyLocation}
           disabled={gpsLocating}
           className="absolute bottom-4 right-4 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-60 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-lg shadow-blue-900/40 transition-colors"
-          style={{ zIndex: 10 }}
+          style={{ zIndex: 25 }}
         >
           {gpsLocating
             ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Localizando...</>
@@ -1418,50 +1440,46 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
                 </div>
               ) : mapBalance ? (() => {
                 const b = mapBalance as any;
-                const q: string = b.quality ?? "";
-                const qColor = q === "excellent" ? "text-emerald-400" : q === "good" ? "text-cyan-400" : q === "marginal" ? "text-amber-400" : q === "poor" ? "text-orange-400" : "text-red-400";
+                // O servidor retorna rxPowerDbm (campo real)
+                const rxPower: number | null = b.rxPowerDbm ?? b.estimatedRxPower ?? null;
+                const found: boolean = b.found ?? false;
+                const q: string = b.signalQuality ?? b.quality ?? "";
+                const qColor = q === "excellent" ? "text-emerald-400"
+                  : q === "good" ? "text-cyan-400"
+                  : q === "marginal" ? "text-amber-400"
+                  : q === "poor" ? "text-orange-400"
+                  : "text-red-400";
+                const qLabel = q === "excellent" ? "Excelente"
+                  : q === "good" ? "Bom"
+                  : q === "marginal" ? "Marginal"
+                  : q === "poor" ? "Fraco"
+                  : q === "no_signal" ? "Sem Sinal"
+                  : q || "--";
                 return (
-                  <div className="flex-1 overflow-y-auto space-y-3">
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 space-y-2">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-zinc-400">Potência RX Estimada</span>
-                        <span className={`font-bold text-sm ${qColor}`}>{b.estimatedRxPower?.toFixed(2) ?? "--"} dBm</span>
+                  <div className="flex-1 overflow-y-auto">
+                    {!found && (
+                      <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-3 text-xs text-amber-300">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <span>{b.warnings?.[0] ?? "Não foi possível rastrear até a OLT. Verifique se a OLT está posicionada no mapa e as portas vinculadas."}</span>
                       </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-zinc-400">Qualidade</span>
-                        <span className={`font-semibold capitalize ${qColor}`}>{q === "excellent" ? "Excelente" : q === "good" ? "Bom" : q === "marginal" ? "Marginal" : q === "poor" ? "Fraco" : q}</span>
+                    )}
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-zinc-400">Potência RX Estimada</span>
+                        <div className="text-right">
+                          <span className={`text-2xl font-bold ${qColor}`}>
+                            {rxPower != null ? rxPower.toFixed(2) : "--"}
+                          </span>
+                          <span className={`text-sm font-semibold ml-1 ${qColor}`}>dBm</span>
+                        </div>
                       </div>
-                      {b.totalDistance != null && (
-                        <div className="flex justify-between text-xs">
-                          <span className="text-zinc-400">Distância Total</span>
-                          <span className="text-zinc-200">{(b.totalDistance / 1000).toFixed(2)} km</span>
-                        </div>
-                      )}
-                      {b.splitterLoss != null && (
-                        <div className="flex justify-between text-xs">
-                          <span className="text-zinc-400">Perda Splitter</span>
-                          <span className="text-zinc-200">{b.splitterLoss?.toFixed(2)} dB</span>
-                        </div>
-                      )}
-                      {b.fiberLoss != null && (
-                        <div className="flex justify-between text-xs">
-                          <span className="text-zinc-400">Perda Fibra</span>
-                          <span className="text-zinc-200">{b.fiberLoss?.toFixed(2)} dB</span>
+                      {found && (
+                        <div className="mt-2 flex items-center justify-between text-xs">
+                          <span className="text-zinc-500">Qualidade</span>
+                          <span className={`font-semibold ${qColor}`}>{qLabel}</span>
                         </div>
                       )}
                     </div>
-                    {b.path && b.path.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-xs text-zinc-500 font-medium">Caminho Óptico</p>
-                        {b.path.map((step: any, i: number) => (
-                          <div key={i} className="flex items-center gap-2 text-xs bg-zinc-900 rounded-lg px-2 py-1.5">
-                            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 flex-shrink-0" />
-                            <span className="text-zinc-300 truncate">{step.name ?? step.type}</span>
-                            {step.loss != null && <span className="ml-auto text-zinc-500 flex-shrink-0">{step.loss?.toFixed(2)} dB</span>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 );
               })() : null}

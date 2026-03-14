@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import {
   Download, Upload, RefreshCw, Trash2, Clock, Calendar,
   CheckCircle, XCircle, Shield, HardDrive, AlertTriangle,
-  CloudUpload, History, Settings2,
+  CloudUpload, History, Settings2, PackageOpen, Zap,
 } from "lucide-react";
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
@@ -80,6 +80,14 @@ export default function Backup() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [restorePreview, setRestorePreview] = useState<any>(null);
   const [restoreFile, setRestoreFile] = useState<any>(null);
+
+  // ── Update upload state ───────────────────────────────────────────────────
+  const updateInputRef = useRef<HTMLInputElement>(null);
+  const [updateFile, setUpdateFile] = useState<File | null>(null);
+  const [updateUploading, setUpdateUploading] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<string | null>(null);
+  const [updateLog, setUpdateLog] = useState<string[]>([]);
+  const [updateDone, setUpdateDone] = useState(false);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const exportMutation = trpc.backup.export.useQuery(undefined, { enabled: false });
@@ -154,6 +162,70 @@ export default function Backup() {
       dayOfMonth: frequency === "monthly" ? parseInt(dayOfMonth) : null,
       retentionDays: parseInt(retentionDays),
     });
+  };
+
+  const handleUpdateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith(".tar.gz") && !file.name.endsWith(".gz")) {
+      toast.error("Selecione um arquivo .tar.gz de atualização");
+      return;
+    }
+    setUpdateFile(file);
+    setUpdateLog([]);
+    setUpdateDone(false);
+    setUpdateProgress(null);
+  };
+
+  const handleApplyUpdate = async () => {
+    if (!updateFile) return;
+    const confirmed = window.confirm(
+      `⚠️ Confirmar atualização?\n\nArquivo: ${updateFile.name}\n\nO sistema será reiniciado após a instalação. Certifique-se de ter feito um backup antes.`
+    );
+    if (!confirmed) return;
+    setUpdateUploading(true);
+    setUpdateLog([]);
+    setUpdateDone(false);
+    setUpdateProgress("Enviando arquivo...");
+    try {
+      const formData = new FormData();
+      formData.append("update", updateFile);
+      const uploadRes = await fetch("/api/system/update", { method: "POST", body: formData });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) throw new Error(uploadData.error ?? "Erro ao enviar arquivo");
+      setUpdateProgress("Aplicando atualização...");
+      // Acompanhar progresso via SSE
+      const evtSource = new EventSource("/api/system/update-status");
+      evtSource.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (Array.isArray(data.log)) setUpdateLog(data.log);
+          if (data.step) setUpdateProgress(data.step);
+          if (!data.running) {
+            evtSource.close();
+            if (data.error) {
+              toast.error(`Erro na atualização: ${data.error}`);
+              setUpdateProgress(`Erro: ${data.error}`);
+            } else {
+              toast.success("Atualização aplicada! O sistema será reiniciado.");
+              setUpdateProgress("Concluído! Aguarde o sistema reiniciar...");
+              setUpdateDone(true);
+            }
+            setUpdateUploading(false);
+          }
+        } catch {}
+      };
+      evtSource.onerror = () => {
+        evtSource.close();
+        setUpdateUploading(false);
+        setUpdateProgress("Conexão encerrada — o sistema pode estar reiniciando.");
+        setUpdateDone(true);
+      };
+    } catch (err: any) {
+      toast.error(err.message);
+      setUpdateProgress(null);
+      setUpdateUploading(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -527,6 +599,103 @@ export default function Backup() {
                   Cancelar
                 </Button>
               </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Atualizar Sistema (Upload Local) ─────────────────────────────── */}
+      <Card className="border-border/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <PackageOpen className="w-4 h-4 text-emerald-400" />
+            Atualizar Sistema
+          </CardTitle>
+          <CardDescription>
+            Faça upload de um arquivo <span className="font-mono text-xs">.tar.gz</span> de atualização para instalar uma nova versão.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Aviso */}
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>Gere um backup completo antes de atualizar. O sistema reiniciará automaticamente após a instalação.</span>
+          </div>
+
+          {/* Drop zone */}
+          <input
+            ref={updateInputRef}
+            type="file"
+            accept=".tar.gz,.gz"
+            className="hidden"
+            onChange={handleUpdateFileChange}
+          />
+          {!updateFile ? (
+            <button
+              type="button"
+              onClick={() => updateInputRef.current?.click()}
+              className="w-full border-2 border-dashed border-border/50 rounded-lg p-8 flex flex-col items-center gap-3 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-colors cursor-pointer"
+            >
+              <Upload className="w-8 h-8 text-muted-foreground" />
+              <div className="text-center">
+                <p className="text-sm font-medium text-foreground">Clique para selecionar o arquivo de atualização</p>
+                <p className="text-xs text-muted-foreground mt-1">Formato: <span className="font-mono">fiberdoc-update-*.tar.gz</span></p>
+              </div>
+            </button>
+          ) : (
+            <div className="space-y-3">
+              {/* Arquivo selecionado */}
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                <PackageOpen className="w-5 h-5 text-emerald-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{updateFile.name}</p>
+                  <p className="text-xs text-muted-foreground">{(updateFile.size / 1024 / 1024).toFixed(1)} MB</p>
+                </div>
+                {!updateUploading && (
+                  <button
+                    onClick={() => { setUpdateFile(null); setUpdateLog([]); setUpdateDone(false); setUpdateProgress(null); }}
+                    className="text-muted-foreground hover:text-foreground text-xs"
+                  >
+                    Trocar
+                  </button>
+                )}
+              </div>
+
+              {/* Log de progresso */}
+              {(updateProgress || updateLog.length > 0) && (
+                <div className="rounded-lg bg-black/40 border border-border/30 p-3 space-y-1 max-h-40 overflow-y-auto">
+                  {updateProgress && (
+                    <p className={`text-xs font-medium ${updateDone ? "text-emerald-400" : "text-cyan-400"}`}>
+                      {updateDone ? "✓ " : "⟳ "}{updateProgress}
+                    </p>
+                  )}
+                  {updateLog.map((line, i) => (
+                    <p key={i} className="text-xs text-muted-foreground font-mono">{line}</p>
+                  ))}
+                </div>
+              )}
+
+              {/* Botão de aplicar */}
+              {!updateDone && (
+                <Button
+                  className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={handleApplyUpdate}
+                  disabled={updateUploading}
+                >
+                  {updateUploading ? (
+                    <><RefreshCw className="w-4 h-4 animate-spin" /> Instalando...</>
+                  ) : (
+                    <><Zap className="w-4 h-4" /> Instalar Atualização</>
+                  )}
+                </Button>
+              )}
+
+              {updateDone && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                  <CheckCircle className="w-4 h-4 text-emerald-400" />
+                  <p className="text-sm text-emerald-300">Atualização concluída! O sistema está reiniciando.</p>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

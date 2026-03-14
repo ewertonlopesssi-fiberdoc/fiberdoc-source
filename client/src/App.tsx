@@ -21,6 +21,7 @@ import PortSearch from "./pages/PortSearch";
 import Users from "./pages/Users";
 import Backup from "./pages/Backup";
 import SystemSettings from "./pages/SystemSettings";
+import NetworkConfig from "./pages/NetworkConfig";
 import OccupancyReport from "./pages/OccupancyReport";
 import RoomReport from "./pages/RoomReport";
 import Welcome from "./pages/Welcome";
@@ -91,6 +92,7 @@ function Router() {
         <Route path={"/usuarios"} component={Users} />
         <Route path={"/backup"} component={Backup} />
         <Route path={"/sistema"} component={SystemSettings} />
+        <Route path={"/rede"} component={NetworkConfig} />
         <Route path={"/ip-doc"} component={IpDashboard} />
         <Route path={"/ip-doc/blocos"} component={IpBlocks} />
         <Route path={"/ip-doc/blocos/:id"} component={IpBlocks} />

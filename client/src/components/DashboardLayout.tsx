@@ -52,6 +52,7 @@ import {
   Search,
   Terminal,
   Router,
+  PlugZap,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -102,6 +103,7 @@ const adminOnlyMenuItems = [
   { icon: UsersIcon, label: "Usuários", path: "/usuarios" },
   { icon: ShieldCheck, label: "Backup & Atualização", path: "/backup" },
   { icon: Settings, label: "Sistema", path: "/sistema" },
+  { icon: PlugZap, label: "Configuração de Rede", path: "/rede" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -186,14 +188,20 @@ function DashboardLayoutContent({
   const { isAdmin, isOperator, role } = useRole();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
-  // admin: todos os menus; operator/user: apenas menus públicos
-  const menuItems = isAdmin ? [...publicMenuItems, ...adminOnlyMenuItems] : publicMenuItems;
+  // Buscar menus ocultos das configurações do sistema
+  const { data: sysSettings } = trpc.systemConfig.get.useQuery(undefined, { staleTime: 60_000 });
+  const hiddenMenus: string[] = (() => {
+    try { return JSON.parse((sysSettings as any)?.hiddenMenus ?? "[]"); } catch { return []; }
+  })();
+  // admin: todos os menus; operator/user: apenas menus públicos; filtrar ocultos
+  const allMenuItemsRaw = isAdmin ? [...publicMenuItems, ...adminOnlyMenuItems] : publicMenuItems;
+  const menuItems = allMenuItemsRaw.filter(item => !hiddenMenus.includes(item.path));
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
-  const allMenuItems = isAdmin ? [...publicMenuItems, ...adminOnlyMenuItems] : publicMenuItems;
+  const allMenuItems = allMenuItemsRaw;
   const activeMenuItem = allMenuItems.find((item) => {
     if (item.path === "/") return location === "/";
     if (item.path === "/portas") return location.startsWith("/portas");

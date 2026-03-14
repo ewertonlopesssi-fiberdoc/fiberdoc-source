@@ -186,6 +186,85 @@ async function startServer() {
     }
   });
 
+  // ─── Configuração de Rede (IP da interface) ─────────────────────────────────
+  // GET: retorna configuração atual da interface de rede
+  app.get("/api/system/network", express.json(), async (req, res) => {
+    try {
+      let user: any = null;
+      try { user = await sdk.authenticateRequest(req as any); } catch {}
+      if (!user || user.role !== "admin") { res.status(403).json({ error: "Acesso negado" }); return; }
+      const { execSync } = await import("child_process");
+      // Ler interfaces disponíveis
+      const ifaceOutput = execSync("ip -o addr show", { encoding: "utf8" });
+      const interfaces: Array<{ name: string; ip: string; prefix: number; type: string }> = [];
+      for (const line of ifaceOutput.split("\n")) {
+        const m = line.match(/^\d+:\s+(\S+)\s+inet\s+([\d.]+)\/(\d+)/);
+        if (m && m[1] !== "lo") {
+          interfaces.push({ name: m[1], ip: m[2], prefix: parseInt(m[3]), type: m[1].startsWith("docker") || m[1].startsWith("veth") ? "virtual" : "physical" });
+        }
+      }
+      // Ler /etc/network/interfaces para gateway e DNS
+      let gateway = "";
+      let dns = "";
+      let activeIface = interfaces.find(i => i.type === "physical")?.name ?? "ens18";
+      try {
+        const ifContent = fs.readFileSync("/etc/network/interfaces", "utf8");
+        const gwMatch = ifContent.match(/gateway\s+([\d.]+)/);
+        const dnsMatch = ifContent.match(/dns-nameservers\s+(.+)/);
+        if (gwMatch) gateway = gwMatch[1].trim();
+        if (dnsMatch) dns = dnsMatch[1].trim();
+      } catch {}
+      // Gateway via rota
+      try {
+        const routeOut = execSync("ip route show default", { encoding: "utf8" });
+        const rm = routeOut.match(/default via ([\d.]+)/);
+        if (rm) gateway = rm[1];
+      } catch {}
+      res.json({ interfaces: interfaces.filter(i => i.type === "physical"), gateway, dns, activeIface });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST: aplica nova configuração de IP
+  app.post("/api/system/network", express.json(), async (req, res) => {
+    try {
+      let user: any = null;
+      try { user = await sdk.authenticateRequest(req as any); } catch {}
+      if (!user || user.role !== "admin") { res.status(403).json({ error: "Acesso negado" }); return; }
+      const { iface, ip, prefix, gateway, dns } = req.body as { iface: string; ip: string; prefix: number; gateway: string; dns?: string };
+      // Validações básicas
+      const ipRe = /^(\d{1,3}\.){3}\d{1,3}$/;
+      if (!iface || !ip || !prefix || !gateway) { res.status(400).json({ error: "Parâmetros obrigatórios: iface, ip, prefix, gateway" }); return; }
+      if (!ipRe.test(ip) || !ipRe.test(gateway)) { res.status(400).json({ error: "IP ou gateway inválido" }); return; }
+      if (iface.includes("/") || iface.includes(";") || iface.includes("&")) { res.status(400).json({ error: "Nome de interface inválido" }); return; }
+      const { execSync } = await import("child_process");
+      // Fazer backup do arquivo de interfaces
+      const ifacePath = "/etc/network/interfaces";
+      const backupPath = `/etc/network/interfaces.bak.${Date.now()}`;
+      try { fs.copyFileSync(ifacePath, backupPath); } catch {}
+      // Escrever novo arquivo de interfaces
+      const dnsLine = dns ? `\n        dns-nameservers ${dns}` : "\n        dns-nameservers 8.8.8.8";
+      const newContent = `# This file describes the network interfaces available on your system\n# and how to activate them. For more information, see interfaces(5).\nsource /etc/network/interfaces.d/*\n# The loopback network interface\nauto lo\niface lo inet loopback\n# The primary network interface\nallow-hotplug ${iface}\niface ${iface} inet static\n        address ${ip}/${prefix}\n        gateway ${gateway}${dnsLine}\n`;
+      fs.writeFileSync(ifacePath, newContent, "utf8");
+      // Aplicar imediatamente via ip addr (sem reiniciar o serviço)
+      try {
+        // Obter IP atual da interface
+        const currentIpOut = execSync(`ip addr show ${iface}`, { encoding: "utf8" });
+        const currentIpMatch = currentIpOut.match(/inet ([\d.]+\/(\d+))/);
+        if (currentIpMatch) {
+          execSync(`ip addr del ${currentIpMatch[1]} dev ${iface}`, { encoding: "utf8" });
+        }
+      } catch {}
+      try { execSync(`ip addr add ${ip}/${prefix} dev ${iface}`, { encoding: "utf8" }); } catch {}
+      try { execSync(`ip route del default`, { encoding: "utf8" }); } catch {}
+      try { execSync(`ip route add default via ${gateway}`, { encoding: "utf8" }); } catch {}
+      res.json({ ok: true, message: `IP alterado para ${ip}/${prefix} na interface ${iface}. Gateway: ${gateway}. A configuração será mantida após reinicialização.` });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Servir uploads locais de imagens (logo, etc.) para servidores sem S3
   app.get("/api/uploads/:filename", (req, res) => {
     try {
@@ -273,6 +352,66 @@ async function startServer() {
   });
 
   // tRPC API
+  // Endpoint REST dedicado para resumo de cabos por grupo (evita serialização SuperJSON)
+  app.get("/api/cables/group-summary", async (req, res) => {
+    try {
+      let user: any = null;
+      try { user = await sdk.authenticateRequest(req as any); } catch {}
+      if (!user) { res.status(401).json({ error: "Não autenticado" }); return; }
+      const dbMod = await import("../db");
+      const [allRoutes, allElements, allGroups, allRouteGroups] = await Promise.all([
+        dbMod.getMapRoutes(),
+        dbMod.getMapElements(),
+        dbMod.getMapGroups(),
+        dbMod.getAllRouteGroupMemberships(),
+      ]);
+      const haversine = (a: {lat:number;lng:number}, b: {lat:number;lng:number}) => {
+        const R = 6371;
+        const dLat = (b.lat - a.lat) * Math.PI / 180;
+        const dLng = (b.lng - a.lng) * Math.PI / 180;
+        const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+      };
+      const rows = (allRoutes as any[]).map((r: any) => {
+        const fromEl = (allElements as any[]).find((e: any) => e.id === r.fromElementId);
+        const toEl   = (allElements as any[]).find((e: any) => e.id === r.toElementId);
+        let path: {lat:number;lng:number}[] = [];
+        try { if (r.path) path = JSON.parse(r.path); } catch {}
+        let lenM = 0;
+        if (path.length >= 2) {
+          let d = 0;
+          for (let i = 1; i < path.length; i++) d += haversine(path[i-1], path[i]);
+          lenM = Math.round(d * 1000);
+        }
+        const routeGroupIds = (allRouteGroups as any[]).filter((rg: any) => rg.routeId === r.id).map((rg: any) => Number(rg.groupId));
+        return { fibras: Number(r.fiberCount ?? 0), comprimento_m: lenM, groupIds: routeGroupIds };
+      });
+      const groupMap: Record<string, { groupId: number; groupName: string; groupColor: string; cabos: number; metros: number; fibras: number }> = {};
+      for (const row of rows) {
+        const gids = row.groupIds.length > 0 ? row.groupIds : [-1];
+        for (const gid of gids) {
+          const g = (allGroups as any[]).find((x: any) => x.id === gid);
+          const key = String(gid);
+          if (!groupMap[key]) groupMap[key] = { groupId: gid, groupName: g?.name ?? "Sem grupo", groupColor: g?.color ?? "#888", cabos: 0, metros: 0, fibras: 0 };
+          groupMap[key].cabos++;
+          groupMap[key].metros += row.comprimento_m;
+          groupMap[key].fibras += row.fibras;
+        }
+      }
+      const summary = Object.values(groupMap).sort((a, b) => b.metros - a.metros).map(s => ({
+        groupId: s.groupId === -1 ? 0 : s.groupId,
+        groupName: s.groupName,
+        groupColor: s.groupColor,
+        cabos: s.cabos,
+        metros: s.metros,
+        fibras: s.fibras,
+      }));
+      res.json({ summary });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Erro interno" });
+    }
+  });
+
   // Endpoint dedicado de exportação KML/KMZ (evita limite de URL do httpBatchLink)
   app.post("/api/export-kml", async (req, res) => {
     try {
