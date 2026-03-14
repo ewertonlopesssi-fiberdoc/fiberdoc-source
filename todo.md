@@ -1703,3 +1703,6 @@
 - [x] Botão "Balanço Óptico" no PanelDetail da CTO no mapa
 - [x] Botão "OTDR" direto no PanelDetail do CEO/CTO no mapa
 - [x] Corrigir botão "Onde estou" para centralizar no GPS do técnico (não estava funcionando)
+
+## Bug: Botão Salvar Posição Não Aparece Após Mover Elemento
+- [x] Corrigir: botão "Salvar posição" não aparece após arrastar CEO/CTO no mapa (stale closure no dragend handler) — CORRIGIDO: adicionados refs para movingElementId e editMode para evitar stale closure

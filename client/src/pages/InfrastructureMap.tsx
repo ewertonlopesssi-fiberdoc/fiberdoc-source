@@ -418,6 +418,9 @@ export default function InfrastructureMap() {
   const groupSelectModeRef = useRef(false);
   const addingRouteModeRef = useRef(false);
   const otdrModeRef = useRef(false);
+  // Refs para evitar stale closure no handler dragend dos marcadores
+  const movingElementIdRef = useRef<number | null>(null);
+  const editModeRef = useRef(false);
   const [addingRouteMode, setAddingRouteMode] = useState(false);
   const [routeFrom, setRouteFrom] = useState<number | null>(null);
   const [routeTo, setRouteTo] = useState<number | null>(null);
@@ -1515,9 +1518,10 @@ export default function InfrastructureMap() {
       const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isDraggable, bubblingMouseEvents: false } as any).addTo(mapRef.current!);
       if (isAdmin) {
         marker.on("dragend", () => {
-          if (!editMode && movingElementId !== el.id) return;
+          // Usar refs para evitar stale closure — sempre pega o valor atual
+          if (!editModeRef.current && movingElementIdRef.current !== el.id) return;
           const pos = marker.getLatLng();
-          if (movingElementId === el.id) {
+          if (movingElementIdRef.current === el.id) {
             setPendingMovePos({ id: el.id, lat: pos.lat, lng: pos.lng });
           } else {
             upsertElementMut.mutate({ type: el.type, referenceId: el.referenceId, lat: pos.lat, lng: pos.lng });
@@ -1820,6 +1824,8 @@ export default function InfrastructureMap() {
   useEffect(() => { groupSelectModeRef.current = groupSelectMode; }, [groupSelectMode]);
   useEffect(() => { addingRouteModeRef.current = addingRouteMode; }, [addingRouteMode]);
   useEffect(() => { otdrModeRef.current = otdrMode; }, [otdrMode]);
+  useEffect(() => { movingElementIdRef.current = movingElementId; }, [movingElementId]);
+  useEffect(() => { editModeRef.current = editMode; }, [editMode]);
 
   // Modo de adição de elemento
   useEffect(() => {
