@@ -397,8 +397,14 @@ export default function InfrastructureMap() {
   const [showCeos, setShowCeos] = useState(true);
   const [showCtos, setShowCtos] = useState(true);
   const [showRoutes, setShowRoutes] = useState(true);
-  const [showElementNames, setShowElementNames] = useState(true);
-  const [showCableLabels, setShowCableLabels] = useState(true);
+  const [showElementNames, setShowElementNames] = useState(() => {
+    const v = localStorage.getItem('map_showElementNames');
+    return v === null ? true : v === '1';
+  });
+  const [showCableLabels, setShowCableLabels] = useState(() => {
+    const v = localStorage.getItem('map_showCableLabels');
+    return v === null ? true : v === '1';
+  });
   // Modo edição: quando false, os markers ficam bloqueados (não arrastáveis)
   const [editMode, setEditMode] = useState(false);
   // Elemento em modo de mover individualmente (drag individual sem modo edição global)
@@ -1573,14 +1579,14 @@ export default function InfrastructureMap() {
         const isBeingEdited = r.id === editingRouteId;
         const routeColor = getOccupancyColor(r.id, r.color ?? "#22d3ee");
         const pathKey = r.path ?? "";
-        const stateKey = `${routeColor}|${isSelected ? 1 : 0}|${isBeingEdited ? 1 : 0}|${pathKey}|${fromEl?.lat ?? ''}|${fromEl?.lng ?? ''}|${toEl?.lat ?? ''}|${toEl?.lng ?? ''}`;
+        const stateKey = `${routeColor}|${isSelected ? 1 : 0}|${isBeingEdited ? 1 : 0}|${pathKey}|${fromEl?.lat ?? ''}|${fromEl?.lng ?? ''}|${toEl?.lat ?? ''}|${toEl?.lng ?? ''}|${showCableLabels ? 1 : 0}`;
         const existing = polylinesRef.current[r.id];
         if (existing) {
           // Actualizar apenas se o estado visual mudou
           if (stateKey !== prevRouteStateRef.current[r.id]) {
             existing.setStyle({ color: routeColor, weight: isSelected ? 6 : 3, opacity: isBeingEdited ? 0 : 0.9 });
             existing.setLatLngs(latlngs);
-            if (routeLabelsRef.current[r.id]) { routeLabelsRef.current[r.id].setOpacity(isBeingEdited ? 0 : 1); }
+            if (routeLabelsRef.current[r.id]) { routeLabelsRef.current[r.id].setOpacity(isBeingEdited ? 0 : (showCableLabels ? 1 : 0)); }
             prevRouteStateRef.current[r.id] = stateKey;
           }
           return;
@@ -3908,10 +3914,10 @@ export default function InfrastructureMap() {
           <MapPin className="w-3 h-3" />POIs {showPois ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
         </Button>
         <div className="w-px h-4 bg-border mx-1" />
-        <Button size="sm" variant={showElementNames ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowElementNames(v => !v)} title="Mostrar/ocultar nomes dos elementos (CEO/CTO)">
+        <Button size="sm" variant={showElementNames ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => { setShowElementNames(v => { const next = !v; localStorage.setItem('map_showElementNames', next ? '1' : '0'); return next; }); }} title="Mostrar/ocultar nomes dos elementos (CEO/CTO)">
           <Tag className="w-3 h-3" />Nomes {showElementNames ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
         </Button>
-        <Button size="sm" variant={showCableLabels ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowCableLabels(v => !v)} title="Mostrar/ocultar metragem dos cabos">
+        <Button size="sm" variant={showCableLabels ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => { setShowCableLabels(v => { const next = !v; localStorage.setItem('map_showCableLabels', next ? '1' : '0'); return next; }); }} title="Mostrar/ocultar metragem dos cabos">
           <Milestone className="w-3 h-3" />Metragem {showCableLabels ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
         </Button>
         {isAdmin && (
