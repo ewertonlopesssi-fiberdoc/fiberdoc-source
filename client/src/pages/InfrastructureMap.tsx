@@ -1519,11 +1519,18 @@ export default function InfrastructureMap() {
       if (isAdmin) {
         marker.on("dragend", () => {
           // Usar refs para evitar stale closure — sempre pega o valor atual
-          if (!editModeRef.current && movingElementIdRef.current !== el.id) return;
+          console.log('[dragend] movingElementIdRef.current:', movingElementIdRef.current, 'el.id:', el.id, 'editModeRef.current:', editModeRef.current);
+          if (!editModeRef.current && movingElementIdRef.current !== el.id) {
+            console.log('[dragend] Retornando porque não está em modo mover');
+            return;
+          }
           const pos = marker.getLatLng();
+          console.log('[dragend] Posição:', pos);
           if (movingElementIdRef.current === el.id) {
+            console.log('[dragend] Chamando setPendingMovePos');
             setPendingMovePos({ id: el.id, lat: pos.lat, lng: pos.lng });
           } else {
+            console.log('[dragend] Chamando upsertElementMut');
             upsertElementMut.mutate({ type: el.type, referenceId: el.referenceId, lat: pos.lat, lng: pos.lng });
           }
         });
@@ -3278,7 +3285,7 @@ export default function InfrastructureMap() {
               {movingElementId === el.id ? "Cancelar mover" : "Mover"}
             </Button>
             {/* Botão Salvar posição: só aparece após arrastar */}
-            {pendingMovePos?.id === el.id && (
+            {pendingMovePos?.id === sidePanel.element.id && (
               <Button
                 size="sm"
                 className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
