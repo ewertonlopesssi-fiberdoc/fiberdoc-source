@@ -574,11 +574,17 @@ export default function InfrastructureMap() {
   const [folderDropPosition, setFolderDropPosition] = useState<{ groupId: number; pos: 'before' | 'after' | 'inside' } | null>(null); // indicador de posição no drag de pasta
   const [groupSearch, setGroupSearch] = useState(""); // filtro de busca no painel de grupos
   const [isOrganizing, setIsOrganizing] = useState(false); // auto-organizar postes e reservas em pastas
-  const [checkedItems, setCheckedItems] = useState<{ elements: Set<number>; routes: Set<number> }>({ elements: new Set(), routes: new Set() });
-  const toggleCheckedElement = (id: number) => setCheckedItems(prev => { const e = new Set(prev.elements); if (e.has(id)) e.delete(id); else e.add(id); return { ...prev, elements: e }; });
-  const toggleCheckedRoute = (id: number) => setCheckedItems(prev => { const r = new Set(prev.routes); if (r.has(id)) r.delete(id); else r.add(id); return { ...prev, routes: r }; });
-  const totalChecked = checkedItems.elements.size + checkedItems.routes.size;
+  const [checkedItems, setCheckedItems] = useState<{ elements: Set<number>; routes: Set<number>; poles: Set<number>; reserves: Set<number>; pois: Set<number>; olts: Set<number> }>({ elements: new Set(), routes: new Set(), poles: new Set(), reserves: new Set(), pois: new Set(), olts: new Set() });
+  const [checkedGroupId, setCheckedGroupId] = useState<number | null>(null); // grupo de onde os itens foram marcados
+  const toggleCheckedElement = (id: number, gid?: number) => { if (gid !== undefined) setCheckedGroupId(gid); setCheckedItems(prev => { const e = new Set(prev.elements); if (e.has(id)) e.delete(id); else e.add(id); return { ...prev, elements: e }; }); };
+  const toggleCheckedRoute = (id: number, gid?: number) => { if (gid !== undefined) setCheckedGroupId(gid); setCheckedItems(prev => { const r = new Set(prev.routes); if (r.has(id)) r.delete(id); else r.add(id); return { ...prev, routes: r }; }); };
+  const toggleCheckedPole = (id: number, gid?: number) => { if (gid !== undefined) setCheckedGroupId(gid); setCheckedItems(prev => { const p = new Set(prev.poles); if (p.has(id)) p.delete(id); else p.add(id); return { ...prev, poles: p }; }); };
+  const toggleCheckedReserve = (id: number, gid?: number) => { if (gid !== undefined) setCheckedGroupId(gid); setCheckedItems(prev => { const r = new Set(prev.reserves); if (r.has(id)) r.delete(id); else r.add(id); return { ...prev, reserves: r }; }); };
+  const toggleCheckedPoi = (id: number, gid?: number) => { if (gid !== undefined) setCheckedGroupId(gid); setCheckedItems(prev => { const p = new Set(prev.pois); if (p.has(id)) p.delete(id); else p.add(id); return { ...prev, pois: p }; }); };
+  const toggleCheckedOlt = (id: number, gid?: number) => { if (gid !== undefined) setCheckedGroupId(gid); setCheckedItems(prev => { const o = new Set(prev.olts); if (o.has(id)) o.delete(id); else o.add(id); return { ...prev, olts: o }; }); };
+  const totalChecked = checkedItems.elements.size + checkedItems.routes.size + checkedItems.poles.size + checkedItems.reserves.size + checkedItems.pois.size + checkedItems.olts.size;
   const handleExportChecked = () => { setExportSelectedElements(new Set(checkedItems.elements)); setExportSelectedRoutes(new Set(checkedItems.routes)); setExportSelectAll(false); setExportDialogOpen(true); };
+  const clearCheckedItems = () => { setCheckedItems({ elements: new Set(), routes: new Set(), poles: new Set(), reserves: new Set(), pois: new Set(), olts: new Set() }); setCheckedGroupId(null); };
 
   // ─── Visibilidade por grupo e por item (bidirecional, estilo Google Earth) ───
   // Helpers de persistência no localStorage
@@ -1187,6 +1193,7 @@ export default function InfrastructureMap() {
   const addPoiToGroupMut = trpc.mapPois.addToGroup.useMutation({ onError: (e) => toast.error(e.message) });
   const assignOltToGroupMut = trpc.mapGroups.addOlt.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
   const removeOltFromGroupMut = trpc.mapGroups.removeOlt.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
+  const removePoiFromGroupMut = trpc.mapGroups.removePoi.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
   const sgpQuery = trpc.sgp.queryClientsByCto.useQuery(
     {
       ctoName: sidePanel?.kind === "element" && sidePanel.element.type === "cto" ? (sidePanel.element.name ?? "") : "",
@@ -4644,14 +4651,14 @@ export default function InfrastructureMap() {
                       const elName = el.elementName ?? el.name ?? el.label ?? `#${el.id}`;
                       return (
                         <div key={`el-${el.id}`}
-                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'element', id: el.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
                           <Checkbox
                             checked={checkedItems.elements.has(el.id)}
-                            onCheckedChange={() => toggleCheckedElement(el.id)}
+                            onCheckedChange={() => toggleCheckedElement(el.id, group.id)}
                             className="w-3 h-3 flex-shrink-0"
                           />
                           <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("element", el.id)} />
@@ -4661,6 +4668,10 @@ export default function InfrastructureMap() {
                             onClick={() => { flyToItem(el.lat, el.lng); }}
                           >{elName}</span>
                           <span className="text-muted-foreground/40 uppercase text-[9px]">{el.type ?? ""}</span>
+                          {isAdmin && (<>
+                            <button title="Editar" className="opacity-0 group-hover:opacity-100 hover:text-cyan-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); setEditElementForm({ name: el.name ?? "", address: "", capacity: el.capacity ?? 8, status: el.status ?? "active", notes: "", color: el.color ?? "" }); setSidePanel({ kind: "element", element: el }); setEditElementDialogOpen(true); }}><Pencil className="w-3 h-3" /></button>
+                            <button title="Remover do grupo" className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); removeElementFromGroupMut.mutate({ groupId: group.id, elementId: el.id }); }}><X className="w-3 h-3" /></button>
+                          </>)}
                         </div>
                       );
                     })}
@@ -4678,14 +4689,14 @@ export default function InfrastructureMap() {
                       } catch {}
                       return (
                         <div key={`rt-${rt.id}`}
-                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'route', id: rt.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
                           <Checkbox
                             checked={checkedItems.routes.has(rt.id)}
-                            onCheckedChange={() => toggleCheckedRoute(rt.id)}
+                            onCheckedChange={() => toggleCheckedRoute(rt.id, group.id)}
                             className="w-3 h-3 flex-shrink-0"
                           />
                           <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("route", rt.id)} />
@@ -4695,6 +4706,10 @@ export default function InfrastructureMap() {
                             onClick={() => flyToItem(midLat, midLng)}
                           >{rtName}</span>
                           <span className="text-muted-foreground/40 uppercase text-[9px]">cabo</span>
+                          {isAdmin && (<>
+                            <button title="Editar" className="opacity-0 group-hover:opacity-100 hover:text-cyan-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); setEditRouteForm({ name: rt.name ?? rt.label ?? "", color: rt.color ?? "#22c55e", notes: rt.notes ?? "", fiberCount: rt.fiberCount ?? 12, cableType: rt.cableType ?? "FO", fromElementId: rt.fromElementId ?? null, toElementId: rt.toElementId ?? null, fromTubeId: (rt as any).fromTubeId ?? null, toTubeId: (rt as any).toTubeId ?? null }); setSidePanel({ kind: "route", route: rt }); setEditRouteDialogOpen(true); if (midLat && midLng) flyToItem(midLat, midLng); }}><Pencil className="w-3 h-3" /></button>
+                            <button title="Remover do grupo" className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); removeRouteFromGroupMut.mutate({ groupId: group.id, routeId: rt.id }); }}><X className="w-3 h-3" /></button>
+                          </>)}
                         </div>
                       );
                     })}
@@ -4703,12 +4718,16 @@ export default function InfrastructureMap() {
                       const poleName = pole.name ?? pole.label ?? `Poste #${pole.id}`;
                       return (
                         <div key={`pole-${pole.id}`}
-                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'pole', id: pole.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
-                          <span className="w-3 h-3 flex-shrink-0" />
+                          <Checkbox
+                            checked={checkedItems.poles.has(pole.id)}
+                            onCheckedChange={() => toggleCheckedPole(pole.id, group.id)}
+                            className="w-3 h-3 flex-shrink-0"
+                          />
                           <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("pole", pole.id)} />
                           <span
                             className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground"
@@ -4716,6 +4735,9 @@ export default function InfrastructureMap() {
                             onClick={() => flyToItem(pole.lat, pole.lng)}
                           >{poleName}</span>
                           <span className="text-muted-foreground/40 uppercase text-[9px]">poste</span>
+                          {isAdmin && (<>
+                            <button title="Remover do grupo" className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); removePoleFromGroupMut.mutate({ groupId: group.id, poleId: pole.id }); }}><X className="w-3 h-3" /></button>
+                          </>)}
                         </div>
                       );
                     })}
@@ -4724,12 +4746,16 @@ export default function InfrastructureMap() {
                       const reserveName = reserve.name ?? reserve.label ?? `Reserva #${reserve.id}`;
                       return (
                         <div key={`reserve-${reserve.id}`}
-                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'reserve', id: reserve.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
-                          <span className="w-3 h-3 flex-shrink-0" />
+                          <Checkbox
+                            checked={checkedItems.reserves.has(reserve.id)}
+                            onCheckedChange={() => toggleCheckedReserve(reserve.id, group.id)}
+                            className="w-3 h-3 flex-shrink-0"
+                          />
                           <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("reserve", reserve.id)} />
                           <span
                             className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground"
@@ -4737,6 +4763,9 @@ export default function InfrastructureMap() {
                             onClick={() => flyToItem(reserve.lat, reserve.lng)}
                           >{reserveName}</span>
                           <span className="text-muted-foreground/40 uppercase text-[9px]">reserva</span>
+                          {isAdmin && (<>
+                            <button title="Remover do grupo" className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); removeReserveFromGroupMut.mutate({ groupId: group.id, reserveId: reserve.id }); }}><X className="w-3 h-3" /></button>
+                          </>)}
                         </div>
                       );
                     })}
@@ -4746,14 +4775,16 @@ export default function InfrastructureMap() {
                       const isHidden = hiddenPoiIds.has(poi.id);
                       return (
                         <div key={`poi-${poi.id}`}
-                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'poi', id: poi.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
-                          <span className="w-3 h-3 flex-shrink-0 flex items-center justify-center">
-                            <span style={{ width: 7, height: 7, borderRadius: "50%", background: poiColor, display: "inline-block" }} />
-                          </span>
+                          <Checkbox
+                            checked={checkedItems.pois.has(poi.id)}
+                            onCheckedChange={() => toggleCheckedPoi(poi.id, group.id)}
+                            className="w-3 h-3 flex-shrink-0"
+                          />
                           <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("poi", poi.id)} />
                           <span
                             className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground"
@@ -4761,6 +4792,10 @@ export default function InfrastructureMap() {
                             onClick={() => { flyToItem(poi.lat, poi.lng); setSidePanel({ kind: "poi", poi }); setEditingPoi(false); setPoiEditForm({ name: poi.name ?? "", category: poi.category ?? "geral", color: poi.color ?? poiColor, notes: poi.notes ?? "" }); }}
                           >{poi.name ?? `POI #${poi.id}`}</span>
                           <span className="text-muted-foreground/40 uppercase text-[9px]">{poi.category ?? "poi"}</span>
+                          {isAdmin && (<>
+                            <button title="Editar" className="opacity-0 group-hover:opacity-100 hover:text-cyan-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); flyToItem(poi.lat, poi.lng); setSidePanel({ kind: "poi", poi }); setEditingPoi(true); setPoiEditForm({ name: poi.name ?? "", category: poi.category ?? "geral", color: poi.color ?? poiColor, notes: poi.notes ?? "" }); }}><Pencil className="w-3 h-3" /></button>
+                            <button title="Remover do grupo" className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); removePoiFromGroupMut.mutate({ groupId: group.id, poiId: poi.id }); }}><X className="w-3 h-3" /></button>
+                          </>)}
                         </div>
                       );
                     })}
@@ -4769,12 +4804,16 @@ export default function InfrastructureMap() {
                       const oltName = olt.equipmentName ?? `OLT #${olt.id}`;
                       return (
                         <div key={`olt-${olt.id}`}
-                          className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'olt', id: olt.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
-                          <span className="w-3 h-3 flex-shrink-0" />
+                          <Checkbox
+                            checked={checkedItems.olts.has(olt.id)}
+                            onCheckedChange={() => toggleCheckedOlt(olt.id, group.id)}
+                            className="w-3 h-3 flex-shrink-0"
+                          />
                           <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("olt", olt.id)} />
                           <span
                             className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground"
@@ -4782,6 +4821,10 @@ export default function InfrastructureMap() {
                             onClick={() => { flyToItem(olt.lat, olt.lng); setSelectedOltElementId(olt.id); setOltDetailPanelOpen(true); }}
                           >{oltName}</span>
                           <span className="text-muted-foreground/40 uppercase text-[9px]">olt</span>
+                          {isAdmin && (<>
+                            <button title="Editar" className="opacity-0 group-hover:opacity-100 hover:text-cyan-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); flyToItem(olt.lat, olt.lng); setSelectedOltElementId(olt.id); setOltDetailPanelOpen(true); }}><Pencil className="w-3 h-3" /></button>
+                            <button title="Remover do grupo" className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); removeOltFromGroupMut.mutate({ groupId: group.id, oltId: olt.id }); }}><X className="w-3 h-3" /></button>
+                          </>)}
                         </div>
                       );
                     })}
@@ -5048,8 +5091,27 @@ export default function InfrastructureMap() {
                   >
                     Exportar
                   </button>
+                  {isAdmin && checkedGroupId !== null && (
+                    <button
+                      onClick={async () => {
+                        const gid = checkedGroupId;
+                        const promises: Promise<any>[] = [];
+                        checkedItems.elements.forEach(id => promises.push(removeElementFromGroupMut.mutateAsync({ groupId: gid, elementId: id })));
+                        checkedItems.routes.forEach(id => promises.push(removeRouteFromGroupMut.mutateAsync({ groupId: gid, routeId: id })));
+                        checkedItems.poles.forEach(id => promises.push(removePoleFromGroupMut.mutateAsync({ groupId: gid, poleId: id })));
+                        checkedItems.reserves.forEach(id => promises.push(removeReserveFromGroupMut.mutateAsync({ groupId: gid, reserveId: id })));
+                        checkedItems.pois.forEach(id => promises.push(removePoiFromGroupMut.mutateAsync({ groupId: gid, poiId: id })));
+                        checkedItems.olts.forEach(id => promises.push(removeOltFromGroupMut.mutateAsync({ groupId: gid, oltId: id })));
+                        try { await Promise.all(promises); toast.success(`${totalChecked} item${totalChecked !== 1 ? 's' : ''} removido${totalChecked !== 1 ? 's' : ''} do grupo`); clearCheckedItems(); refetchGroups(); } catch (e: any) { toast.error(e.message ?? 'Erro ao remover itens'); }
+                      }}
+                      className="text-xs text-red-400 hover:text-red-300 underline"
+                      title="Remover itens marcados do grupo"
+                    >
+                      Remover do grupo
+                    </button>
+                  )}
                   <button
-                    onClick={() => setCheckedItems({ elements: new Set(), routes: new Set() })}
+                    onClick={clearCheckedItems}
                     className="text-xs text-muted-foreground hover:text-foreground"
                     title="Limpar marcações"
                   >
