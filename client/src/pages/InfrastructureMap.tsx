@@ -581,7 +581,7 @@ export default function InfrastructureMap() {
   const [dragSelectRect, setDragSelectRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const dragSelectStartRef = useRef<{ x: number; y: number } | null>(null);
   const groupsPanelScrollRef = useRef<HTMLDivElement>(null);
-  const itemRectsRef = useRef<Map<string, { id: number; type: string; groupId: number; rect: DOMRect }>>(new Map());
+  const itemElemsRef = useRef<Map<string, { id: number; type: string; groupId: number; el: HTMLElement }>>(new Map());
   // ─── Mover para grupo e exclusão em massa ───
   const [moveToGroupDialogOpen, setMoveToGroupDialogOpen] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
@@ -4663,7 +4663,7 @@ export default function InfrastructureMap() {
                         <div key={`el-${el.id}`}
                           className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.elements.has(el.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
-                          ref={(node) => { if (node) itemRectsRef.current.set(`el-${el.id}`, { id: el.id, type: 'element', groupId: group.id, rect: node.getBoundingClientRect() }); }}
+                          ref={(node) => { if (node) itemElemsRef.current.set(`el-${el.id}`, { id: el.id, type: 'element', groupId: group.id, el: node }); else itemElemsRef.current.delete(`el-${el.id}`); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'element', id: el.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4702,7 +4702,7 @@ export default function InfrastructureMap() {
                         <div key={`rt-${rt.id}`}
                           className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.routes.has(rt.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
-                          ref={(node) => { if (node) itemRectsRef.current.set(`rt-${rt.id}`, { id: rt.id, type: 'route', groupId: group.id, rect: node.getBoundingClientRect() }); }}
+                          ref={(node) => { if (node) itemElemsRef.current.set(`rt-${rt.id}`, { id: rt.id, type: 'route', groupId: group.id, el: node }); else itemElemsRef.current.delete(`rt-${rt.id}`); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'route', id: rt.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4732,7 +4732,7 @@ export default function InfrastructureMap() {
                         <div key={`pole-${pole.id}`}
                           className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.poles.has(pole.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
-                          ref={(node) => { if (node) itemRectsRef.current.set(`pole-${pole.id}`, { id: pole.id, type: 'pole', groupId: group.id, rect: node.getBoundingClientRect() }); }}
+                          ref={(node) => { if (node) itemElemsRef.current.set(`pole-${pole.id}`, { id: pole.id, type: 'pole', groupId: group.id, el: node }); else itemElemsRef.current.delete(`pole-${pole.id}`); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'pole', id: pole.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4761,7 +4761,7 @@ export default function InfrastructureMap() {
                         <div key={`reserve-${reserve.id}`}
                           className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.reserves.has(reserve.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
-                          ref={(node) => { if (node) itemRectsRef.current.set(`reserve-${reserve.id}`, { id: reserve.id, type: 'reserve', groupId: group.id, rect: node.getBoundingClientRect() }); }}
+                          ref={(node) => { if (node) itemElemsRef.current.set(`reserve-${reserve.id}`, { id: reserve.id, type: 'reserve', groupId: group.id, el: node }); else itemElemsRef.current.delete(`reserve-${reserve.id}`); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'reserve', id: reserve.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4791,7 +4791,7 @@ export default function InfrastructureMap() {
                         <div key={`poi-${poi.id}`}
                           className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.pois.has(poi.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
-                          ref={(node) => { if (node) itemRectsRef.current.set(`poi-${poi.id}`, { id: poi.id, type: 'poi', groupId: group.id, rect: node.getBoundingClientRect() }); }}
+                          ref={(node) => { if (node) itemElemsRef.current.set(`poi-${poi.id}`, { id: poi.id, type: 'poi', groupId: group.id, el: node }); else itemElemsRef.current.delete(`poi-${poi.id}`); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'poi', id: poi.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4821,7 +4821,7 @@ export default function InfrastructureMap() {
                         <div key={`olt-${olt.id}`}
                           className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.olts.has(olt.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
-                          ref={(node) => { if (node) itemRectsRef.current.set(`olt-${olt.id}`, { id: olt.id, type: 'olt', groupId: group.id, rect: node.getBoundingClientRect() }); }}
+                          ref={(node) => { if (node) itemElemsRef.current.set(`olt-${olt.id}`, { id: olt.id, type: 'olt', groupId: group.id, el: node }); else itemElemsRef.current.delete(`olt-${olt.id}`); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'olt', id: olt.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4907,46 +4907,46 @@ export default function InfrastructureMap() {
               <div className="flex-1 overflow-y-auto relative select-none"
                 ref={groupsPanelScrollRef}
                 onMouseDown={(e) => {
-                  // Iniciar drag-to-select apenas com botão esquerdo sem ctrl/shift (que são para checkbox individual)
+                  // Iniciar drag-to-select apenas com botão esquerdo sem ctrl/shift
                   if (e.button !== 0 || e.ctrlKey || e.shiftKey || e.metaKey) return;
-                  // Verificar se o clique foi num item interativo (checkbox, botão, span clicável)
+                  // Não iniciar se clicou em elemento interativo
                   const target = e.target as HTMLElement;
                   if (target.closest('button') || target.closest('[role="checkbox"]') || target.closest('input') || target.closest('a')) return;
-                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                  const x = e.clientX - rect.left;
-                  const y = e.clientY - rect.top + (e.currentTarget as HTMLElement).scrollTop;
-                  dragSelectStartRef.current = { x, y };
+                  // Guardar posição absoluta de viewport
+                  dragSelectStartRef.current = { x: e.clientX, y: e.clientY };
                   setDragSelectActive(false);
                   setDragSelectRect(null);
+                  e.preventDefault();
                 }}
                 onMouseMove={(e) => {
                   if (!dragSelectStartRef.current) return;
-                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                  const curX = e.clientX - rect.left;
-                  const curY = e.clientY - rect.top + (e.currentTarget as HTMLElement).scrollTop;
-                  const dx = Math.abs(curX - dragSelectStartRef.current.x);
-                  const dy = Math.abs(curY - dragSelectStartRef.current.y);
-                  if (dx > 4 || dy > 4) {
+                  const dx = Math.abs(e.clientX - dragSelectStartRef.current.x);
+                  const dy = Math.abs(e.clientY - dragSelectStartRef.current.y);
+                  if (dx > 5 || dy > 5) {
                     setDragSelectActive(true);
-                    const x = Math.min(curX, dragSelectStartRef.current.x);
-                    const y = Math.min(curY, dragSelectStartRef.current.y);
-                    const w = Math.abs(curX - dragSelectStartRef.current.x);
-                    const h = Math.abs(curY - dragSelectStartRef.current.y);
-                    setDragSelectRect({ x, y, w, h });
-                    // Selecionar itens que intersectam com o retângulo
+                    // Converter para coordenadas relativas ao container (para exibir o retângulo)
+                    const containerRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     const scrollTop = (e.currentTarget as HTMLElement).scrollTop;
+                    const startRelX = dragSelectStartRef.current.x - containerRect.left;
+                    const startRelY = dragSelectStartRef.current.y - containerRect.top + scrollTop;
+                    const curRelX = e.clientX - containerRect.left;
+                    const curRelY = e.clientY - containerRect.top + scrollTop;
+                    setDragSelectRect({
+                      x: Math.min(startRelX, curRelX),
+                      y: Math.min(startRelY, curRelY),
+                      w: Math.abs(curRelX - startRelX),
+                      h: Math.abs(curRelY - startRelY),
+                    });
+                    // Selecionar itens usando getBoundingClientRect() em tempo real (coordenadas de viewport)
+                    const selLeft = Math.min(e.clientX, dragSelectStartRef.current.x);
+                    const selRight = Math.max(e.clientX, dragSelectStartRef.current.x);
+                    const selTop = Math.min(e.clientY, dragSelectStartRef.current.y);
+                    const selBottom = Math.max(e.clientY, dragSelectStartRef.current.y);
                     const newChecked: typeof checkedItems = { elements: new Set(), routes: new Set(), poles: new Set(), reserves: new Set(), pois: new Set(), olts: new Set() };
                     let foundGroupId: number | null = null;
-                    itemRectsRef.current.forEach((item) => {
-                      const itemTop = item.rect.top - rect.top + scrollTop;
-                      const itemBottom = item.rect.bottom - rect.top + scrollTop;
-                      const itemLeft = item.rect.left - rect.left;
-                      const itemRight = item.rect.right - rect.left;
-                      const selLeft = Math.min(curX, dragSelectStartRef.current!.x);
-                      const selRight = Math.max(curX, dragSelectStartRef.current!.x);
-                      const selTop = Math.min(curY, dragSelectStartRef.current!.y);
-                      const selBottom = Math.max(curY, dragSelectStartRef.current!.y);
-                      if (itemLeft < selRight && itemRight > selLeft && itemTop < selBottom && itemBottom > selTop) {
+                    itemElemsRef.current.forEach((item) => {
+                      const r = item.el.getBoundingClientRect();
+                      if (r.left < selRight && r.right > selLeft && r.top < selBottom && r.bottom > selTop) {
                         if (item.type === 'element') newChecked.elements.add(item.id);
                         else if (item.type === 'route') newChecked.routes.add(item.id);
                         else if (item.type === 'pole') newChecked.poles.add(item.id);
@@ -4966,11 +4966,9 @@ export default function InfrastructureMap() {
                   setDragSelectRect(null);
                 }}
                 onMouseLeave={() => {
-                  if (dragSelectActive) {
-                    dragSelectStartRef.current = null;
-                    setDragSelectActive(false);
-                    setDragSelectRect(null);
-                  }
+                  dragSelectStartRef.current = null;
+                  setDragSelectActive(false);
+                  setDragSelectRect(null);
                 }}
                 onDragOver={(e) => { if (dragFolderId !== null) { e.preventDefault(); } }}
                 onDrop={(e) => {
