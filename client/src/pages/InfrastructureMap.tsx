@@ -1776,7 +1776,10 @@ export default function InfrastructureMap() {
       if (isMovingThisOlt) {
         marker.on("dragend", () => {
           const pos = marker.getLatLng();
+          // Salvar posição automaticamente e reabrir o painel
           setPendingOltMovePos({ id: olt.id, lat: pos.lat, lng: pos.lng });
+          setSelectedOltElementId(olt.id);
+          setOltDetailPanelOpen(true);
         });
       }
       oltMarkersRef.current[olt.id] = marker;
@@ -7642,7 +7645,9 @@ export default function InfrastructureMap() {
             } else {
               setMovingOltId(selectedOltElementId);
               setPendingOltMovePos(null);
-              toast.info("Arraste o marcador da OLT para reposicioná-la e clique em 'Salvar posição'.", { duration: 5000 });
+              // Fechar o painel para liberar o mapa para o drag
+              setOltDetailPanelOpen(false);
+              toast.info("Arraste o marcador da OLT para reposicioná-la. Clique nele novamente para salvar.", { duration: 6000 });
             }
           }}
           onSaveMove={() => {
