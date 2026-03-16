@@ -1931,6 +1931,24 @@ export default function InfrastructureMap() {
   // Sincronizar refs com estados para evitar stale closures nos handlers de click
   useEffect(() => { addingModeRef.current = addingMode; }, [addingMode]);
   useEffect(() => { groupSelectModeRef.current = groupSelectMode; }, [groupSelectMode]);
+  // Desabilitar arrasto do mapa e mudar cursor quando modo seleção está ativo
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const map = mapRef.current;
+    if (groupSelectMode) {
+      map.dragging.disable();
+      map.getContainer().style.cursor = 'default';
+    } else {
+      map.dragging.enable();
+      map.getContainer().style.cursor = '';
+    }
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.dragging.enable();
+        mapRef.current.getContainer().style.cursor = '';
+      }
+    };
+  }, [groupSelectMode, mapReady]);
   useEffect(() => { addingRouteModeRef.current = addingRouteMode; }, [addingRouteMode]);
   useEffect(() => { otdrModeRef.current = otdrMode; }, [otdrMode]);
   useEffect(() => { movingElementIdRef.current = movingElementId; }, [movingElementId]);
