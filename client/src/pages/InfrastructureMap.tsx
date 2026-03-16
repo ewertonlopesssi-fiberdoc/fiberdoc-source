@@ -583,18 +583,16 @@ export default function InfrastructureMap() {
   const groupsPanelScrollRef = useRef<HTMLDivElement>(null);
   const itemElemsRef = useRef<Map<string, { id: number; type: string; groupId: number; el: HTMLElement }>>(new Map());
   const groupsPanelContainerRef = useRef<HTMLDivElement>(null);
-  // Drag-to-select: usar eventos globais no document para capturar o arrasto mesmo fora do painel
-  useEffect(() => {
-    const container = groupsPanelContainerRef.current;
-    if (!container || !groupsPanelOpen) return;
+  // Drag-to-select: callback ref que registra/remove listeners quando o container monta/desmonta
+  const groupsPanelCallbackRef = useCallback((container: HTMLDivElement | null) => {
+    (groupsPanelContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = container;
+    if (!container) return;
 
     const onMouseDown = (e: MouseEvent) => {
-      // Só iniciar se o clique foi dentro do container do painel
       if (!container.contains(e.target as Node)) return;
       if (e.button !== 0) return;
       const target = e.target as HTMLElement;
       if (target.closest('button') || target.closest('[role="checkbox"]') || target.closest('input') || target.closest('a')) return;
-      // Desabilitar drag do Leaflet imediatamente
       if (mapRef.current) mapRef.current.dragging.disable();
       dragSelectStartRef.current = { x: e.clientX, y: e.clientY };
       setDragSelectActive(false);
@@ -650,7 +648,6 @@ export default function InfrastructureMap() {
         dragSelectStartRef.current = null;
         setDragSelectActive(false);
         setDragSelectRect(null);
-        // Reabilitar drag do Leaflet
         if (mapRef.current) mapRef.current.dragging.enable();
       }
     };
@@ -658,13 +655,14 @@ export default function InfrastructureMap() {
     document.addEventListener('mousedown', onMouseDown, true);
     document.addEventListener('mousemove', onMouseMove, true);
     document.addEventListener('mouseup', onMouseUp, true);
-    return () => {
+    // Retornar cleanup (armazenar no container para ser chamado quando desmonta)
+    (container as any).__dragCleanup = () => {
       document.removeEventListener('mousedown', onMouseDown, true);
       document.removeEventListener('mousemove', onMouseMove, true);
       document.removeEventListener('mouseup', onMouseUp, true);
       if (mapRef.current) mapRef.current.dragging.enable();
     };
-  }, [groupsPanelOpen]);
+  }, []);
   // ─── Mover para grupo e exclusão em massa ───
   const [moveToGroupDialogOpen, setMoveToGroupDialogOpen] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
@@ -4940,7 +4938,7 @@ export default function InfrastructureMap() {
             );
           };
           return (
-            <div ref={groupsPanelContainerRef} className="w-72 border-l border-border bg-card/50 flex flex-col overflow-hidden flex-shrink-0">
+            <div ref={(node) => { if (!node && groupsPanelContainerRef.current) { (groupsPanelContainerRef.current as any).__dragCleanup?.(); } groupsPanelCallbackRef(node); }} className="w-72 border-l border-border bg-card/50 flex flex-col overflow-hidden flex-shrink-0">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <div className="flex items-center gap-2">
                   <FolderTree className="w-4 h-4 text-violet-400" />
