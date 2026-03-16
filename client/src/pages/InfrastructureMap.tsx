@@ -411,6 +411,12 @@ export default function InfrastructureMap() {
   const [movingElementId, setMovingElementId] = useState<number | null>(null);
   // Posição pendente após drag — aguarda confirmação do utilizador
   const [pendingMovePos, setPendingMovePos] = useState<{ id: number; lat: number; lng: number } | null>(null);
+  // POI em modo mover
+  const [movingPoiId, setMovingPoiId] = useState<number | null>(null);
+  const [pendingPoiMovePos, setPendingPoiMovePos] = useState<{ id: number; lat: number; lng: number } | null>(null);
+  // OLT em modo mover
+  const [movingOltId, setMovingOltId] = useState<number | null>(null);
+  const [pendingOltMovePos, setPendingOltMovePos] = useState<{ id: number; lat: number; lng: number } | null>(null);
   // Painel de detalhes sobreposto ao mapa (Sheet)
   const [detailPanel, setDetailPanel] = useState<{ type: "ceo" | "cto"; id: number } | null>(null);
   const [addingMode, setAddingMode] = useState<"ceo" | "cto" | null>(null);
@@ -1286,6 +1292,7 @@ export default function InfrastructureMap() {
   const assignOltToGroupMut = trpc.mapGroups.addOlt.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
   const removeOltFromGroupMut = trpc.mapGroups.removeOlt.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
   const deleteOltElementMut = trpc.infraMap.deleteOltElement.useMutation({ onSuccess: () => { refetchOltElements(); refetchGroups(); }, onError: (e) => toast.error(e.message) });
+  const updateOltElementMut = trpc.infraMap.updateOltElement.useMutation({ onSuccess: () => { refetchOltElements(); toast.success("Posição da OLT salva"); }, onError: (e) => toast.error(e.message) });
   const removePoiFromGroupMut = trpc.mapGroups.removePoi.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
   const sgpQuery = trpc.sgp.queryClientsByCto.useQuery(
     {
@@ -1759,14 +1766,22 @@ export default function InfrastructureMap() {
           <div style="position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#f59e0b;font-size:9px;font-weight:700;padding:1px 4px;border-radius:3px;white-space:nowrap;border:1px solid rgba(245,158,11,0.4);">${olt.equipmentName ?? 'OLT'}</div>
         </div>`,
       });
-      const marker = L.marker([Number(olt.lat), Number(olt.lng)], { icon }).addTo(mapRef.current!);
+      const isMovingThisOlt = movingOltId === olt.id;
+      const marker = L.marker([Number(olt.lat), Number(olt.lng)], { icon, draggable: isMovingThisOlt }).addTo(mapRef.current!);
       marker.on("click", () => {
+        if (isMovingThisOlt) return;
         setSelectedOltElementId(olt.id);
         setOltDetailPanelOpen(true);
       });
+      if (isMovingThisOlt) {
+        marker.on("dragend", () => {
+          const pos = marker.getLatLng();
+          setPendingOltMovePos({ id: olt.id, lat: pos.lat, lng: pos.lng });
+        });
+      }
       oltMarkersRef.current[olt.id] = marker;
     });
-  }, [oltElements, showOlts, mapReady, hiddenOltIds, oltGroupMap, isHiddenByGroup]);
+  }, [oltElements, showOlts, mapReady, hiddenOltIds, oltGroupMap, isHiddenByGroup, movingOltId]);
 
   // Renderizar postes no mapa
   useEffect(() => {
@@ -1877,15 +1892,23 @@ export default function InfrastructureMap() {
           <div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>
         </div>`,
       });
-      const marker = L.marker([Number(poi.lat), Number(poi.lng)], { icon }).addTo(mapRef.current!);
+      const isMovingThisPoi = movingPoiId === poi.id;
+      const marker = L.marker([Number(poi.lat), Number(poi.lng)], { icon, draggable: isMovingThisPoi }).addTo(mapRef.current!);
       marker.on("click", () => {
+        if (isMovingThisPoi) return; // não abrir painel durante mover
         setSidePanel({ kind: "poi", poi: poi as MapPoi });
         setEditingPoi(false);
         setPoiEditForm({ name: poi.name ?? "", category: poi.category ?? "geral", color: poi.color ?? "#6366f1", notes: poi.notes ?? "" });
       });
+      if (isMovingThisPoi) {
+        marker.on("dragend", () => {
+          const pos = marker.getLatLng();
+          setPendingPoiMovePos({ id: poi.id, lat: pos.lat, lng: pos.lng });
+        });
+      }
       poiMarkersRef.current[poi.id] = marker;
     });
-  }, [pois, showPois, mapReady, hiddenPoiIds, poiGroupMap, isHiddenByGroup]);
+  }, [pois, showPois, mapReady, hiddenPoiIds, poiGroupMap, isHiddenByGroup, movingPoiId]);
   // Modo adicionar poste — clique no mapa
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
@@ -3086,15 +3109,53 @@ export default function InfrastructureMap() {
                 </div>
               )}
               {isAdmin && (
-                <div className="flex gap-2 mt-3">
-                  <button onClick={() => setEditingPoi(true)} className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-muted/40 hover:bg-muted/70 text-xs">
-                    <Pencil className="w-3 h-3" /> Editar
-                  </button>
-                  <button onClick={() => { if (confirm("Excluir este POI?")) deletePoiMut.mutate({ id: poi.id }); }} className="flex items-center justify-center gap-1 px-3 py-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs">
-                    <Trash2 className="w-3 h-3" /> Excluir
-                  </button>
-                </div>
-              )}
+                 <div className="space-y-2 mt-3">
+                   <div className="flex gap-2">
+                     <button onClick={() => setEditingPoi(true)} className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded bg-muted/40 hover:bg-muted/70 text-xs">
+                       <Pencil className="w-3 h-3" /> Editar
+                     </button>
+                     <button onClick={() => { if (confirm("Excluir este POI?")) deletePoiMut.mutate({ id: poi.id }); }} className="flex items-center justify-center gap-1 px-3 py-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs">
+                       <Trash2 className="w-3 h-3" /> Excluir
+                     </button>
+                   </div>
+                   <button
+                     onClick={() => {
+                       if (movingPoiId === poi.id) {
+                         setMovingPoiId(null);
+                         setPendingPoiMovePos(null);
+                         toast.info("Modo mover cancelado");
+                       } else {
+                         setMovingPoiId(poi.id);
+                         setPendingPoiMovePos(null);
+                         toast.info(`Arraste o marcador do POI para reposicioná-lo e clique em 'Salvar posição'.`, { duration: 5000 });
+                       }
+                     }}
+                     className={`w-full flex items-center justify-center gap-1 py-1.5 rounded text-xs ${
+                       movingPoiId === poi.id
+                         ? "bg-amber-500/20 border border-amber-500/60 text-amber-300"
+                         : "bg-muted/40 hover:bg-muted/70 border border-amber-500/30 text-amber-400"
+                     }`}
+                   >
+                     <Move className="w-3 h-3" />
+                     {movingPoiId === poi.id ? "Cancelar mover" : "Mover"}
+                   </button>
+                   {pendingPoiMovePos?.id === poi.id && (
+                     <button
+                       onClick={() => {
+                         const p = pendingPoiMovePos;
+                         if (!p) return;
+                         updatePoiMut.mutate(
+                           { id: p.id, lat: p.lat, lng: p.lng },
+                           { onSuccess: () => { setMovingPoiId(null); setPendingPoiMovePos(null); setSidePanel({ kind: "poi", poi: { ...poi, lat: p.lat, lng: p.lng } }); } }
+                         );
+                       }}
+                       className="w-full flex items-center justify-center gap-1 py-1.5 rounded text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                     >
+                       <CheckCircle2 className="w-3 h-3" /> Salvar posição
+                     </button>
+                   )}
+                 </div>
+               )}
             </div>
           ) : (
             <div className="space-y-2 text-sm">
@@ -7571,7 +7632,27 @@ export default function InfrastructureMap() {
           ceos={ceos}
           ctos={ctos as any[]}
           mapGroups={mapGroups as any[]}
-          onClose={() => { setOltDetailPanelOpen(false); setSelectedOltElementId(null); }}
+          isMoving={movingOltId === selectedOltElementId}
+          pendingMovePos={pendingOltMovePos?.id === selectedOltElementId ? pendingOltMovePos : null}
+          onToggleMove={() => {
+            if (movingOltId === selectedOltElementId) {
+              setMovingOltId(null);
+              setPendingOltMovePos(null);
+              toast.info("Modo mover cancelado");
+            } else {
+              setMovingOltId(selectedOltElementId);
+              setPendingOltMovePos(null);
+              toast.info("Arraste o marcador da OLT para reposicioná-la e clique em 'Salvar posição'.", { duration: 5000 });
+            }
+          }}
+          onSaveMove={() => {
+            const p = pendingOltMovePos;
+            if (!p) return;
+            updateOltElementMut.mutate({ id: p.id, lat: p.lat, lng: p.lng }, {
+              onSuccess: () => { setMovingOltId(null); setPendingOltMovePos(null); }
+            });
+          }}
+          onClose={() => { setOltDetailPanelOpen(false); setSelectedOltElementId(null); setMovingOltId(null); setPendingOltMovePos(null); }}
           onUpdated={() => { refetchOltElements(); refetchGroups(); }}
         />
       )}

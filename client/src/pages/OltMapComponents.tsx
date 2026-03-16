@@ -11,7 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { X, Plus, Trash2, Signal, Loader2, Link2, Pencil, Check } from "lucide-react";
+import { X, Plus, Trash2, Signal, Loader2, Link2, Pencil, Check, Move, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ─── Diálogo de Criação de OLT no Mapa ────────────────────────────────────────
@@ -156,6 +156,10 @@ export function OltDetailPanel({
   elements,
   ceos,
   mapGroups = [],
+  isMoving = false,
+  pendingMovePos = null,
+  onToggleMove,
+  onSaveMove,
   onClose,
   onUpdated,
 }: {
@@ -164,6 +168,10 @@ export function OltDetailPanel({
   ceos: any[];
   ctos?: any[];
   mapGroups?: any[];
+  isMoving?: boolean;
+  pendingMovePos?: { id: number; lat: number; lng: number } | null;
+  onToggleMove?: () => void;
+  onSaveMove?: () => void;
   onClose: () => void;
   onUpdated: () => void;
 }) {
@@ -865,20 +873,49 @@ export function OltDetailPanel({
         </div>
 
         {/* Footer */}
-        <div className="border-t border-border p-3 flex gap-2 flex-shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1 gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10"
-            onClick={() => {
-              if (confirm("Remover esta OLT do mapa?")) deleteOltMut.mutate({ id: oltElementId });
-            }}
-          >
-            <Trash2 className="w-3.5 h-3.5" /> Remover do mapa
-          </Button>
-          <Button variant="outline" size="sm" className="flex-1" onClick={onClose}>
-            Fechar
-          </Button>
+        <div className="border-t border-border p-3 space-y-2 flex-shrink-0">
+          {/* Botão Mover */}
+          {onToggleMove && (
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className={`flex-1 gap-1.5 ${
+                  isMoving
+                    ? "bg-amber-500/20 border-amber-500/60 text-amber-300 hover:bg-amber-500/30"
+                    : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                }`}
+                onClick={onToggleMove}
+              >
+                <Move className="w-3.5 h-3.5" />
+                {isMoving ? "Cancelar mover" : "Mover"}
+              </Button>
+              {pendingMovePos && onSaveMove && (
+                <Button
+                  size="sm"
+                  className="flex-1 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={onSaveMove}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Salvar posição
+                </Button>
+              )}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10"
+              onClick={() => {
+                if (confirm("Remover esta OLT do mapa?")) deleteOltMut.mutate({ id: oltElementId });
+              }}
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Remover do mapa
+            </Button>
+            <Button variant="outline" size="sm" className="flex-1" onClick={onClose}>
+              Fechar
+            </Button>
+          </div>
         </div>
       </div>
     </div>
