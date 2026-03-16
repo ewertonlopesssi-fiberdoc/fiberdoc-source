@@ -1436,6 +1436,10 @@ export default function InfrastructureMap() {
     });
     osmLayer.addTo(map);
     tileLayerRef.current = osmLayer;
+    // Criar pane personalizado para pontos de edição de traçado (acima de tudo)
+    map.createPane("editHandlesPane");
+    const editHandlesPaneEl = map.getPane("editHandlesPane");
+    if (editHandlesPaneEl) editHandlesPaneEl.style.zIndex = "800";
     mapRef.current = map;
     setMapReady(true);
     // Forçar recalculo do tamanho após mount (corrige mapa em branco após F5)
@@ -1979,6 +1983,7 @@ export default function InfrastructureMap() {
         fillOpacity: 1,
         weight: 2,
         bubblingMouseEvents: false,
+        pane: "editHandlesPane",
       }).addTo(mapRef.current!);
 
       // Arrastar vértice — usa Pointer Events para suporte unificado mouse + touch
@@ -2032,6 +2037,7 @@ export default function InfrastructureMap() {
           const snapColor = isEndpoint ? "#22c55e" : "#f59e0b";
           snapIndicatorRef.current = L.circleMarker([nearSnap.lat, nearSnap.lng], {
             radius: 14, color: snapColor, fillColor: snapColor, fillOpacity: 0.25, weight: 3,
+            pane: "editHandlesPane",
           }).addTo(mapRef.current);
         }
         editRouteMidMarkersRef.current.forEach(m => m.remove());
@@ -2167,6 +2173,7 @@ export default function InfrastructureMap() {
         fillOpacity: 0.45,
         weight: 2,
         bubblingMouseEvents: false,
+        pane: "editHandlesPane",
       }).addTo(mapRef.current!);
       mid.getElement()?.setAttribute("title", "Arraste ou clique para adicionar ponto");
       if (mid.getElement()) (mid.getElement() as HTMLElement).style.cursor = "grab";
