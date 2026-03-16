@@ -250,11 +250,7 @@ function createLeafletIcon(
   customColor?: string | null,
   showName = true
 ) {
-  const color = customColor ?? STATUS_COLOR[status] ?? "#6b7280";
-  const outline = selected ? "3px solid #22d3ee" : "3px solid white";
-  const shape = type === "cto"
-    ? `<rect x="3" y="3" width="18" height="18" rx="2" fill="white"/>`
-    : `<circle cx="12" cy="12" r="7" fill="white"/>`;
+  const outline = selected ? "3px solid #22d3ee" : "2px solid rgba(255,255,255,0.8)";
   const safeName = name.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   // Badge de ONUs: verde se todos online, amarelo se parcial, cinza se só total
   let badgeHtml = "";
@@ -267,8 +263,11 @@ function createLeafletIcon(
     badgeHtml = `<div style="background:${badgeColor};color:white;font-size:9px;font-weight:700;padding:0px 3px;border-radius:3px;margin-top:1px;white-space:nowrap;line-height:14px;">${badgeText}</div>`;
   }
   const nameHtml = showName ? `<div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>` : "";
-  const iconHtml = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><div style="width:28px;height:28px;background:${color};border:${outline};border-radius:${type === "cto" ? "4px" : "50%"};box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;"><svg width="14" height="14" viewBox="0 0 24 24">${shape}</svg></div>${nameHtml}${badgeHtml}</div>`;
-  return L.divIcon({ html: iconHtml, className: "", iconSize: [80, onuBadge && onuBadge.total > 0 ? 58 : 46], iconAnchor: [40, 14] });
+  // Indicador de status por cor (borda colorida)
+  const statusColor = customColor ?? STATUS_COLOR[status] ?? "#6b7280";
+  const imgSrc = type === "cto" ? "/icons/cto.png" : "/icons/ceo.png";
+  const iconHtml = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><div style="width:36px;height:36px;border:${outline};border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.95);overflow:hidden;position:relative;"><img src="${imgSrc}" style="width:32px;height:32px;object-fit:contain;" /><div style="position:absolute;bottom:0;left:0;right:0;height:3px;background:${statusColor};"></div></div>${nameHtml}${badgeHtml}</div>`;
+  return L.divIcon({ html: iconHtml, className: "", iconSize: [80, onuBadge && onuBadge.total > 0 ? 62 : 50], iconAnchor: [40, 18] });
 }
 
 // Calcula distância em metros entre dois pontos (Haversine)
