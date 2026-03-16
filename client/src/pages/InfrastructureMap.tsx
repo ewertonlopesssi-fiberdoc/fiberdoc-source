@@ -582,6 +582,27 @@ export default function InfrastructureMap() {
   const dragSelectStartRef = useRef<{ x: number; y: number } | null>(null);
   const groupsPanelScrollRef = useRef<HTMLDivElement>(null);
   const itemElemsRef = useRef<Map<string, { id: number; type: string; groupId: number; el: HTMLElement }>>(new Map());
+  const groupsPanelContainerRef = useRef<HTMLDivElement>(null);
+  // Bloquear eventos de mouse do painel para não vazar para o Leaflet
+  useEffect(() => {
+    const el = groupsPanelContainerRef.current;
+    if (!el) return;
+    const stop = (e: MouseEvent) => { e.stopPropagation(); };
+    el.addEventListener('mousedown', stop, true);
+    el.addEventListener('mousemove', stop, true);
+    el.addEventListener('mouseup', stop, true);
+    el.addEventListener('click', stop, true);
+    el.addEventListener('dblclick', stop, true);
+    el.addEventListener('wheel', stop, true);
+    return () => {
+      el.removeEventListener('mousedown', stop, true);
+      el.removeEventListener('mousemove', stop, true);
+      el.removeEventListener('mouseup', stop, true);
+      el.removeEventListener('click', stop, true);
+      el.removeEventListener('dblclick', stop, true);
+      el.removeEventListener('wheel', stop, true);
+    };
+  }, [groupsPanelOpen]);
   // ─── Mover para grupo e exclusão em massa ───
   const [moveToGroupDialogOpen, setMoveToGroupDialogOpen] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
@@ -4857,7 +4878,7 @@ export default function InfrastructureMap() {
             );
           };
           return (
-            <div className="w-72 border-l border-border bg-card/50 flex flex-col overflow-hidden flex-shrink-0">
+            <div ref={groupsPanelContainerRef} className="w-72 border-l border-border bg-card/50 flex flex-col overflow-hidden flex-shrink-0">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <div className="flex items-center gap-2">
                   <FolderTree className="w-4 h-4 text-violet-400" />
