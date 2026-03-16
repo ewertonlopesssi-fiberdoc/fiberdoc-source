@@ -576,6 +576,15 @@ export default function InfrastructureMap() {
   const [isOrganizing, setIsOrganizing] = useState(false); // auto-organizar postes e reservas em pastas
   const [checkedItems, setCheckedItems] = useState<{ elements: Set<number>; routes: Set<number>; poles: Set<number>; reserves: Set<number>; pois: Set<number>; olts: Set<number> }>({ elements: new Set(), routes: new Set(), poles: new Set(), reserves: new Set(), pois: new Set(), olts: new Set() });
   const [checkedGroupId, setCheckedGroupId] = useState<number | null>(null); // grupo de onde os itens foram marcados
+  // ─── Drag-to-select no painel de grupos ───
+  const [dragSelectActive, setDragSelectActive] = useState(false);
+  const [dragSelectRect, setDragSelectRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const dragSelectStartRef = useRef<{ x: number; y: number } | null>(null);
+  const groupsPanelScrollRef = useRef<HTMLDivElement>(null);
+  const itemRectsRef = useRef<Map<string, { id: number; type: string; groupId: number; rect: DOMRect }>>(new Map());
+  // ─── Mover para grupo e exclusão em massa ───
+  const [moveToGroupDialogOpen, setMoveToGroupDialogOpen] = useState(false);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const toggleCheckedElement = (id: number, gid?: number) => { if (gid !== undefined) setCheckedGroupId(gid); setCheckedItems(prev => { const e = new Set(prev.elements); if (e.has(id)) e.delete(id); else e.add(id); return { ...prev, elements: e }; }); };
   const toggleCheckedRoute = (id: number, gid?: number) => { if (gid !== undefined) setCheckedGroupId(gid); setCheckedItems(prev => { const r = new Set(prev.routes); if (r.has(id)) r.delete(id); else r.add(id); return { ...prev, routes: r }; }); };
   const toggleCheckedPole = (id: number, gid?: number) => { if (gid !== undefined) setCheckedGroupId(gid); setCheckedItems(prev => { const p = new Set(prev.poles); if (p.has(id)) p.delete(id); else p.add(id); return { ...prev, poles: p }; }); };
@@ -1193,6 +1202,7 @@ export default function InfrastructureMap() {
   const addPoiToGroupMut = trpc.mapPois.addToGroup.useMutation({ onError: (e) => toast.error(e.message) });
   const assignOltToGroupMut = trpc.mapGroups.addOlt.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
   const removeOltFromGroupMut = trpc.mapGroups.removeOlt.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
+  const deleteOltElementMut = trpc.infraMap.deleteOltElement.useMutation({ onSuccess: () => { refetchOltElements(); refetchGroups(); }, onError: (e) => toast.error(e.message) });
   const removePoiFromGroupMut = trpc.mapGroups.removePoi.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
   const sgpQuery = trpc.sgp.queryClientsByCto.useQuery(
     {
@@ -4651,8 +4661,9 @@ export default function InfrastructureMap() {
                       const elName = el.elementName ?? el.name ?? el.label ?? `#${el.id}`;
                       return (
                         <div key={`el-${el.id}`}
-                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.elements.has(el.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          ref={(node) => { if (node) itemRectsRef.current.set(`el-${el.id}`, { id: el.id, type: 'element', groupId: group.id, rect: node.getBoundingClientRect() }); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'element', id: el.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4689,8 +4700,9 @@ export default function InfrastructureMap() {
                       } catch {}
                       return (
                         <div key={`rt-${rt.id}`}
-                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.routes.has(rt.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          ref={(node) => { if (node) itemRectsRef.current.set(`rt-${rt.id}`, { id: rt.id, type: 'route', groupId: group.id, rect: node.getBoundingClientRect() }); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'route', id: rt.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4718,8 +4730,9 @@ export default function InfrastructureMap() {
                       const poleName = pole.name ?? pole.label ?? `Poste #${pole.id}`;
                       return (
                         <div key={`pole-${pole.id}`}
-                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.poles.has(pole.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          ref={(node) => { if (node) itemRectsRef.current.set(`pole-${pole.id}`, { id: pole.id, type: 'pole', groupId: group.id, rect: node.getBoundingClientRect() }); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'pole', id: pole.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4746,8 +4759,9 @@ export default function InfrastructureMap() {
                       const reserveName = reserve.name ?? reserve.label ?? `Reserva #${reserve.id}`;
                       return (
                         <div key={`reserve-${reserve.id}`}
-                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.reserves.has(reserve.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          ref={(node) => { if (node) itemRectsRef.current.set(`reserve-${reserve.id}`, { id: reserve.id, type: 'reserve', groupId: group.id, rect: node.getBoundingClientRect() }); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'reserve', id: reserve.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4775,8 +4789,9 @@ export default function InfrastructureMap() {
                       const isHidden = hiddenPoiIds.has(poi.id);
                       return (
                         <div key={`poi-${poi.id}`}
-                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.pois.has(poi.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          ref={(node) => { if (node) itemRectsRef.current.set(`poi-${poi.id}`, { id: poi.id, type: 'poi', groupId: group.id, rect: node.getBoundingClientRect() }); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'poi', id: poi.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4804,8 +4819,9 @@ export default function InfrastructureMap() {
                       const oltName = olt.equipmentName ?? `OLT #${olt.id}`;
                       return (
                         <div key={`olt-${olt.id}`}
-                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`group flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} cursor-grab active:cursor-grabbing ${checkedItems.olts.has(olt.id) ? "bg-violet-500/10" : ""}`}
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
+                          ref={(node) => { if (node) itemRectsRef.current.set(`olt-${olt.id}`, { id: olt.id, type: 'olt', groupId: group.id, rect: node.getBoundingClientRect() }); }}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'olt', id: olt.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
                         >
@@ -4888,7 +4904,74 @@ export default function InfrastructureMap() {
                   )}
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto"
+              <div className="flex-1 overflow-y-auto relative select-none"
+                ref={groupsPanelScrollRef}
+                onMouseDown={(e) => {
+                  // Iniciar drag-to-select apenas com botão esquerdo sem ctrl/shift (que são para checkbox individual)
+                  if (e.button !== 0 || e.ctrlKey || e.shiftKey || e.metaKey) return;
+                  // Verificar se o clique foi num item interativo (checkbox, botão, span clicável)
+                  const target = e.target as HTMLElement;
+                  if (target.closest('button') || target.closest('[role="checkbox"]') || target.closest('input') || target.closest('a')) return;
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  const x = e.clientX - rect.left;
+                  const y = e.clientY - rect.top + (e.currentTarget as HTMLElement).scrollTop;
+                  dragSelectStartRef.current = { x, y };
+                  setDragSelectActive(false);
+                  setDragSelectRect(null);
+                }}
+                onMouseMove={(e) => {
+                  if (!dragSelectStartRef.current) return;
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  const curX = e.clientX - rect.left;
+                  const curY = e.clientY - rect.top + (e.currentTarget as HTMLElement).scrollTop;
+                  const dx = Math.abs(curX - dragSelectStartRef.current.x);
+                  const dy = Math.abs(curY - dragSelectStartRef.current.y);
+                  if (dx > 4 || dy > 4) {
+                    setDragSelectActive(true);
+                    const x = Math.min(curX, dragSelectStartRef.current.x);
+                    const y = Math.min(curY, dragSelectStartRef.current.y);
+                    const w = Math.abs(curX - dragSelectStartRef.current.x);
+                    const h = Math.abs(curY - dragSelectStartRef.current.y);
+                    setDragSelectRect({ x, y, w, h });
+                    // Selecionar itens que intersectam com o retângulo
+                    const scrollTop = (e.currentTarget as HTMLElement).scrollTop;
+                    const newChecked: typeof checkedItems = { elements: new Set(), routes: new Set(), poles: new Set(), reserves: new Set(), pois: new Set(), olts: new Set() };
+                    let foundGroupId: number | null = null;
+                    itemRectsRef.current.forEach((item) => {
+                      const itemTop = item.rect.top - rect.top + scrollTop;
+                      const itemBottom = item.rect.bottom - rect.top + scrollTop;
+                      const itemLeft = item.rect.left - rect.left;
+                      const itemRight = item.rect.right - rect.left;
+                      const selLeft = Math.min(curX, dragSelectStartRef.current!.x);
+                      const selRight = Math.max(curX, dragSelectStartRef.current!.x);
+                      const selTop = Math.min(curY, dragSelectStartRef.current!.y);
+                      const selBottom = Math.max(curY, dragSelectStartRef.current!.y);
+                      if (itemLeft < selRight && itemRight > selLeft && itemTop < selBottom && itemBottom > selTop) {
+                        if (item.type === 'element') newChecked.elements.add(item.id);
+                        else if (item.type === 'route') newChecked.routes.add(item.id);
+                        else if (item.type === 'pole') newChecked.poles.add(item.id);
+                        else if (item.type === 'reserve') newChecked.reserves.add(item.id);
+                        else if (item.type === 'poi') newChecked.pois.add(item.id);
+                        else if (item.type === 'olt') newChecked.olts.add(item.id);
+                        foundGroupId = item.groupId;
+                      }
+                    });
+                    setCheckedItems(newChecked);
+                    if (foundGroupId !== null) setCheckedGroupId(foundGroupId);
+                  }
+                }}
+                onMouseUp={() => {
+                  dragSelectStartRef.current = null;
+                  setDragSelectActive(false);
+                  setDragSelectRect(null);
+                }}
+                onMouseLeave={() => {
+                  if (dragSelectActive) {
+                    dragSelectStartRef.current = null;
+                    setDragSelectActive(false);
+                    setDragSelectRect(null);
+                  }
+                }}
                 onDragOver={(e) => { if (dragFolderId !== null) { e.preventDefault(); } }}
                 onDrop={(e) => {
                   const folderData = e.dataTransfer.getData('application/fiberdoc-folder');
@@ -4907,6 +4990,18 @@ export default function InfrastructureMap() {
                   } catch {}
                 }}
               >
+                {/* Retângulo de seleção por arrasto */}
+                {dragSelectActive && dragSelectRect && (
+                  <div
+                    className="pointer-events-none absolute border border-violet-400 bg-violet-400/10 z-50"
+                    style={{
+                      left: dragSelectRect.x,
+                      top: dragSelectRect.y - (groupsPanelScrollRef.current?.scrollTop ?? 0),
+                      width: dragSelectRect.w,
+                      height: dragSelectRect.h,
+                    }}
+                  />
+                )}
                 {allGroups.length === 0 ? (
                   <div className="p-6 text-center text-sm text-muted-foreground">
                     <FolderTree className="w-10 h-10 mx-auto mb-2 opacity-30" />
@@ -5082,43 +5177,65 @@ export default function InfrastructureMap() {
                 )}
               </div>
               {totalChecked > 0 && (
-                <div className="px-3 py-2 border-t border-border bg-cyan-500/5 flex items-center gap-2">
-                  <span className="text-xs text-cyan-400 flex-1">{totalChecked} item{totalChecked !== 1 ? "s" : ""} marcado{totalChecked !== 1 ? "s" : ""}</span>
-                  <button
-                    onClick={handleExportChecked}
-                    className="text-xs text-cyan-300 hover:text-cyan-200 underline"
-                    title="Exportar itens marcados"
-                  >
-                    Exportar
-                  </button>
-                  {isAdmin && checkedGroupId !== null && (
-                    <button
-                      onClick={async () => {
-                        const gid = checkedGroupId;
-                        const promises: Promise<any>[] = [];
-                        checkedItems.elements.forEach(id => promises.push(removeElementFromGroupMut.mutateAsync({ groupId: gid, elementId: id })));
-                        checkedItems.routes.forEach(id => promises.push(removeRouteFromGroupMut.mutateAsync({ groupId: gid, routeId: id })));
-                        checkedItems.poles.forEach(id => promises.push(removePoleFromGroupMut.mutateAsync({ groupId: gid, poleId: id })));
-                        checkedItems.reserves.forEach(id => promises.push(removeReserveFromGroupMut.mutateAsync({ groupId: gid, reserveId: id })));
-                        checkedItems.pois.forEach(id => promises.push(removePoiFromGroupMut.mutateAsync({ groupId: gid, poiId: id })));
-                        checkedItems.olts.forEach(id => promises.push(removeOltFromGroupMut.mutateAsync({ groupId: gid, oltId: id })));
-                        try { await Promise.all(promises); toast.success(`${totalChecked} item${totalChecked !== 1 ? 's' : ''} removido${totalChecked !== 1 ? 's' : ''} do grupo`); clearCheckedItems(); refetchGroups(); } catch (e: any) { toast.error(e.message ?? 'Erro ao remover itens'); }
-                      }}
-                      className="text-xs text-red-400 hover:text-red-300 underline"
-                      title="Remover itens marcados do grupo"
-                    >
-                      Remover do grupo
-                    </button>
-                  )}
-                  <button
-                    onClick={clearCheckedItems}
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                    title="Limpar marcações"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              )}
+                 <div className="px-3 py-2 border-t border-border bg-violet-500/5 flex flex-col gap-1.5">
+                   <div className="flex items-center gap-2">
+                     <span className="text-xs text-violet-400 font-medium flex-1">{totalChecked} item{totalChecked !== 1 ? "s" : ""} selecionado{totalChecked !== 1 ? "s" : ""}</span>
+                     <button
+                       onClick={clearCheckedItems}
+                       className="text-xs text-muted-foreground hover:text-foreground"
+                       title="Limpar seleção"
+                     >
+                       <X className="w-3 h-3" />
+                     </button>
+                   </div>
+                   <div className="flex items-center gap-1.5 flex-wrap">
+                     <button
+                       onClick={handleExportChecked}
+                       className="text-xs px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/20"
+                       title="Exportar itens selecionados"
+                     >
+                       Exportar
+                     </button>
+                     {isAdmin && (
+                       <button
+                         onClick={() => setMoveToGroupDialogOpen(true)}
+                         className="text-xs px-2 py-0.5 rounded bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 border border-violet-500/20"
+                         title="Mover itens selecionados para outra pasta"
+                       >
+                         Mover para pasta
+                       </button>
+                     )}
+                     {isAdmin && checkedGroupId !== null && (
+                       <button
+                         onClick={async () => {
+                           const gid = checkedGroupId;
+                           const promises: Promise<any>[] = [];
+                           checkedItems.elements.forEach(id => promises.push(removeElementFromGroupMut.mutateAsync({ groupId: gid, elementId: id })));
+                           checkedItems.routes.forEach(id => promises.push(removeRouteFromGroupMut.mutateAsync({ groupId: gid, routeId: id })));
+                           checkedItems.poles.forEach(id => promises.push(removePoleFromGroupMut.mutateAsync({ groupId: gid, poleId: id })));
+                           checkedItems.reserves.forEach(id => promises.push(removeReserveFromGroupMut.mutateAsync({ groupId: gid, reserveId: id })));
+                           checkedItems.pois.forEach(id => promises.push(removePoiFromGroupMut.mutateAsync({ groupId: gid, poiId: id })));
+                           checkedItems.olts.forEach(id => promises.push(removeOltFromGroupMut.mutateAsync({ groupId: gid, oltId: id })));
+                           try { await Promise.all(promises); toast.success(`${totalChecked} item${totalChecked !== 1 ? 's' : ''} removido${totalChecked !== 1 ? 's' : ''} do grupo`); clearCheckedItems(); refetchGroups(); } catch (e: any) { toast.error(e.message ?? 'Erro ao remover itens'); }
+                         }}
+                         className="text-xs px-2 py-0.5 rounded bg-orange-500/10 text-orange-300 hover:bg-orange-500/20 border border-orange-500/20"
+                         title="Remover itens selecionados do grupo"
+                       >
+                         Remover do grupo
+                       </button>
+                     )}
+                     {isAdmin && (
+                       <button
+                         onClick={() => setBulkDeleteConfirmOpen(true)}
+                         className="text-xs px-2 py-0.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20"
+                         title="Excluir permanentemente os itens selecionados"
+                       >
+                         Excluir
+                       </button>
+                     )}
+                   </div>
+                 </div>
+               )}
               {isAdmin && (
                 <div className="px-3 py-2 border-t border-border">
                   <button
@@ -7661,6 +7778,115 @@ export default function InfrastructureMap() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* ── Diálogo: Mover itens selecionados para pasta ── */}
+      <Dialog open={moveToGroupDialogOpen} onOpenChange={setMoveToGroupDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Mover para pasta</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-muted-foreground mb-3">
+              Selecione a pasta de destino para os {totalChecked} item{totalChecked !== 1 ? "s" : ""} selecionado{totalChecked !== 1 ? "s" : ""}.
+            </p>
+            <ScrollArea className="max-h-64">
+              <div className="space-y-1">
+                {(mapGroups as any[]).sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((g: any) => (
+                  <button
+                    key={g.id}
+                    className="w-full text-left px-3 py-1.5 rounded hover:bg-muted/30 text-sm flex items-center gap-2"
+                    onClick={async () => {
+                      const targetGroupId = g.id;
+                      const fromGroupId = checkedGroupId;
+                      const promises: Promise<any>[] = [];
+                      // Primeiro remover do grupo atual (se houver), depois adicionar ao novo
+                      if (fromGroupId !== null && fromGroupId !== targetGroupId) {
+                        checkedItems.elements.forEach(id => promises.push(removeElementFromGroupMut.mutateAsync({ groupId: fromGroupId, elementId: id }).then(() => assignElementToGroupMut.mutateAsync({ groupId: targetGroupId, elementId: id }))));
+                        checkedItems.routes.forEach(id => promises.push(removeRouteFromGroupMut.mutateAsync({ groupId: fromGroupId, routeId: id }).then(() => assignRouteToGroupMut.mutateAsync({ groupId: targetGroupId, routeId: id }))));
+                        checkedItems.poles.forEach(id => promises.push(removePoleFromGroupMut.mutateAsync({ groupId: fromGroupId, poleId: id }).then(() => assignPoleToGroupMut.mutateAsync({ groupId: targetGroupId, poleId: id }))));
+                        checkedItems.reserves.forEach(id => promises.push(removeReserveFromGroupMut.mutateAsync({ groupId: fromGroupId, reserveId: id }).then(() => assignReserveToGroupMut.mutateAsync({ groupId: targetGroupId, reserveId: id }))));
+                        checkedItems.pois.forEach(id => promises.push(removePoiFromGroupMut.mutateAsync({ groupId: fromGroupId, poiId: id }).then(() => addPoiToGroupMut.mutateAsync({ poiId: id, groupId: targetGroupId }))));
+                        checkedItems.olts.forEach(id => promises.push(removeOltFromGroupMut.mutateAsync({ groupId: fromGroupId, oltId: id }).then(() => assignOltToGroupMut.mutateAsync({ groupId: targetGroupId, oltId: id }))));
+                      } else {
+                        checkedItems.elements.forEach(id => promises.push(assignElementToGroupMut.mutateAsync({ groupId: targetGroupId, elementId: id })));
+                        checkedItems.routes.forEach(id => promises.push(assignRouteToGroupMut.mutateAsync({ groupId: targetGroupId, routeId: id })));
+                        checkedItems.poles.forEach(id => promises.push(assignPoleToGroupMut.mutateAsync({ groupId: targetGroupId, poleId: id })));
+                        checkedItems.reserves.forEach(id => promises.push(assignReserveToGroupMut.mutateAsync({ groupId: targetGroupId, reserveId: id })));
+                        checkedItems.pois.forEach(id => promises.push(addPoiToGroupMut.mutateAsync({ poiId: id, groupId: targetGroupId })));
+                        checkedItems.olts.forEach(id => promises.push(assignOltToGroupMut.mutateAsync({ groupId: targetGroupId, oltId: id })));
+                      }
+                      try {
+                        await Promise.all(promises);
+                        toast.success(`${totalChecked} item${totalChecked !== 1 ? 's' : ''} movido${totalChecked !== 1 ? 's' : ''} para "${g.name}"`);
+                        clearCheckedItems();
+                        refetchGroups();
+                        setMoveToGroupDialogOpen(false);
+                      } catch (e: any) {
+                        toast.error(e.message ?? 'Erro ao mover itens');
+                      }
+                    }}
+                  >
+                    <span className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: g.color ?? '#6366f1' }} />
+                    <span className="truncate">{g.name}</span>
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMoveToGroupDialogOpen(false)}>Cancelar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Diálogo: Confirmar exclusão em massa ── */}
+      <Dialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-red-400">Confirmar exclusão</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-muted-foreground">
+              Tem certeza que deseja excluir permanentemente <strong className="text-foreground">{totalChecked} item{totalChecked !== 1 ? "s" : ""}</strong>?
+            </p>
+            <p className="text-xs text-red-400/80 mt-2">
+              Esta ação não pode ser desfeita. Todos os dados associados (fusões, conexões, etc.) também serão removidos.
+            </p>
+            {checkedItems.elements.size > 0 && <p className="text-xs text-muted-foreground mt-1">{checkedItems.elements.size} elemento{checkedItems.elements.size !== 1 ? "s" : ""} (CEO/CTO)</p>}
+            {checkedItems.routes.size > 0 && <p className="text-xs text-muted-foreground">{checkedItems.routes.size} cabo{checkedItems.routes.size !== 1 ? "s" : ""}</p>}
+            {checkedItems.poles.size > 0 && <p className="text-xs text-muted-foreground">{checkedItems.poles.size} poste{checkedItems.poles.size !== 1 ? "s" : ""}</p>}
+            {checkedItems.reserves.size > 0 && <p className="text-xs text-muted-foreground">{checkedItems.reserves.size} reserva{checkedItems.reserves.size !== 1 ? "s" : ""} técnica{checkedItems.reserves.size !== 1 ? "s" : ""}</p>}
+            {checkedItems.pois.size > 0 && <p className="text-xs text-muted-foreground">{checkedItems.pois.size} POI{checkedItems.pois.size !== 1 ? "s" : ""}</p>}
+            {checkedItems.olts.size > 0 && <p className="text-xs text-muted-foreground">{checkedItems.olts.size} OLT{checkedItems.olts.size !== 1 ? "s" : ""}</p>}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setBulkDeleteConfirmOpen(false)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                const promises: Promise<any>[] = [];
+                checkedItems.elements.forEach(id => promises.push(deleteElementMut.mutateAsync({ id })));
+                checkedItems.routes.forEach(id => promises.push(deleteRouteMut.mutateAsync({ id })));
+                checkedItems.poles.forEach(id => promises.push(deletePoleMut.mutateAsync({ id })));
+                checkedItems.reserves.forEach(id => promises.push(deleteReserveMut.mutateAsync({ id })));
+                checkedItems.pois.forEach(id => promises.push(deletePoiMut.mutateAsync({ id })));
+                checkedItems.olts.forEach(id => promises.push(deleteOltElementMut.mutateAsync({ id })));
+                try {
+                  await Promise.all(promises);
+                  toast.success(`${totalChecked} item${totalChecked !== 1 ? 's' : ''} excluído${totalChecked !== 1 ? 's' : ''} com sucesso`);
+                  clearCheckedItems();
+                  setBulkDeleteConfirmOpen(false);
+                  refetchGroups();
+                } catch (e: any) {
+                  toast.error(e.message ?? 'Erro ao excluir itens');
+                }
+              }}
+            >
+              Excluir {totalChecked} item{totalChecked !== 1 ? "s" : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Painel de detalhes CEO/CTO sobreposto ao mapa (redimensionável) ── */}
       <ResizableDetailPanel
         open={detailPanel !== null}
