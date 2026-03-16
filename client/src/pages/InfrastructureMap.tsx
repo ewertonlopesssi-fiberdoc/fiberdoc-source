@@ -450,6 +450,8 @@ export default function InfrastructureMap() {
   const [exportGroupId, setExportGroupId] = useState<number | null>(null);
   const [exportOnlyVisible, setExportOnlyVisible] = useState(false);
   const [groupSelectMode, setGroupSelectMode] = useState(false);
+  const [mapBoxSelectRect, setMapBoxSelectRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const mapBoxSelectStartRef = useRef<{ x: number; y: number } | null>(null);
   const [groupSelectedElements, setGroupSelectedElements] = useState<Set<number>>(new Set());
   const [groupSelectedRoutes, setGroupSelectedRoutes] = useState<Set<number>>(new Set());
   const [pickDialogOpen, setPickDialogOpen] = useState(false);
@@ -1931,24 +1933,97 @@ export default function InfrastructureMap() {
   // Sincronizar refs com estados para evitar stale closures nos handlers de click
   useEffect(() => { addingModeRef.current = addingMode; }, [addingMode]);
   useEffect(() => { groupSelectModeRef.current = groupSelectMode; }, [groupSelectMode]);
-  // Desabilitar arrasto do mapa e mudar cursor quando modo seleção está ativo
+  // Desabilitar arrasto do mapa, mudar cursor e implementar box select quando modo seleção está ativo
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
     const map = mapRef.current;
-    if (groupSelectMode) {
-      map.dragging.disable();
-      map.getContainer().style.cursor = 'default';
-    } else {
+    if (!groupSelectMode) {
       map.dragging.enable();
       map.getContainer().style.cursor = '';
+      setMapBoxSelectRect(null);
+      mapBoxSelectStartRef.current = null;
+      return;
     }
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.dragging.enable();
-        mapRef.current.getContainer().style.cursor = '';
-      }
+    map.dragging.disable();
+    map.getContainer().style.cursor = 'crosshair';
+
+    const container = map.getContainer();
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const rect = container.getBoundingClientRect();
+      mapBoxSelectStartRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      setMapBoxSelectRect(null);
+      e.preventDefault();
+      e.stopPropagation();
     };
-  }, [groupSelectMode, mapReady]);
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!mapBoxSelectStartRef.current) return;
+      const rect = container.getBoundingClientRect();
+      const curX = e.clientX - rect.left;
+      const curY = e.clientY - rect.top;
+      const sx = mapBoxSelectStartRef.current.x;
+      const sy = mapBoxSelectStartRef.current.y;
+      setMapBoxSelectRect({ x: Math.min(sx, curX), y: Math.min(sy, curY), w: Math.abs(curX - sx), h: Math.abs(curY - sy) });
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const onMouseUp = (e: MouseEvent) => {
+      if (!mapBoxSelectStartRef.current) return;
+      const rect = container.getBoundingClientRect();
+      const curX = e.clientX - rect.left;
+      const curY = e.clientY - rect.top;
+      const sx = mapBoxSelectStartRef.current.x;
+      const sy = mapBoxSelectStartRef.current.y;
+      mapBoxSelectStartRef.current = null;
+      setMapBoxSelectRect(null);
+      // Calcular bounds geográficos do retângulo desenhado
+      const topLeft = map.containerPointToLatLng(L.point(Math.min(sx, curX), Math.min(sy, curY)));
+      const bottomRight = map.containerPointToLatLng(L.point(Math.max(sx, curX), Math.max(sy, curY)));
+      const minLat = Math.min(topLeft.lat, bottomRight.lat);
+      const maxLat = Math.max(topLeft.lat, bottomRight.lat);
+      const minLng = Math.min(topLeft.lng, bottomRight.lng);
+      const maxLng = Math.max(topLeft.lng, bottomRight.lng);
+      const dx = Math.abs(curX - sx);
+      const dy = Math.abs(curY - sy);
+      if (dx < 5 && dy < 5) return; // clique simples, não selecionar
+      // Selecionar elementos dentro do retângulo
+      const newElements = new Set<number>();
+      (elements as any[]).forEach((el: any) => {
+        const lat = Number(el.lat); const lng = Number(el.lng);
+        if (lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng) newElements.add(el.id);
+      });
+      // Selecionar rotas cujo ponto médio está dentro do retângulo
+      const newRoutes = new Set<number>();
+      (routes as any[]).forEach((r: any) => {
+        const fromEl = (elements as any[]).find((el: any) => el.id === r.fromElementId);
+        const toEl = (elements as any[]).find((el: any) => el.id === r.toElementId);
+        if (!fromEl || !toEl) return;
+        const midLat = (Number(fromEl.lat) + Number(toEl.lat)) / 2;
+        const midLng = (Number(fromEl.lng) + Number(toEl.lng)) / 2;
+        if (midLat >= minLat && midLat <= maxLat && midLng >= minLng && midLng <= maxLng) newRoutes.add(r.id);
+      });
+      setGroupSelectedElements(prev => { const n = new Set(prev); newElements.forEach(id => n.add(id)); return n; });
+      setGroupSelectedRoutes(prev => { const n = new Set(prev); newRoutes.forEach(id => n.add(id)); return n; });
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    container.addEventListener('mousedown', onMouseDown);
+    container.addEventListener('mousemove', onMouseMove);
+    container.addEventListener('mouseup', onMouseUp);
+    return () => {
+      container.removeEventListener('mousedown', onMouseDown);
+      container.removeEventListener('mousemove', onMouseMove);
+      container.removeEventListener('mouseup', onMouseUp);
+      map.dragging.enable();
+      map.getContainer().style.cursor = '';
+      setMapBoxSelectRect(null);
+      mapBoxSelectStartRef.current = null;
+    };
+  }, [groupSelectMode, mapReady, elements, routes]);
   useEffect(() => { addingRouteModeRef.current = addingRouteMode; }, [addingRouteMode]);
   useEffect(() => { otdrModeRef.current = otdrMode; }, [otdrMode]);
   useEffect(() => { movingElementIdRef.current = movingElementId; }, [movingElementId]);
@@ -4273,6 +4348,19 @@ export default function InfrastructureMap() {
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 relative">
           <div ref={mapContainerRef} className="w-full h-full" style={{ zIndex: 0 }} />
+          {/* Retângulo visual de box select no mapa */}
+          {groupSelectMode && mapBoxSelectRect && (
+            <div
+              className="pointer-events-none absolute border-2 border-cyan-400 bg-cyan-400/10"
+              style={{
+                left: mapBoxSelectRect.x,
+                top: mapBoxSelectRect.y,
+                width: mapBoxSelectRect.w,
+                height: mapBoxSelectRect.h,
+                zIndex: 1000,
+              }}
+            />
+          )}
           <div className="absolute bottom-8 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg p-3 text-xs space-y-1.5" style={{ zIndex: 1000 }}>
             <div className="font-semibold text-foreground mb-1">Legenda</div>
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-emerald-500 border-2 border-white" /><span className="text-muted-foreground">Ativo</span></div>
