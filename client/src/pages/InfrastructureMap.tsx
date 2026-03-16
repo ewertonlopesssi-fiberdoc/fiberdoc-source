@@ -583,24 +583,86 @@ export default function InfrastructureMap() {
   const groupsPanelScrollRef = useRef<HTMLDivElement>(null);
   const itemElemsRef = useRef<Map<string, { id: number; type: string; groupId: number; el: HTMLElement }>>(new Map());
   const groupsPanelContainerRef = useRef<HTMLDivElement>(null);
-  // Bloquear eventos de mouse do painel para não vazar para o Leaflet
+  // Drag-to-select: usar eventos globais no document para capturar o arrasto mesmo fora do painel
   useEffect(() => {
-    const el = groupsPanelContainerRef.current;
-    if (!el) return;
-    const stop = (e: MouseEvent) => { e.stopPropagation(); };
-    el.addEventListener('mousedown', stop, true);
-    el.addEventListener('mousemove', stop, true);
-    el.addEventListener('mouseup', stop, true);
-    el.addEventListener('click', stop, true);
-    el.addEventListener('dblclick', stop, true);
-    el.addEventListener('wheel', stop, true);
+    const container = groupsPanelContainerRef.current;
+    if (!container || !groupsPanelOpen) return;
+
+    const onMouseDown = (e: MouseEvent) => {
+      // Só iniciar se o clique foi dentro do container do painel
+      if (!container.contains(e.target as Node)) return;
+      if (e.button !== 0) return;
+      const target = e.target as HTMLElement;
+      if (target.closest('button') || target.closest('[role="checkbox"]') || target.closest('input') || target.closest('a')) return;
+      // Desabilitar drag do Leaflet imediatamente
+      if (mapRef.current) mapRef.current.dragging.disable();
+      dragSelectStartRef.current = { x: e.clientX, y: e.clientY };
+      setDragSelectActive(false);
+      setDragSelectRect(null);
+      e.stopPropagation();
+      e.preventDefault();
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragSelectStartRef.current) return;
+      e.stopPropagation();
+      const dx = Math.abs(e.clientX - dragSelectStartRef.current.x);
+      const dy = Math.abs(e.clientY - dragSelectStartRef.current.y);
+      if (dx > 5 || dy > 5) {
+        setDragSelectActive(true);
+        const containerRect = container.getBoundingClientRect();
+        const scrollTop = groupsPanelScrollRef.current?.scrollTop ?? 0;
+        const startRelX = dragSelectStartRef.current.x - containerRect.left;
+        const startRelY = dragSelectStartRef.current.y - containerRect.top + scrollTop;
+        const curRelX = e.clientX - containerRect.left;
+        const curRelY = e.clientY - containerRect.top + scrollTop;
+        setDragSelectRect({
+          x: Math.min(startRelX, curRelX),
+          y: Math.min(startRelY, curRelY),
+          w: Math.abs(curRelX - startRelX),
+          h: Math.abs(curRelY - startRelY),
+        });
+        const selLeft = Math.min(e.clientX, dragSelectStartRef.current.x);
+        const selRight = Math.max(e.clientX, dragSelectStartRef.current.x);
+        const selTop = Math.min(e.clientY, dragSelectStartRef.current.y);
+        const selBottom = Math.max(e.clientY, dragSelectStartRef.current.y);
+        const newChecked: { elements: Set<number>; routes: Set<number>; poles: Set<number>; reserves: Set<number>; pois: Set<number>; olts: Set<number> } = { elements: new Set(), routes: new Set(), poles: new Set(), reserves: new Set(), pois: new Set(), olts: new Set() };
+        let foundGroupId: number | null = null;
+        itemElemsRef.current.forEach((item) => {
+          const r = item.el.getBoundingClientRect();
+          if (r.left < selRight && r.right > selLeft && r.top < selBottom && r.bottom > selTop) {
+            if (item.type === 'element') newChecked.elements.add(item.id);
+            else if (item.type === 'route') newChecked.routes.add(item.id);
+            else if (item.type === 'pole') newChecked.poles.add(item.id);
+            else if (item.type === 'reserve') newChecked.reserves.add(item.id);
+            else if (item.type === 'poi') newChecked.pois.add(item.id);
+            else if (item.type === 'olt') newChecked.olts.add(item.id);
+            foundGroupId = item.groupId;
+          }
+        });
+        setCheckedItems(newChecked);
+        if (foundGroupId !== null) setCheckedGroupId(foundGroupId);
+      }
+    };
+
+    const onMouseUp = () => {
+      if (dragSelectStartRef.current) {
+        dragSelectStartRef.current = null;
+        setDragSelectActive(false);
+        setDragSelectRect(null);
+        // Reabilitar drag do Leaflet
+        if (mapRef.current) mapRef.current.dragging.enable();
+      }
+    };
+
+    document.addEventListener('mousedown', onMouseDown, true);
+    document.addEventListener('mousemove', onMouseMove, true);
+    document.addEventListener('mouseup', onMouseUp, true);
     return () => {
-      el.removeEventListener('mousedown', stop, true);
-      el.removeEventListener('mousemove', stop, true);
-      el.removeEventListener('mouseup', stop, true);
-      el.removeEventListener('click', stop, true);
-      el.removeEventListener('dblclick', stop, true);
-      el.removeEventListener('wheel', stop, true);
+      document.removeEventListener('mousedown', onMouseDown, true);
+      document.removeEventListener('mousemove', onMouseMove, true);
+      document.removeEventListener('mouseup', onMouseUp, true);
+      if (mapRef.current) mapRef.current.dragging.enable();
     };
   }, [groupsPanelOpen]);
   // ─── Mover para grupo e exclusão em massa ───
@@ -4927,70 +4989,7 @@ export default function InfrastructureMap() {
               </div>
               <div className="flex-1 overflow-y-auto relative select-none"
                 ref={groupsPanelScrollRef}
-                onMouseDown={(e) => {
-                  // Iniciar drag-to-select apenas com botão esquerdo sem ctrl/shift
-                  if (e.button !== 0 || e.ctrlKey || e.shiftKey || e.metaKey) return;
-                  // Não iniciar se clicou em elemento interativo
-                  const target = e.target as HTMLElement;
-                  if (target.closest('button') || target.closest('[role="checkbox"]') || target.closest('input') || target.closest('a')) return;
-                  // Guardar posição absoluta de viewport
-                  dragSelectStartRef.current = { x: e.clientX, y: e.clientY };
-                  setDragSelectActive(false);
-                  setDragSelectRect(null);
-                  e.preventDefault();
-                }}
-                onMouseMove={(e) => {
-                  if (!dragSelectStartRef.current) return;
-                  const dx = Math.abs(e.clientX - dragSelectStartRef.current.x);
-                  const dy = Math.abs(e.clientY - dragSelectStartRef.current.y);
-                  if (dx > 5 || dy > 5) {
-                    setDragSelectActive(true);
-                    // Converter para coordenadas relativas ao container (para exibir o retângulo)
-                    const containerRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    const scrollTop = (e.currentTarget as HTMLElement).scrollTop;
-                    const startRelX = dragSelectStartRef.current.x - containerRect.left;
-                    const startRelY = dragSelectStartRef.current.y - containerRect.top + scrollTop;
-                    const curRelX = e.clientX - containerRect.left;
-                    const curRelY = e.clientY - containerRect.top + scrollTop;
-                    setDragSelectRect({
-                      x: Math.min(startRelX, curRelX),
-                      y: Math.min(startRelY, curRelY),
-                      w: Math.abs(curRelX - startRelX),
-                      h: Math.abs(curRelY - startRelY),
-                    });
-                    // Selecionar itens usando getBoundingClientRect() em tempo real (coordenadas de viewport)
-                    const selLeft = Math.min(e.clientX, dragSelectStartRef.current.x);
-                    const selRight = Math.max(e.clientX, dragSelectStartRef.current.x);
-                    const selTop = Math.min(e.clientY, dragSelectStartRef.current.y);
-                    const selBottom = Math.max(e.clientY, dragSelectStartRef.current.y);
-                    const newChecked: typeof checkedItems = { elements: new Set(), routes: new Set(), poles: new Set(), reserves: new Set(), pois: new Set(), olts: new Set() };
-                    let foundGroupId: number | null = null;
-                    itemElemsRef.current.forEach((item) => {
-                      const r = item.el.getBoundingClientRect();
-                      if (r.left < selRight && r.right > selLeft && r.top < selBottom && r.bottom > selTop) {
-                        if (item.type === 'element') newChecked.elements.add(item.id);
-                        else if (item.type === 'route') newChecked.routes.add(item.id);
-                        else if (item.type === 'pole') newChecked.poles.add(item.id);
-                        else if (item.type === 'reserve') newChecked.reserves.add(item.id);
-                        else if (item.type === 'poi') newChecked.pois.add(item.id);
-                        else if (item.type === 'olt') newChecked.olts.add(item.id);
-                        foundGroupId = item.groupId;
-                      }
-                    });
-                    setCheckedItems(newChecked);
-                    if (foundGroupId !== null) setCheckedGroupId(foundGroupId);
-                  }
-                }}
-                onMouseUp={() => {
-                  dragSelectStartRef.current = null;
-                  setDragSelectActive(false);
-                  setDragSelectRect(null);
-                }}
-                onMouseLeave={() => {
-                  dragSelectStartRef.current = null;
-                  setDragSelectActive(false);
-                  setDragSelectRect(null);
-                }}
+                style={{ userSelect: 'none' }}
                 onDragOver={(e) => { if (dragFolderId !== null) { e.preventDefault(); } }}
                 onDrop={(e) => {
                   const folderData = e.dataTransfer.getData('application/fiberdoc-folder');
