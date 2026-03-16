@@ -108,7 +108,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import {
-  Map, Download, Plus, X, Eye, EyeOff, Loader2,
+  Map as MapIcon, Download, Plus, X, Eye, EyeOff, Loader2,
   Radio, Box, Cable, Navigation, Users, Trash2,
   FileDown, MousePointer2, Search, Layers, Upload,
   Folder, FolderPlus, FolderOpen, ChevronRight, Check, Tag,
@@ -3929,7 +3929,7 @@ export default function InfrastructureMap() {
     <div className="flex flex-col h-full bg-background">
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-card/50 flex-wrap">
-        <Map className="w-4 h-4 text-primary flex-shrink-0" />
+        <MapIcon className="w-4 h-4 text-primary flex-shrink-0" />
         <span className="text-sm font-medium">Mapa de Infraestrutura</span>
         <div className="w-px h-4 bg-border mx-1" />
         <Button size="sm" variant={showCeos ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowCeos(v => !v)}>
