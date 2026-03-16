@@ -250,7 +250,6 @@ function createLeafletIcon(
   customColor?: string | null,
   showName = true
 ) {
-  const outline = selected ? "3px solid #22d3ee" : "2px solid rgba(255,255,255,0.8)";
   const safeName = name.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   // Badge de ONUs: verde se todos online, amarelo se parcial, cinza se só total
   let badgeHtml = "";
@@ -263,11 +262,13 @@ function createLeafletIcon(
     badgeHtml = `<div style="background:${badgeColor};color:white;font-size:9px;font-weight:700;padding:0px 3px;border-radius:3px;margin-top:1px;white-space:nowrap;line-height:14px;">${badgeText}</div>`;
   }
   const nameHtml = showName ? `<div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>` : "";
-  // Indicador de status por cor (borda colorida)
+  // Indicador de status: ponto colorido abaixo da imagem
   const statusColor = customColor ?? STATUS_COLOR[status] ?? "#6b7280";
+  const selectedRing = selected ? `<div style="position:absolute;inset:-3px;border:3px solid #22d3ee;border-radius:4px;pointer-events:none;"></div>` : "";
   const imgSrc = type === "cto" ? "/icons/cto.png" : "/icons/ceo.png";
-  const iconHtml = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><div style="width:36px;height:36px;border:${outline};border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.95);overflow:hidden;position:relative;"><img src="${imgSrc}" style="width:32px;height:32px;object-fit:contain;" /><div style="position:absolute;bottom:0;left:0;right:0;height:3px;background:${statusColor};"></div></div>${nameHtml}${badgeHtml}</div>`;
-  return L.divIcon({ html: iconHtml, className: "", iconSize: [80, onuBadge && onuBadge.total > 0 ? 62 : 50], iconAnchor: [40, 18] });
+  // Imagem diretamente sem container branco — apenas sombra e anel de seleção
+  const iconHtml = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><div style="position:relative;display:inline-flex;"><img src="${imgSrc}" style="width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6));" />${selectedRing}<div style="position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);width:10px;height:4px;background:${statusColor};border-radius:2px;"></div></div>${nameHtml}${badgeHtml}</div>`;
+  return L.divIcon({ html: iconHtml, className: "", iconSize: [80, onuBadge && onuBadge.total > 0 ? 70 : 58], iconAnchor: [40, 24] });
 }
 
 // Calcula distância em metros entre dois pontos (Haversine)
