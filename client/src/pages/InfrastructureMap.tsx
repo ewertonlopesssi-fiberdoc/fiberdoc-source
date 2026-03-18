@@ -4150,6 +4150,7 @@ export default function InfrastructureMap() {
               const allVias = (isCto ? ctoViasQuery.data : ceoViasQuery.data) as any[] | undefined;
               const pdfCeoSplitters = (!isCto ? ceoSplittersQuery.data : undefined) as any[] | undefined;
               const pdfCeoSplitterVias = (!isCto ? ceoSplitterViasQuery.data : undefined) as any[] | undefined;
+              const pdfCeoAssocs = (!isCto ? ceoViaAssocQuery.data : ctoViaAssocQuery.data) as any[] | undefined ?? [];
               if (!tubes || !allVias) { toast.error("Dados ainda n\u00e3o carregados. Aguarde."); setFusionPdfLoading(false); return; }
 
               // Helpers de formata\u00e7\u00e3o (igual ao CtoDetail/CeoDetail)
@@ -4172,7 +4173,15 @@ export default function InfrastructureMap() {
               for (const k of Object.keys(viasBySplitter)) viasBySplitter[Number(k)].sort((a: any, b: any) => a.viaNumber - b.viaNumber);
 
               const totalVias = tubes.reduce((s: number, t: any) => s + t.totalVias, 0);
-              const fusedVias = allVias.filter((v: any) => v.fusedToViaId !== null).length;
+              const fusedVias = allVias.filter((v: any) => v.fusedToViaId !== null || pdfCeoAssocs.some((a: any) =>
+                (a.sourceType === "tube" && a.sourceViaId === v.id) ||
+                (a.targetType === "tube" && a.targetViaId === v.id)
+              )).length;
+              // Lookup: splitterViaById para associações
+              const splitterViaById: Record<number, any> = {};
+              for (const sv of (pdfCeoSplitterVias ?? [])) splitterViaById[sv.id] = sv;
+              const splitterById2: Record<number, any> = {};
+              for (const s of (pdfCeoSplitters ?? [])) splitterById2[s.id] = s;
               const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
               const PRINT_VIA_COLORS: Record<number, { bg: string; text: string; border: string }> = {
@@ -4205,7 +4214,10 @@ export default function InfrastructureMap() {
               };
               const renderTubeHtml = (tube: any): string => {
                 const vias = viasByTube[tube.id] ?? [];
-                const fused = vias.filter((v: any) => v.fusedToViaId !== null).length;
+                const fused = vias.filter((v: any) => v.fusedToViaId !== null || pdfCeoAssocs.some((a: any) =>
+                  (a.sourceType === "tube" && a.sourceViaId === v.id) ||
+                  (a.targetType === "tube" && a.targetViaId === v.id)
+                )).length;
                 return `<div class="tube-section">
                   <div class="tube-title${tube.type === "splitter" ? " splitter-title" : ""}">
                     ${tube.type === "splitter" ? "SPLITTER" : "TUBO"} &mdash; ${escH(tube.identifier)}
@@ -4220,11 +4232,42 @@ export default function InfrastructureMap() {
                     const ft = via.fusedToTubeId ? tubeById[via.fusedToTubeId] : null;
                     const fv = via.fusedToViaId ? viaById[via.fusedToViaId] : null;
                     const ok = !!(ft && fv);
-                    const bg = idx % 2 === 0 ? "#fff" : "#f8f9fa";
+                    // Verificar associação com splitter
+                    const myAssoc = !ok ? pdfCeoAssocs.find((a: any) =>
+                      (a.sourceType === "tube" && a.sourceViaId === via.id) ||
+                      (a.targetType === "tube" && a.targetViaId === via.id)
+                    ) : null;
+                    const hasAssoc = !!myAssoc;
+                    const bg = ok ? "#f0fdfa" : hasAssoc ? "#f0fdf4" : (idx % 2 === 0 ? "#fff" : "#f8f9fa");
                     const lbl = via.label ? "<b>" + escH(via.label) + "</b>" : "<span style='color:#9ca3af;font-style:italic'>&mdash;</span>";
-                    const st = ok ? "<span style='background:#d1fae5;color:#059669;padding:1px 5px;border-radius:3px;font-size:7pt;font-weight:700'>FUSIONADA</span>" : "<span style='background:#f3f4f6;color:#9ca3af;padding:1px 5px;border-radius:3px;font-size:7pt'>LIVRE</span>";
-                    const fc = ok ? "#059669" : "#9ca3af";
-                    const ft2 = ok ? "VIA " + fv!.viaNumber + " do " + escH(ft!.identifier) + (fv!.label ? " (" + escH(fv!.label) + ")" : "") : "&mdash;";
+                    let st: string; let fc: string; let ft2: string;
+                    if (ok) {
+                      st = "<span style='background:#d1fae5;color:#059669;padding:1px 5px;border-radius:3px;font-size:7pt;font-weight:700'>FUSIONADA</span>";
+                      fc = "#059669";
+                      ft2 = "VIA " + fv!.viaNumber + " do " + escH(ft!.identifier) + (fv!.label ? " (" + escH(fv!.label) + ")" : "");
+                    } else if (hasAssoc) {
+                      // Associação com splitter
+                      const isSrc = myAssoc.sourceType === "tube" && myAssoc.sourceViaId === via.id;
+                      const otherViaId = isSrc ? myAssoc.targetViaId : myAssoc.sourceViaId;
+                      const otherType = isSrc ? myAssoc.targetType : myAssoc.sourceType;
+                      let assocLabel = "";
+                      if (otherType === "splitter") {
+                        const sv = splitterViaById[otherViaId];
+                        const sp = sv ? splitterById2[sv.splitterId] : null;
+                        assocLabel = sv && sp ? "VIA " + String(sv.viaNumber).padStart(2,"0") + " &middot; " + escH(sp.identifier) : "Via #" + otherViaId;
+                      } else {
+                        const ov = viaById[otherViaId];
+                        const ot = ov ? tubeById[ov.tubeId] : null;
+                        assocLabel = ov && ot ? "VIA " + String(ov.viaNumber).padStart(2,"0") + " &middot; " + escH(ot.identifier) : "Via #" + otherViaId;
+                      }
+                      st = "<span style='background:#dcfce7;color:#166534;padding:1px 5px;border-radius:3px;font-size:7pt;font-weight:700'>ASSOC</span>";
+                      fc = "#166534";
+                      ft2 = assocLabel;
+                    } else {
+                      st = "<span style='background:#f3f4f6;color:#9ca3af;padding:1px 5px;border-radius:3px;font-size:7pt'>LIVRE</span>";
+                      fc = "#9ca3af";
+                      ft2 = "&mdash;";
+                    }
                     const isEntryVia = tube.type === "splitter" && via.viaNumber === 0;
                     const viaDisplayNum = isEntryVia ? "ENT" : (tube.type === "splitter" ? String(via.viaNumber).padStart(2, "0") : via.viaNumber);
                     const vc = isEntryVia ? null : PRINT_VIA_COLORS[via.viaNumber];
@@ -4246,13 +4289,38 @@ export default function InfrastructureMap() {
                     <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${escH2(spl.ratio)} &middot; ${vias.length} vias</span>
                   </div>
                   <table><thead><tr>
-                    <th style="width:10%">VIA</th><th style="width:25%">ETIQUETA</th><th>OBSERVA&Ccedil;&Otilde;ES</th>
+                    <th style="width:8%">VIA</th><th style="width:10%">TIPO</th><th style="width:18%">ETIQUETA</th><th style="width:10%">PERDA</th><th style="width:30%">ASSOCIA&Ccedil;&Atilde;O</th><th>OBSERVA&Ccedil;&Otilde;ES</th>
                   </tr></thead><tbody>
                   ${vias.map((via: any, idx: number) => {
-                    const bg = idx % 2 === 0 ? "#fff" : "#f8f9fa";
+                    const isEntrada = via.viaNumber === 0;
+                    const bg = isEntrada ? "#fefce8" : (idx % 2 === 0 ? "#fff" : "#f8f9fa");
                     const lbl = via.label ? "<b>" + escH2(via.label) + "</b>" : "<span style='color:#9ca3af;font-style:italic'>&mdash;</span>";
-                    const viaLabel = via.viaNumber === 0 ? "ENT" : String(via.viaNumber).padStart(2, "0");
-                    return `<tr style='background:${bg}'><td style='text-align:center;font-weight:700;color:#7c3aed'>${viaLabel}</td><td>${lbl}</td><td style='font-size:8pt;color:#6b7280'>${escH2(via.notes)}</td></tr>`;
+                    const viaLabel = isEntrada ? "ENT" : String(via.viaNumber).padStart(2, "0");
+                    const tipoLabel = isEntrada
+                      ? "<span style='background:#fef3c7;color:#92400e;padding:1px 4px;border-radius:3px;font-size:7pt;font-weight:700'>ENTRADA</span>"
+                      : "<span style='background:#e0f2fe;color:#0c4a6e;padding:1px 4px;border-radius:3px;font-size:7pt'>SA&Iacute;DA</span>";
+                    const lossLabel = isEntrada ? "0 dB" : (via.lossDb !== null ? "~" + via.lossDb + " dB" : "&mdash;");
+                    const myAssocSpl = pdfCeoAssocs.find((a: any) =>
+                      (a.sourceType === "splitter" && a.sourceViaId === via.id) ||
+                      (a.targetType === "splitter" && a.targetViaId === via.id)
+                    );
+                    let assocLabel = "&mdash;";
+                    if (myAssocSpl) {
+                      const isSrc = myAssocSpl.sourceType === "splitter" && myAssocSpl.sourceViaId === via.id;
+                      const otherViaId = isSrc ? myAssocSpl.targetViaId : myAssocSpl.sourceViaId;
+                      const otherType = isSrc ? myAssocSpl.targetType : myAssocSpl.sourceType;
+                      if (otherType === "tube") {
+                        const ov = viaById[otherViaId];
+                        const ot = ov ? tubeById[ov.tubeId] : null;
+                        assocLabel = ov && ot ? "VIA " + String(ov.viaNumber).padStart(2,"0") + " &middot; " + escH2(ot.identifier) : "Via #" + otherViaId;
+                      } else {
+                        const sv2 = splitterViaById[otherViaId];
+                        const sp2 = sv2 ? splitterById2[sv2.splitterId] : null;
+                        assocLabel = sv2 && sp2 ? "VIA " + String(sv2.viaNumber).padStart(2,"0") + " &middot; " + escH2(sp2.identifier) : "Via #" + otherViaId;
+                      }
+                    }
+                    const assocColor = myAssocSpl ? "#166534" : "#9ca3af";
+                    return `<tr style='background:${bg}'><td style='text-align:center;font-weight:700;color:#7c3aed'>${viaLabel}</td><td style='text-align:center'>${tipoLabel}</td><td>${lbl}</td><td style='text-align:center;color:#6b7280;font-size:8pt'>${lossLabel}</td><td style='color:${assocColor};font-size:8pt'>${assocLabel}</td><td style='font-size:8pt;color:#6b7280'>${escH2(via.notes)}</td></tr>`;
                   }).join("")}
                   </tbody></table></div>`;
               };
