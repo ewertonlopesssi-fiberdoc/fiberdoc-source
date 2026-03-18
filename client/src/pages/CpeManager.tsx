@@ -89,6 +89,18 @@ function OnuPanel({ onu }: { onu: SgpOnuItem }) {
   const [configResult, setConfigResult] = useState<{ success: boolean; results: string[]; errors: string[] } | null>(null);
   const [cpeResult, setCpeResult] = useState<{ action: string; success: boolean; message: string } | null>(null);
   const [showRebootConfirm, setShowRebootConfirm] = useState(false);
+  const [genieResult, setGenieResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [showGenieRebootConfirm, setShowGenieRebootConfirm] = useState(false);
+  const [genieWifiSsid2, setGenieWifiSsid2] = useState("");
+  const [genieWifiPass2, setGenieWifiPass2] = useState("");
+  const [genieWifiSsid5, setGenieWifiSsid5] = useState("");
+  const [genieWifiPass5, setGenieWifiPass5] = useState("");
+  const [showGenieWifiPass2, setShowGenieWifiPass2] = useState(false);
+  const [showGenieWifiPass5, setShowGenieWifiPass5] = useState(false);
+  const [geniePppoeLogin, setGeniePppoeLogin] = useState("");
+  const [geniePppoePass, setGeniePppoePass] = useState("");
+  const [showGeniePppoePass, setShowGeniePppoePass] = useState(false);
+  const [genieSection, setGenieSection] = useState<"wifi" | "pppoe" | null>(null);
 
   const { data: detail, isLoading: detailLoading, refetch: refetchDetail } = (trpc as any).sgp.getOnuDetail.useQuery(
     { onuId: onu.id },
@@ -137,6 +149,72 @@ function OnuPanel({ onu }: { onu: SgpOnuItem }) {
 
   const sgpServiceId: number | null = (detail as any)?.servico ?? onu.servico ?? null;
   const status = getOnuStatus(onu);
+
+  // ─── GenieACS Direto ──────────────────────────────────────────────────────
+  const onuSerial: string | null = (detail as any)?.serial || onu.serial || null;
+  const { data: genieDevice, isLoading: genieLoading, refetch: refetchGenie } = (trpc as any).genieacs.findDeviceBySerial.useQuery(
+    { serial: onuSerial! },
+    { enabled: !!onuSerial && activeTab === "cpe", retry: false, refetchOnWindowFocus: false }
+  );
+  const genieDeviceId: string | null = genieDevice?.deviceId || null;
+  const genieDeviceInfo = genieDevice?.device || null;
+
+  const genieSetWifiMut = (trpc as any).genieacs.setWifi.useMutation({
+    onSuccess: (r: any) => {
+      setGenieResult({ success: true, message: r?.message || "Wi-Fi configurado via TR-069" });
+      toast.success("Wi-Fi enviado para a ONT via GenieACS");
+    },
+    onError: (e: any) => {
+      setGenieResult({ success: false, message: e.message });
+      toast.error(`GenieACS: ${e.message}`);
+    },
+  });
+
+  const genieRebootMut = (trpc as any).genieacs.reboot.useMutation({
+    onSuccess: (r: any) => {
+      setGenieResult({ success: true, message: r?.message || "Reboot enviado para a ONT" });
+      toast.success("Reboot enviado via GenieACS");
+    },
+    onError: (e: any) => {
+      setGenieResult({ success: false, message: e.message });
+      toast.error(`GenieACS: ${e.message}`);
+    },
+  });
+
+  const genieRefreshMut = (trpc as any).genieacs.refreshDevice.useMutation({
+    onSuccess: () => {
+      setGenieResult({ success: true, message: "Refresh solicitado — aguarde o próximo Inform" });
+      toast.success("Refresh enviado para a ONT");
+      setTimeout(() => refetchGenie(), 5000);
+    },
+    onError: (e: any) => {
+      setGenieResult({ success: false, message: e.message });
+      toast.error(`GenieACS: ${e.message}`);
+    },
+  });
+
+  const genieConfigureMut = (trpc as any).genieacs.configureOnt.useMutation({
+    onSuccess: (r: any) => {
+      const ok = r?.success !== false;
+      const msg = r?.results?.join("; ") || r?.message || "Configuração enviada";
+      setGenieResult({ success: ok, message: msg });
+      if (ok) toast.success(`GenieACS: ${msg}`);
+      else toast.error(`GenieACS: ${r?.errors?.join("; ") || msg}`);
+    },
+    onError: (e: any) => {
+      setGenieResult({ success: false, message: e.message });
+      toast.error(`GenieACS: ${e.message}`);
+    },
+  });
+
+  // Preencher campos GenieACS com dados do SGP quando disponíveis
+  useEffect(() => {
+    if (detail && genieDeviceInfo) {
+      if (!genieWifiSsid2 && (detail.wifi_ssid || onu.wifi_ssid)) setGenieWifiSsid2(detail.wifi_ssid || onu.wifi_ssid || "");
+      if (!genieWifiSsid5 && (detail.wifi_ssid5 || onu.wifi_ssid5)) setGenieWifiSsid5(detail.wifi_ssid5 || onu.wifi_ssid5 || "");
+      if (!geniePppoeLogin && (detail.onu_login || onu.onu_login)) setGeniePppoeLogin(detail.onu_login || onu.onu_login || "");
+    }
+  }, [detail, genieDeviceInfo]);
 
   return (
     <div className="space-y-4">
@@ -385,8 +463,239 @@ function OnuPanel({ onu }: { onu: SgpOnuItem }) {
             </div>
             <p className="text-xs text-slate-500 text-center">Comandos enviados via Gerenciador CPE do SGP</p>
           </div>
+
+          {/* ─── GenieACS Direto (TR-069) ───────────────────────────────────────────────────────── */}
+          <div className="border border-emerald-500/30 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-300">
+                <Router className="w-3.5 h-3.5" /> GenieACS Direto (TR-069)
+              </div>
+              <button onClick={() => { setGenieResult(null); refetchGenie(); }} className="text-slate-400 hover:text-white">
+                <RefreshCw className={`w-3.5 h-3.5 ${genieLoading ? "animate-spin" : ""}`} />
+              </button>
+            </div>
+
+            {/* Status do dispositivo no GenieACS */}
+            {genieLoading ? (
+              <div className="flex items-center gap-2 text-xs text-slate-400 py-1">
+                <RefreshCw className="w-3 h-3 animate-spin" /> Buscando no GenieACS...
+              </div>
+            ) : !onuSerial ? (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded p-2 flex gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-300">Serial da ONU não disponível. Verifique o cadastro no SGP.</p>
+              </div>
+            ) : !genieDeviceId ? (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded p-2 flex gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-300">ONT não encontrada no GenieACS. Serial: <span className="font-mono">{onuSerial}</span></p>
+              </div>
+            ) : (
+              <>
+                {/* Info do dispositivo */}
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded p-2 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-emerald-300 font-medium">{genieDeviceInfo?.manufacturer} {genieDeviceInfo?.modelName}</span>
+                    <span className={`text-xs font-medium ${genieDeviceInfo?.isOnline ? "text-green-400" : "text-slate-400"}`}>
+                      {genieDeviceInfo?.isOnline ? "● Online" : "○ Offline"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 font-mono truncate">{genieDeviceId}</div>
+                  {genieDeviceInfo?.wanIp && (
+                    <div className="text-xs text-slate-300">IP WAN: <span className="font-mono">{genieDeviceInfo.wanIp}</span></div>
+                  )}
+                  {genieDeviceInfo?.ssid24 && (
+                    <div className="text-xs text-slate-300">SSID: <span className="font-mono">{genieDeviceInfo.ssid24}</span></div>
+                  )}
+                  {genieDeviceInfo?.rxPower !== null && genieDeviceInfo?.rxPower !== undefined && (
+                    <div className={`text-xs font-medium ${genieDeviceInfo.rxPower >= -20 ? "text-green-400" : genieDeviceInfo.rxPower >= -25 ? "text-yellow-400" : "text-red-400"}`}>
+                      Sinal: {genieDeviceInfo.rxPower} dBm
+                    </div>
+                  )}
+                </div>
+
+                {/* Resultado da última operação */}
+                {genieResult && (
+                  <div className={`rounded p-2 text-xs flex items-start gap-1.5 ${genieResult.success ? "bg-green-500/10 border border-green-500/20 text-green-300" : "bg-red-500/10 border border-red-500/20 text-red-300"}`}>
+                    {genieResult.success ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> : <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                    <span>{genieResult.message}</span>
+                  </div>
+                )}
+
+                {/* Botões de seção */}
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => setGenieSection(genieSection === "wifi" ? null : "wifi")}
+                    className={`flex-1 py-1.5 rounded text-xs font-medium border transition-colors flex items-center justify-center gap-1 ${
+                      genieSection === "wifi" ? "bg-emerald-600 border-emerald-500 text-white" : "bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600"
+                    }`}
+                  >
+                    <Wifi className="w-3 h-3" /> Wi-Fi
+                  </button>
+                  <button
+                    onClick={() => setGenieSection(genieSection === "pppoe" ? null : "pppoe")}
+                    className={`flex-1 py-1.5 rounded text-xs font-medium border transition-colors flex items-center justify-center gap-1 ${
+                      genieSection === "pppoe" ? "bg-emerald-600 border-emerald-500 text-white" : "bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600"
+                    }`}
+                  >
+                    <Globe className="w-3 h-3" /> PPPoE
+                  </button>
+                </div>
+
+                {/* Formulário Wi-Fi */}
+                {genieSection === "wifi" && (
+                  <div className="space-y-2 border border-slate-700/50 rounded-lg p-2.5">
+                    <p className="text-xs font-medium text-slate-300 flex items-center gap-1"><Wifi className="w-3 h-3 text-emerald-400" /> Configurar Wi-Fi via TR-069</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-slate-400 text-xs">SSID 2.4GHz</Label>
+                        <Input value={genieWifiSsid2} onChange={e => setGenieWifiSsid2(e.target.value)} placeholder="Nome da rede" className="mt-1 bg-slate-700 border-slate-600 text-white text-xs h-7" />
+                      </div>
+                      <div>
+                        <Label className="text-slate-400 text-xs">Senha 2.4GHz</Label>
+                        <div className="relative mt-1">
+                          <Input type={showGenieWifiPass2 ? "text" : "password"} value={genieWifiPass2} onChange={e => setGenieWifiPass2(e.target.value)} placeholder="Senha" className="pr-6 bg-slate-700 border-slate-600 text-white text-xs h-7" />
+                          <button onClick={() => setShowGenieWifiPass2(!showGenieWifiPass2)} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400">
+                            {showGenieWifiPass2 ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-slate-400 text-xs">SSID 5GHz</Label>
+                        <Input value={genieWifiSsid5} onChange={e => setGenieWifiSsid5(e.target.value)} placeholder="Nome 5GHz" className="mt-1 bg-slate-700 border-slate-600 text-white text-xs h-7" />
+                      </div>
+                      <div>
+                        <Label className="text-slate-400 text-xs">Senha 5GHz</Label>
+                        <div className="relative mt-1">
+                          <Input type={showGenieWifiPass5 ? "text" : "password"} value={genieWifiPass5} onChange={e => setGenieWifiPass5(e.target.value)} placeholder="Senha 5GHz" className="pr-6 bg-slate-700 border-slate-600 text-white text-xs h-7" />
+                          <button onClick={() => setShowGenieWifiPass5(!showGenieWifiPass5)} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400">
+                            {showGenieWifiPass5 ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setGenieResult(null);
+                        const params: any = { deviceId: genieDeviceId!, band: "both" };
+                        if (genieWifiSsid2) params.ssid = genieWifiSsid2;
+                        if (genieWifiPass2) params.password = genieWifiPass2;
+                        genieSetWifiMut.mutate(params);
+                        // 5GHz separado se tiver SSID diferente
+                        if (genieWifiSsid5 || genieWifiPass5) {
+                          const params5: any = { deviceId: genieDeviceId!, band: "5" };
+                          if (genieWifiSsid5) params5.ssid = genieWifiSsid5;
+                          if (genieWifiPass5) params5.password = genieWifiPass5;
+                          setTimeout(() => genieSetWifiMut.mutate(params5), 500);
+                        }
+                      }}
+                      disabled={genieSetWifiMut.isPending || (!genieWifiSsid2 && !genieWifiPass2 && !genieWifiSsid5 && !genieWifiPass5)}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 h-7 text-xs"
+                    >
+                      <Wifi className="w-3 h-3 mr-1" />
+                      {genieSetWifiMut.isPending ? "Enviando..." : "Aplicar Wi-Fi na ONT"}
+                    </Button>
+                  </div>
+                )}
+
+                {/* Formulário PPPoE */}
+                {genieSection === "pppoe" && (
+                  <div className="space-y-2 border border-slate-700/50 rounded-lg p-2.5">
+                    <p className="text-xs font-medium text-slate-300 flex items-center gap-1"><Globe className="w-3 h-3 text-emerald-400" /> Configurar PPPoE via TR-069</p>
+                    <div>
+                      <Label className="text-slate-400 text-xs">Login PPPoE</Label>
+                      <div className="relative mt-1">
+                        <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                        <Input value={geniePppoeLogin} onChange={e => setGeniePppoeLogin(e.target.value)} placeholder="usuario@provedor.com.br" className="pl-7 bg-slate-700 border-slate-600 text-white text-xs h-7" />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-slate-400 text-xs">Senha PPPoE</Label>
+                      <div className="relative mt-1">
+                        <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                        <Input type={showGeniePppoePass ? "text" : "password"} value={geniePppoePass} onChange={e => setGeniePppoePass(e.target.value)} placeholder="Senha PPPoE" className="pl-7 pr-6 bg-slate-700 border-slate-600 text-white text-xs h-7" />
+                        <button onClick={() => setShowGeniePppoePass(!showGeniePppoePass)} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400">
+                          {showGeniePppoePass ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        </button>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setGenieResult(null);
+                        genieConfigureMut.mutate({
+                          deviceId: genieDeviceId!,
+                          useGenieacs: true,
+                          configurePppoe: true,
+                          pppoeLogin: geniePppoeLogin || undefined,
+                          pppoePassword: geniePppoePass || undefined,
+                          configureWifi: false,
+                        });
+                      }}
+                      disabled={genieConfigureMut.isPending || !geniePppoeLogin}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 h-7 text-xs"
+                    >
+                      <Globe className="w-3 h-3 mr-1" />
+                      {genieConfigureMut.isPending ? "Enviando..." : "Aplicar PPPoE na ONT"}
+                    </Button>
+                  </div>
+                )}
+
+                {/* Ações rápidas */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() => { setGenieResult(null); genieRefreshMut.mutate({ deviceId: genieDeviceId! }); }}
+                    disabled={genieRefreshMut.isPending}
+                    className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-slate-700/60 border-slate-600/50 text-slate-200 hover:bg-slate-600 disabled:opacity-40"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${genieRefreshMut.isPending ? "animate-spin" : ""}`} />
+                    {genieRefreshMut.isPending ? "..." : "Refresh"}
+                  </button>
+                  <button
+                    onClick={() => setShowGenieRebootConfirm(true)}
+                    disabled={genieRebootMut.isPending}
+                    className="flex items-center justify-center gap-1 py-1.5 px-2 rounded text-xs font-medium border transition-colors bg-amber-700/30 border-amber-600/40 text-amber-200 hover:bg-amber-700/60 disabled:opacity-40"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    {genieRebootMut.isPending ? "..." : "Reboot"}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 text-center">Comandos enviados diretamente via TR-069 (GenieACS NBI)</p>
+              </>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
+
+      {showGenieRebootConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 max-w-sm mx-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <Power className="w-6 h-6 text-amber-400" />
+              <h3 className="font-semibold text-white">Confirmar Reboot via GenieACS</h3>
+            </div>
+            <p className="text-sm text-slate-300">
+              A ONT <span className="text-white font-mono">{getOnuLogin(onu)}</span> será reiniciada diretamente via TR-069 (GenieACS).
+              O cliente ficará sem internet por aproximadamente 60 segundos.
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowGenieRebootConfirm(false)} className="flex-1 border-slate-600">Cancelar</Button>
+              <Button
+                onClick={() => {
+                  setGenieResult(null);
+                  if (genieDeviceId) genieRebootMut.mutate({ deviceId: genieDeviceId });
+                  setShowGenieRebootConfirm(false);
+                }}
+                disabled={genieRebootMut.isPending}
+                className="flex-1 bg-amber-600 hover:bg-amber-700"
+              >
+                {genieRebootMut.isPending ? "Enviando..." : "Reiniciar"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showRebootConfirm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">

@@ -755,6 +755,35 @@ export const genieacsRouter = router({
       return sgpCpeGetDetails(cfg, input.servicoId);
     }),
 
+  // Buscar deviceId do GenieACS pelo serial da ONU
+  findDeviceBySerial: protectedProcedure
+    .input(z.object({
+      serial: z.string().min(1),
+    }))
+    .query(async ({ input }) => {
+      try {
+        // Busca 1: pelo _id que contém o serial (formato OUI-ProductClass-SerialNumber)
+        const queryById = encodeURIComponent(JSON.stringify({
+          "_id": { "$regex": input.serial, "$options": "i" }
+        }));
+        const byId = await genieRequest(`/devices?query=${queryById}&limit=5`);
+        if (Array.isArray(byId) && byId.length > 0) {
+          return { found: true, deviceId: byId[0]._id, device: normalizeDevice(byId[0]) };
+        }
+        // Busca 2: pelo parâmetro _deviceId._SerialNumber
+        const queryBySerial = encodeURIComponent(JSON.stringify({
+          "_deviceId._SerialNumber": { "$regex": input.serial, "$options": "i" }
+        }));
+        const bySerial = await genieRequest(`/devices?query=${queryBySerial}&limit=5`);
+        if (Array.isArray(bySerial) && bySerial.length > 0) {
+          return { found: true, deviceId: bySerial[0]._id, device: normalizeDevice(bySerial[0]) };
+        }
+        return { found: false, deviceId: null, device: null };
+      } catch (err: any) {
+        return { found: false, deviceId: null, device: null, error: err.message };
+      }
+    }),
+
   // Forçar actualização de parâmetros (refresh)
   refreshDevice: protectedProcedure
     .input(z.object({ deviceId: z.string() }))
