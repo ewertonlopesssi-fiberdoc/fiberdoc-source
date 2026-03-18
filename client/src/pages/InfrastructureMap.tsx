@@ -2580,8 +2580,8 @@ export default function InfrastructureMap() {
 
       // Arrastar vértice — usa Pointer Events para suporte unificado mouse + touch
       // Snap activo para TODOS os pontos (não apenas endpoints)
-      const SNAP_THRESHOLD_DEG = 0.0003; // ~30m em graus (threshold razoável para snap)
-      const SNAP_MIN_MOVE_DEG = 0.0005;  // ~50m — distância mínima para activar snap (evita snap imediato ao elemento original)
+      const SNAP_THRESHOLD_DEG = 0.0015; // ~150m em graus — raio de snap ao soltar sobre o elemento
+      const SNAP_MIN_MOVE_DEG = 0.0008;  // ~80m — distância mínima antes de activar snap (evita snap imediato ao elemento original)
       let dragging = false;
       let pointerId: number | null = null;
 
