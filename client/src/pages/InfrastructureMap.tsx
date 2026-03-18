@@ -98,6 +98,7 @@ function ResizableDetailPanel({ open, onClose, title, children }: {
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuCheckboxItem } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -115,11 +116,12 @@ import {
   Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw,
   Lock, Unlock, ExternalLink, Move, CheckCircle2,
   Zap, Crosshair, MapPin, Copy, Signal, Wifi, FolderTree, ChevronDown, CornerDownRight,
-  Milestone, Codesandbox, Wand2
+  Milestone, Codesandbox, Wand2, ScanSearch, CircleDot, CheckCircle, XCircle, AlertCircle
 } from "lucide-react";
 import L from "leaflet";
 import { unzipSync, strFromU8 } from "fflate";
 import { OltCreateDialog, OltDetailPanel } from "./OltMapComponents";
+import { DgoCreateDialog, DgoDetailPanel } from "./DgoMapComponents";
 
 // Cores padrão de fibras ópticas (norma ABNT/EIA-598)
 const FIBER_VIA_COLORS: Record<number, string> = {
@@ -319,6 +321,20 @@ export default function InfrastructureMap() {
   const [selectedOltElementId, setSelectedOltElementId] = useState<number | null>(null);
   const [oltDetailPanelOpen, setOltDetailPanelOpen] = useState(false);
   const oltMarkersRef = useRef<Record<number, L.Marker>>({});
+  // DGO no mapa
+  const { data: dgoElements = [], refetch: refetchDgoElements } = trpc.infraMap.dgoElements.useQuery(undefined, { staleTime: 30000, refetchOnWindowFocus: false });
+  const [showDgos, setShowDgos] = useState(true);
+  const [addingDgoMode, setAddingDgoMode] = useState(false);
+  const [dgoCreateDialogOpen, setDgoCreateDialogOpen] = useState(false);
+  const [dgoCreateLat, setDgoCreateLat] = useState(0);
+  const [dgoCreateLng, setDgoCreateLng] = useState(0);
+  const [selectedDgoElementId, setSelectedDgoElementId] = useState<number | null>(null);
+  const [dgoDetailPanelOpen, setDgoDetailPanelOpen] = useState(false);
+  const [pendingDgoFiberLinkRouteId, setPendingDgoFiberLinkRouteId] = useState<number | null>(null);
+  const [isDraggingRoute, setIsDraggingRoute] = useState(false);
+  const dgoMarkersRef = useRef<Record<number, L.Marker>>({});
+  const [movingDgoId, setMovingDgoId] = useState<number | null>(null);
+  const [pendingDgoMovePos, setPendingDgoMovePos] = useState<{ id: number; lat: number; lng: number } | null>(null);
   // Postes no mapa
   const { data: mapPoles = [], refetch: refetchPoles } = trpc.mapPoles.list.useQuery(undefined, MAP_QUERY_OPTS);
   const [showPoles, setShowPoles] = useState(false);
@@ -456,10 +472,23 @@ export default function InfrastructureMap() {
   const [exportGroupId, setExportGroupId] = useState<number | null>(null);
   const [exportOnlyVisible, setExportOnlyVisible] = useState(false);
   const [groupSelectMode, setGroupSelectMode] = useState(false);
+  // ─── Viabilidade Técnica ───────────────────────────────────────────────────────
+  const [viabilityMode, setViabilityMode] = useState(false);
+  const [viabilityPoint, setViabilityPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const [viabilityRadius, setViabilityRadius] = useState<number>(500);
+  const [viabilityResults, setViabilityResults] = useState<{ id: number; name: string; lat: number; lng: number; capacity: number; usedPorts: number; distance: number; routeDistance: number | null; routeDuration: number | null; routeCoords: [number,number][] | null; status: string }[]>([]);
+  const [viabilityCircleRef, setViabilityCircleRef] = useState<L.Circle | null>(null);
+  const [viabilityMarkerRef, setViabilityMarkerRef] = useState<L.Marker | null>(null);
+  const viabilityPolylinesRef = useRef<L.Polyline[]>([]);
+  const viabilityLabelsRef = useRef<L.Marker[]>([]);
+  const [viabilityLoadingRoutes, setViabilityLoadingRoutes] = useState(false);
+  const [viabilityHoveredId, setViabilityHoveredId] = useState<number | null>(null);
+  const viabilityModeRef = useRef(false);
   const [mapBoxSelectRect, setMapBoxSelectRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const mapBoxSelectStartRef = useRef<{ x: number; y: number } | null>(null);
   const [groupSelectedElements, setGroupSelectedElements] = useState<Set<number>>(new Set());
   const [groupSelectedRoutes, setGroupSelectedRoutes] = useState<Set<number>>(new Set());
+  const [groupSelectedPoles, setGroupSelectedPoles] = useState<Set<number>>(new Set());
   const [pickDialogOpen, setPickDialogOpen] = useState(false);
   // pickDialogKey força re-render do diálogo quando abre (refs não causam re-render)
   const [pickDialogKey, setPickDialogKey] = useState(0);
@@ -526,6 +555,7 @@ export default function InfrastructureMap() {
 
   // ─── Edição de Traçado de Cabo ────────────────────────────────────────────
   const [editingRouteId, setEditingRouteId] = useState<number | null>(null);
+  const editingRouteIdRef = useRef<number | null>(null);
   const [editingRoutePath, setEditingRoutePath] = useState<{ lat: number; lng: number }[]>([]);
   const editRouteMarkersRef = useRef<L.CircleMarker[]>([]);
   const editRouteMidMarkersRef = useRef<L.CircleMarker[]>([]);
@@ -539,6 +569,9 @@ export default function InfrastructureMap() {
   const elementsRef = useRef<any[]>([]);
   // Actualizar a ref sempre que elements muda (deve estar DEPOIS do useRef)
   elementsRef.current = elements as any[];
+  // Ref para dgoElements sempre actualizada (para snap no traçado)
+  const dgoElementsRef = useRef<any[]>([]);
+  dgoElementsRef.current = dgoElements as any[];
 
   // Edição inline de CEO/CTO/Cabo pelo painel lateral
   const [editElementDialogOpen, setEditElementDialogOpen] = useState(false);
@@ -573,7 +606,7 @@ export default function InfrastructureMap() {
   const [quickAssignGroupId, setQuickAssignGroupId] = useState<number | null>(null);
   const [expandedPickerGroups, setExpandedPickerGroups] = useState<Set<number>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
-  const [expandedGroupElements, setExpandedGroupElements] = useState<Set<number>>(new Set());
+  const [expandedGroupElements, setExpandedGroupElements] = useState<Set<number>>(new Set([-1]));
   const [expandedGroupItems, setExpandedGroupItems] = useState<Set<number>>(new Set()); // seta para minimizar itens dentro da pasta
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null); // confirmação exclusão de pasta
   const [dragOverGroupId, setDragOverGroupId] = useState<number | null>(null); // drag-and-drop entre pastas
@@ -1087,7 +1120,7 @@ export default function InfrastructureMap() {
     onError: (e: any) => toast.error(e.message),
   });
   const addElementsMut = trpc.mapGroups.addElements.useMutation({
-    onSuccess: (data: any) => { refetchGroups(); setQuickAssignDialogOpen(false); setGroupSelectMode(false); setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set()); toast.success(`${data.count} elemento${data.count !== 1 ? "s" : ""} adicionado${data.count !== 1 ? "s" : ""} ao grupo`); },
+    onSuccess: (data: any) => { refetchGroups(); setQuickAssignDialogOpen(false); setGroupSelectMode(false); setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set()); setGroupSelectedPoles(new Set()); toast.success(`${data.count} elemento${data.count !== 1 ? "s" : ""} adicionado${data.count !== 1 ? "s" : ""} ao grupo`); },
     onError: (e: any) => toast.error(e.message),
   });
   const removeElementsMut = trpc.mapGroups.removeElements.useMutation({
@@ -1098,19 +1131,24 @@ export default function InfrastructureMap() {
   const handleQuickAssign = useCallback((groupId: number) => {
     const elementIds = Array.from(groupSelectedElements);
     const routeIds = Array.from(groupSelectedRoutes);
+    const poleIds = Array.from(groupSelectedPoles);
     // Adicionar elementos em lote
     if (elementIds.length > 0) addElementsMut.mutate({ elementIds, groupId });
-    // Adicionar cabos individualmente (sem mutation em lote para cabos)
+    // Adicionar cabos individualmente
     routeIds.forEach(rId => assignRouteToGroupMut.mutate({ routeId: rId, groupId }));
-    if (elementIds.length === 0 && routeIds.length > 0) {
+    // Adicionar postes individualmente
+    poleIds.forEach(pId => assignPoleToGroupMut.mutate({ poleId: pId, groupId }));
+    const totalNonElements = routeIds.length + poleIds.length;
+    if (elementIds.length === 0 && totalNonElements > 0) {
       refetchGroups();
       setQuickAssignDialogOpen(false);
       setGroupSelectMode(false);
       setGroupSelectedElements(new Set());
       setGroupSelectedRoutes(new Set());
-      toast.success(`${routeIds.length} cabo${routeIds.length !== 1 ? "s" : ""} adicionado${routeIds.length !== 1 ? "s" : ""} ao grupo`);
+      setGroupSelectedPoles(new Set());
+      toast.success(`${totalNonElements} item${totalNonElements !== 1 ? "s" : ""} adicionado${totalNonElements !== 1 ? "s" : ""} ao grupo`);
     }
-  }, [groupSelectedElements, groupSelectedRoutes, addElementsMut, assignRouteToGroupMut, refetchGroups]);
+  }, [groupSelectedElements, groupSelectedRoutes, groupSelectedPoles, addElementsMut, assignRouteToGroupMut, assignPoleToGroupMut, refetchGroups]);
 
   // Filtrar elementos por grupo ativo
   const filteredElements = activeGroupFilter
@@ -1190,7 +1228,7 @@ export default function InfrastructureMap() {
 
   const toggleGroupSelectMode = useCallback(() => {
     setGroupSelectMode(v => {
-      if (v) { setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set()); }
+      if (v) { setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set()); setGroupSelectedPoles(new Set()); }
       else { setSidePanel(null); setAddingMode(null); setAddingRouteMode(false); }
       return !v;
     });
@@ -1201,12 +1239,16 @@ export default function InfrastructureMap() {
   const toggleGroupRoute = useCallback((id: number) => {
     setGroupSelectedRoutes(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }, []);
+  const toggleGroupPole = useCallback((id: number) => {
+    setGroupSelectedPoles(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }, []);
   const selectAllGroup = useCallback(() => {
     setGroupSelectedElements(new Set((elements as any[]).map((e: any) => e.id)));
     setGroupSelectedRoutes(new Set((routes as any[]).map((r: any) => r.id)));
-  }, [elements, routes]);
-  const clearGroupSelection = useCallback(() => { setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set()); }, []);
-  const groupTotalSelected = groupSelectedElements.size + groupSelectedRoutes.size;
+    setGroupSelectedPoles(new Set((mapPoles as any[]).map((p: any) => p.id)));
+  }, [elements, routes, mapPoles]);
+  const clearGroupSelection = useCallback(() => { setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set()); setGroupSelectedPoles(new Set()); }, []);
+  const groupTotalSelected = groupSelectedElements.size + groupSelectedRoutes.size + groupSelectedPoles.size;
 
   const upsertElementMut = trpc.infraMap.upsertElement.useMutation({
     // onSuccess genérico: só refetch; toast é feito pelo chamador quando necessário
@@ -1293,6 +1335,7 @@ export default function InfrastructureMap() {
   const removeOltFromGroupMut = trpc.mapGroups.removeOlt.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
   const deleteOltElementMut = trpc.infraMap.deleteOltElement.useMutation({ onSuccess: () => { refetchOltElements(); refetchGroups(); }, onError: (e) => toast.error(e.message) });
   const updateOltElementMut = trpc.infraMap.updateOltElement.useMutation({ onSuccess: () => { refetchOltElements(); toast.success("Posição da OLT salva"); }, onError: (e) => toast.error(e.message) });
+  const updateDgoElementMut = trpc.infraMap.updateDgoElement.useMutation({ onSuccess: () => { refetchDgoElements(); toast.success("Posição do DGO salva"); }, onError: (e) => toast.error(e.message) });
   const removePoiFromGroupMut = trpc.mapGroups.removePoi.useMutation({ onSuccess: () => refetchGroups(), onError: (e) => toast.error(e.message) });
   const sgpQuery = trpc.sgp.queryClientsByCto.useQuery(
     {
@@ -1338,6 +1381,29 @@ export default function InfrastructureMap() {
   const [inlineTubeFromId, setInlineTubeFromId] = useState<number | null>(null);
   const [inlineTubeToId, setInlineTubeToId] = useState<number | null>(null);
   const [inlineTubeSaving, setInlineTubeSaving] = useState(false);
+  // Tubos extras (múltiplos tubos por cabo)
+  const [addExtraTubeOpen, setAddExtraTubeOpen] = useState(false);
+  const [addExtraTubeSide, setAddExtraTubeSide] = useState<"from" | "to">("from");
+  const [addExtraTubeElementId, setAddExtraTubeElementId] = useState<number | null>(null);
+  const [addExtraTubeTubeId, setAddExtraTubeTubeId] = useState<number | null>(null);
+  const [addExtraTubeSaving, setAddExtraTubeSaving] = useState(false);
+  const extraTubesRouteId = sidePanel?.kind === "route" ? sidePanel.route.id : null;
+  const extraTubesQuery = trpc.infraMap.routeExtraTubes.useQuery(
+    { routeId: extraTubesRouteId! },
+    { enabled: extraTubesRouteId != null }
+  );
+  const addExtraTubeMut = trpc.infraMap.addRouteExtraTube.useMutation({
+    onSuccess: () => { extraTubesQuery.refetch(); setAddExtraTubeOpen(false); setAddExtraTubeTubeId(null); setAddExtraTubeElementId(null); toast.success("Tubo extra adicionado"); },
+    onError: (e) => toast.error(e.message ?? "Erro ao adicionar tubo"),
+  });
+  const deleteExtraTubeMut = trpc.infraMap.deleteRouteExtraTube.useMutation({
+    onSuccess: () => { extraTubesQuery.refetch(); toast.success("Tubo extra removido"); },
+    onError: (e) => toast.error(e.message ?? "Erro ao remover tubo"),
+  });
+  const addExtraTubeElementTubesQuery = trpc.infraMap.tubesByElement.useQuery(
+    { elementId: addExtraTubeElementId! },
+    { enabled: addExtraTubeElementId != null }
+  );
 
   // Estado para confirmação de truncagem do traçado
   const [truncateConfirm, setTruncateConfirm] = useState<{
@@ -1647,6 +1713,9 @@ export default function InfrastructureMap() {
         });
       }
       marker.on("click", (e: any) => {
+        // Se há uma rota em edição de traçado, ignorar cliques nos marcadores de elemento
+        // (evita seleccionar o elemento ao tentar arrastar a extremidade do cabo)
+        if (editingRouteIdRef.current !== null) return;
         if (addingModeRef.current) {
           mapRef.current?.fire("click", { latlng: marker.getLatLng(), originalEvent: e.originalEvent });
           return;
@@ -1770,6 +1839,7 @@ export default function InfrastructureMap() {
       const marker = L.marker([Number(olt.lat), Number(olt.lng)], { icon, draggable: isMovingThisOlt }).addTo(mapRef.current!);
       marker.on("click", () => {
         if (isMovingThisOlt) return;
+        if (editingRouteIdRef.current !== null) return;
         setSelectedOltElementId(olt.id);
         setOltDetailPanelOpen(true);
       });
@@ -1785,6 +1855,66 @@ export default function InfrastructureMap() {
       oltMarkersRef.current[olt.id] = marker;
     });
   }, [oltElements, showOlts, mapReady, hiddenOltIds, oltGroupMap, isHiddenByGroup, movingOltId]);
+
+  // Renderizar marcadores DGO no mapa
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    Object.values(dgoMarkersRef.current).forEach(m => m.remove());
+    dgoMarkersRef.current = {};
+    if (!showDgos) return;
+    (dgoElements as any[]).forEach((dgo: any) => {
+      const isMovingThis = movingDgoId === dgo.id;
+      const icon = L.divIcon({
+        className: "",
+        iconSize: [40, 40],
+        iconAnchor: [20, 20],
+        html: `<div style="position:relative;width:40px;height:40px;">
+          <img src="/icons/dgo.png" style="width:40px;height:40px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));${isMovingThis ? 'outline:2px solid #f97316;border-radius:4px;' : ''}" />
+          <div style="position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#f97316;font-size:9px;font-weight:700;padding:1px 4px;border-radius:3px;white-space:nowrap;border:1px solid rgba(249,115,22,0.4);">${dgo.equipmentName ?? 'DGO'}</div>
+        </div>`,
+      });
+      const marker = L.marker([Number(dgo.lat), Number(dgo.lng)], { icon, draggable: isMovingThis }).addTo(mapRef.current!);
+      marker.on("click", () => {
+        if (isMovingThis) return;
+        if (editingRouteIdRef.current !== null) return;
+        // Se está em modo de traçado, adicionar ponto na posição do DGO
+        if (addingRouteModeRef.current) {
+          const pos = marker.getLatLng();
+          setDrawingPath(prev => [...prev, { lat: pos.lat, lng: pos.lng }]);
+          toast.info(`Ponto adicionado: ${dgo.equipmentName ?? 'DGO'}`);
+          return;
+        }
+        setSelectedDgoElementId(dgo.id);
+        setDgoDetailPanelOpen(true);
+      });
+      if (isMovingThis) {
+        marker.on("dragend", () => {
+          const pos = marker.getLatLng();
+          setPendingDgoMovePos({ id: dgo.id, lat: pos.lat, lng: pos.lng });
+          setSelectedDgoElementId(dgo.id);
+          setDgoDetailPanelOpen(true);
+        });
+      }
+      dgoMarkersRef.current[dgo.id] = marker;
+    });
+  }, [dgoElements, showDgos, mapReady, movingDgoId]);
+
+  // Destacar ícones DGO quando um traçado está sendo arrastado
+  useEffect(() => {
+    Object.values(dgoMarkersRef.current).forEach(marker => {
+      const el = marker.getElement();
+      if (!el) return;
+      if (isDraggingRoute) {
+        (el as HTMLElement).style.filter = 'drop-shadow(0 0 8px #06b6d4) drop-shadow(0 0 4px #06b6d4)';
+        (el as HTMLElement).style.transform = 'scale(1.15)';
+        (el as HTMLElement).style.transition = 'transform 0.15s ease';
+      } else {
+        (el as HTMLElement).style.filter = '';
+        (el as HTMLElement).style.transform = '';
+        (el as HTMLElement).style.transition = '';
+      }
+    });
+  }, [isDraggingRoute]);
 
   // Renderizar postes no mapa
   useEffect(() => {
@@ -1805,8 +1935,29 @@ export default function InfrastructureMap() {
           <div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${(pole.name ?? '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
         </div>`,
       });
-      const marker = L.marker([Number(pole.lat), Number(pole.lng)], { icon, draggable: isAdmin }).addTo(mapRef.current!);
+      const isGroupSelected = groupSelectedPoles.has(pole.id);
+      const poleIconHtml = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
+          <div style="width:32px;height:32px;background:${isGroupSelected ? '#06b6d4' : '#6b7280'};border:3px solid ${isGroupSelected ? '#22d3ee' : '#fff'};border-radius:4px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);">
+            <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><line x1='12' y1='2' x2='12' y2='22'/><path d='M4 6h16'/><path d='M4 6l4 4'/><path d='M20 6l-4 4'/></svg>
+          </div>
+          <div style="background:${isGroupSelected ? 'rgba(6,182,212,0.9)' : 'rgba(0,0,0,0.75)'};color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${(pole.name ?? '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+        </div>`;
+      const poleIcon = L.divIcon({ className: "", iconSize: [32, 46], iconAnchor: [16, 46], html: poleIconHtml });
+      const marker = L.marker([Number(pole.lat), Number(pole.lng)], { icon: poleIcon, draggable: isAdmin && !groupSelectModeRef.current, bubblingMouseEvents: false } as any).addTo(mapRef.current!);
       marker.on("click", () => {
+        if (editingRouteIdRef.current !== null) return;
+        // No modo de seleção em grupo, adicionar/remover poste da seleção
+        if (groupSelectModeRef.current) {
+          toggleGroupPole(pole.id);
+          return;
+        }
+        // No modo de traçado, adicionar ponto na posição do poste
+        if (addingRouteModeRef.current) {
+          const pos = marker.getLatLng();
+          setDrawingPath(prev => [...prev, { lat: pos.lat, lng: pos.lng }]);
+          toast.info(`Ponto adicionado: ${pole.name ?? 'Poste'}`);
+          return;
+        }
         if (!isAdmin) return;
         setEditingPoleId(pole.id);
         setPoleForm({ name: pole.name ?? "", reference: pole.reference ?? "", effort: pole.effort ?? "", notes: pole.notes ?? "" });
@@ -1822,7 +1973,7 @@ export default function InfrastructureMap() {
       }
       poleMarkersRef.current[pole.id] = marker;
     });
-  }, [mapPoles, showPoles, mapReady, isAdmin, hiddenPoleIds, poleGroupMap, isHiddenByGroup]);
+  }, [mapPoles, showPoles, mapReady, isAdmin, hiddenPoleIds, poleGroupMap, isHiddenByGroup, toggleGroupPole, groupSelectedPoles, groupSelectMode]);
 
   // Renderizar reservas técnicas no mapa
   useEffect(() => {
@@ -1843,8 +1994,9 @@ export default function InfrastructureMap() {
           <div style="background:rgba(8,145,178,0.85);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${reserve.sizeMeters ?? 0}m</div>
         </div>`,
       });
-      const marker = L.marker([Number(reserve.lat), Number(reserve.lng)], { icon, draggable: isAdmin }).addTo(mapRef.current!);
+      const marker = L.marker([Number(reserve.lat), Number(reserve.lng)], { icon, draggable: isAdmin, bubblingMouseEvents: false } as any).addTo(mapRef.current!);
       marker.on("click", () => {
+        if (editingRouteIdRef.current !== null) return;
         if (!isAdmin) return;
         setEditingReserveId(reserve.id);
         setReserveForm({ name: reserve.name ?? "", sizeMeters: reserve.sizeMeters ?? 0, routeId: reserve.routeId ?? null, notes: reserve.notes ?? "" });
@@ -1899,6 +2051,7 @@ export default function InfrastructureMap() {
       const marker = L.marker([Number(poi.lat), Number(poi.lng)], { icon, draggable: isMovingThisPoi }).addTo(mapRef.current!);
       marker.on("click", () => {
         if (isMovingThisPoi) return; // não abrir painel durante mover
+        if (editingRouteIdRef.current !== null) return;
         setSidePanel({ kind: "poi", poi: poi as MapPoi });
         setEditingPoi(false);
         setPoiEditForm({ name: poi.name ?? "", category: poi.category ?? "geral", color: poi.color ?? "#6366f1", notes: poi.notes ?? "" });
@@ -1956,6 +2109,172 @@ export default function InfrastructureMap() {
     return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
   }, [addingPoiMode, mapReady]);
 
+  // Modo viabilidade técnica — clique no mapa define o ponto de busca
+  useEffect(() => { viabilityModeRef.current = viabilityMode; }, [viabilityMode]);
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const map = mapRef.current;
+    if (!viabilityMode) {
+      map.getContainer().style.cursor = "";
+      return;
+    }
+    map.getContainer().style.cursor = "crosshair";
+    const handler = (e: L.LeafletMouseEvent) => {
+      setViabilityPoint({ lat: e.latlng.lat, lng: e.latlng.lng });
+      map.getContainer().style.cursor = "crosshair";
+    };
+    map.on("click", handler);
+    return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
+  }, [viabilityMode, mapReady]);
+
+  // Calcular CTOs no raio e buscar rotas OSRM
+  useEffect(() => {
+    if (!viabilityPoint || !viabilityMode) { setViabilityResults([]); return; }
+    // Função Haversine para distância em linha reta (metros)
+    const haversine = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+    const ctoElements = (elements as any[]).filter((el: any) => el.type === "cto");
+    const candidates = ctoElements
+      .map((el: any) => {
+        const ctoData = (ctos as any[]).find((c: any) => c.id === el.referenceId);
+        if (!ctoData) return null;
+        const dist = haversine(viabilityPoint.lat, viabilityPoint.lng, Number(el.lat), Number(el.lng));
+        if (dist > viabilityRadius) return null;
+        return {
+          id: el.referenceId,
+          name: ctoData.name ?? el.elementName ?? `CTO ${el.referenceId}`,
+          lat: Number(el.lat),
+          lng: Number(el.lng),
+          capacity: ctoData.capacity ?? 8,
+          usedPorts: ctoData.usedPorts ?? 0,
+          distance: Math.round(dist),
+          routeDistance: null as number | null,
+          routeDuration: null as number | null,
+          routeCoords: null as [number,number][] | null,
+          status: ctoData.status ?? "active",
+        };
+      })
+      .filter(Boolean) as any[];
+    candidates.sort((a: any, b: any) => a.distance - b.distance);
+    setViabilityResults(candidates);
+    // Buscar rotas OSRM para cada CTO — atualiza progressivamente
+    if (candidates.length === 0) return;
+    setViabilityLoadingRoutes(true);
+    const origin = viabilityPoint;
+    let pending = candidates.length;
+    candidates.forEach((cto: any) => {
+      const params = new URLSearchParams({ fromLng: String(origin.lng), fromLat: String(origin.lat), toLng: String(cto.lng), toLat: String(cto.lat) });
+      fetch(`/api/osrm/route?${params}`, { signal: AbortSignal.timeout(12000) })
+        .then(r => { console.log('[OSRM] status', r.status, 'ok', r.ok); return r.ok ? r.json() : null; })
+        .then((data: any) => {
+          console.log('[OSRM] data', JSON.stringify(data)?.substring(0, 200));
+          pending--;
+          if (data?.code === 'Ok' && data.routes?.[0]) {
+            const route = data.routes[0];
+            const coords: [number,number][] = route.geometry.coordinates.map((c: number[]) => [c[1], c[0]]);
+            console.log('[OSRM] coords length', coords.length, 'for cto.id', cto.id);
+            // Atualiza funcionalmente para garantir estado mais recente
+            setViabilityResults(prev => {
+              console.log('[OSRM] prev ids', prev.map((r:any) => r.id), 'cto.id', cto.id);
+              const next = prev.map(r => r.id === cto.id
+                ? { ...r, routeDistance: Math.round(route.distance), routeDuration: Math.round(route.duration), routeCoords: coords }
+                : r
+              );
+              if (pending === 0) next.sort((a: any, b: any) => (a.routeDistance ?? a.distance) - (b.routeDistance ?? b.distance));
+              return next;
+            });
+          }
+          if (pending === 0) setViabilityLoadingRoutes(false);
+        })
+        .catch((e) => { console.error('[OSRM] catch', e?.message); pending--; if (pending === 0) setViabilityLoadingRoutes(false); });
+    });
+  }, [viabilityPoint, viabilityRadius, viabilityMode, elements, ctos]);
+
+  // Desenhar polylines das rotas OSRM no mapa
+  useEffect(() => {
+    console.log('[POLY] effect triggered, results:', viabilityResults.length, 'mode:', viabilityMode, 'point:', !!viabilityPoint);
+    if (!mapRef.current || !mapReady) return;
+    // Remover polylines e labels anteriores usando refs (evita stale closure)
+    viabilityPolylinesRef.current.forEach(p => p.remove());
+    viabilityLabelsRef.current.forEach(l => l.remove());
+    viabilityPolylinesRef.current = [];
+    viabilityLabelsRef.current = [];
+    if (!viabilityPoint || !viabilityMode || viabilityResults.length === 0) { console.log('[POLY] early return'); return; }
+    console.log('[POLY] drawing', viabilityResults.map((r:any) => ({ id: r.id, hasRoute: !!r.routeCoords, coords: r.routeCoords?.length })));
+    const newPolylines: L.Polyline[] = [];
+    const newLabels: L.Marker[] = [];
+    viabilityResults.forEach((r: any) => {
+      const free = r.capacity - r.usedPorts;
+      const viable = free > 0 && r.status === 'active';
+      const warn = viable && free <= 2;
+      const color = !viable ? '#ef4444' : warn ? '#f59e0b' : '#22c55e';
+      const coords: [number,number][] = r.routeCoords ?? [[viabilityPoint.lat, viabilityPoint.lng], [r.lat, r.lng]];
+      const poly = L.polyline(coords, {
+        color,
+        weight: 3,
+        opacity: 0.8,
+        dashArray: r.routeCoords ? undefined : '8 5',
+      }).addTo(mapRef.current!);
+      // Label de distância no meio da rota
+      const midIdx = Math.floor(coords.length / 2);
+      const midPt = coords[midIdx];
+      const distLabel = r.routeDistance != null
+        ? `${r.routeDistance >= 1000 ? (r.routeDistance / 1000).toFixed(1) + 'km' : r.routeDistance + 'm'}${r.routeDuration != null ? ' · ' + Math.round(r.routeDuration / 60) + 'min' : ''}`
+        : `${r.distance}m ≈`;
+      const labelIcon = L.divIcon({
+        className: '',
+        iconAnchor: [40, 12],
+        iconSize: [80, 24],
+        html: `<div style="background:${color};color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.4);">${distLabel}</div>`,
+      });
+      const label = L.marker(midPt, { icon: labelIcon, interactive: false } as any).addTo(mapRef.current!);
+      newPolylines.push(poly);
+      newLabels.push(label);
+    });
+    viabilityPolylinesRef.current = newPolylines;
+    viabilityLabelsRef.current = newLabels;
+    return () => {
+      newPolylines.forEach(p => p.remove());
+      newLabels.forEach(l => l.remove());
+      viabilityPolylinesRef.current = [];
+      viabilityLabelsRef.current = [];
+    };
+  }, [viabilityResults, viabilityPoint, viabilityMode, mapReady]);
+
+  // Desenhar círculo e marcador de viabilidade no mapa
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    // Remover anteriores
+    viabilityCircleRef?.remove();
+    viabilityMarkerRef?.remove();
+    if (!viabilityPoint || !viabilityMode) { setViabilityCircleRef(null); setViabilityMarkerRef(null); return; }
+    const circle = L.circle([viabilityPoint.lat, viabilityPoint.lng], {
+      radius: viabilityRadius,
+      color: "#f59e0b",
+      fillColor: "#f59e0b",
+      fillOpacity: 0.08,
+      weight: 2,
+      dashArray: "6 4",
+    }).addTo(mapRef.current);
+    const markerIcon = L.divIcon({
+      className: "",
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+      html: `<div style="width:24px;height:24px;background:#f59e0b;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;">
+        <svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'/><circle cx='12' cy='10' r='3'/></svg>
+      </div>`,
+    });
+    const marker = L.marker([viabilityPoint.lat, viabilityPoint.lng], { icon: markerIcon, bubblingMouseEvents: false } as any).addTo(mapRef.current);
+    setViabilityCircleRef(circle);
+    setViabilityMarkerRef(marker);
+    return () => { circle.remove(); marker.remove(); };
+  }, [viabilityPoint, viabilityRadius, viabilityMode, mapReady]);
+
   // Sincronizar refs com estados para evitar stale closures nos handlers de click
   useEffect(() => { addingModeRef.current = addingMode; }, [addingMode]);
   useEffect(() => { groupSelectModeRef.current = groupSelectMode; }, [groupSelectMode]);
@@ -1977,6 +2296,9 @@ export default function InfrastructureMap() {
 
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
+      // Não iniciar drag-select se o clique foi em cima de um marcador Leaflet
+      const target = e.target as HTMLElement;
+      if (target.closest('.leaflet-marker-icon') || target.closest('.leaflet-marker-pane') || target.closest('.leaflet-div-icon')) return;
       const rect = container.getBoundingClientRect();
       mapBoxSelectStartRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       setMapBoxSelectRect(null);
@@ -2021,18 +2343,37 @@ export default function InfrastructureMap() {
         const lat = Number(el.lat); const lng = Number(el.lng);
         if (lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng) newElements.add(el.id);
       });
-      // Selecionar rotas cujo ponto médio está dentro do retângulo
+      // Selecionar rotas cujo ponto médio (ou qualquer ponto do path) está dentro do retângulo
       const newRoutes = new Set<number>();
       (routes as any[]).forEach((r: any) => {
         const fromEl = (elements as any[]).find((el: any) => el.id === r.fromElementId);
         const toEl = (elements as any[]).find((el: any) => el.id === r.toElementId);
-        if (!fromEl || !toEl) return;
-        const midLat = (Number(fromEl.lat) + Number(toEl.lat)) / 2;
-        const midLng = (Number(fromEl.lng) + Number(toEl.lng)) / 2;
-        if (midLat >= minLat && midLat <= maxLat && midLng >= minLng && midLng <= maxLng) newRoutes.add(r.id);
+        // Montar lista de pontos: fromEl + path + toEl (suporta cabos KMZ sem fromEl/toEl)
+        const pts: { lat: number; lng: number }[] = [];
+        if (fromEl) pts.push({ lat: Number(fromEl.lat), lng: Number(fromEl.lng) });
+        if (r.path) { try { (JSON.parse(r.path) as any[]).forEach((p: any) => pts.push({ lat: Number(p.lat), lng: Number(p.lng) })); } catch {} }
+        if (toEl) pts.push({ lat: Number(toEl.lat), lng: Number(toEl.lng) });
+        if (pts.length === 0) return;
+        // Verificar se qualquer ponto do cabo está dentro do retângulo de seleção
+        const anyPointInside = pts.some(p => p.lat >= minLat && p.lat <= maxLat && p.lng >= minLng && p.lng <= maxLng);
+        if (anyPointInside) newRoutes.add(r.id);
+      });
+      // Selecionar postes dentro do retângulo
+      const newPoles = new Set<number>();
+      (mapPoles as any[]).forEach((pole: any) => {
+        const lat = Number(pole.lat); const lng = Number(pole.lng);
+        if (lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng) newPoles.add(pole.id);
+      });
+      // Selecionar reservas técnicas dentro do retângulo
+      const newReserves = new Set<number>();
+      (mapReserves as any[]).forEach((reserve: any) => {
+        const lat = Number(reserve.lat); const lng = Number(reserve.lng);
+        if (lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng) newReserves.add(reserve.id);
       });
       setGroupSelectedElements(prev => { const n = new Set(prev); newElements.forEach(id => n.add(id)); return n; });
       setGroupSelectedRoutes(prev => { const n = new Set(prev); newRoutes.forEach(id => n.add(id)); return n; });
+      if (newPoles.size > 0) setGroupSelectedPoles(prev => { const p = new Set(prev); newPoles.forEach(id => p.add(id)); return p; });
+      if (newReserves.size > 0) setCheckedItems(prev => { const r = new Set(prev.reserves); newReserves.forEach(id => r.add(id)); return { ...prev, reserves: r }; });
       e.preventDefault();
       e.stopPropagation();
     };
@@ -2049,11 +2390,31 @@ export default function InfrastructureMap() {
       setMapBoxSelectRect(null);
       mapBoxSelectStartRef.current = null;
     };
-  }, [groupSelectMode, mapReady, elements, routes]);
+  }, [groupSelectMode, mapReady, elements, routes, mapPoles, mapReserves]);
   useEffect(() => { addingRouteModeRef.current = addingRouteMode; }, [addingRouteMode]);
   useEffect(() => { otdrModeRef.current = otdrMode; }, [otdrMode]);
   useEffect(() => { movingElementIdRef.current = movingElementId; }, [movingElementId]);
   useEffect(() => { editModeRef.current = editMode; }, [editMode]);
+  useEffect(() => { editingRouteIdRef.current = editingRouteId; }, [editingRouteId]);
+
+  // Durante edição de traçado: desabilitar pointer-events nos marcadores de elemento
+  // para que o pointerdown no circleMarker de endpoint não seja interceptado pelo marcador
+  useEffect(() => {
+    const isEditing = editingRouteId !== null;
+    // Desabilitar pointer-events em todos os marcadores de elemento (CEO/CTO/OLT/DGO/poste/reserva/POI)
+    const allMarkers = [
+      ...Object.values(markersRef.current),
+      ...Object.values(oltMarkersRef.current),
+      ...Object.values(dgoMarkersRef.current),
+      ...Object.values(poleMarkersRef.current),
+      ...Object.values(reserveMarkersRef.current),
+      ...Object.values(poiMarkersRef.current),
+    ] as L.Marker[];
+    allMarkers.forEach(m => {
+      const el = m.getElement();
+      if (el) el.style.pointerEvents = isEditing ? "none" : "";
+    });
+  }, [editingRouteId]);
 
   // Modo de adição de elemento
   useEffect(() => {
@@ -2090,6 +2451,20 @@ export default function InfrastructureMap() {
     map.once("click", handler);
     return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
   }, [addingOltMode, mapReady]);
+
+  // Modo de adição de DGO
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const map = mapRef.current;
+    if (!addingDgoMode) { map.getContainer().style.cursor = ""; return; }
+    map.getContainer().style.cursor = "crosshair";
+    const handler = (e: L.LeafletMouseEvent) => {
+      setDgoCreateLat(e.latlng.lat); setDgoCreateLng(e.latlng.lng);
+      setDgoCreateDialogOpen(true); setAddingDgoMode(false); map.getContainer().style.cursor = "";
+    };
+    map.once("click", handler);
+    return () => { map.off("click", handler); map.getContainer().style.cursor = ""; };
+  }, [addingDgoMode, mapReady]);
 
   // Traçado livre — prévia
   useEffect(() => {
@@ -2205,7 +2580,8 @@ export default function InfrastructureMap() {
 
       // Arrastar vértice — usa Pointer Events para suporte unificado mouse + touch
       // Snap activo para TODOS os pontos (não apenas endpoints)
-      const SNAP_THRESHOLD_DEG = 0.008; // ~800m em graus
+      const SNAP_THRESHOLD_DEG = 0.0003; // ~30m em graus (threshold razoável para snap)
+      const SNAP_MIN_MOVE_DEG = 0.0005;  // ~50m — distância mínima para activar snap (evita snap imediato ao elemento original)
       let dragging = false;
       let pointerId: number | null = null;
 
@@ -2218,27 +2594,48 @@ export default function InfrastructureMap() {
         return { lat: ll.lat, lng: ll.lng };
       };
 
-      // Snap: encontrar elemento mais próximo dentro do threshold
-      const findSnap = (lat: number, lng: number): { id: number; lat: number; lng: number; name: string } | null => {
-        let best: any = null;
-        let bestDist = SNAP_THRESHOLD_DEG;
-        elementsRef.current.forEach((el: any) => {
-          const d = Math.hypot(lat - Number(el.lat), lng - Number(el.lng));
-          if (d < bestDist) { bestDist = d; best = el; }
-        });
-        return best ? { id: best.id, lat: Number(best.lat), lng: Number(best.lng), name: best.name ?? `El. ${best.id}` } : null;
-      };
-
       // Posição inicial do ponto (para ignorar snap ao elemento actual no início do drag)
       const initialLat = pt.lat;
       const initialLng = pt.lng;
-      let hasMoved = false; // true após o utilizador mover o ponto pelo menos 0.0005° (~50m)
+      // ID do elemento vinculado a esta extremidade (para ignorar snap ao mesmo elemento)
+      const currentSnapId = isEndpoint
+        ? (idx === 0 ? snapFromIdRef.current : snapToIdRef.current)
+        : null;
+      let hasMoved = false; // true após o utilizador se afastar suficientemente do ponto inicial
+
+      // Snap: encontrar elemento mais próximo dentro do threshold
+      // Ignora o elemento já vinculado a esta extremidade enquanto não se afastou o suficiente
+      const findSnap = (lat: number, lng: number): { id: number; lat: number; lng: number; name: string } | null => {
+        // Só activar snap após o utilizador se afastar do ponto inicial
+        if (!hasMoved) return null;
+        let best: any = null;
+        let bestDist = SNAP_THRESHOLD_DEG;
+        elementsRef.current.forEach((el: any) => {
+          // Ignorar o elemento actualmente vinculado a esta extremidade
+          if (isEndpoint && currentSnapId !== null && el.id === currentSnapId) return;
+          const d = Math.hypot(lat - Number(el.lat), lng - Number(el.lng));
+          if (d < bestDist) { bestDist = d; best = { ...el, _isDgo: false }; }
+        });
+        // Incluir DGOs no snap
+        dgoElementsRef.current.forEach((dgo: any) => {
+          if (isEndpoint && currentSnapId !== null && dgo.id === currentSnapId) return;
+          const d = Math.hypot(lat - Number(dgo.lat), lng - Number(dgo.lng));
+          if (d < bestDist) { bestDist = d; best = { ...dgo, _isDgo: true, name: dgo.equipmentName ?? `DGO #${dgo.id}` }; }
+        });
+        return best ? { id: best.id, lat: Number(best.lat), lng: Number(best.lng), name: best.name ?? `El. ${best.id}`, _isDgo: best._isDgo ?? false } : null;
+      };
 
       // Movimento: mover o marcador livremente SEM snap (snap só ao soltar)
       const handleDragMove = (clientX: number, clientY: number) => {
         if (!dragging) return;
         const ll = clientToLatLng(clientX, clientY);
         if (!ll) return;
+        // Verificar se o utilizador já se afastou suficientemente do ponto inicial
+        // Só então activar snap (evita snap imediato ao elemento original)
+        if (!hasMoved) {
+          const distFromStart = Math.hypot(ll.lat - initialLat, ll.lng - initialLng);
+          if (distFromStart >= SNAP_MIN_MOVE_DEG) hasMoved = true;
+        }
         // Mover o marcador para a posição actual do cursor (sem snap)
         cm.setLatLng([ll.lat, ll.lng]);
         const newPath = [...editingRoutePathRef.current];
@@ -2248,6 +2645,7 @@ export default function InfrastructureMap() {
           editRoutePolylineRef.current.setLatLngs(newPath.map(p => [p.lat, p.lng] as L.LatLngExpression));
         }
         // Indicador visual de snap próximo (só visual, não move o ponto)
+        // Só mostrar após o utilizador se afastar do ponto inicial
         if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
         const nearSnap = findSnap(ll.lat, ll.lng);
         if (nearSnap && mapRef.current) {
@@ -2270,7 +2668,13 @@ export default function InfrastructureMap() {
         mapRef.current!.dragging.enable();
         if (snapIndicatorRef.current) { snapIndicatorRef.current.remove(); snapIndicatorRef.current = null; }
         const cmLatLng = cm.getLatLng();
+        // Verificar distância percorrida para calcular hasMoved no momento do soltar
+        if (!hasMoved) {
+          const distFromStart = Math.hypot(cmLatLng.lat - initialLat, cmLatLng.lng - initialLng);
+          if (distFromStart >= SNAP_MIN_MOVE_DEG) hasMoved = true;
+        }
         // Snap definitivo: verificar se o ponto foi solto perto de um elemento
+        // findSnap já retorna null se !hasMoved
         const snap = findSnap(cmLatLng.lat, cmLatLng.lng);
         const pts = editingRoutePathRef.current;
         const isCurrentEndpoint = idx === 0 || idx === pts.length - 1;
@@ -2286,7 +2690,11 @@ export default function InfrastructureMap() {
             }
             if (idx === 0) snapFromIdRef.current = snap.id;
             else snapToIdRef.current = snap.id;
-            toast.success(`${idx === 0 ? "Origem" : "Destino"} vinculado a "${snap.name}"`);
+            const isDgoSnap = (snap as any)._isDgo;
+            toast.success(isDgoSnap
+              ? `${idx === 0 ? "Origem" : "Destino"} encaixado no DGO "${snap.name}" (posição salva no traçado)`
+              : `${idx === 0 ? "Origem" : "Destino"} vinculado a "${snap.name}"`
+            );
             setEditingRoutePath([...snappedPath]);
           } else {
             // Sem snap: desvincular elemento desta extremidade
@@ -2543,9 +2951,13 @@ export default function InfrastructureMap() {
     // Usar os IDs de snap (podem ter mudado ao arrastar endpoints)
     const newFromId = snapFromIdRef.current;
     const newToId   = snapToIdRef.current;
-    const fromEl = (elements as any[]).find((e: any) => e.id === newFromId);
-    const toEl   = (elements as any[]).find((e: any) => e.id === newToId);
+    // Verificar se o snap é para um DGO (não é map_element, não pode ser fromElementId/toElementId)
+    const fromIsDgo = newFromId !== null && dgoElementsRef.current.some((d: any) => d.id === newFromId);
+    const toIsDgo   = newToId   !== null && dgoElementsRef.current.some((d: any) => d.id === newToId);
+    const fromEl = !fromIsDgo ? (elements as any[]).find((e: any) => e.id === newFromId) : null;
+    const toEl   = !toIsDgo   ? (elements as any[]).find((e: any) => e.id === newToId)   : null;
     // Remover os endpoints (fromEl e toEl) do path salvo — eles são inferidos pelos elementos
+    // Para DGO: manter o ponto no path (posição exata do DGO fica no path)
     let pts = [...editingRoutePathRef.current];
     if (fromEl) {
       const first = pts[0];
@@ -2562,9 +2974,10 @@ export default function InfrastructureMap() {
     updateRoutePathMut.mutate({
       id: editingRouteId,
       path: JSON.stringify(pts),
-      // null significa desvincular, undefined significa "não alterar" — usar null explicitamente
-      fromElementId: newFromId !== undefined ? newFromId : null,
-      toElementId: newToId !== undefined ? newToId : null,
+      // DGO não é map_element: não salvar como fromElementId/toElementId
+      // null significa desvincular, undefined significa "não alterar"
+      fromElementId: fromIsDgo ? null : (newFromId !== undefined ? newFromId : null),
+      toElementId:   toIsDgo   ? null : (newToId   !== undefined ? newToId   : null),
     });
     cancelEditRoutePath();
   }, [editingRouteId, elements, updateRoutePathMut, cancelEditRoutePath]);
@@ -2592,7 +3005,7 @@ export default function InfrastructureMap() {
       // ESRI World Imagery (satélite gratuito)
       tileLayerRef.current = L.tileLayer(
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        { attribution: "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community", maxZoom: 19 }
+        { attribution: "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community", maxZoom: 18, maxNativeZoom: 18 }
       );
     } else {
       tileLayerRef.current = L.tileLayer(
@@ -3001,8 +3414,9 @@ export default function InfrastructureMap() {
   const handleGroupDelete = async () => {
     for (const id of Array.from(groupSelectedElements)) await deleteGroupMut.mutateAsync({ id });
     for (const id of Array.from(groupSelectedRoutes)) await deleteGroupRouteMut.mutateAsync({ id });
-    setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set());
-    refetchElements(); refetchRoutes(); toast.success("Itens excluídos");
+    for (const id of Array.from(groupSelectedPoles)) await deletePoleMut.mutateAsync({ id });
+    setGroupSelectedElements(new Set()); setGroupSelectedRoutes(new Set()); setGroupSelectedPoles(new Set());
+    refetchElements(); refetchRoutes(); refetchPoles(); toast.success("Itens excluídos");
   };
 
   // Exportar seleção em grupo
@@ -3255,9 +3669,10 @@ export default function InfrastructureMap() {
               </div>
             );
           })()}
-          {/* Selecção de tubo inline */}
+          {/* Selecção de tubo inline + tubos extras */}
           {(fromEl || toEl) && (
             <div className="border border-border rounded-lg p-3 space-y-2.5">
+              {/* Cabeçalho */}
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                   <Cable className="w-3 h-3" /> Tubos vinculados
@@ -3287,6 +3702,7 @@ export default function InfrastructureMap() {
                   </button>
                 )}
               </div>
+              {/* Tubo principal (from/to) */}
               <TubeSelectors
                 fromElId={r.fromElementId ?? null}
                 toElId={r.toElementId ?? null}
@@ -3298,6 +3714,136 @@ export default function InfrastructureMap() {
                   else setInlineTubeToId(value);
                 }}
               />
+              {/* Tubos extras */}
+              {(() => {
+                const extras = extraTubesQuery.data ?? [];
+                const fromExtras = extras.filter(e => e.side === "from");
+                const toExtras = extras.filter(e => e.side === "to");
+                return (
+                  <div className="space-y-1.5">
+                    {/* Lista de tubos extras de origem */}
+                    {fromExtras.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">Origens extras</span>
+                        {fromExtras.map(et => (
+                          <div key={et.id} className="flex items-center gap-1.5 text-xs bg-muted/20 rounded px-2 py-1">
+                            <span className="flex-1 truncate text-muted-foreground">{et.elementName} → {et.tubeIdentifier}</span>
+                            {isAdmin && (
+                              <button onClick={() => deleteExtraTubeMut.mutate({ id: et.id })} className="text-red-400/60 hover:text-red-400 flex-shrink-0" title="Remover">
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Lista de tubos extras de destino */}
+                    {toExtras.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">Destinos extras</span>
+                        {toExtras.map(et => (
+                          <div key={et.id} className="flex items-center gap-1.5 text-xs bg-muted/20 rounded px-2 py-1">
+                            <span className="flex-1 truncate text-muted-foreground">{et.elementName} → {et.tubeIdentifier}</span>
+                            {isAdmin && (
+                              <button onClick={() => deleteExtraTubeMut.mutate({ id: et.id })} className="text-red-400/60 hover:text-red-400 flex-shrink-0" title="Remover">
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Botão adicionar tubo extra */}
+                    {isAdmin && (
+                      <div>
+                        {!addExtraTubeOpen ? (
+                          <button
+                            onClick={() => { setAddExtraTubeOpen(true); setAddExtraTubeElementId(null); setAddExtraTubeTubeId(null); setAddExtraTubeSide("from"); }}
+                            className="text-[10px] text-primary/70 hover:text-primary flex items-center gap-1 mt-1"
+                          >
+                            <Plus className="w-3 h-3" /> Adicionar tubo extra
+                          </button>
+                        ) : (
+                          <div className="border border-border/60 rounded p-2 space-y-2 mt-1 bg-muted/10">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-medium text-muted-foreground">Novo tubo extra</span>
+                              <button onClick={() => setAddExtraTubeOpen(false)} className="text-muted-foreground/50 hover:text-muted-foreground"><X className="w-3 h-3" /></button>
+                            </div>
+                            {/* Lado: origem ou destino */}
+                            <div className="flex gap-1.5">
+                              <button
+                                onClick={() => setAddExtraTubeSide("from")}
+                                className={`flex-1 text-[10px] py-0.5 rounded border transition-colors ${
+                                  addExtraTubeSide === "from" ? "border-cyan-500/60 bg-cyan-500/10 text-cyan-300" : "border-border text-muted-foreground hover:border-border/80"
+                                }`}
+                              >Origem</button>
+                              <button
+                                onClick={() => setAddExtraTubeSide("to")}
+                                className={`flex-1 text-[10px] py-0.5 rounded border transition-colors ${
+                                  addExtraTubeSide === "to" ? "border-violet-500/60 bg-violet-500/10 text-violet-300" : "border-border text-muted-foreground hover:border-border/80"
+                                }`}
+                              >Destino</button>
+                            </div>
+                            {/* Elemento (CEO/CTO) */}
+                            <Select
+                              value={addExtraTubeElementId != null ? String(addExtraTubeElementId) : "none"}
+                              onValueChange={v => { setAddExtraTubeElementId(v === "none" ? null : Number(v)); setAddExtraTubeTubeId(null); }}
+                            >
+                              <SelectTrigger className="h-7 text-xs">
+                                <SelectValue placeholder="Selecionar CEO/CTO" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">Selecionar CEO/CTO...</SelectItem>
+                                {(elements as any[]).filter((e: any) => e.type === 'ceo' || e.type === 'cto').map((e: any) => (
+                                  <SelectItem key={e.id} value={String(e.id)}>{e.elementName ?? e.name ?? e.label ?? `#${e.id}`} ({e.type?.toUpperCase()})</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {/* Tubo do elemento selecionado */}
+                            {addExtraTubeElementId != null && (
+                              <Select
+                                value={addExtraTubeTubeId != null ? String(addExtraTubeTubeId) : "none"}
+                                onValueChange={v => setAddExtraTubeTubeId(v === "none" ? null : Number(v))}
+                              >
+                                <SelectTrigger className="h-7 text-xs">
+                                  <SelectValue placeholder="Selecionar tubo" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">Selecionar tubo...</SelectItem>
+                                  {(addExtraTubeElementTubesQuery.data ?? []).map((t: any) => (
+                                    <SelectItem key={t.id} value={String(t.id)}>{t.identifier} ({t.totalVias} vias)</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                            {/* Botão confirmar */}
+                            <button
+                              disabled={addExtraTubeElementId == null || addExtraTubeTubeId == null || addExtraTubeSaving}
+                              onClick={async () => {
+                                if (addExtraTubeElementId == null || addExtraTubeTubeId == null) return;
+                                setAddExtraTubeSaving(true);
+                                try {
+                                  await addExtraTubeMut.mutateAsync({
+                                    routeId: r.id,
+                                    elementId: addExtraTubeElementId,
+                                    tubeId: addExtraTubeTubeId,
+                                    side: addExtraTubeSide,
+                                  });
+                                } finally {
+                                  setAddExtraTubeSaving(false);
+                                }
+                              }}
+                              className="w-full text-[10px] py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              {addExtraTubeSaving ? "Adicionando..." : "Confirmar"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -4170,31 +4716,62 @@ export default function InfrastructureMap() {
         <MapIcon className="w-4 h-4 text-primary flex-shrink-0" />
         <span className="text-sm font-medium">Mapa de Infraestrutura</span>
         <div className="w-px h-4 bg-border mx-1" />
-        <Button size="sm" variant={showCeos ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowCeos(v => !v)}>
-          <Radio className="w-3 h-3" />CEOs {showCeos ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-        </Button>
-        <Button size="sm" variant={showCtos ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowCtos(v => !v)}>
-          <Box className="w-3 h-3" />CTOs {showCtos ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-        </Button>
-        <Button size="sm" variant={showRoutes ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowRoutes(v => !v)}>
-          <Cable className="w-3 h-3" />Cabos {showRoutes ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-        </Button>
-        <Button size="sm" variant={showPoles ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowPoles(v => !v)} title="Mostrar/ocultar postes">
-          <Milestone className="w-3 h-3" />Postes {showPoles ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-        </Button>
-        <Button size="sm" variant={showReserves ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowReserves(v => !v)} title="Mostrar/ocultar reservas técnicas">
-          <Codesandbox className="w-3 h-3" />Reservas {showReserves ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-        </Button>
-        <Button size="sm" variant={showPois ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setShowPois(v => !v)} title="Mostrar/ocultar pontos de interesse">
-          <MapPin className="w-3 h-3" />POIs {showPois ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-        </Button>
-        <div className="w-px h-4 bg-border mx-1" />
-        <Button size="sm" variant={showElementNames ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => { setShowElementNames(v => { const next = !v; localStorage.setItem('map_showElementNames', next ? '1' : '0'); return next; }); }} title="Mostrar/ocultar nomes dos elementos (CEO/CTO)">
-          <Tag className="w-3 h-3" />Nomes {showElementNames ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-        </Button>
-        <Button size="sm" variant={showCableLabels ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => { setShowCableLabels(v => { const next = !v; localStorage.setItem('map_showCableLabels', next ? '1' : '0'); return next; }); }} title="Mostrar/ocultar metragem dos cabos">
-          <Milestone className="w-3 h-3" />Metragem {showCableLabels ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-        </Button>
+        {/* ── Menu Camadas ─────────────────────────────────────────────────── */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="sm"
+              variant="outline"
+              className={`h-7 gap-1 text-xs ${
+                (!showCeos || !showCtos || !showRoutes || !showPoles || !showReserves || !showPois || !showOlts || !showDgos || !showElementNames || !showCableLabels)
+                  ? "border-primary/60 text-primary bg-primary/10"
+                  : ""
+              }`}
+              title="Mostrar/ocultar camadas do mapa"
+            >
+              <Layers className="w-3 h-3" />
+              Camadas
+              <ChevronDown className="w-3 h-3 ml-0.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuLabel className="text-xs text-muted-foreground py-1">Elementos</DropdownMenuLabel>
+            <DropdownMenuCheckboxItem checked={showCeos} onCheckedChange={() => setShowCeos(v => !v)} className="text-xs">
+              <Radio className="w-3 h-3 mr-1.5 text-muted-foreground" />CEOs
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={showCtos} onCheckedChange={() => setShowCtos(v => !v)} className="text-xs">
+              <Box className="w-3 h-3 mr-1.5 text-muted-foreground" />CTOs
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={showOlts} onCheckedChange={() => setShowOlts(v => !v)} className="text-xs">
+              <Signal className="w-3 h-3 mr-1.5 text-muted-foreground" />OLTs
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={showDgos} onCheckedChange={() => setShowDgos(v => !v)} className="text-xs">
+              <Layers className="w-3 h-3 mr-1.5 text-muted-foreground" />DGOs
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={showPoles} onCheckedChange={() => setShowPoles(v => !v)} className="text-xs">
+              <Milestone className="w-3 h-3 mr-1.5 text-muted-foreground" />Postes
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={showReserves} onCheckedChange={() => setShowReserves(v => !v)} className="text-xs">
+              <Codesandbox className="w-3 h-3 mr-1.5 text-muted-foreground" />Reservas
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={showPois} onCheckedChange={() => setShowPois(v => !v)} className="text-xs">
+              <MapPin className="w-3 h-3 mr-1.5 text-muted-foreground" />POIs
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-muted-foreground py-1">Cabos</DropdownMenuLabel>
+            <DropdownMenuCheckboxItem checked={showRoutes} onCheckedChange={() => setShowRoutes(v => !v)} className="text-xs">
+              <Cable className="w-3 h-3 mr-1.5 text-muted-foreground" />Cabos
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-muted-foreground py-1">Rótulos</DropdownMenuLabel>
+            <DropdownMenuCheckboxItem checked={showElementNames} onCheckedChange={() => { setShowElementNames(v => { const next = !v; localStorage.setItem('map_showElementNames', next ? '1' : '0'); return next; }); }} className="text-xs">
+              <Tag className="w-3 h-3 mr-1.5 text-muted-foreground" />Nomes dos elementos
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={showCableLabels} onCheckedChange={() => { setShowCableLabels(v => { const next = !v; localStorage.setItem('map_showCableLabels', next ? '1' : '0'); return next; }); }} className="text-xs">
+              <Milestone className="w-3 h-3 mr-1.5 text-muted-foreground" />Metragem dos cabos
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         {isAdmin && (
           <>
             <div className="w-px h-4 bg-border mx-1" />
@@ -4209,27 +4786,124 @@ export default function InfrastructureMap() {
               {editMode ? "Edição ON" : "Edição"}
             </Button>
             <div className="w-px h-4 bg-border mx-1" />
-            <Button size="sm" variant={addingMode === "ceo" ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setAddingMode(v => v === "ceo" ? null : "ceo")}>
-              <Plus className="w-3 h-3" />{addingMode === "ceo" ? "Cancelar CEO" : "Add CEO"}
-            </Button>
-            <Button size="sm" variant={addingMode === "cto" ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => setAddingMode(v => v === "cto" ? null : "cto")}>
-              <Plus className="w-3 h-3" />{addingMode === "cto" ? "Cancelar CTO" : "Add CTO"}
-            </Button>
-            <Button size="sm" variant={addingRouteMode ? "default" : "outline"} className="h-7 gap-1 text-xs" onClick={() => { setAddingRouteMode(v => !v); setRouteFrom(null); }}>
-              <Cable className="w-3 h-3" />{addingRouteMode ? "Cancelar Rota" : "Add Cabo"}
-            </Button>
-            <Button size="sm" variant={addingOltMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${addingOltMode ? "bg-amber-600 hover:bg-amber-700 border-amber-500 text-white" : "border-amber-500/40 text-amber-400 hover:bg-amber-500/10"}`} onClick={() => setAddingOltMode(v => !v)}>
-              <Signal className="w-3 h-3" />{addingOltMode ? "Cancelar OLT" : "Add OLT"}
-            </Button>
-            <Button size="sm" variant={addingPoleMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${addingPoleMode ? "bg-slate-600 hover:bg-slate-700 border-slate-500 text-white" : "border-slate-500/40 text-slate-400 hover:bg-slate-500/10"}`} onClick={() => setAddingPoleMode(v => !v)}>
-              <Milestone className="w-3 h-3" />{addingPoleMode ? "Cancelar Poste" : "Add Poste"}
-            </Button>
-            <Button size="sm" variant={addingReserveMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${addingReserveMode ? "bg-cyan-700 hover:bg-cyan-800 border-cyan-600 text-white" : "border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10"}`} onClick={() => setAddingReserveMode(v => !v)}>
-              <Codesandbox className="w-3 h-3" />{addingReserveMode ? "Cancelar Reserva" : "Add Reserva"}
-            </Button>
-            <Button size="sm" variant={addingPoiMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${addingPoiMode ? "bg-indigo-600 hover:bg-indigo-700 border-indigo-500 text-white" : "border-indigo-500/40 text-indigo-400 hover:bg-indigo-500/10"}`} onClick={() => setAddingPoiMode(v => !v)} title="Clique no mapa para adicionar um Ponto de Interesse">
-              <MapPin className="w-3 h-3" />{addingPoiMode ? "Cancelar POI" : "Add POI"}
-            </Button>
+            {/* ── Menu Adicionar Elemento ──────────────────────────────────── */}
+            {(() => {
+              const anyAddingActive = addingMode !== null || addingRouteMode || addingOltMode || addingDgoMode || addingPoleMode || addingReserveMode || addingPoiMode;
+              const activeLabel = addingMode === "ceo" ? "CEO" : addingMode === "cto" ? "CTO" : addingRouteMode ? "Cabo" : addingOltMode ? "OLT" : addingDgoMode ? "DGO" : addingPoleMode ? "Poste" : addingReserveMode ? "Reserva" : addingPoiMode ? "POI" : null;
+              return (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant={anyAddingActive ? "default" : "outline"}
+                      className={`h-7 gap-1 text-xs font-medium ${
+                        anyAddingActive
+                          ? "bg-emerald-600 hover:bg-emerald-700 border-emerald-500 text-white"
+                          : "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
+                      }`}
+                      title="Adicionar elemento ao mapa"
+                    >
+                      <Plus className="w-3 h-3" />
+                      {anyAddingActive ? `Adicionando: ${activeLabel}` : "Adicionar"}
+                      {!anyAddingActive && <ChevronDown className="w-3 h-3 ml-0.5" />}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-52">
+                    <DropdownMenuLabel className="text-xs text-muted-foreground py-1">Selecione o tipo de elemento</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        className={`text-xs gap-2 cursor-pointer ${ addingMode === "ceo" ? "bg-primary/10 text-primary font-medium" : "" }`}
+                        onClick={() => { setAddingMode(v => v === "ceo" ? null : "ceo"); setAddingRouteMode(false); setAddingOltMode(false); setAddingDgoMode(false); setAddingPoleMode(false); setAddingReserveMode(false); setAddingPoiMode(false); }}
+                      >
+                        <Radio className="w-3.5 h-3.5 text-blue-400" />
+                        <span className="flex-1">CEO</span>
+                        <span className="text-[10px] text-muted-foreground">Caixa de Emenda</span>
+                        {addingMode === "ceo" && <Check className="w-3 h-3 text-primary" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className={`text-xs gap-2 cursor-pointer ${ addingMode === "cto" ? "bg-primary/10 text-primary font-medium" : "" }`}
+                        onClick={() => { setAddingMode(v => v === "cto" ? null : "cto"); setAddingRouteMode(false); setAddingOltMode(false); setAddingDgoMode(false); setAddingPoleMode(false); setAddingReserveMode(false); setAddingPoiMode(false); }}
+                      >
+                        <Box className="w-3.5 h-3.5 text-green-400" />
+                        <span className="flex-1">CTO</span>
+                        <span className="text-[10px] text-muted-foreground">Caixa Terminal</span>
+                        {addingMode === "cto" && <Check className="w-3 h-3 text-primary" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className={`text-xs gap-2 cursor-pointer ${ addingOltMode ? "bg-amber-500/10 text-amber-400 font-medium" : "" }`}
+                        onClick={() => { setAddingOltMode(v => !v); setAddingMode(null); setAddingRouteMode(false); setAddingDgoMode(false); setAddingPoleMode(false); setAddingReserveMode(false); setAddingPoiMode(false); }}
+                      >
+                        <Signal className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="flex-1">OLT</span>
+                        <span className="text-[10px] text-muted-foreground">Equipamento OLT</span>
+                        {addingOltMode && <Check className="w-3 h-3 text-amber-400" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className={`text-xs gap-2 cursor-pointer ${ addingDgoMode ? "bg-orange-500/10 text-orange-400 font-medium" : "" }`}
+                        onClick={() => { setAddingDgoMode(v => !v); setAddingMode(null); setAddingRouteMode(false); setAddingOltMode(false); setAddingPoleMode(false); setAddingReserveMode(false); setAddingPoiMode(false); }}
+                      >
+                        <Layers className="w-3.5 h-3.5 text-orange-400" />
+                        <span className="flex-1">DGO</span>
+                        <span className="text-[10px] text-muted-foreground">Distribuidor Geral</span>
+                        {addingDgoMode && <Check className="w-3 h-3 text-orange-400" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className={`text-xs gap-2 cursor-pointer ${ addingPoleMode ? "bg-slate-500/10 text-slate-400 font-medium" : "" }`}
+                        onClick={() => { setAddingPoleMode(v => !v); setAddingMode(null); setAddingRouteMode(false); setAddingOltMode(false); setAddingDgoMode(false); setAddingReserveMode(false); setAddingPoiMode(false); }}
+                      >
+                        <Milestone className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="flex-1">Poste</span>
+                        <span className="text-[10px] text-muted-foreground">Poste de rede</span>
+                        {addingPoleMode && <Check className="w-3 h-3 text-slate-400" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className={`text-xs gap-2 cursor-pointer ${ addingReserveMode ? "bg-cyan-500/10 text-cyan-400 font-medium" : "" }`}
+                        onClick={() => { setAddingReserveMode(v => !v); setAddingMode(null); setAddingRouteMode(false); setAddingOltMode(false); setAddingDgoMode(false); setAddingPoleMode(false); setAddingPoiMode(false); }}
+                      >
+                        <Codesandbox className="w-3.5 h-3.5 text-cyan-400" />
+                        <span className="flex-1">Reserva Técnica</span>
+                        <span className="text-[10px] text-muted-foreground">Ponto de reserva</span>
+                        {addingReserveMode && <Check className="w-3 h-3 text-cyan-400" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className={`text-xs gap-2 cursor-pointer ${ addingPoiMode ? "bg-indigo-500/10 text-indigo-400 font-medium" : "" }`}
+                        onClick={() => { setAddingPoiMode(v => !v); setAddingMode(null); setAddingRouteMode(false); setAddingOltMode(false); setAddingDgoMode(false); setAddingPoleMode(false); setAddingReserveMode(false); }}
+                      >
+                        <MapPin className="w-3.5 h-3.5 text-indigo-400" />
+                        <span className="flex-1">POI</span>
+                        <span className="text-[10px] text-muted-foreground">Ponto de Interesse</span>
+                        {addingPoiMode && <Check className="w-3 h-3 text-indigo-400" />}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        className={`text-xs gap-2 cursor-pointer ${ addingRouteMode ? "bg-cyan-500/10 text-cyan-400 font-medium" : "" }`}
+                        onClick={() => { setAddingRouteMode(v => !v); setRouteFrom(null); setAddingMode(null); setAddingOltMode(false); setAddingDgoMode(false); setAddingPoleMode(false); setAddingReserveMode(false); setAddingPoiMode(false); }}
+                      >
+                        <Cable className="w-3.5 h-3.5 text-cyan-400" />
+                        <span className="flex-1">Cabo / Rota</span>
+                        <span className="text-[10px] text-muted-foreground">Traçar cabo no mapa</span>
+                        {addingRouteMode && <Check className="w-3 h-3 text-cyan-400" />}
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    {anyAddingActive && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-xs gap-2 cursor-pointer text-red-400 hover:text-red-300"
+                          onClick={() => { setAddingMode(null); setAddingRouteMode(false); setAddingOltMode(false); setAddingDgoMode(false); setAddingPoleMode(false); setAddingReserveMode(false); setAddingPoiMode(false); }}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Cancelar modo de adição
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              );
+            })()}
           </>
         )}
         <div className="ml-auto flex items-center gap-2">
@@ -4245,6 +4919,9 @@ export default function InfrastructureMap() {
           </Button>
           <Button size="sm" variant={groupSelectMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${groupSelectMode ? "bg-cyan-600 hover:bg-cyan-700 border-cyan-500" : ""}`} onClick={toggleGroupSelectMode}>
             <MousePointer2 className="w-3 h-3" />{groupSelectMode ? `Seleção (${groupTotalSelected})` : "Selecionar"}
+          </Button>
+          <Button size="sm" variant={viabilityMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${viabilityMode ? "bg-amber-600 hover:bg-amber-700 border-amber-500" : ""}`} onClick={() => { setViabilityMode(v => { if (v) { setViabilityPoint(null); setViabilityResults([]); } return !v; }); }} title="Viabilidade Técnica">
+            <ScanSearch className="w-3 h-3" />{viabilityMode ? "Viabilidade" : "Viabilidade"}
           </Button>
           {isAdmin && (
             <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => { setKmlImportResult(null); setKmlImportOpen(true); }} title="Importar posições de CEO/CTO de um arquivo KML">
@@ -4323,6 +5000,137 @@ export default function InfrastructureMap() {
           <button onClick={toggleGroupSelectMode} className="text-cyan-300 hover:text-cyan-200 underline text-xs">Sair da seleção</button>
         </div>
       )}
+      {viabilityMode && (
+        <div className="border-b border-amber-500/30 bg-amber-500/5">
+          {/* Banner de instrução */}
+          <div className="px-4 py-2 text-amber-400 text-xs flex items-center gap-3 flex-wrap">
+            <ScanSearch className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="flex-1 min-w-[120px]">{viabilityPoint ? `Ponto selecionado — ${viabilityResults.length} CTO${viabilityResults.length !== 1 ? 's' : ''} encontrada${viabilityResults.length !== 1 ? 's' : ''} no raio` : 'Clique no mapa ou informe as coordenadas'}</span>
+            {/* Entrada manual de coordenadas */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-amber-300/70">Lat:</span>
+              <input
+                id="viability-lat-input"
+                type="text"
+                placeholder="-23.5505"
+                defaultValue={viabilityPoint ? String(viabilityPoint.lat.toFixed(6)) : ''}
+                className="w-24 h-6 text-xs bg-background border border-amber-500/40 rounded px-1.5 text-amber-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+              <span className="text-amber-300/70">Lng:</span>
+              <input
+                id="viability-lng-input"
+                type="text"
+                placeholder="-46.6333"
+                defaultValue={viabilityPoint ? String(viabilityPoint.lng.toFixed(6)) : ''}
+                className="w-24 h-6 text-xs bg-background border border-amber-500/40 rounded px-1.5 text-amber-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+              <button
+                onClick={() => {
+                  const latEl = document.getElementById('viability-lat-input') as HTMLInputElement;
+                  const lngEl = document.getElementById('viability-lng-input') as HTMLInputElement;
+                  const lat = parseFloat(latEl?.value ?? '');
+                  const lng = parseFloat(lngEl?.value ?? '');
+                  if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                    setViabilityPoint({ lat, lng });
+                    mapRef.current?.flyTo([lat, lng], 15, { duration: 0.8 });
+                  } else {
+                    toast.error('Coordenadas inválidas. Use formato decimal, ex: -23.5505');
+                  }
+                }}
+                className="h-6 px-2 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-medium"
+              >Buscar</button>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-amber-300/70">Raio:</span>
+              <input
+                type="number"
+                min={50} max={10000} step={50}
+                value={viabilityRadius}
+                onChange={e => setViabilityRadius(Number(e.target.value))}
+                className="w-20 h-6 text-xs bg-background border border-amber-500/40 rounded px-1.5 text-amber-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+              <span className="text-amber-300/70">m</span>
+            </div>
+            {viabilityPoint && <button onClick={() => { setViabilityPoint(null); setViabilityResults([]); }} className="text-amber-300 hover:text-amber-200 underline text-xs">Limpar ponto</button>}
+            <button onClick={() => { setViabilityMode(false); setViabilityPoint(null); setViabilityResults([]); }} className="text-amber-300 hover:text-amber-200 underline text-xs">Sair</button>
+          </div>
+          {/* Resultados */}
+          {viabilityPoint && (
+            <div className="px-4 pb-3">
+              {viabilityLoadingRoutes && (
+                <div className="flex items-center gap-2 py-1.5 text-amber-400/70 text-xs mb-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Calculando rotas pelas ruas via OSRM…</span>
+                </div>
+              )}
+              {viabilityResults.length === 0 ? (
+                <div className="flex items-center gap-2 py-2 text-amber-400/70 text-xs">
+                  <XCircle className="w-4 h-4" />
+                  <span>Nenhuma CTO encontrada no raio de {viabilityRadius}m. Tente aumentar o raio.</span>
+                </div>
+              ) : (
+                <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
+                  {viabilityResults.map((r: any, idx: number) => {
+                    const free = r.capacity - r.usedPorts;
+                    const pct = r.capacity > 0 ? Math.round((r.usedPorts / r.capacity) * 100) : 0;
+                    const viable = free > 0 && r.status === 'active';
+                    const warn = viable && free <= 2;
+                    const isBest = idx === 0 && viable;
+                    const distDisplay = r.routeDistance != null
+                      ? `${r.routeDistance >= 1000 ? (r.routeDistance / 1000).toFixed(1) + ' km' : r.routeDistance + ' m'} pelas ruas`
+                      : `${r.distance} m (linha reta)`;
+                    const timeDisplay = r.routeDuration != null
+                      ? `~${Math.round(r.routeDuration / 60)} min de carro`
+                      : null;
+                    return (
+                      <div
+                        key={r.id}
+                        onMouseEnter={() => setViabilityHoveredId(r.id)}
+                        onMouseLeave={() => setViabilityHoveredId(null)}
+                        className={`rounded-lg border p-2.5 text-xs flex flex-col gap-1.5 transition-all ${
+                          !viable ? 'border-red-500/30 bg-red-500/5' :
+                          warn ? 'border-amber-500/40 bg-amber-500/5' :
+                          isBest ? 'border-emerald-400/60 bg-emerald-500/10 ring-1 ring-emerald-500/30' :
+                          'border-emerald-500/30 bg-emerald-500/5'
+                        }`}>
+                        <div className="flex items-center gap-1.5 font-semibold">
+                          {!viable ? <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" /> :
+                           warn ? <AlertCircle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" /> :
+                           <CheckCircle className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
+                          <span className={!viable ? 'text-red-300' : warn ? 'text-amber-300' : 'text-emerald-300'}>{r.name}</span>
+                          {isBest && <span className="ml-auto text-[9px] bg-emerald-600/40 text-emerald-300 rounded px-1 py-0.5">Mais próxima</span>}
+                        </div>
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <CircleDot className="w-3 h-3 flex-shrink-0" />
+                          <span>{distDisplay}</span>
+                          {r.routeDistance == null && viabilityLoadingRoutes && <Loader2 className="w-3 h-3 animate-spin ml-1" />}
+                        </div>
+                        {timeDisplay && <div className="text-muted-foreground/80">{timeDisplay}</div>}
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span>{r.usedPorts}/{r.capacity} portas</span>
+                          <span>{pct}% ocupada</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full transition-all ${
+                            pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+                          }`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                        </div>
+                        {!viable && r.status !== 'active' && <span className="text-red-400/80">Status: {r.status}</span>}
+                        {!viable && free === 0 && <span className="text-red-400/80">Sem portas livres</span>}
+                        {viable && <span className={warn ? 'text-amber-400/80' : 'text-emerald-400/80'}>{free} porta{free !== 1 ? 's' : ''} livre{free !== 1 ? 's' : ''}</span>}
+                        <button
+                          onClick={() => { if (mapRef.current) mapRef.current.flyTo([r.lat, r.lng], 17, { duration: 0.8 }); }}
+                          className="mt-0.5 text-xs text-cyan-400 hover:text-cyan-300 underline text-left"
+                        >Ver no mapa</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {addingMode && (
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
           <Navigation className="w-3.5 h-3.5" />Clique no mapa para posicionar um {addingMode.toUpperCase()}
@@ -4333,6 +5141,12 @@ export default function InfrastructureMap() {
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
           <Signal className="w-3.5 h-3.5" />Clique no mapa para posicionar a OLT
           <button onClick={() => setAddingOltMode(false)} className="ml-auto text-amber-300 hover:text-amber-200 underline">Cancelar</button>
+        </div>
+      )}
+      {addingDgoMode && (
+        <div className="px-4 py-2 bg-orange-500/10 border-b border-orange-500/30 text-orange-400 text-xs flex items-center gap-2">
+          <Layers className="w-3.5 h-3.5" />Clique no mapa para posicionar o DGO
+          <button onClick={() => setAddingDgoMode(false)} className="ml-auto text-orange-300 hover:text-orange-200 underline">Cancelar</button>
         </div>
       )}
       {addingPoleMode && (
@@ -4410,7 +5224,44 @@ export default function InfrastructureMap() {
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 relative">
+        <div
+          className="flex-1 relative"
+          onDragOver={(e) => {
+            // Permitir drop apenas quando há um item fiberdoc sendo arrastado
+            if (e.dataTransfer.types.includes('application/fiberdoc-item')) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+            }
+          }}
+          onDrop={(e) => {
+            const raw = e.dataTransfer.getData('application/fiberdoc-item');
+            if (!raw || !mapRef.current) return;
+            try {
+              const { type, id } = JSON.parse(raw);
+              if (type !== 'route') return;
+              // Converter posição do mouse para coordenadas do mapa
+              const mapContainer = mapContainerRef.current;
+              if (!mapContainer) return;
+              const rect = mapContainer.getBoundingClientRect();
+              const point = L.point(e.clientX - rect.left, e.clientY - rect.top);
+              // Verificar se o ponto está próximo de algum ícone DGO (raio de 30px)
+              const RADIUS = 30;
+              const dgoArr = dgoElements as any[];
+              const hitDgo = dgoArr.find((dgo: any) => {
+                const dgoPoint = mapRef.current!.latLngToContainerPoint([Number(dgo.lat), Number(dgo.lng)]);
+                const dx = dgoPoint.x - point.x;
+                const dy = dgoPoint.y - point.y;
+                return Math.sqrt(dx * dx + dy * dy) <= RADIUS;
+              });
+              if (hitDgo) {
+                e.preventDefault();
+                setPendingDgoFiberLinkRouteId(id);
+                setSelectedDgoElementId(hitDgo.id);
+                setDgoDetailPanelOpen(true);
+              }
+            } catch {}
+          }}
+        >
           <div ref={mapContainerRef} className="w-full h-full" style={{ zIndex: 0 }} />
           {/* Retângulo visual de box select no mapa */}
           {groupSelectMode && mapBoxSelectRect && (
@@ -4955,7 +5806,8 @@ export default function InfrastructureMap() {
                           style={{ paddingLeft: `${8 + depth * 16}px` }}
                           ref={(node) => { if (node) itemElemsRef.current.set(`rt-${rt.id}`, { id: rt.id, type: 'route', groupId: group.id, el: node }); else itemElemsRef.current.delete(`rt-${rt.id}`); }}
                           draggable
-                          onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'route', id: rt.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; }}
+                          onDragStart={(e) => { e.dataTransfer.setData('application/fiberdoc-item', JSON.stringify({ type: 'route', id: rt.id, fromGroupId: group.id })); e.dataTransfer.effectAllowed = 'move'; setIsDraggingRoute(true); }}
+                          onDragEnd={() => setIsDraggingRoute(false)}
                         >
                           <Checkbox
                             checked={checkedItems.routes.has(rt.id)}
@@ -5278,7 +6130,7 @@ export default function InfrastructureMap() {
                                 const isHidden = hiddenElementIds.has(el.id);
                                 const elName = el.elementName ?? el.name ?? el.label ?? `#${el.id}`;
                                 return (
-                                  <div key={`unel-${el.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
+                                  <div key={`unel-${el.id}`} ref={(node) => { if (node) itemElemsRef.current.set(`el-${el.id}`, { id: el.id, type: 'element', groupId: -1, el: node }); else itemElemsRef.current.delete(`el-${el.id}`); }} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} ${checkedItems.elements.has(el.id) ? "bg-violet-500/10" : ""}`}>
                                     <span className="w-3 h-3 flex-shrink-0" />
                                     <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("element", el.id)} />
                                     <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => flyToItem(el.lat, el.lng)} title={elName}>{elName}</span>
@@ -5298,8 +6150,8 @@ export default function InfrastructureMap() {
                                   else if (rt.path) { const pts = JSON.parse(rt.path); if (pts.length > 0) { midLat = pts[Math.floor(pts.length/2)].lat; midLng = pts[Math.floor(pts.length/2)].lng; } }
                                 } catch {}
                                 return (
-                                  <div key={`unrt-${rt.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
-                                    <span className="w-3 h-3 flex-shrink-0" />
+                                  <div key={`unrt-${rt.id}`} ref={(node) => { if (node) itemElemsRef.current.set(`rt-${rt.id}`, { id: rt.id, type: 'route', groupId: -1, el: node }); else itemElemsRef.current.delete(`rt-${rt.id}`); }} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} ${checkedItems.routes.has(rt.id) ? "bg-violet-500/10" : ""}`}>
+                                    <Checkbox checked={checkedItems.routes.has(rt.id)} onCheckedChange={() => toggleCheckedRoute(rt.id)} className="w-3 h-3 flex-shrink-0" />
                                     <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("route", rt.id)} />
                                     <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => flyToItem(midLat, midLng)} title={rtName}>{rtName}</span>
                                     <span className="text-muted-foreground/40 uppercase text-[9px]">cabo</span>
@@ -5310,8 +6162,8 @@ export default function InfrastructureMap() {
                                 const isHidden = hiddenPoleIds.has(pole.id);
                                 const poleName = pole.name ?? `Poste #${pole.id}`;
                                 return (
-                                  <div key={`unpole-${pole.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
-                                    <span className="w-3 h-3 flex-shrink-0" />
+                                  <div key={`unpole-${pole.id}`} ref={(node) => { if (node) itemElemsRef.current.set(`pole-${pole.id}`, { id: pole.id, type: 'pole', groupId: -1, el: node }); else itemElemsRef.current.delete(`pole-${pole.id}`); }} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} ${checkedItems.poles.has(pole.id) ? "bg-violet-500/10" : ""}`}>
+                                    <Checkbox checked={checkedItems.poles.has(pole.id)} onCheckedChange={() => toggleCheckedPole(pole.id)} className="w-3 h-3 flex-shrink-0" />
                                     <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("pole", pole.id)} />
                                     <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => flyToItem(pole.lat, pole.lng)} title={poleName}>{poleName}</span>
                                     <span className="text-muted-foreground/40 uppercase text-[9px]">poste</span>
@@ -5322,8 +6174,8 @@ export default function InfrastructureMap() {
                                 const isHidden = hiddenReserveIds.has(reserve.id);
                                 const reserveName = reserve.name ?? `Reserva #${reserve.id}`;
                                 return (
-                                  <div key={`unreserve-${reserve.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
-                                    <span className="w-3 h-3 flex-shrink-0" />
+                                  <div key={`unreserve-${reserve.id}`} ref={(node) => { if (node) itemElemsRef.current.set(`reserve-${reserve.id}`, { id: reserve.id, type: 'reserve', groupId: -1, el: node }); else itemElemsRef.current.delete(`reserve-${reserve.id}`); }} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} ${checkedItems.reserves.has(reserve.id) ? "bg-violet-500/10" : ""}`}>
+                                    <Checkbox checked={checkedItems.reserves.has(reserve.id)} onCheckedChange={() => toggleCheckedReserve(reserve.id)} className="w-3 h-3 flex-shrink-0" />
                                     <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("reserve", reserve.id)} />
                                     <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => flyToItem(reserve.lat, reserve.lng)} title={reserveName}>{reserveName}</span>
                                     <span className="text-muted-foreground/40 uppercase text-[9px]">reserva</span>
@@ -5334,8 +6186,8 @@ export default function InfrastructureMap() {
                                 const isHidden = hiddenPoiIds.has(poi.id);
                                 const poiName = poi.name ?? `POI #${poi.id}`;
                                 return (
-                                  <div key={`unpoi-${poi.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
-                                    <span className="w-3 h-3 flex-shrink-0" />
+                                  <div key={`unpoi-${poi.id}`} ref={(node) => { if (node) itemElemsRef.current.set(`poi-${poi.id}`, { id: poi.id, type: 'poi', groupId: -1, el: node }); else itemElemsRef.current.delete(`poi-${poi.id}`); }} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} ${checkedItems.pois.has(poi.id) ? "bg-violet-500/10" : ""}`}>
+                                    <Checkbox checked={checkedItems.pois.has(poi.id)} onCheckedChange={() => toggleCheckedPoi(poi.id)} className="w-3 h-3 flex-shrink-0" />
                                     <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("poi", poi.id)} />
                                     <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => { flyToItem(poi.lat, poi.lng); setSidePanel({ kind: "poi", poi }); }} title={poiName}>{poiName}</span>
                                     <span className="text-muted-foreground/40 uppercase text-[9px]">{poi.category ?? "poi"}</span>
@@ -5346,8 +6198,8 @@ export default function InfrastructureMap() {
                                 const isHidden = hiddenOltIds.has(olt.id);
                                 const oltName = olt.equipmentName ?? `OLT #${olt.id}`;
                                 return (
-                                  <div key={`unolt-${olt.id}`} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""}`}>
-                                    <span className="w-3 h-3 flex-shrink-0" />
+                                  <div key={`unolt-${olt.id}`} ref={(node) => { if (node) itemElemsRef.current.set(`olt-${olt.id}`, { id: olt.id, type: 'olt', groupId: -1, el: node }); else itemElemsRef.current.delete(`olt-${olt.id}`); }} className={`flex items-center gap-1.5 px-2 py-0.5 hover:bg-muted/20 text-xs ${isHidden ? "opacity-40" : ""} ${checkedItems.olts.has(olt.id) ? "bg-violet-500/10" : ""}`}>
+                                    <Checkbox checked={checkedItems.olts.has(olt.id)} onCheckedChange={() => toggleCheckedOlt(olt.id)} className="w-3 h-3 flex-shrink-0" />
                                     <VisibilityBtn hidden={isHidden} onToggle={() => toggleItemVisibility("olt", olt.id)} />
                                     <span className="text-muted-foreground truncate flex-1 cursor-pointer hover:text-foreground" onClick={() => { flyToItem(olt.lat, olt.lng); setSelectedOltElementId(olt.id); setOltDetailPanelOpen(true); }} title={oltName}>{oltName}</span>
                                     <span className="text-muted-foreground/40 uppercase text-[9px]">olt</span>
@@ -7659,6 +8511,47 @@ export default function InfrastructureMap() {
           }}
           onClose={() => { setOltDetailPanelOpen(false); setSelectedOltElementId(null); setMovingOltId(null); setPendingOltMovePos(null); }}
           onUpdated={() => { refetchOltElements(); refetchGroups(); }}
+        />
+      )}
+
+      {/* ── Diálogo de Criação DGO ── */}
+      <DgoCreateDialog
+        open={dgoCreateDialogOpen}
+        onClose={() => setDgoCreateDialogOpen(false)}
+        lat={dgoCreateLat}
+        lng={dgoCreateLng}
+        onCreated={() => { refetchDgoElements(); }}
+      />
+
+      {/* ── Painel de Detalhes DGO ── */}
+      {dgoDetailPanelOpen && selectedDgoElementId != null && (
+        <DgoDetailPanel
+          dgoElementId={selectedDgoElementId}
+          mapGroups={mapGroups as any[]}
+          pendingFiberLinkRouteId={pendingDgoFiberLinkRouteId}
+          onFiberLinkRouteConsumed={() => setPendingDgoFiberLinkRouteId(null)}
+          isMoving={movingDgoId === selectedDgoElementId}
+          pendingMovePos={pendingDgoMovePos?.id === selectedDgoElementId ? pendingDgoMovePos : null}
+          onToggleMove={() => {
+            if (movingDgoId === selectedDgoElementId) {
+              setMovingDgoId(null);
+              setPendingDgoMovePos(null);
+              toast.info("Modo mover cancelado");
+            } else {
+              setMovingDgoId(selectedDgoElementId);
+              setPendingDgoMovePos(null);
+              setDgoDetailPanelOpen(false);
+              toast.info("Arraste o marcador do DGO para reposicioná-lo. Clique nele novamente para salvar.", { duration: 6000 });
+            }
+          }}
+          onSaveMove={() => {
+            const p = pendingDgoMovePos;
+            if (!p) return;
+            updateDgoElementMut.mutate({ id: p.id, lat: p.lat, lng: p.lng }, {
+              onSuccess: () => { setMovingDgoId(null); setPendingDgoMovePos(null); }
+            });
+          }}
+          onClose={() => { setDgoDetailPanelOpen(false); setSelectedDgoElementId(null); setMovingDgoId(null); setPendingDgoMovePos(null); }}
         />
       )}
 

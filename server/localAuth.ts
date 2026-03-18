@@ -9,14 +9,22 @@
  *  3. Após o login, o sistema detecta mustChangePassword=true e redireciona para /alterar-senha.
  *  4. O operador define uma nova senha e o flag é removido.
  */
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { compare, hash } from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { getUserByEmail, upsertUser, getDb } from "./db";
+import { runWithTenantDb } from "./_core/tenantContext";
 import { users } from "../drizzle/schema";
+
+/** Retorna o banco correto: tenant se disponível, senão padrão */
+async function getDbForRequest(req: Request) {
+  const tenantDb = (req as any).tenantDb;
+  if (tenantDb) return tenantDb;
+  return getDb();
+}
 
 export function registerLocalAuthRoutes(app: Express) {
   // POST /api/local-login — autentica por email+senha e define cookie de sessão
@@ -27,36 +35,47 @@ export function registerLocalAuthRoutes(app: Express) {
         return res.status(400).json({ error: "Email e senha são obrigatórios" });
       }
 
-      const user = await getUserByEmail(email.trim().toLowerCase());
-      if (!user || !user.passwordHash) {
-        return res.status(401).json({ error: "Usuário ou senha inválidos" });
+      const tenantDb = (req as any).tenantDb;
+
+      // Usar banco do tenant se disponível
+      const doLogin = async () => {
+        const user = await getUserByEmail(email.trim().toLowerCase());
+        if (!user || !user.passwordHash) {
+          return res.status(401).json({ error: "Usuário ou senha inválidos" });
+        }
+
+        const valid = await compare(password, user.passwordHash);
+        if (!valid) {
+          return res.status(401).json({ error: "Usuário ou senha inválidos" });
+        }
+
+        // Gerar token de sessão usando o mesmo mecanismo do OAuth
+        const sessionToken = await sdk.signSession(
+          { openId: user.openId, appId: "local", name: user.name || user.email || "usuario" },
+          { expiresInMs: ONE_YEAR_MS }
+        );
+
+        // Atualizar lastSignedIn
+        await upsertUser({ openId: user.openId, lastSignedIn: new Date() });
+
+        const cookieOptions = getSessionCookieOptions(req);
+        res.cookie(COOKIE_NAME, sessionToken, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return res.json({
+          ok: true,
+          mustChangePassword: user.mustChangePassword === true,
+          user: { id: user.id, name: user.name, email: user.email, role: user.role },
+        });
+      };
+
+      if (tenantDb) {
+        return await runWithTenantDb(tenantDb, doLogin);
+      } else {
+        return await doLogin();
       }
-
-      const valid = await compare(password, user.passwordHash);
-      if (!valid) {
-        return res.status(401).json({ error: "Usuário ou senha inválidos" });
-      }
-
-      // Gerar token de sessão usando o mesmo mecanismo do OAuth
-      const sessionToken = await sdk.signSession(
-        { openId: user.openId, appId: "local", name: user.name || user.email || "usuario" },
-        { expiresInMs: ONE_YEAR_MS }
-      );
-
-      // Atualizar lastSignedIn
-      await upsertUser({ openId: user.openId, lastSignedIn: new Date() });
-
-      const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, {
-        ...cookieOptions,
-        maxAge: ONE_YEAR_MS,
-      });
-
-      return res.json({
-        ok: true,
-        mustChangePassword: user.mustChangePassword === true,
-        user: { id: user.id, name: user.name, email: user.email, role: user.role },
-      });
     } catch (err) {
       console.error("[local-login] erro:", err);
       return res.status(500).json({ error: "Erro interno no servidor" });
@@ -93,26 +112,36 @@ export function registerLocalAuthRoutes(app: Express) {
         return res.status(401).json({ error: "Sessão inválida" });
       }
 
-      const db = await getDb();
-      if (!db) return res.status(503).json({ error: "Banco de dados indisponível" });
+      const tenantDb = (req as any).tenantDb;
 
-      const rows = await db.select().from(users).where(eq(users.openId, sessionData.openId)).limit(1);
-      const user = rows[0];
-      if (!user || !user.passwordHash) {
-        return res.status(404).json({ error: "Usuário não encontrado" });
+      const doChangePassword = async () => {
+        const db = await getDb();
+        if (!db) return res.status(503).json({ error: "Banco de dados indisponível" });
+
+        const rows = await db.select().from(users).where(eq(users.openId, sessionData!.openId)).limit(1);
+        const user = rows[0];
+        if (!user || !user.passwordHash) {
+          return res.status(404).json({ error: "Usuário não encontrado" });
+        }
+
+        const valid = await compare(currentPassword, user.passwordHash);
+        if (!valid) {
+          return res.status(401).json({ error: "Senha atual incorreta" });
+        }
+
+        const newHash = await hash(newPassword, 12);
+        await db.update(users)
+          .set({ passwordHash: newHash, mustChangePassword: false })
+          .where(eq(users.id, user.id));
+
+        return res.json({ ok: true });
+      };
+
+      if (tenantDb) {
+        return await runWithTenantDb(tenantDb, doChangePassword);
+      } else {
+        return await doChangePassword();
       }
-
-      const valid = await compare(currentPassword, user.passwordHash);
-      if (!valid) {
-        return res.status(401).json({ error: "Senha atual incorreta" });
-      }
-
-      const newHash = await hash(newPassword, 12);
-      await db.update(users)
-        .set({ passwordHash: newHash, mustChangePassword: false })
-        .where(eq(users.id, user.id));
-
-      return res.json({ ok: true });
     } catch (err) {
       console.error("[local-change-password] erro:", err);
       return res.status(500).json({ error: "Erro interno no servidor" });

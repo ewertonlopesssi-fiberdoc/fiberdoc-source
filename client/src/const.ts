@@ -1,12 +1,39 @@
 export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 
+// Slugs reservados que não são tenants (deve ser igual ao do main.tsx)
+const RESERVED_SLUGS = new Set([
+  "api", "admin", "static", "public", "assets", "mobile",
+  "login", "bem-vindo", "alterar-senha", "relatorio-sala",
+  // Rotas internas do sistema que não são slugs de tenant
+  "mapa", "equipamentos", "fibras", "portas", "conexoes", "topologia",
+  "historico", "salas", "importar", "relatorio-ocupacao", "ceo", "cto",
+  "busca-porta", "usuarios", "backup", "sistema", "rede", "ip-doc",
+  "fontes-energia", "alertas", "sensores-tuya", "sgp", "ssh-commander",
+  "cpe-manager", "monitor-rede", "404",
+]);
+
+/**
+ * Detecta o slug do tenant na URL atual.
+ * Exemplo: /netfibra/mapa → "netfibra"
+ */
+export function getTenantSlug(): string | null {
+  const parts = window.location.pathname.split("/").filter(Boolean);
+  const first = parts[0];
+  if (!first) return null;
+  if (RESERVED_SLUGS.has(first)) return null;
+  if (!/^[a-zA-Z0-9-_]+$/.test(first)) return null;
+  return first;
+}
+
 // Generate login URL at runtime so redirect URI reflects the current origin.
 export const getLoginUrl = () => {
   const oauthPortalUrl = import.meta.env.VITE_OAUTH_PORTAL_URL;
+  const slug = getTenantSlug();
 
   // When running in standalone/local mode (no OAuth configured), redirect to local login page
   if (!oauthPortalUrl) {
-    return "/login";
+    // Preservar o slug do tenant na URL de login
+    return slug ? `/${slug}/login` : "/login";
   }
 
   const appId = import.meta.env.VITE_APP_ID;
@@ -21,6 +48,6 @@ export const getLoginUrl = () => {
     url.searchParams.set("type", "signIn");
     return url.toString();
   } catch {
-    return "/login";
+    return slug ? `/${slug}/login` : "/login";
   }
 };

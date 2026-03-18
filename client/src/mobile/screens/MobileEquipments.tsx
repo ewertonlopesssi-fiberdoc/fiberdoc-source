@@ -57,6 +57,9 @@ type Port = {
   connectedToPortId?: number | null;
   connectedEquipmentName?: string | null;
   connectedPortNumber?: string | null;
+  connectedPortLabel?: string | null;
+  connectedPortSlotNumber?: string | null;
+  connectedPortSlotLabel?: string | null;
 };
 
 const PORT_TYPE_OPTIONS = [
@@ -82,7 +85,7 @@ const PORT_SPEED_OPTIONS = [
   { value: "400g", label: "400G" },
 ];
 
-type View = "list" | "detail" | "edit" | "ports" | "editPort" | "maintenance";
+type View = "list" | "detail" | "edit" | "ports" | "editPort" | "maintenance" | "dgoDetail";
 
 export default function MobileEquipments({ initialEquipmentId }: { initialEquipmentId?: number | null }) {
   const { serverUrl, token } = useMobileAuth();
@@ -110,6 +113,9 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
   const [maintenanceNote, setMaintenanceNote] = useState("");
   const [maintenanceType, setMaintenanceType] = useState("preventive");
   const [portSearch, setPortSearch] = useState("");
+  const [dgoSlots, setDgoSlots] = useState<any[]>([]);
+  const [dgoPortLinks, setDgoPortLinks] = useState<any[]>([]);
+  const [dgoLoading, setDgoLoading] = useState(false);
 
   const client = createMobileTrpcClient(serverUrl, token);
 
@@ -183,6 +189,26 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
     setSelected(eq);
     loadPorts(eq.id);
     setView("ports");
+  }
+
+  async function openDgoDetail(eq: Equipment) {
+    setSelected(eq);
+    setDgoLoading(true);
+    setDgoSlots([]);
+    setDgoPortLinks([]);
+    setView("dgoDetail");
+    try {
+      // Buscar slots do equipamento DGO
+      const slots = await client.slots.byEquipment.query({ equipmentId: eq.id });
+      setDgoSlots(slots as any[]);
+      // Buscar portas do equipamento DGO
+      const ports = await client.ports.byEquipment.query({ equipmentId: eq.id });
+      setPorts(ports as unknown as Port[]);
+    } catch {
+      setDgoSlots([]);
+    } finally {
+      setDgoLoading(false);
+    }
   }
 
   async function saveEdit() {
@@ -421,12 +447,21 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
             >
               <Edit2 className="w-4 h-4" /> Editar
             </button>
-            <button
-              onClick={() => openPorts(selected)}
-              className="flex items-center justify-center gap-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-xl py-3 text-sm text-cyan-300 transition-colors"
-            >
-              <Cable className="w-4 h-4" /> Portas
-            </button>
+            {selected.type === "dgo" ? (
+              <button
+                onClick={() => openDgoDetail(selected)}
+                className="flex items-center justify-center gap-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-xl py-3 text-sm text-cyan-300 transition-colors"
+              >
+                <LayoutGrid className="w-4 h-4" /> Ver DGO
+              </button>
+            ) : (
+              <button
+                onClick={() => openPorts(selected)}
+                className="flex items-center justify-center gap-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-xl py-3 text-sm text-cyan-300 transition-colors"
+              >
+                <Cable className="w-4 h-4" /> Portas
+              </button>
+            )}
             <button
               onClick={() => { setMaintenanceNote(""); setView("maintenance"); }}
               className="col-span-2 flex items-center justify-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl py-3 text-sm text-amber-300 transition-colors"
@@ -966,6 +1001,156 @@ export default function MobileEquipments({ initialEquipmentId }: { initialEquipm
           >
             {saving ? <div className="w-4 h-4 border-2 border-zinc-900/30 border-t-zinc-900 rounded-full animate-spin" /> : <><Wrench className="w-4 h-4" /> Registrar</>}
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "dgoDetail" && selected) {
+    // Agrupar portas por slot
+    const slotMap = new Map<number | null, Port[]>();
+    const slotOrder: (number | null)[] = [];
+    for (const port of ports) {
+      const key = port.slotId ?? null;
+      if (!slotMap.has(key)) { slotMap.set(key, []); slotOrder.push(key); }
+      slotMap.get(key)!.push(port);
+    }
+    const getSlotName = (slotId: number | null) => {
+      if (slotId === null) return "Sem Bandeja";
+      const slot = dgoSlots.find((s: any) => s.id === slotId);
+      return slot ? (slot.name ?? `Bandeja ${slotId}`) : `Bandeja ${slotId}`;
+    };
+    const totalPorts = ports.length;
+    const occupiedPorts = ports.filter(p => p.status === "occupied").length;
+    const pct = totalPorts > 0 ? Math.round((occupiedPorts / totalPorts) * 100) : 0;
+
+    return (
+      <div className="flex flex-col h-full">
+        <div className="bg-zinc-900 border-b border-zinc-800 px-4 pt-4 pb-3 flex-shrink-0">
+          <button onClick={() => setView("detail")} className="flex items-center gap-1 text-cyan-400 text-sm mb-3">
+            <ChevronLeft className="w-4 h-4" /> {selected.name}
+          </button>
+          <div className="flex items-center justify-between">
+            <h1 className="text-base font-bold text-white">DGO — Bandejas e Portas</h1>
+            <span className="text-xs text-zinc-400">{occupiedPorts}/{totalPorts} ocupadas</span>
+          </div>
+          {totalPorts > 0 && (
+            <div className="mt-2">
+              <div className="w-full bg-zinc-700 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${pct >= 90 ? "bg-rose-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500"}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {dgoLoading ? (
+            <div className="flex items-center justify-center h-40">
+              <div className="w-6 h-6 border-2 border-zinc-700 border-t-cyan-400 rounded-full animate-spin" />
+            </div>
+          ) : ports.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-40 text-zinc-500 gap-2">
+              <LayoutGrid className="w-8 h-8 opacity-30" />
+              <p className="text-sm">Nenhuma porta cadastrada</p>
+            </div>
+          ) : (
+            <div>
+              {slotOrder.map((slotId) => {
+                const slotPorts = slotMap.get(slotId)!;
+                const occ = slotPorts.filter(p => p.status === "occupied").length;
+                const fr = slotPorts.length - occ;
+                const slotName = getSlotName(slotId);
+                return (
+                  <div key={slotId ?? "no-slot"} className="mb-1">
+                    {/* Cabeçalho da bandeja */}
+                    <div className="px-4 py-2.5 bg-zinc-800/80 border-y border-zinc-700/50 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <LayoutGrid className="w-3.5 h-3.5 text-cyan-400" />
+                        <span className="text-xs font-semibold text-zinc-200">{slotName}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-emerald-400">{fr} livre{fr !== 1 ? "s" : ""}</span>
+                        <span className="text-[10px] text-zinc-500">·</span>
+                        <span className="text-[10px] text-rose-400">{occ} ocupada{occ !== 1 ? "s" : ""}</span>
+                      </div>
+                    </div>
+                    {/* Grid unificado de portas — 4 colunas, igual à versão web */}
+                    <div className="grid grid-cols-4 gap-1.5 px-3 py-3">
+                      {slotPorts.map((port) => {
+                        const isOccupied = port.status === "occupied";
+                        const connSlot = (port as any).connectedPortSlotLabel ?? (port as any).connectedPortSlotNumber;
+                        const connPortNum = port.connectedPortNumber;
+                        const connPortLbl = port.connectedPortLabel;
+                        const connDetail = [
+                          connSlot ? `Slot ${connSlot}` : null,
+                          connPortNum ? `P${connPortNum}${connPortLbl ? ` (${connPortLbl})` : ""}` : null,
+                        ].filter(Boolean).join(" / ");
+                        // Porta tem vínculo se tiver connectedEquipmentName (independente do status)
+                        const hasLink = !!port.connectedEquipmentName;
+                        return (
+                          <div
+                            key={port.id}
+                            className={`rounded-lg border p-1.5 flex flex-col gap-0.5 ${
+                              isOccupied
+                                ? "bg-rose-500/10 border-rose-500/30"
+                                : hasLink
+                                ? "bg-emerald-500/10 border-emerald-500/40"
+                                : port.status === "reserved"
+                                ? "bg-amber-500/10 border-amber-500/30"
+                                : port.status === "faulty"
+                                ? "bg-zinc-500/10 border-zinc-500/30"
+                                : "bg-emerald-500/10 border-emerald-500/30"
+                            }`}
+                          >
+                            {/* Número da porta + indicador de status */}
+                            <div className="flex items-center justify-between gap-1">
+                              <span className={`text-[11px] font-mono font-bold leading-none ${
+                                isOccupied ? "text-rose-300" : hasLink ? "text-emerald-300" : port.status === "reserved" ? "text-amber-300" : port.status === "faulty" ? "text-zinc-400" : "text-emerald-300"
+                              }`}>
+                                P{String(port.portNumber).padStart(2, "0")}
+                              </span>
+                              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PORT_STATUS_COLORS[port.status] ?? "bg-zinc-500"}`} />
+                            </div>
+                            {/* Etiqueta da porta */}
+                            {port.label && (
+                              <span className="text-[9px] text-zinc-400 truncate leading-none">{port.label}</span>
+                            )}
+                            {/* Equipamento vinculado — aparece sempre que houver connectedEquipmentName */}
+                            {hasLink && (
+                              <>
+                                <p className="text-[9px] font-semibold text-emerald-300 truncate leading-tight mt-0.5">{port.connectedEquipmentName}</p>
+                                {connDetail && (
+                                  <p className="text-[8px] text-cyan-400 truncate leading-none">{connDetail}</p>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Legenda */}
+        <div className="flex-shrink-0 bg-zinc-900 border-t border-zinc-800 px-4 py-2 flex items-center gap-4">
+          {[
+            { color: "bg-emerald-500", label: "Livre" },
+            { color: "bg-rose-500", label: "Ocupada" },
+            { color: "bg-amber-500", label: "Reservada" },
+            { color: "bg-zinc-500", label: "Com Falha" },
+          ].map(({ color, label }) => (
+            <div key={label} className="flex items-center gap-1">
+              <div className={`w-2 h-2 rounded-full ${color}`} />
+              <span className="text-[10px] text-zinc-400">{label}</span>
+            </div>
+          ))}
         </div>
       </div>
     );

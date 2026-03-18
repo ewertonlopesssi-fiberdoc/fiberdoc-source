@@ -146,6 +146,12 @@ import {
   getMapOltElements, getMapOltElementById, createMapOltElement, updateMapOltElement, deleteMapOltElement,
   getOltPortLinks, createOltPortLink, updateOltPortLink, deleteOltPortLink,
   calculateOpticalBalance,
+  calculateOpticalBalanceFromDgo,
+  getDgoSlotCtoBalances,
+  getDgoPortFiberLinks,
+  createDgoPortFiberLink,
+  updateDgoPortFiberLink,
+  deleteDgoPortFiberLink,
   getTubesByMapElement,
   getMapPoles, getMapPoleById, createMapPole, updateMapPole, deleteMapPole,
   getMapTechnicalReserves, getMapTechnicalReserveById, getMapTechnicalReservesByRoute,
@@ -153,7 +159,12 @@ import {
   getMapPois, getMapPoiById, createMapPoi, updateMapPoi, deleteMapPoi,
   addPoiToGroup, removePoiFromGroup, getAllPoiGroupMemberships,
   addOltToGroup, removeOltFromGroup, getAllOltGroupMemberships,
+  getMapDgoElements, getMapDgoElementById, createMapDgoElement, updateMapDgoElement, deleteMapDgoElement,
+  getDgoSlotCableLinks, createDgoSlotCableLink, deleteDgoSlotCableLink,
+  getDgoPortLinks, upsertDgoPortLink, deleteDgoPortLink, getPortsByEquipmentForDgo,
+  addDgoToGroup, removeDgoFromGroup, getAllDgoGroupMemberships,
   reorderMapGroups,
+  getRouteExtraTubes, addRouteExtraTube, deleteRouteExtraTube,
 } from "./db";
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 const equipmentTypeEnum = z.enum(["switch", "olt", "dgo", "splitter", "router", "server", "patch_panel", "amplifier", "other"]);
@@ -282,6 +293,8 @@ export const appRouter = router({
         powerSourceId: z.number().optional().nullable(),
         voltage: z.number().optional().nullable(),
         powerConsumptionW: z.number().optional().nullable(),
+        // Campo óptico
+        txPowerDbm: z.number().optional().nullable(),
         // Campos de rede
         vlan: z.number().int().min(1).max(4094).optional().nullable(),
         interfaceIp: z.string().optional().nullable(),
@@ -335,6 +348,8 @@ export const appRouter = router({
         powerSourceId: z.number().optional().nullable(),
         voltage: z.number().optional().nullable(),
         powerConsumptionW: z.number().optional().nullable(),
+        // Campo óptico
+        txPowerDbm: z.number().optional().nullable(),
         // Campos de rede
         vlan: z.number().int().min(1).max(4094).optional().nullable(),
         interfaceIp: z.string().optional().nullable(),
@@ -406,6 +421,7 @@ export const appRouter = router({
         sortOrder: z.number().optional(),
         connectedToEquipmentId: z.number().optional().nullable(),
         connectedToPortId: z.number().optional().nullable(),
+        txPowerDbm: z.number().optional().nullable(),
       }))
       .mutation(async ({ input, ctx }) => {
         const newPort = await createPort(input);
@@ -458,6 +474,7 @@ export const appRouter = router({
         slotId: z.number().optional().nullable(),
         connectedToEquipmentId: z.number().optional().nullable(),
         connectedToPortId: z.number().optional().nullable(),
+        txPowerDbm: z.number().optional().nullable(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
@@ -1113,6 +1130,37 @@ export const appRouter = router({
           targetViaId: input.targetViaId,
           notes: input.notes ?? null,
         });
+
+        // Bidirecionalidade: quando a fusão é feita pelo lado do splitter,
+        // atualizar a via do tubo com fusedToSplitterId e fusedToSplitterViaId
+        // para que o tubo também mostre a fusão corretamente.
+        const db = await (await import("./db")).getDb();
+        if (db) {
+          const { ceoVias } = await import("../drizzle/schema");
+          const { eq } = await import("drizzle-orm");
+
+          if (input.sourceType === "splitter" && input.targetType === "tube") {
+            // Fusão iniciada pelo splitter: sourceViaId = via do splitter, targetViaId = via do tubo
+            // Buscar o splitterId da via do splitter
+            const { ceoSplitterVias } = await import("../drizzle/schema");
+            const [splVia] = await db.select().from(ceoSplitterVias).where(eq(ceoSplitterVias.id, input.sourceViaId)).limit(1);
+            if (splVia) {
+              await db.update(ceoVias)
+                .set({ fusedToSplitterId: splVia.splitterId, fusedToSplitterViaId: input.sourceViaId, fusedToTubeId: null, fusedToViaId: null })
+                .where(eq(ceoVias.id, input.targetViaId));
+            }
+          } else if (input.sourceType === "tube" && input.targetType === "splitter") {
+            // Fusão iniciada pelo tubo: sourceViaId = via do tubo, targetViaId = via do splitter
+            const { ceoSplitterVias } = await import("../drizzle/schema");
+            const [splVia] = await db.select().from(ceoSplitterVias).where(eq(ceoSplitterVias.id, input.targetViaId)).limit(1);
+            if (splVia) {
+              await db.update(ceoVias)
+                .set({ fusedToSplitterId: splVia.splitterId, fusedToSplitterViaId: input.targetViaId, fusedToTubeId: null, fusedToViaId: null })
+                .where(eq(ceoVias.id, input.sourceViaId));
+            }
+          }
+        }
+
         return { id };
       }),
     delete: protectedProcedure
@@ -1403,7 +1451,20 @@ export const appRouter = router({
   // ─── Configurações do Sistema ────────────────────────────────────────────────
   systemConfig: router({
     get: publicProcedure.query(async () => {
-      return getSystemSettings();
+      const settings = await getSystemSettings();
+      // Se HIDE_PROVIDERS=true no ambiente, adicionar /admin/provedores aos menus ocultos
+      if (process.env.HIDE_PROVIDERS === "true") {
+        try {
+          const hidden: string[] = JSON.parse(settings.hiddenMenus ?? "[]");
+          if (!hidden.includes("/admin/provedores")) {
+            hidden.push("/admin/provedores");
+            settings.hiddenMenus = JSON.stringify(hidden);
+          }
+        } catch {
+          settings.hiddenMenus = JSON.stringify(["/admin/provedores"]);
+        }
+      }
+      return settings;
     }),
     save: adminProcedure
       .input(z.object({
@@ -2524,6 +2585,28 @@ ${fiberFolder}
     tubesByElement: publicProcedure
       .input(z.object({ elementId: z.number() }))
       .query(async ({ input }) => getTubesByMapElement(input.elementId)),
+    // ─── Tubos extras por cabo (múltiplos tubos de origem/destino) ───────────
+    routeExtraTubes: protectedProcedure
+      .input(z.object({ routeId: z.number() }))
+      .query(({ input }) => getRouteExtraTubes(input.routeId)),
+    addRouteExtraTube: adminProcedure
+      .input(z.object({
+        routeId: z.number(),
+        elementId: z.number(),
+        tubeId: z.number(),
+        side: z.enum(["from", "to"]),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await addRouteExtraTube(input);
+        return { id };
+      }),
+    deleteRouteExtraTube: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteRouteExtraTube(input.id);
+        return { ok: true };
+      }),
     traceOtdr: protectedProcedure
       .input(z.object({
         elementId: z.number(),          // map_elements.id do ponto de partida
@@ -2620,6 +2703,58 @@ ${fiberFolder}
     opticalBalance: protectedProcedure
       .input(z.object({ ctoElementId: z.number() }))
       .query(({ input }) => calculateOpticalBalance(input.ctoElementId)),
+    dgoPortOpticalBalance: protectedProcedure
+      .input(z.object({
+        dgoElementId: z.number(),
+        slotId: z.number(),
+        portNumber: z.number(),
+        ctoElementId: z.number().optional(),
+      }))
+      .query(({ input }) => calculateOpticalBalanceFromDgo(input)),
+    dgoSlotCtoBalances: protectedProcedure
+      .input(z.object({
+        dgoElementId: z.number(),
+        slotId: z.number(),
+        portNumber: z.number(),
+      }))
+      .query(({ input }) => getDgoSlotCtoBalances(input)),
+    dgoPortFiberLinks: protectedProcedure
+      .input(z.object({ dgoElementId: z.number() }))
+      .query(({ input }) => getDgoPortFiberLinks(input.dgoElementId)),
+    createDgoPortFiberLink: adminProcedure
+      .input(z.object({
+        dgoElementId: z.number(),
+        portId: z.number(),
+        txPowerDbm: z.number().nullable().optional(),
+        ceoElementId: z.number(),
+        tubeId: z.number(),
+        viaNumber: z.number().int().min(1),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createDgoPortFiberLink(input);
+        return { id };
+      }),
+    updateDgoPortFiberLink: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        txPowerDbm: z.number().nullable().optional(),
+        ceoElementId: z.number().optional(),
+        tubeId: z.number().optional(),
+        viaNumber: z.number().int().min(1).optional(),
+        notes: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateDgoPortFiberLink(id, data);
+        return { ok: true };
+      }),
+    deleteDgoPortFiberLink: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteDgoPortFiberLink(input.id);
+        return { ok: true };
+      }),
     portsByOltElement: publicProcedure
       .input(z.object({ oltElementId: z.number() }))
       .query(async ({ input }) => {
@@ -2627,6 +2762,94 @@ ${fiberFolder}
         if (!olt) return [];
         return getPortsByEquipment(olt.equipmentId);
       }),
+    // ─── DGO no Mapa ─────────────────────────────────────────────────────────
+    dgoElements: protectedProcedure.query(() => getMapDgoElements()),
+    dgoElementById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(({ input }) => getMapDgoElementById(input.id)),
+    createDgoElement: adminProcedure
+      .input(z.object({
+        equipmentId: z.number(),
+        lat: z.number(),
+        lng: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createMapDgoElement(input);
+        return { id };
+      }),
+    updateDgoElement: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        lat: z.number().optional(),
+        lng: z.number().optional(),
+        notes: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        await updateMapDgoElement(id, data);
+        return { ok: true };
+      }),
+    deleteDgoElement: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteMapDgoElement(input.id);
+        return { ok: true };
+      }),
+    dgoSlotLinks: protectedProcedure
+      .input(z.object({ dgoElementId: z.number() }))
+      .query(({ input }) => getDgoSlotCableLinks(input.dgoElementId)),
+    createDgoSlotLink: adminProcedure
+      .input(z.object({
+        dgoElementId: z.number(),
+        slotId: z.number(),
+        routeId: z.number(),
+        side: z.enum(["in", "out"]),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createDgoSlotCableLink(input);
+        return { id };
+      }),
+    deleteDgoSlotLink: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteDgoSlotCableLink(input.id);
+        return { ok: true };
+      }),
+    slotsByDgoElement: protectedProcedure
+      .input(z.object({ dgoElementId: z.number() }))
+      .query(async ({ input }) => {
+        const dgo = await getMapDgoElementById(input.dgoElementId);
+        if (!dgo) return [];
+        return getSlotsByEquipment(dgo.equipmentId);
+      }),
+    // ─── Vinculação Porta DGO → CEO passagem + Equipamento ─────────────────────
+    dgoPortLinks: protectedProcedure
+      .input(z.object({ dgoElementId: z.number() }))
+      .query(({ input }) => getDgoPortLinks(input.dgoElementId)),
+    upsertDgoPortLink: adminProcedure
+      .input(z.object({
+        dgoElementId: z.number(),
+        slotId: z.number(),
+        portNumber: z.number().int().min(1),
+        ceoElementId: z.number().nullable().optional(),
+        portId: z.number().nullable().optional(),
+        notes: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await upsertDgoPortLink(input);
+        return { id };
+      }),
+    deleteDgoPortLink: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteDgoPortLink(input.id);
+        return { ok: true };
+      }),
+    portsByEquipmentForDgo: protectedProcedure
+      .input(z.object({ equipmentId: z.number() }))
+      .query(({ input }) => getPortsByEquipmentForDgo(input.equipmentId)),
   }),
   // ─── SGP Config ───────────────────────────────────────────────────────────────
   sgp: router({
@@ -3613,6 +3836,18 @@ ${fiberFolder}
       .input(z.object({ poiId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await removePoiFromGroup(input.poiId, input.groupId);
+        return { ok: true };
+      }),
+    addDgo: adminProcedure
+      .input(z.object({ dgoId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await addDgoToGroup(input.dgoId, input.groupId);
+        return { ok: true };
+      }),
+    removeDgo: adminProcedure
+      .input(z.object({ dgoId: z.number(), groupId: z.number() }))
+      .mutation(async ({ input }) => {
+        await removeDgoFromGroup(input.dgoId, input.groupId);
         return { ok: true };
       }),
   }),

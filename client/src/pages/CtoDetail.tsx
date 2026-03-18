@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Plus, Radio, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle, MapPin, LocateFixed, Loader2,
   Wifi, WifiOff, RefreshCw, Zap, RotateCcw, ChevronDown, ChevronUp,
+  Signal, GitBranch, Box, Ruler, Bookmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/hooks/useRole";
@@ -1330,7 +1331,8 @@ export default function CtoDetail() {
           : quality === "marginal" ? "▲ Marginal"
           : quality === "weak" ? "⚠ Fraco"
           : "✕ Sem sinal";
-        if (!ob.found && warnings.length === 0) return null;
+        // Mostrar sempre quando opticalBalance existir (mesmo sem OLT/DGO encontrado)
+        // para que o usuário saiba que a CTO está no mapa mas sem sinal rastreado
         return (
           <Card className="border-border/50 bg-card">
             <CardContent className="p-4">
@@ -1352,7 +1354,16 @@ export default function CtoDetail() {
                   </div>
                   {!ob.found ? (
                     <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">Não foi possível calcular — CTO não está conectada a uma OLT no mapa.</p>
+                      <p className="text-xs text-muted-foreground">
+                        {warnings.length > 0
+                          ? "Rastreio interrompido — verifique os avisos abaixo:"
+                          : "Não foi possível calcular — CTO não está conectada a uma OLT ou DGO no mapa."}
+                      </p>
+                      {warnings.length === 0 && (
+                        <p className="text-xs text-muted-foreground/60 mt-1">
+                          Verifique se: (1) a CTO tem cabo vinculado, (2) o cabo chega a um CEO com fusões configuradas, (3) existe um vínculo OLT ou DGO no CEO de entrada.
+                        </p>
+                      )}
                       {warnings.map((w: string, i: number) => (
                         <p key={i} className="text-xs text-amber-400/80">⚠ {w}</p>
                       ))}
@@ -1387,38 +1398,129 @@ export default function CtoDetail() {
                           </p>
                         </div>
                       </div>
-                      {/* Percurso detalhado */}
-                      {pathSteps.length > 0 && (
-                        <div className="space-y-1.5">
-                          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Percurso do Sinal</p>
-                          <div className="flex flex-wrap items-center gap-1">
-                            {pathSteps.map((step: any, i: number) => (
-                              <span key={i} className="flex items-center gap-1">
-                                {i > 0 && <span className="text-muted-foreground text-xs">→</span>}
-                                <span className={cn(
-                                  "text-xs px-2 py-0.5 rounded-full border",
-                                  step.type === "olt" && "bg-amber-500/10 border-amber-500/30 text-amber-300",
-                                  step.type === "ceo" && "bg-blue-500/10 border-blue-500/30 text-blue-300",
-                                  step.type === "cto" && "bg-emerald-500/10 border-emerald-500/30 text-emerald-300",
-                                  step.type === "splitter" && "bg-violet-500/10 border-violet-500/30 text-violet-300",
-                                  step.type === "cable" && "bg-muted/50 border-border/30 text-muted-foreground",
-                                  step.type === "fusion" && "bg-cyan-500/10 border-cyan-500/30 text-cyan-300",
-                                )}>
-                                  {step.label}
-                                  {step.lossDb != null && step.lossDb !== 0 && (
-                                    <span className="ml-1 opacity-70">(-{Math.abs(step.lossDb).toFixed(1)} dB)</span>
+                      {/* Percurso visual com ícones */}
+                      {pathSteps.length > 0 && (() => {
+                        // Agrupar: colapsar CEOs sem splitter consecutivos em um único nó
+                        // e separar cabos, splitters, reservas e OLT/DGO
+                        type Node =
+                          | { kind: "source"; label: string; powerDbm: number }
+                          | { kind: "cable"; label: string; distKm: number; powerDbm: number }
+                          | { kind: "ceo"; label: string; powerDbm: number }
+                          | { kind: "splitter"; label: string; lossDb: number; powerDbm: number }
+                          | { kind: "reserve"; label: string; powerDbm: number }
+                          | { kind: "cto"; label: string; powerDbm: number };
+
+                        const nodes: Node[] = [];
+                        for (const step of pathSteps) {
+                          const pwr = step.cumulativePowerDbm ?? 0;
+                          if (step.type === "olt") {
+                            nodes.push({ kind: "source", label: step.label, powerDbm: pwr });
+                          } else if (step.type === "cable") {
+                            // Detectar reserva técnica pelo label (contém "reserva")
+                            if (step.label && step.label.toLowerCase().includes("reserva")) {
+                              nodes.push({ kind: "reserve", label: step.label, powerDbm: pwr });
+                            } else {
+                              nodes.push({ kind: "cable", label: step.label, distKm: step.distKm ?? 0, powerDbm: pwr });
+                            }
+                          } else if (step.type === "splitter") {
+                            nodes.push({ kind: "splitter", label: step.label, lossDb: Math.abs(step.lossDb ?? 0), powerDbm: pwr });
+                          } else if (step.type === "ceo") {
+                            // Verificar se o próximo step é splitter (CEO com splitter)
+                            const nextStep = pathSteps[pathSteps.indexOf(step) + 1];
+                            if (nextStep?.type === "splitter") {
+                              // CEO com splitter: será tratado junto com o splitter
+                              nodes.push({ kind: "ceo", label: step.label, powerDbm: pwr });
+                            } else {
+                              nodes.push({ kind: "ceo", label: step.label, powerDbm: pwr });
+                            }
+                          } else if (step.type === "cto") {
+                            nodes.push({ kind: "cto", label: step.label, powerDbm: pwr });
+                          }
+                        }
+
+                        const pwrColor = (dbm: number) =>
+                          dbm >= -15 ? "text-emerald-400" :
+                          dbm >= -20 ? "text-cyan-400" :
+                          dbm >= -25 ? "text-amber-400" :
+                          dbm >= -30 ? "text-red-400" : "text-muted-foreground";
+
+                        return (
+                          <div className="mt-3">
+                            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider mb-2">Percurso do Sinal</p>
+                            <div className="flex flex-wrap items-center gap-0.5">
+                              {nodes.map((node, i) => (
+                                <div key={i} className="flex items-center gap-0.5">
+                                  {i > 0 && (
+                                    <span className="text-muted-foreground/40 text-xs mx-0.5">›</span>
                                   )}
-                                  {step.cumulativePowerDbm != null && (
-                                    <span className="ml-1 font-medium opacity-90">
-                                      {step.cumulativePowerDbm > 0 ? "+" : ""}{step.cumulativePowerDbm.toFixed(1)}
-                                    </span>
+                                  {node.kind === "source" && (
+                                    <div className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/25">
+                                      <Signal className="w-3.5 h-3.5 text-amber-400" />
+                                      <span className={cn("text-[10px] font-bold font-mono leading-none", pwrColor(node.powerDbm))}>
+                                        {node.powerDbm > 0 ? "+" : ""}{node.powerDbm.toFixed(1)}
+                                      </span>
+                                    </div>
                                   )}
-                                </span>
-                              </span>
-                            ))}
+                                  {node.kind === "cable" && (
+                                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/20 border border-border/20">
+                                      <Cable className="w-2.5 h-2.5 text-muted-foreground/50" />
+                                      {node.distKm > 0 && (
+                                        <span className="text-[9px] text-muted-foreground/60 font-mono">{(node.distKm * 1000).toFixed(0)}m</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {node.kind === "reserve" && (
+                                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-500/10 border border-orange-500/20">
+                                      <Bookmark className="w-2.5 h-2.5 text-orange-400" />
+                                    </div>
+                                  )}
+                                  {node.kind === "ceo" && (() => {
+                                    // Verificar se o próximo nó é splitter
+                                    const nextNode = nodes[i + 1];
+                                    const hasSplitter = nextNode?.kind === "splitter";
+                                    return (
+                                      <div className={cn(
+                                        "flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg border",
+                                        hasSplitter
+                                          ? "bg-violet-500/10 border-violet-500/25"
+                                          : "bg-blue-500/10 border-blue-500/20"
+                                      )}>
+                                        <Box className={cn("w-3.5 h-3.5", hasSplitter ? "text-violet-400" : "text-blue-400")} />
+                                        {hasSplitter && (
+                                          <span className="text-[9px] text-violet-300/80 font-mono leading-none">
+                                            {nextNode.label.match(/1[:/]\d+/)?.[0] ?? "Spl"}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                  {node.kind === "splitter" && (() => {
+                                    // Splitter interno CTO (sem CEO anterior imediato) ou standalone
+                                    const prevNode = nodes[i - 1];
+                                    if (prevNode?.kind === "ceo") return null; // já renderizado no CEO
+                                    return (
+                                      <div className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg bg-violet-500/10 border border-violet-500/25">
+                                        <GitBranch className="w-3.5 h-3.5 text-violet-400" />
+                                        <span className="text-[9px] text-violet-300/80 font-mono leading-none">
+                                          -{node.lossDb.toFixed(1)}dB
+                                        </span>
+                                      </div>
+                                    );
+                                  })()}
+                                  {node.kind === "cto" && (
+                                    <div className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25">
+                                      <Radio className="w-3.5 h-3.5 text-emerald-400" />
+                                      <span className={cn("text-[10px] font-bold font-mono leading-none", pwrColor(node.powerDbm))}>
+                                        {node.powerDbm > 0 ? "+" : ""}{node.powerDbm.toFixed(1)}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                       {/* Avisos */}
                       {warnings.length > 0 && (
                         <div className="mt-2 space-y-0.5">

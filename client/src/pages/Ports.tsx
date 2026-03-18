@@ -121,11 +121,12 @@ type PortForm = {
   connectedToEquipmentId: string; // "" = sem vínculo
   connectedToSlotId: string;     // "" = sem filtro de slot
   connectedToPortId: string;     // "" = sem vínculo
+  txPowerDbm: string;            // "" = usa o do equipamento (fallback)
 };
 
 const defaultPortForm: PortForm = {
   portNumber: "", label: "", type: "lc", speed: "", status: "free", notes: "", slotId: "", sortOrder: "0",
-  connectedToEquipmentId: "", connectedToSlotId: "", connectedToPortId: "",
+  connectedToEquipmentId: "", connectedToSlotId: "", connectedToPortId: "", txPowerDbm: "",
 };
 
 type SlotForm = {
@@ -395,6 +396,7 @@ export default function Ports() {
       connectedToEquipmentId: port.connectedToEquipmentId ? String(port.connectedToEquipmentId) : "",
       connectedToSlotId: "",
       connectedToPortId: port.connectedToPortId ? String(port.connectedToPortId) : "",
+      txPowerDbm: port.txPowerDbm != null ? String(port.txPowerDbm) : "",
     });
     setPortDialogOpen(true);
   }
@@ -417,6 +419,7 @@ export default function Ports() {
         sortOrder: portForm.sortOrder !== "" ? parseInt(portForm.sortOrder) : 0,
         connectedToEquipmentId: connEqId,
         connectedToPortId: connPortId,
+        txPowerDbm: portForm.txPowerDbm !== "" ? parseFloat(portForm.txPowerDbm) : null,
       } as any);
     } else {
       createPortMutation.mutate({
@@ -431,6 +434,7 @@ export default function Ports() {
         sortOrder: portForm.sortOrder !== "" ? parseInt(portForm.sortOrder) : 0,
         connectedToEquipmentId: connEqId,
         connectedToPortId: connPortId,
+        txPowerDbm: portForm.txPowerDbm !== "" ? parseFloat(portForm.txPowerDbm) : null,
       } as any);
     }
   }
@@ -829,6 +833,24 @@ export default function Ports() {
                   </SelectContent>
                 </Select>
               )}
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5">
+                Potência TX
+                <span className="text-[10px] text-cyan-400 font-normal">(dBm)</span>
+                <span className="text-[10px] text-muted-foreground font-normal ml-1">— override por porta</span>
+              </Label>
+              <Input
+                type="number"
+                step="0.1"
+                value={portForm.txPowerDbm}
+                onChange={e => setPortForm({ ...portForm, txPowerDbm: e.target.value })}
+                placeholder="Vazio = usa potência do equipamento"
+                className="bg-background border-cyan-500/30 focus:border-cyan-500/60"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Se preenchido, este valor prevalece sobre a potência TX cadastrada no equipamento (OLT/Switch).
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label>Observações</Label>

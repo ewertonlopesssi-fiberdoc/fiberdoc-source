@@ -93,6 +93,8 @@ export const equipments = mysqlTable("equipments", {
   sshUser: varchar("sshUser", { length: 64 }),                         // Utilizador SSH (ex: admin)
   sshPasswordEnc: text("sshPasswordEnc"),                              // Password SSH encriptada (AES-256)
   sshPort: int("sshPort").default(22),                                 // Porta SSH (default: 22)
+  // Campo óptico — potência TX usada no balanço óptico estimado via DGO
+  txPowerDbm: float("txPowerDbm"),                                     // Potência TX óptica em dBm (ex: 5.0 para OLT GPON)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -131,6 +133,7 @@ export const ports = mysqlTable("ports", {
   sortOrder: int("sortOrder").default(0).notNull(),
   connectedToEquipmentId: int("connectedToEquipmentId"),      // Equipamento da porta vinculada
   connectedToPortId: int("connectedToPortId"),                // Porta vinculada (patch/conexão direta)
+  txPowerDbm: float("txPowerDbm"),                            // Override da potência TX desta porta (null = usa txPowerDbm do equipamento)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -638,6 +641,19 @@ export const mapRoutes = mysqlTable("map_routes", {
 export type MapRoute = typeof mapRoutes.$inferSelect;
 export type InsertMapRoute = typeof mapRoutes.$inferInsert;
 
+// ─── Tubos extras por cabo (múltiplos tubos de origem/destino) ────────────────
+export const routeExtraTubes = mysqlTable("route_extra_tubes", {
+  id: int("id").autoincrement().primaryKey(),
+  routeId: int("routeId").notNull(),                                  // FK map_routes.id
+  elementId: int("elementId").notNull(),                              // FK map_elements.id (CEO ou CTO)
+  tubeId: int("tubeId").notNull(),                                    // FK ceo_tubes.id ou cto_tubes.id
+  side: mysqlEnum("route_extra_tube_side", ["from", "to"]).notNull(), // Origem ou destino
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type RouteExtraTube = typeof routeExtraTubes.$inferSelect;
+export type InsertRouteExtraTube = typeof routeExtraTubes.$inferInsert;
+
 // ─── Configuração SGP TSMx ────────────────────────────────────────────────────
 export const sgpConfig = mysqlTable("sgp_config", {
   id: int("id").autoincrement().primaryKey(),
@@ -1143,6 +1159,24 @@ export const oltPortFiberLinks = mysqlTable("olt_port_fiber_links", {
 export type OltPortFiberLink = typeof oltPortFiberLinks.$inferSelect;
 export type InsertOltPortFiberLink = typeof oltPortFiberLinks.$inferInsert;
 
+// ─── Vínculos de Porta do DGO a Tubo de CEO ─────────────────────────────────────────────────────────────────────────────────────
+// Vincula uma porta do DGO a um tubo de CEO (mesma estrutura que olt_port_fiber_links).
+// Permite que o calculateOpticalBalance rastreie o DGO como ponto de origem do sinal.
+export const dgoPortFiberLinks = mysqlTable("dgo_port_fiber_links", {
+  id: int("id").autoincrement().primaryKey(),
+  dgoElementId: int("dgoElementId").notNull().references(() => mapDgoElements.id, { onDelete: "cascade" }),
+  portId: int("portId").notNull().references(() => ports.id, { onDelete: "cascade" }),
+  txPowerDbm: float("txPowerDbm"),                              // Override da potência TX desta porta (null = usa txPowerDbm do equipamento)
+  ceoElementId: int("ceoElementId").notNull().references(() => mapElements.id, { onDelete: "cascade" }),
+  tubeId: int("tubeId").notNull(),                              // FK ceo_tubes.id
+  viaNumber: int("viaNumber").notNull(),                        // Número da via dentro do tubo
+  notes: text("notes"),
+  createdAt: timestamp("dgo_link_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("dgo_link_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type DgoPortFiberLink = typeof dgoPortFiberLinks.$inferSelect;
+export type InsertDgoPortFiberLink = typeof dgoPortFiberLinks.$inferInsert;
+
 // ─── Associações de Vias da CTO (tubo ↔ splitter) ────────────────────────────
 // Permite associar vias de tubos CTO a vias de splitters CTO (e vice-versa).
 // sourceType: "tube" | "splitter"  (indica de qual tabela vem a via de origem)
@@ -1225,3 +1259,62 @@ export const mapOltGroups = mysqlTable("map_olt_groups", {
   groupId: int("groupId").notNull().references(() => mapGroups.id, { onDelete: "cascade" }),
 });
 export type MapOltGroup = typeof mapOltGroups.$inferSelect;
+
+// ─── DGO no Mapa ──────────────────────────────────────────────────────────────
+// Elemento DGO posicionado no mapa de infraestrutura.
+// Bidirecional com o equipamento DGO cadastrado em Equipamentos.
+export const mapDgoElements = mysqlTable("map_dgo_elements", {
+  id: int("id").autoincrement().primaryKey(),
+  equipmentId: int("equipmentId").notNull().references(() => equipments.id, { onDelete: "cascade" }),
+  lat: double("lat").notNull(),
+  lng: double("lng").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("dgo_map_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("dgo_map_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type MapDgoElement = typeof mapDgoElements.$inferSelect;
+export type InsertMapDgoElement = typeof mapDgoElements.$inferInsert;
+
+// ─── Vinculação Bandeja DGO → Cabo (Rota) ────────────────────────────────────
+// Liga uma bandeja (slot) do DGO a um cabo (map_route) no mapa.
+// Cada bandeja representa um tubo de 12 vias: porta N = via N.
+// O campo side indica se o cabo entra ("in") ou sai ("out") desta bandeja.
+export const dgoSlotCableLinks = mysqlTable("dgo_slot_cable_links", {
+  id: int("id").autoincrement().primaryKey(),
+  dgoElementId: int("dgoElementId").notNull().references(() => mapDgoElements.id, { onDelete: "cascade" }),
+  slotId: int("slotId").notNull(),                              // FK equipment_slots.id (bandeja do DGO)
+  routeId: int("routeId").notNull(),                            // FK map_routes.id (cabo vinculado)
+  side: mysqlEnum("dgo_link_side", ["in", "out"]).notNull(),   // "in" = cabo entra, "out" = cabo sai
+  tubeId: int("tubeId"),                                        // FK ceo_tubes.id (tubo do cabo nesta bandeja, opcional)
+  tubeElementId: int("tubeElementId"),                          // FK map_elements.id do CEO/CTO de onde vem o tubo (opcional)
+  notes: text("notes"),
+  createdAt: timestamp("dgo_link_created_at").defaultNow().notNull(),
+});
+export type DgoSlotCableLink = typeof dgoSlotCableLinks.$inferSelect;
+export type InsertDgoSlotCableLink = typeof dgoSlotCableLinks.$inferInsert;
+
+// ─── Vinculação Porta DGO → CEO passagem + Equipamento ───────────────────────
+// Rastreabilidade por porta individual: porta N da bandeja X
+// → CEO de passagem (opcional) → porta do equipamento (OLT/switch, opcional)
+// A informação do equipamento conectado é lida automaticamente via ports.connectedTo*
+export const dgoPortLinks = mysqlTable("dgo_port_links", {
+  id: int("id").autoincrement().primaryKey(),
+  dgoElementId: int("dgoElementId").notNull(),                  // FK map_dgo_elements.id
+  slotId: int("slotId").notNull(),                              // FK equipment_slots.id (bandeja)
+  portNumber: int("portNumber").notNull(),                      // 1..N (porta dentro da bandeja)
+  ceoElementId: int("ceoElementId"),                            // FK map_elements.id (CEO de passagem, opcional)
+  portId: int("portId"),                                        // FK ports.id (porta do equipamento: OLT, switch, etc.)
+  notes: text("notes"),
+  createdAt: timestamp("dgo_port_link_created_at").defaultNow().notNull(),
+  updatedAt: timestamp("dgo_port_link_updated_at").defaultNow().onUpdateNow().notNull(),
+});
+export type DgoPortLink = typeof dgoPortLinks.$inferSelect;
+export type InsertDgoPortLink = typeof dgoPortLinks.$inferInsert;
+
+// ─── Associação de DGOs a Grupos ─────────────────────────────────────────────
+export const mapDgoGroups = mysqlTable("map_dgo_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  dgoId: int("dgoId").notNull().references(() => mapDgoElements.id, { onDelete: "cascade" }),
+  groupId: int("groupId").notNull().references(() => mapGroups.id, { onDelete: "cascade" }),
+});
+export type MapDgoGroup = typeof mapDgoGroups.$inferSelect;

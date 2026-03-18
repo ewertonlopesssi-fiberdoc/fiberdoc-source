@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Network, LogIn, AlertCircle, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { getTenantSlug } from "@/const";
 
 export default function LocalLogin() {
   const [, navigate] = useLocation();
@@ -23,7 +24,9 @@ export default function LocalLogin() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/local-login", {
+      const slug = getTenantSlug();
+      const base = slug ? `/${slug}` : "";
+      const res = await fetch(`${base}/api/local-login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -38,10 +41,11 @@ export default function LocalLogin() {
       }
 
       // Usar window.location para garantir reload completo e pathname correto
+      // Preservar o slug do tenant no redirect após login
       if (data.mustChangePassword) {
-        window.location.href = "/alterar-senha";
+        window.location.href = `${base}/alterar-senha`;
       } else {
-        window.location.href = "/";
+        window.location.href = `${base}/`;
       }
     } catch {
       setError("Erro de conexão com o servidor");

@@ -14,6 +14,9 @@ import { startBackupScheduler, LOCAL_BACKUP_DIR } from "../backupScheduler";
 
 import { startSnmpPoller } from "../snmpPoller";
 import { startNetworkSnmpPoller } from "../networkSnmpPoller";
+import { tenantMiddleware } from "./tenantMiddleware";
+import { registerAdminTenantRoutes } from "./adminTenantRouter";
+import { initMasterDb } from "./masterDb";
 import type { WebhookPayload } from "../webhookHandler";
 import { generateIpReportPdf } from "../ipReportPdf";
 import { generateEquipmentReportPdf } from "../equipmentReportPdf";
@@ -54,6 +57,14 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // ─── Multi-tenant: detectar slug do provedor na URL ──────────────────────────
+  // Deve ser registrado ANTES de todas as rotas para que req.tenantSlug esteja disponível
+  app.use(tenantMiddleware);
+
+  // ─── Rotas de administração de provedores ────────────────────────────────────
+  registerAdminTenantRoutes(app);
+
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
 
@@ -1005,6 +1016,72 @@ async function startServer() {
     const ok = respondToConfirm(sessionId, answer);
     res.json({ ok });
   });
+  // Proxy OSRM — evita CORS ao chamar servidores OSRM diretamente do browser
+  // Tenta múltiplos servidores em ordem até um responder com sucesso
+  app.get("/api/osrm/route", async (req, res) => {
+    const { fromLng, fromLat, toLng, toLat } = req.query as Record<string, string>;
+    if (!fromLng || !fromLat || !toLng || !toLat) {
+      return res.status(400).json({ error: "Parâmetros obrigatórios: fromLng, fromLat, toLng, toLat" });
+    }
+    const coords = `${fromLng},${fromLat};${toLng},${toLat}`;
+    // steps=true retorna geometria detalhada por trecho de rua
+    const servers = [
+      `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true`,
+      `https://routing.openstreetmap.de/routed-car/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true`,
+    ];
+    for (const url of servers) {
+      try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!response.ok) continue;
+        const data = await response.json() as any;
+        if (data?.code === "Ok" && data.routes?.[0]) {
+          const route = data.routes[0];
+          // Extrair todas as coordenadas dos steps para geometria completa
+          const allCoords: number[][] = [];
+          for (const leg of (route.legs ?? [])) {
+            for (const step of (leg.steps ?? [])) {
+              const stepCoords: number[][] = step.geometry?.coordinates ?? [];
+              for (const c of stepCoords) {
+                // Evitar duplicatas consecutivas
+                const last = allCoords[allCoords.length - 1];
+                if (!last || last[0] !== c[0] || last[1] !== c[1]) {
+                  allCoords.push(c);
+                }
+              }
+            }
+          }
+          // Se steps retornaram coordenadas, substituir a geometria overview
+          if (allCoords.length > 2) {
+            route.geometry = { type: "LineString", coordinates: allCoords };
+          }
+          return res.json(data);
+        }
+      } catch (e: any) {
+        console.warn(`[OSRM proxy] Falha em ${url}: ${e?.message}`);
+      }
+    }
+    return res.status(502).json({ error: "Todos os servidores OSRM indisponíveis" });
+  });
+
+  // Endpoint de diagnóstico OSRM — testa conectividade do servidor
+  app.get("/api/osrm/test", async (_req, res) => {
+    const results: Record<string, string> = {};
+    const servers = [
+      { name: "router.project-osrm.org", url: "https://router.project-osrm.org/route/v1/driving/-46.633,-23.550;-46.640,-23.560?overview=false" },
+      { name: "routing.openstreetmap.de", url: "https://routing.openstreetmap.de/routed-car/route/v1/driving/-46.633,-23.550;-46.640,-23.560?overview=false" },
+    ];
+    for (const s of servers) {
+      try {
+        const r = await fetch(s.url, { signal: AbortSignal.timeout(6000) });
+        const d = await r.json() as any;
+        results[s.name] = d?.code === "Ok" ? "OK" : `code=${d?.code}`;
+      } catch (e: any) {
+        results[s.name] = `ERRO: ${e?.message}`;
+      }
+    }
+    res.json(results);
+  });
+
   app.use(
     "/api/trpc",
     createExpressMiddleware({
@@ -1027,6 +1104,9 @@ async function startServer() {
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
+
+  // Inicializar banco master (criar tabela tenants se não existir)
+  initMasterDb().catch(err => console.warn("[MasterDB] Aviso:", err));
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);

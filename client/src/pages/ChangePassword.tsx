@@ -5,6 +5,7 @@
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { getTenantSlug } from "@/const";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,7 +51,9 @@ export default function ChangePassword({ forced = false }: ChangePasswordProps) 
     setLoading(true);
 
     try {
-      const res = await fetch("/api/local-change-password", {
+      const slug = getTenantSlug();
+      const base = slug ? `/${slug}` : "";
+      const res = await fetch(`${base}/api/local-change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -67,7 +70,9 @@ export default function ChangePassword({ forced = false }: ChangePasswordProps) 
       setSuccess(true);
 
       // Usar window.location para forçar reload completo e recarregar estado de auth
-      setTimeout(() => { window.location.href = "/"; }, 1500);
+      const slug2 = getTenantSlug();
+      const base2 = slug2 ? `/${slug2}` : "";
+      setTimeout(() => { window.location.href = `${base2}/`; }, 1500);
     } catch {
       setError("Erro de conexão com o servidor");
     } finally {

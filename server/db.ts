@@ -71,8 +71,25 @@ import {
   MapPoi,
   InsertMapPoi,
   mapPoiGroups,
+  mapOltGroups,
+  MapOltGroup,
+  mapDgoElements,
+  MapDgoElement,
+  InsertMapDgoElement,
+  dgoSlotCableLinks,
+  DgoSlotCableLink,
+  InsertDgoSlotCableLink,
+  dgoPortLinks,
+  DgoPortLink,
+  InsertDgoPortLink,
+  mapDgoGroups,
+  MapDgoGroup,
+  routeExtraTubes,
+  RouteExtraTube,
+  InsertRouteExtraTube,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { getTenantDbFromContext } from "./_core/tenantContext";
 
 let _pool: mysql.Pool | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -102,6 +119,11 @@ function createPool(): mysql.Pool {
 }
 
 export async function getDb() {
+  // Se estiver em contexto de tenant (via AsyncLocalStorage), usar o banco do tenant
+  const tenantDb = getTenantDbFromContext();
+  if (tenantDb) return tenantDb;
+
+  // Banco padrão (instalação sem multi-tenant)
   if (!_db && process.env.DATABASE_URL) {
     try {
       if (!_pool) {
@@ -302,6 +324,7 @@ export async function getPortsByEquipment(equipmentId: number) {
       connectedEquipmentName: equipments.name,
       connectedPortNumber: sql<string | null>`connected_port.portNumber`,
       connectedPortLabel: sql<string | null>`connected_port.label`,
+      connectedPortSlotId: sql<number | null>`connected_port.slotId`,
     })
     .from(ports)
     .leftJoin(equipments, eq(ports.connectedToEquipmentId, equipments.id))
@@ -312,20 +335,31 @@ export async function getPortsByEquipment(equipmentId: number) {
     .where(eq(ports.equipmentId, equipmentId));
   // Buscar slots separadamente para evitar conflito de aliases
   const slotIds = Array.from(new Set(portRows.map(p => p.slotId).filter(Boolean))) as number[];
+  // Coletar também os slotIds das portas conectadas
+  const connectedSlotIds = Array.from(new Set(
+    portRows.map(p => (p as any).connectedPortSlotId).filter(Boolean)
+  )) as number[];
+  const allSlotIds = Array.from(new Set([...slotIds, ...connectedSlotIds]));
   let slotMap = new Map<number, { slotNumber: string; slotLabel: string | null }>();
-  if (slotIds.length > 0) {
+  if (allSlotIds.length > 0) {
     const slotRows = await db
       .select({ id: equipmentSlots.id, slotNumber: equipmentSlots.slotNumber, label: equipmentSlots.label })
       .from(equipmentSlots)
-      .where(sql`${equipmentSlots.id} IN (${sql.join(slotIds.map(id => sql`${id}`), sql`, `)})`);
+      .where(sql`${equipmentSlots.id} IN (${sql.join(allSlotIds.map(id => sql`${id}`), sql`, `)})`);
     slotMap = new Map(slotRows.map(s => [s.id, { slotNumber: s.slotNumber, slotLabel: s.label ?? null }]));
   }
   // Juntar e ordenar
-  const rows = portRows.map(p => ({
-    ...p,
-    slotNumber: p.slotId ? (slotMap.get(p.slotId)?.slotNumber ?? null) : null,
-    slotLabel: p.slotId ? (slotMap.get(p.slotId)?.slotLabel ?? null) : null,
-  }));
+  const rows = portRows.map(p => {
+    const connSlotId = (p as any).connectedPortSlotId as number | null;
+    const connSlot = connSlotId ? slotMap.get(connSlotId) : null;
+    return {
+      ...p,
+      slotNumber: p.slotId ? (slotMap.get(p.slotId)?.slotNumber ?? null) : null,
+      slotLabel: p.slotId ? (slotMap.get(p.slotId)?.slotLabel ?? null) : null,
+      connectedPortSlotNumber: connSlot?.slotNumber ?? null,
+      connectedPortSlotLabel: connSlot?.slotLabel ?? null,
+    };
+  });
   rows.sort((a, b) => {
     const sA = a.slotNumber ?? "";
     const sB = b.slotNumber ?? "";
@@ -3029,7 +3063,26 @@ export async function createViaAssociation(data: Omit<InsertCeoViaAssociation, "
 export async function deleteViaAssociation(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+
+  // Antes de apagar, buscar a associação para saber quais vias limpar
+  const [assoc] = await db.select().from(ceoViaAssociations).where(eq(ceoViaAssociations.id, id)).limit(1);
+
   await db.delete(ceoViaAssociations).where(eq(ceoViaAssociations.id, id));
+
+  // Bidirecionalidade: limpar fusedToSplitterId na via do tubo
+  if (assoc) {
+    let tubeViaId: number | null = null;
+    if (assoc.sourceType === "tube" && assoc.targetType === "splitter") {
+      tubeViaId = assoc.sourceViaId;
+    } else if (assoc.sourceType === "splitter" && assoc.targetType === "tube") {
+      tubeViaId = assoc.targetViaId;
+    }
+    if (tubeViaId !== null) {
+      await db.update(ceoVias)
+        .set({ fusedToSplitterId: null, fusedToSplitterViaId: null })
+        .where(eq(ceoVias.id, tubeViaId));
+    }
+  }
 }
 
 export async function deleteViaAssociationByVias(ceoId: number, viaId1: number, viaId2: number) {
@@ -3532,7 +3585,7 @@ export async function traceOtdrPath(
 }
 
 // ─── OLT no Mapa ─────────────────────────────────────────────────────────────
-import { mapOltElements, MapOltElement, InsertMapOltElement, oltPortFiberLinks, OltPortFiberLink, InsertOltPortFiberLink, mapOltGroups, MapOltGroup } from "../drizzle/schema";
+import { mapOltElements, MapOltElement, InsertMapOltElement, oltPortFiberLinks, OltPortFiberLink, InsertOltPortFiberLink, dgoPortFiberLinks, DgoPortFiberLink, InsertDgoPortFiberLink } from "../drizzle/schema";
 // Note: ceos, ceoTubes, ceoVias, ceoSplitters, ceoSplitterVias, ctoTubes, ctoVias, ctos, mapElements, mapRoutes already imported above
 
 export async function getMapOltElements(): Promise<(MapOltElement & { equipmentName: string })[]> {
@@ -3680,6 +3733,80 @@ export async function deleteOltPortLink(id: number): Promise<void> {
   await db.delete(oltPortFiberLinks).where(eq(oltPortFiberLinks.id, id));
 }
 
+// ─── DGO Port Fiber Links (vínculos porta DGO → tubo CEO) ─────────────────────────────────────────────────────────────────────────────────────
+export async function getDgoPortFiberLinks(dgoElementId: number): Promise<(DgoPortFiberLink & {
+  portLabel: string | null;
+  portNumber: string;
+  portName: string | null;
+  slotNumber: string | null;
+  slotLabel: string | null;
+  ceoName: string;
+  tubeIdentifier: string;
+})[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db.select().from(dgoPortFiberLinks).where(eq(dgoPortFiberLinks.dgoElementId, dgoElementId));
+  if (links.length === 0) return [];
+  const portIds = Array.from(new Set(links.map(l => l.portId)));
+  const allPorts = await db.select({
+    id: ports.id,
+    label: ports.label,
+    portNumber: ports.portNumber,
+    slotId: ports.slotId,
+  }).from(ports).where(sql`${ports.id} IN (${sql.join(portIds.map(id => sql`${id}`), sql`, `)})`);
+  const allElements = await db.select({ id: mapElements.id, type: mapElements.type, referenceId: mapElements.referenceId }).from(mapElements);
+  const allCeos = await db.select({ id: ceos.id, name: ceos.name }).from(ceos);
+  const allCeoTubes = await db.select({ id: ceoTubes.id, identifier: ceoTubes.identifier }).from(ceoTubes);
+  const slotIds = Array.from(new Set(allPorts.map(p => p.slotId).filter(Boolean))) as number[];
+  let slotMap = new Map<number, { slotNumber: string; label: string | null }>();
+  if (slotIds.length > 0) {
+    const allSlots = await db.select({ id: equipmentSlots.id, slotNumber: equipmentSlots.slotNumber, label: equipmentSlots.label }).from(equipmentSlots).where(sql`${equipmentSlots.id} IN (${sql.join(slotIds.map(id => sql`${id}`), sql`, `)})`);
+    slotMap = new Map(allSlots.map(s => [s.id, { slotNumber: s.slotNumber, label: s.label }]));
+  }
+  const portMap = new Map(allPorts.map(p => [p.id, p]));
+  const elementMap = new Map(allElements.map(e => [e.id, e]));
+  const ceoMap = new Map(allCeos.map(c => [c.id, c]));
+  const tubeMap = new Map(allCeoTubes.map(t => [t.id, t]));
+  return links.map(link => {
+    const port = portMap.get(link.portId);
+    const el = elementMap.get(link.ceoElementId);
+    const ceo = el ? ceoMap.get(el.referenceId) : null;
+    const tube = tubeMap.get(link.tubeId);
+    const slot = port?.slotId ? slotMap.get(port.slotId) : null;
+    const portBase = port ? `Porta ${port.portNumber}${port.label ? ` — ${port.label}` : ""}` : `Porta #${link.portId}`;
+    const slotDisplay = slot?.slotNumber ?? null;
+    return {
+      ...link,
+      portLabel: port?.label ?? null,
+      portNumber: port?.portNumber ?? String(link.portId),
+      portName: slotDisplay ? `${slotDisplay} / ${portBase}` : portBase,
+      slotNumber: slot?.slotNumber ?? null,
+      slotLabel: slot?.label ?? null,
+      ceoName: ceo?.name ?? `CEO #${link.ceoElementId}`,
+      tubeIdentifier: tube?.identifier ?? `Tubo #${link.tubeId}`,
+    };
+  });
+}
+
+export async function createDgoPortFiberLink(data: Omit<InsertDgoPortFiberLink, "id" | "createdAt" | "updatedAt">): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(dgoPortFiberLinks).values(data);
+  return (result[0] as any).insertId;
+}
+
+export async function updateDgoPortFiberLink(id: number, data: Partial<Omit<InsertDgoPortFiberLink, "id" | "createdAt" | "updatedAt">>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(dgoPortFiberLinks).set(data).where(eq(dgoPortFiberLinks.id, id));
+}
+
+export async function deleteDgoPortFiberLink(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.delete(dgoPortFiberLinks).where(eq(dgoPortFiberLinks.id, id));
+}
+
 // ─── Cálculo de Balanço Óptico ────────────────────────────────────────────────
 // Calcula a potência estimada que chega a uma CTO a partir de uma porta OLT,
 // seguindo a cadeia de fibra (cabos, fusões, splitters).
@@ -3789,6 +3916,10 @@ function getSignalQuality(rxDbm: number): OpticalBalanceResult["signalQuality"] 
 
 export async function calculateOpticalBalance(
   ctoElementId: number,  // map_elements.id da CTO alvo
+  options?: {
+    overrideTxPowerDbm?: number;       // Se fornecido, substitui a busca pela OLT (usado via DGO)
+    overrideEquipmentName?: string;    // Nome do equipamento de origem (OLT/Switch via DGO)
+  }
 ): Promise<OpticalBalanceResult> {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
@@ -3808,7 +3939,15 @@ export async function calculateOpticalBalance(
   const allCtoViaAssocs = await db.select().from(ctoViaAssociations);
   const allOltElements = await db.select().from(mapOltElements);
   const allOltLinks = await db.select().from(oltPortFiberLinks);
-  const allPorts = await db.select({ id: ports.id, label: ports.label, portNumber: ports.portNumber }).from(ports);
+  const allDgoElements = await db.select().from(mapDgoElements).catch(() => [] as any[]);
+  // dgo_port_fiber_links pode não existir se migrate-v19 ainda não foi aplicado
+  const allDgoLinks: any[] = await db.select().from(dgoPortFiberLinks).catch(() => []);
+  // dgo_slot_cable_links: vincula cabo (routeId) a bandeja DGO — usado para rastrear quando fromElementId=null
+  const allDgoSlotLinks: any[] = await db.select().from(dgoSlotCableLinks).catch(() => []);
+  // equipments.txPowerDbm pode não existir se migrate-v17 ainda não foi aplicado
+  const allEquipments: any[] = await db.select({ id: equipments.id, name: equipments.name, txPowerDbm: equipments.txPowerDbm }).from(equipments).catch(() => []);
+  // ports.txPowerDbm pode não existir se migrate-v18 ainda não foi aplicado
+  const allPorts: any[] = await db.select({ id: ports.id, label: ports.label, portNumber: ports.portNumber, slotId: ports.slotId, equipmentId: ports.equipmentId, connectedToEquipmentId: ports.connectedToEquipmentId, txPowerDbm: ports.txPowerDbm }).from(ports).catch(() => []);
   // Reservas técnicas: mapa routeId -> metros extras
   const allTechReservesOB = await db.select().from(mapTechnicalReserves);
   const reserveByRouteOB = new Map<number, number>();
@@ -3888,6 +4027,7 @@ export async function calculateOpticalBalance(
   let totalSplitterLoss = 0;
   let totalFusionCount = 0;
   let foundOlt: { element: typeof allOltElements[0]; link: typeof allOltLinks[0] } | null = null;
+  let foundDgo: { element: typeof allDgoElements[0]; link: typeof allDgoLinks[0] } | null = null;
   const reversePath: Array<{ type: "olt" | "cable" | "splitter" | "fusion" | "ceo" | "cto"; label: string; lossDb: number; distKm?: number }> = [];
   reversePath.push({ type: "cto", label: ctoName, lossDb: 0 });
   // Estado actual do rastreio
@@ -4013,6 +4153,33 @@ export async function calculateOpticalBalance(
     const loopKey = `${currentElementId}:${currentTubeId ?? "null"}:${currentViaNumber ?? "null"}`;
     if (visited.has(loopKey)) { warnings.push("Loop detectado na cadeia de fibra"); break; }
     visited.add(loopKey);
+
+    // ── Verificar se o estado actual (elemento CEO + tubo + via) corresponde a um vínculo DGO ──
+    // Esta verificação é feita no início de cada iteração, DEPOIS de o CEO ter processado
+    // as fusões internas e actualizado currentTubeId/currentViaNumber para o tubo de saída.
+    if (currentTubeId !== null) {
+      const dgoLinkAtStart = allDgoLinks.find(l =>
+        l.ceoElementId === currentElementId &&
+        l.tubeId === currentTubeId &&
+        (currentViaNumber === null || l.viaNumber === currentViaNumber)
+      ) ?? allDgoLinks.find(l =>
+        l.ceoElementId === currentElementId &&
+        l.tubeId === currentTubeId
+      );
+      if (dgoLinkAtStart) {
+        const dgoEl = allDgoElements.find(d => d.id === dgoLinkAtStart.dgoElementId);
+        if (dgoEl) {
+          foundDgo = { element: dgoEl, link: dgoLinkAtStart };
+          const portInfo = portById.get(dgoLinkAtStart.portId);
+          const portLabel = portInfo?.label ?? portInfo?.portNumber ?? `Porta #${dgoLinkAtStart.portId}`;
+          const ceoEl = elementById.get(currentElementId);
+          if (ceoEl) reversePath.push({ type: "ceo", label: getElementName(ceoEl), lossDb: 0 });
+          reversePath.push({ type: "olt", label: `DGO — ${portLabel}`, lossDb: 0 });
+          break;
+        }
+      }
+    }
+
     // Encontrar o cabo que chega a este elemento por este tubo
     let activeRoute: typeof allRoutes[0] | null = null;
     let isForwardOnRoute = false;
@@ -4060,6 +4227,122 @@ export async function calculateOpticalBalance(
     // Avançar para o elemento anterior (origem do cabo)
     const prevElementId = isForwardOnRoute ? (activeRoute.fromElementId ?? null) : (activeRoute.toElementId ?? null);
     if (!prevElementId) {
+      // ── Vinculação automática DGO → CEO ──────────────────────────────────────────
+      // O DGO não é um map_element, por isso fromElementId/toElementId do cabo é null.
+      // Regra: cada bandeja (slot) do DGO corresponde a 1 tubo do cabo.
+      //   tubo 1 → bandeja 1, tubo 2 → bandeja 2, etc.
+      //   via N dentro do tubo → porta N da bandeja.
+      // Buscamos o dgo_slot_cable_link que vincula este cabo a uma bandeja do DGO.
+      // Se o tubo do CEO (currentTubeId) estiver mapeado neste link (tubeId),
+      // usamos a bandeja correspondente e a via atual como número de porta.
+      const dgoSlotLinksForRoute = allDgoSlotLinks.filter((sl: any) => sl.routeId === activeRoute!.id);
+      if (dgoSlotLinksForRoute.length > 0) {
+        // Determinar qual slot corresponde ao tubo atual do CEO
+        // Prioridade: slot com tubeId === currentTubeId (vínculo explícito)
+        // Fallback: ordenar slots por slotId e usar índice do tubo no cabo
+        let matchedSlotLink: any = null;
+        if (currentTubeId !== null) {
+          matchedSlotLink = dgoSlotLinksForRoute.find((sl: any) => sl.tubeId === currentTubeId);
+        }
+        if (!matchedSlotLink && dgoSlotLinksForRoute.length === 1) {
+          // Apenas um slot vinculado — usar diretamente
+          matchedSlotLink = dgoSlotLinksForRoute[0];
+        }
+        if (!matchedSlotLink && currentTubeId !== null) {
+          // Múltiplos slots: ordenar por slotId e descobrir índice do tubo no CEO
+          // Os tubos do CEO que chegam a este cabo são ordenados por id
+          const ceoTubesForRoute = allCeoTubes
+            .filter((t: any) => {
+              // Tubo pertence ao CEO do elemento de chegada do cabo
+              const ceoEl = isForwardOnRoute
+                ? (activeRoute!.toElementId ? elementById.get(activeRoute!.toElementId) : null)
+                : (activeRoute!.fromElementId ? elementById.get(activeRoute!.fromElementId) : null);
+              return ceoEl && t.ceoId === ceoEl.referenceId;
+            })
+            .sort((a: any, b: any) => a.id - b.id);
+          const tubeIndex = ceoTubesForRoute.findIndex((t: any) => t.id === currentTubeId);
+          const sortedSlotLinks = [...dgoSlotLinksForRoute].sort((a: any, b: any) => a.slotId - b.slotId);
+          if (tubeIndex >= 0 && tubeIndex < sortedSlotLinks.length) {
+            matchedSlotLink = sortedSlotLinks[tubeIndex];
+          } else {
+            matchedSlotLink = sortedSlotLinks[0];
+          }
+        }
+        if (matchedSlotLink) {
+          const dgoEl = allDgoElements.find((d: any) => d.id === matchedSlotLink.dgoElementId);
+          if (dgoEl) {
+            const dgoEquipment = allEquipments.find((e: any) => e.id === dgoEl.equipmentId);
+            const dgoEquipName = dgoEquipment?.name ?? `DGO #${dgoEl.id}`;
+            // Porta = via atual (via 1 → porta 1, via 2 → porta 2, ...)
+            const portNumber = currentViaNumber ?? 1;
+            // Buscar porta do equipamento DGO com slotId = matchedSlotLink.slotId e portNumber = portNumber
+            const dgoPort = allPorts.find((p: any) =>
+              p.equipmentId === dgoEl.equipmentId &&
+              p.slotId === matchedSlotLink.slotId &&
+              String(p.portNumber) === String(portNumber)
+            );
+            // Verificar se há dgo_port_fiber_link manual configurado para esta porta
+            const manualDgoLink = dgoPort
+              ? allDgoLinks.find((l: any) => l.dgoElementId === dgoEl.id && l.portId === dgoPort.id)
+              : null;
+            if (manualDgoLink) {
+              // Vínculo manual tem prioridade
+              foundDgo = { element: dgoEl, link: manualDgoLink };
+              const portLabel = dgoPort?.label ?? `Porta ${portNumber}`;
+              reversePath.push({ type: "olt", label: `${dgoEquipName} — ${portLabel}`, lossDb: 0 });
+              break;
+            }
+            // Vinculação automática: porta do DGO encontrada
+            if (dgoPort) {
+              // Buscar equipamento conectado a esta porta (OLT/switch)
+              const connectedEquip = dgoPort.connectedToEquipmentId
+                ? allEquipments.find((e: any) => e.id === dgoPort.connectedToEquipmentId)
+                : null;
+              const effectiveTxPower = dgoPort.txPowerDbm ?? connectedEquip?.txPowerDbm ?? dgoEquipment?.txPowerDbm ?? null;
+              const portLabel = dgoPort.label ?? `Porta ${portNumber}`;
+              // Criar um link sintético para foundDgo (sem portId real de dgo_port_fiber_links)
+              foundDgo = {
+                element: dgoEl,
+                link: {
+                  id: -1,
+                  dgoElementId: dgoEl.id,
+                  portId: dgoPort.id,
+                  txPowerDbm: effectiveTxPower,
+                  ceoElementId: -1,
+                  tubeId: currentTubeId ?? -1,
+                  viaNumber: portNumber,
+                  notes: null,
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                } as any,
+              };
+              reversePath.push({ type: "olt", label: `${dgoEquipName} — ${portLabel}`, lossDb: 0 });
+              break;
+            }
+            // Porta não encontrada no cadastro — usar potência do equipamento DGO
+            const effectiveTxPower = dgoEquipment?.txPowerDbm ?? null;
+            const portLabel = `Porta ${portNumber} (auto)`;
+            foundDgo = {
+              element: dgoEl,
+              link: {
+                id: -1,
+                dgoElementId: dgoEl.id,
+                portId: -1,
+                txPowerDbm: effectiveTxPower,
+                ceoElementId: -1,
+                tubeId: currentTubeId ?? -1,
+                viaNumber: portNumber,
+                notes: null,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              } as any,
+            };
+            reversePath.push({ type: "olt", label: `${dgoEquipName} — ${portLabel}`, lossDb: 0 });
+            warnings.push(`Porta ${portNumber} da bandeja do DGO "${dgoEquipName}" não encontrada no cadastro — usando potência do equipamento`);
+            break;
+          }
+        }
+      }
       warnings.push(`Cabo "${activeRoute.name ?? `#${activeRoute.id}`}" não tem elemento de origem vinculado`);
       break;
     }
@@ -4300,14 +4583,48 @@ export async function calculateOpticalBalance(
     }
     currentElementId = prevElementId;
   }
-  if (!foundOlt) {
-    warnings.push("Não foi possível rastrear a fibra até uma porta OLT — verifique se a OLT está posicionada no mapa e se as portas estão vinculadas aos tubos dos CEOs");
+  if (!foundOlt && !foundDgo && options?.overrideTxPowerDbm == null) {
+    warnings.push("Não foi possível rastrear a fibra até uma porta OLT ou DGO — verifique se o equipamento está posicionado no mapa e se as portas estão vinculadas aos tubos dos CEOs");
     return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: totalDistanceKm, cableLossDb: 0, splitterLossDb: totalSplitterLoss, fusionLossDb: 0, signalQuality: "no_signal" as const, path: [], warnings };
   }
   // Calcular potência
-  const txPower = foundOlt.link.txPowerDbm ?? foundOlt.element.defaultTxPowerDbm ?? 5.0;
-  const attenuationPerKm = foundOlt.element.fiberAttenuationDbPerKm ?? 0.35;
-  const fusionLossPerFusion = foundOlt.element.fusionLossDb ?? 0.1;
+  // Prioridade: overrideTxPowerDbm > DGO link txPowerDbm > DGO equipment txPowerDbm > OLT link txPowerDbm > OLT defaultTxPowerDbm
+  let txPower: number;
+  let attenuationPerKm: number;
+  let fusionLossPerFusion: number;
+  if (options?.overrideTxPowerDbm != null) {
+    txPower = options.overrideTxPowerDbm;
+    attenuationPerKm = 0.35;
+    fusionLossPerFusion = 0.1;
+    if (options.overrideEquipmentName) {
+      reversePath.push({ type: "olt", label: options.overrideEquipmentName, lossDb: 0 });
+    }
+  } else if (foundDgo) {
+    // txPowerDbm efetivo: já calculado na vinculação (link.txPowerDbm pode ser sintético ou manual)
+    // Para links manuais (id > 0): override do link > porta.txPowerDbm > equipamento.txPowerDbm
+    // Para links sintéticos (id === -1): txPowerDbm já está resolvido no link
+    let resolvedTxPower: number | null = foundDgo.link.txPowerDbm ?? null;
+    if (resolvedTxPower === null && foundDgo.link.id > 0) {
+      // Link manual sem override: buscar pela porta e equipamento
+      const dgoPort = allPorts.find((p: any) => p.id === foundDgo!.link.portId);
+      const dgoEquipment = dgoPort?.connectedToEquipmentId
+        ? allEquipments.find((e: any) => e.id === dgoPort.connectedToEquipmentId)
+        : null;
+      resolvedTxPower = dgoPort?.txPowerDbm ?? dgoEquipment?.txPowerDbm ?? null;
+    }
+    if (resolvedTxPower === null) {
+      // Último fallback: txPowerDbm do equipamento DGO
+      const dgoEquip = allEquipments.find((e: any) => e.id === foundDgo!.element.equipmentId);
+      resolvedTxPower = dgoEquip?.txPowerDbm ?? 5.0;
+    }
+    txPower = resolvedTxPower;
+    attenuationPerKm = 0.35;
+    fusionLossPerFusion = 0.1;
+  } else {
+    txPower = foundOlt?.link.txPowerDbm ?? foundOlt?.element.defaultTxPowerDbm ?? 5.0;
+    attenuationPerKm = foundOlt?.element.fiberAttenuationDbPerKm ?? 0.35;
+    fusionLossPerFusion = foundOlt?.element.fusionLossDb ?? 0.1;
+  }
   const cableLoss = totalDistanceKm * attenuationPerKm;
   const fusionLoss = totalFusionCount * fusionLossPerFusion;
   const totalLoss = cableLoss + totalSplitterLoss + fusionLoss;
@@ -4559,4 +4876,681 @@ export async function getAllOltGroupMemberships(): Promise<MapOltGroup[]> {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(mapOltGroups);
+}
+
+// ─── DGO no Mapa ──────────────────────────────────────────────────────────────
+export async function getMapDgoElements(): Promise<(MapDgoElement & { equipmentName: string; equipmentStatus: string })[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    id: mapDgoElements.id,
+    equipmentId: mapDgoElements.equipmentId,
+    lat: mapDgoElements.lat,
+    lng: mapDgoElements.lng,
+    notes: mapDgoElements.notes,
+    createdAt: mapDgoElements.createdAt,
+    updatedAt: mapDgoElements.updatedAt,
+    equipmentName: equipments.name,
+    equipmentStatus: equipments.status,
+  }).from(mapDgoElements).leftJoin(equipments, eq(mapDgoElements.equipmentId, equipments.id));
+  return rows as any;
+}
+
+export async function getMapDgoElementById(id: number): Promise<(MapDgoElement & { equipmentName: string; equipmentStatus: string; totalPorts: number | null; model: string | null; ipAddress: string | null; notes: string | null }) | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({
+    id: mapDgoElements.id,
+    equipmentId: mapDgoElements.equipmentId,
+    lat: mapDgoElements.lat,
+    lng: mapDgoElements.lng,
+    notes: mapDgoElements.notes,
+    createdAt: mapDgoElements.createdAt,
+    updatedAt: mapDgoElements.updatedAt,
+    equipmentName: equipments.name,
+    equipmentStatus: equipments.status,
+    totalPorts: equipments.totalPorts,
+    model: equipments.model,
+    ipAddress: equipments.ipAddress,
+  }).from(mapDgoElements).leftJoin(equipments, eq(mapDgoElements.equipmentId, equipments.id)).where(eq(mapDgoElements.id, id)).limit(1);
+  return rows[0] as any ?? null;
+}
+
+export async function createMapDgoElement(data: Omit<InsertMapDgoElement, "id" | "createdAt" | "updatedAt">): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(mapDgoElements).values(data);
+  return (result[0] as any).insertId;
+}
+
+export async function updateMapDgoElement(id: number, data: Partial<Omit<InsertMapDgoElement, "id" | "createdAt" | "updatedAt">>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(mapDgoElements).set({ ...data, updatedAt: new Date() } as any).where(eq(mapDgoElements.id, id));
+}
+
+export async function deleteMapDgoElement(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapDgoElements).where(eq(mapDgoElements.id, id));
+}
+
+// ─── Vinculação Bandeja DGO → Cabo ────────────────────────────────────────────
+export async function getDgoSlotCableLinks(dgoElementId: number): Promise<(DgoSlotCableLink & {
+  slotLabel: string | null;
+  slotNumber: string | null;
+  routeName: string | null;
+  cableType: string | null;
+  fiberCount: number | null;
+  // Tubo automaticamente detectado do cabo (fromTubeId ou toTubeId conforme side)
+  autoTubeId: number | null;
+  autoTubeIdentifier: string | null;
+  autoTubeColor: string | null;
+  autoTubeElementName: string | null;  // Nome do CEO/CTO de onde vem o tubo
+  autoTubeElementType: string | null;  // "ceo" ou "cto"
+})[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db.select().from(dgoSlotCableLinks).where(eq(dgoSlotCableLinks.dgoElementId, dgoElementId));
+  if (links.length === 0) return [];
+  // Enriquecer com dados de slot e rota
+  const slotIds = Array.from(new Set(links.map(l => l.slotId)));
+  const routeIds = Array.from(new Set(links.map(l => l.routeId)));
+  const allSlots = slotIds.length > 0
+    ? await db.select({ id: equipmentSlots.id, slotNumber: equipmentSlots.slotNumber, label: equipmentSlots.label }).from(equipmentSlots).where(sql`${equipmentSlots.id} IN (${sql.join(slotIds.map(id => sql`${id}`), sql`, `)})`)
+    : [];
+  const allRoutes = routeIds.length > 0
+    ? await db.select({
+        id: mapRoutes.id, name: mapRoutes.name, cableType: mapRoutes.cableType, fiberCount: mapRoutes.fiberCount,
+        fromTubeId: mapRoutes.fromTubeId, toTubeId: mapRoutes.toTubeId,
+        fromElementId: mapRoutes.fromElementId, toElementId: mapRoutes.toElementId,
+      }).from(mapRoutes).where(sql`${mapRoutes.id} IN (${sql.join(routeIds.map(id => sql`${id}`), sql`, `)})`)
+    : [];
+  const slotMap = new Map(allSlots.map(s => [s.id, s]));
+  const routeMap = new Map(allRoutes.map(r => [r.id, r]));
+
+  // Coletar IDs de tubos (CEO e CTO) e elementos para buscar nomes
+  const ceoTubeIds: number[] = [];
+  const ctoTubeIds: number[] = [];
+  const elementIds: number[] = [];
+  for (const link of links) {
+    const route = routeMap.get(link.routeId);
+    if (!route) continue;
+    // Se side=="in" o DGO é destino → tubo relevante é toTubeId; se side=="out" é origem → fromTubeId
+    const tubeId = link.side === "in" ? route.toTubeId : route.fromTubeId;
+    const elemId = link.side === "in" ? route.toElementId : route.fromElementId;
+    if (tubeId) {
+      // Não sabemos se é CEO ou CTO; tentamos ambos
+      ceoTubeIds.push(tubeId);
+      ctoTubeIds.push(tubeId);
+    }
+    if (elemId) elementIds.push(elemId);
+  }
+
+  // Buscar tubos de CEO
+  const ceoTubeRows = ceoTubeIds.length > 0
+    ? await db.select({ id: ceoTubes.id, identifier: ceoTubes.identifier, color: ceoTubes.color, ceoId: ceoTubes.ceoId })
+        .from(ceoTubes).where(sql`${ceoTubes.id} IN (${sql.join(ceoTubeIds.map(id => sql`${id}`), sql`, `)})`)
+    : [];
+  // Buscar tubos de CTO
+  const ctoTubeRows = ctoTubeIds.length > 0
+    ? await db.select({ id: ctoTubes.id, identifier: ctoTubes.identifier, color: ctoTubes.color, ctoId: ctoTubes.ctoId })
+        .from(ctoTubes).where(sql`${ctoTubes.id} IN (${sql.join(ctoTubeIds.map(id => sql`${id}`), sql`, `)})`)
+    : [];
+  // Buscar elementos do mapa para obter nome via CEO/CTO referenceId
+  const elemRows = elementIds.length > 0
+    ? await db.select({ id: mapElements.id, type: mapElements.type, referenceId: mapElements.referenceId })
+        .from(mapElements).where(sql`${mapElements.id} IN (${sql.join(elementIds.map(id => sql`${id}`), sql`, `)})`)
+    : [];
+
+  // Buscar nomes dos CEOs e CTOs referenciados
+  const ceoRefIds = elemRows.filter(e => e.type === "ceo").map(e => e.referenceId);
+  const ctoRefIds = elemRows.filter(e => e.type === "cto").map(e => e.referenceId);
+  const ceoNameRows = ceoRefIds.length > 0
+    ? await db.select({ id: ceos.id, name: ceos.name }).from(ceos).where(sql`${ceos.id} IN (${sql.join(ceoRefIds.map(id => sql`${id}`), sql`, `)})`)
+    : [];
+  const ctoNameRows = ctoRefIds.length > 0
+    ? await db.select({ id: ctos.id, name: ctos.name }).from(ctos).where(sql`${ctos.id} IN (${sql.join(ctoRefIds.map(id => sql`${id}`), sql`, `)})`)
+    : [];
+
+  const ceoTubeMap = new Map(ceoTubeRows.map(t => [t.id, t]));
+  const ctoTubeMap = new Map(ctoTubeRows.map(t => [t.id, t]));
+  const elemMap = new Map(elemRows.map(e => [e.id, e]));
+  const ceoNameMap = new Map(ceoNameRows.map(c => [c.id, c.name]));
+  const ctoNameMap = new Map(ctoNameRows.map(c => [c.id, c.name]));
+
+  return links.map(link => {
+    const slot = slotMap.get(link.slotId);
+    const route = routeMap.get(link.routeId);
+    const tubeId = route ? (link.side === "in" ? route.toTubeId : route.fromTubeId) : null;
+    const elemId = route ? (link.side === "in" ? route.toElementId : route.fromElementId) : null;
+
+    // Tentar encontrar o tubo (primeiro como CEO, depois como CTO)
+    const ceoTubeRow = tubeId ? ceoTubeMap.get(tubeId) : null;
+    const ctoTubeRow = tubeId && !ceoTubeRow ? ctoTubeMap.get(tubeId) : null;
+    const tubeRow = ceoTubeRow ?? ctoTubeRow ?? null;
+    const tubeType = ceoTubeRow ? "ceo" : ctoTubeRow ? "cto" : null;
+
+    // Nome do elemento (CEO/CTO)
+    let autoTubeElementName: string | null = null;
+    let autoTubeElementType: string | null = null;
+    if (elemId) {
+      const elem = elemMap.get(elemId);
+      if (elem) {
+        autoTubeElementType = elem.type;
+        if (elem.type === "ceo") autoTubeElementName = ceoNameMap.get(elem.referenceId) ?? null;
+        else if (elem.type === "cto") autoTubeElementName = ctoNameMap.get(elem.referenceId) ?? null;
+      }
+    } else if (tubeRow) {
+      // Sem elemento no mapa, mas tem tubo — tentar pelo ceoId/ctoId do tubo
+      if (ceoTubeRow) {
+        autoTubeElementType = "ceo";
+        autoTubeElementName = ceoNameMap.get(ceoTubeRow.ceoId) ?? null;
+      } else if (ctoTubeRow) {
+        autoTubeElementType = "cto";
+        autoTubeElementName = ctoNameMap.get(ctoTubeRow.ctoId) ?? null;
+      }
+    }
+
+    return {
+      ...link,
+      slotLabel: slot?.label ?? null,
+      slotNumber: slot?.slotNumber ?? null,
+      routeName: route?.name ?? null,
+      cableType: route?.cableType ?? null,
+      fiberCount: route?.fiberCount ?? null,
+      autoTubeId: tubeRow?.id ?? null,
+      autoTubeIdentifier: tubeRow?.identifier ?? null,
+      autoTubeColor: tubeRow?.color ?? null,
+      autoTubeElementName,
+      autoTubeElementType,
+    };
+  });
+}
+
+export async function createDgoSlotCableLink(data: Omit<InsertDgoSlotCableLink, "id" | "createdAt">): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(dgoSlotCableLinks).values(data);
+  return (result[0] as any).insertId;
+}
+
+export async function deleteDgoSlotCableLink(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(dgoSlotCableLinks).where(eq(dgoSlotCableLinks.id, id));
+}
+
+// ─── Grupos de DGOs ───────────────────────────────────────────────────────────
+export async function addDgoToGroup(dgoId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const exists = await db.select().from(mapDgoGroups).where(and(eq(mapDgoGroups.dgoId, dgoId), eq(mapDgoGroups.groupId, groupId)));
+  if (exists.length === 0) await db.insert(mapDgoGroups).values({ dgoId, groupId });
+}
+
+export async function removeDgoFromGroup(dgoId: number, groupId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(mapDgoGroups).where(and(eq(mapDgoGroups.dgoId, dgoId), eq(mapDgoGroups.groupId, groupId)));
+}
+
+export async function getAllDgoGroupMemberships(): Promise<MapDgoGroup[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mapDgoGroups);
+}
+
+// ─── Tubos extras por cabo (múltiplos tubos de origem/destino) ────────────────
+export async function getRouteExtraTubes(routeId: number): Promise<{ id: number; routeId: number; elementId: number; tubeId: number; side: string; notes: string | null; createdAt: Date; tubeIdentifier: string; elementName: string; elementType: string }[]> {
+  if (!_pool) return [];
+  const pool = _pool.promise();
+  const [rows] = await pool.execute<any[]>(
+    `SELECT
+       ret.id,
+       ret.routeId,
+       ret.elementId,
+       ret.tubeId,
+       ret.side,
+       ret.notes,
+       ret.createdAt,
+       COALESCE(ct.identifier, ctt.identifier, CONCAT('Tubo #', ret.tubeId)) AS tubeIdentifier,
+       COALESCE(me.name, me.label, CONCAT('#', me.id)) AS elementName,
+       me.type AS elementType
+     FROM route_extra_tubes ret
+     LEFT JOIN map_elements me ON me.id = ret.elementId
+     LEFT JOIN ceo_tubes ct ON ct.id = ret.tubeId AND me.type = 'ceo'
+     LEFT JOIN cto_tubes ctt ON ctt.id = ret.tubeId AND me.type = 'cto'
+     WHERE ret.routeId = ?
+     ORDER BY ret.side, ret.id`,
+    [routeId]
+  );
+  return rows;
+}
+
+export async function addRouteExtraTube(data: { routeId: number; elementId: number; tubeId: number; side: 'from' | 'to'; notes?: string }): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(routeExtraTubes).values({
+    routeId: data.routeId,
+    elementId: data.elementId,
+    tubeId: data.tubeId,
+    side: data.side,
+    notes: data.notes ?? null,
+  });
+  return (result[0] as any).insertId;
+}
+
+export async function deleteRouteExtraTube(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(routeExtraTubes).where(eq(routeExtraTubes.id, id));
+}
+
+export async function deleteRouteExtraTubesByRoute(routeId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(routeExtraTubes).where(eq(routeExtraTubes.routeId, routeId));
+}
+
+// ─── Vinculação Porta DGO → CEO passagem + Equipamento ───────────────────────
+export async function getDgoPortLinks(dgoElementId: number): Promise<{
+  id: number;
+  dgoElementId: number;
+  slotId: number;
+  portNumber: number;
+  ceoElementId: number | null;
+  ceoName: string | null;
+  portId: number | null;
+  portNumber_eq: string | null;
+  portLabel: string | null;
+  equipmentId: number | null;
+  equipmentName: string | null;
+  equipmentType: string | null;
+  connectedToEquipmentId: number | null;
+  connectedToEquipmentName: string | null;
+  connectedToPortId: number | null;
+  connectedToPortNumber: string | null;
+  connectedToPortLabel: string | null;
+  notes: string | null;
+}[]> {
+  if (!_pool) return [];
+  const pool = _pool.promise();
+  const [rows] = await pool.execute<any[]>(
+    `SELECT
+       dpl.id,
+       dpl.dgoElementId,
+       dpl.slotId,
+       dpl.portNumber,
+       dpl.ceoElementId,
+       dpl.notes,
+       -- CEO de passagem
+       COALESCE(ceo_me.name, ceo_me.label, CONCAT('CEO #', dpl.ceoElementId)) AS ceoName,
+       -- Porta do equipamento vinculado
+       dpl.portId,
+       p.portNumber AS portNumber_eq,
+       p.label AS portLabel,
+       p.equipmentId,
+       eq.name AS equipmentName,
+       eq.type AS equipmentType,
+       -- Equipamento conectado (lido automaticamente via ports.connectedTo*)
+       p.connectedToEquipmentId,
+       eq2.name AS connectedToEquipmentName,
+       p.connectedToPortId,
+       p2.portNumber AS connectedToPortNumber,
+       p2.label AS connectedToPortLabel
+     FROM dgo_port_links dpl
+     LEFT JOIN map_elements ceo_me ON ceo_me.id = dpl.ceoElementId
+     LEFT JOIN ports p ON p.id = dpl.portId
+     LEFT JOIN equipments eq ON eq.id = p.equipmentId
+     LEFT JOIN equipments eq2 ON eq2.id = p.connectedToEquipmentId
+     LEFT JOIN ports p2 ON p2.id = p.connectedToPortId
+     WHERE dpl.dgoElementId = ?
+     ORDER BY dpl.slotId, dpl.portNumber`,
+    [dgoElementId]
+  );
+  return rows;
+}
+
+export async function upsertDgoPortLink(data: {
+  dgoElementId: number;
+  slotId: number;
+  portNumber: number;
+  ceoElementId?: number | null;
+  portId?: number | null;
+  notes?: string | null;
+}): Promise<number> {
+  if (!_pool) throw new Error("DB not available");
+  const pool = _pool.promise();
+  // Verificar se já existe
+  const [existing] = await pool.execute<any[]>(
+    `SELECT id FROM dgo_port_links WHERE dgoElementId = ? AND slotId = ? AND portNumber = ? LIMIT 1`,
+    [data.dgoElementId, data.slotId, data.portNumber]
+  );
+  if (existing.length > 0) {
+    await pool.execute(
+      `UPDATE dgo_port_links SET ceoElementId = ?, portId = ?, notes = ?, updatedAt = NOW() WHERE id = ?`,
+      [data.ceoElementId ?? null, data.portId ?? null, data.notes ?? null, existing[0].id]
+    );
+    return existing[0].id;
+  } else {
+    const [result] = await pool.execute<any>(
+      `INSERT INTO dgo_port_links (dgoElementId, slotId, portNumber, ceoElementId, portId, notes) VALUES (?, ?, ?, ?, ?, ?)`,
+      [data.dgoElementId, data.slotId, data.portNumber, data.ceoElementId ?? null, data.portId ?? null, data.notes ?? null]
+    );
+    return result.insertId;
+  }
+}
+
+export async function deleteDgoPortLink(id: number): Promise<void> {
+  if (!_pool) return;
+  await _pool.promise().execute(`DELETE FROM dgo_port_links WHERE id = ?`, [id]);
+}
+
+export async function getPortsByEquipmentForDgo(equipmentId: number): Promise<{
+  id: number;
+  portNumber: string;
+  label: string | null;
+  slotId: number | null;
+  slotLabel: string | null;
+  connectedToEquipmentId: number | null;
+  connectedToEquipmentName: string | null;
+  connectedToEquipmentTxPowerDbm: number | null;  // COALESCE(porta.txPowerDbm, equipamento.txPowerDbm)
+  portTxPowerDbm: number | null;                  // Override específico desta porta (null = usa o do equipamento)
+  connectedToPortId: number | null;
+  connectedToPortNumber: string | null;
+  connectedToSlotLabel: string | null;
+}[]> {
+  if (!_pool) return [];
+  const pool = _pool.promise();
+  try {
+    const [rows] = await pool.execute<any[]>(
+      `SELECT
+         p.id,
+         p.portNumber,
+         p.label,
+         p.slotId,
+         es.label AS slotLabel,
+         p.connectedToEquipmentId,
+         eq2.name AS connectedToEquipmentName,
+         COALESCE(p.txPowerDbm, eq2.txPowerDbm) AS connectedToEquipmentTxPowerDbm,
+         p.txPowerDbm AS portTxPowerDbm,
+         p.connectedToPortId,
+         p2.portNumber AS connectedToPortNumber,
+         es2.slotNumber AS connectedToSlotLabel
+       FROM ports p
+       LEFT JOIN equipment_slots es ON es.id = p.slotId
+       LEFT JOIN equipments eq2 ON eq2.id = p.connectedToEquipmentId
+       LEFT JOIN ports p2 ON p2.id = p.connectedToPortId
+       LEFT JOIN equipment_slots es2 ON es2.id = p2.slotId
+       WHERE p.equipmentId = ?
+       ORDER BY COALESCE(p.sortOrder, 0), CAST(p.portNumber AS UNSIGNED), p.portNumber`,
+      [equipmentId]
+    );
+    return rows;
+  } catch (err) {
+    console.error('[getPortsByEquipmentForDgo] SQL error:', err);
+    return [];
+  }
+}
+
+// ─── Balanço Óptico Estimado via DGO ───────────────────────────────────────────────────────────────────────────────
+// Calcula o balanço óptico completo a partir de uma porta do DGO até uma CTO.
+// Fluxo: porta DGO → txPowerDbm do equipamento (OLT/Switch) → cabo de saída da bandeja
+//        → CEO (fusões) → splitter → CTO
+// Reutiliza calculateOpticalBalance com overrideTxPowerDbm.
+export async function calculateOpticalBalanceFromDgo(input: {
+  dgoElementId: number;
+  slotId: number;
+  portNumber: number;
+  ctoElementId?: number;   // Se fornecido, calcula o balanço até esta CTO específica
+}): Promise<Omit<OpticalBalanceResult, "txPowerDbm"> & {
+  txPowerDbm: number | null;
+  equipmentName: string | null;
+  cableOutElementId: number | null;  // map_elements.id do CEO/CTO destino do cabo de saída
+}> {
+  const noResult = (msg: string) => ({
+    found: false as const, rxPowerDbm: null, txPowerDbm: null, equipmentName: null,
+    totalLossDb: 0, distanceKm: 0, cableLossDb: 0, splitterLossDb: 0, fusionLossDb: 0,
+    signalQuality: "no_signal" as const, path: [], warnings: [msg], cableOutElementId: null,
+  });
+
+  if (!_pool) return noResult("DB não disponível");
+  const pool = _pool.promise();
+
+  // 1. Buscar a potência TX efetiva: COALESCE(porta.txPowerDbm, equipamento.txPowerDbm)
+  // Tentativa 1: via dgo_port_links (porta do equipamento vinculada à porta do DGO)
+  const [portLinkRows] = await pool.execute<any[]>(
+    `SELECT
+       dpl.portId,
+       p.connectedToEquipmentId,
+       p.txPowerDbm AS portTxPowerDbm,
+       eq.name AS equipmentName,
+       eq.txPowerDbm AS equipmentTxPowerDbm,
+       COALESCE(p.txPowerDbm, eq.txPowerDbm) AS effectiveTxPowerDbm
+     FROM dgo_port_links dpl
+     LEFT JOIN ports p ON p.id = dpl.portId
+     LEFT JOIN equipments eq ON eq.id = p.connectedToEquipmentId
+     WHERE dpl.dgoElementId = ? AND dpl.slotId = ? AND dpl.portNumber = ?
+     LIMIT 1`,
+    [input.dgoElementId, input.slotId, input.portNumber]
+  );
+  const portLinkRow = portLinkRows[0] ?? null;
+
+  // Tentativa 2: via portas do equipamento do DGO (connectedToEquipmentId na porta)
+  const [dgoPortRows] = await pool.execute<any[]>(
+    `SELECT
+       p.connectedToEquipmentId,
+       p.txPowerDbm AS portTxPowerDbm,
+       eq.name AS equipmentName,
+       eq.txPowerDbm AS equipmentTxPowerDbm,
+       COALESCE(p.txPowerDbm, eq.txPowerDbm) AS effectiveTxPowerDbm
+     FROM equipment_slots es
+     JOIN ports p ON p.slotId = es.id
+     JOIN map_dgo_elements mde ON mde.equipmentId = es.equipmentId
+     LEFT JOIN equipments eq ON eq.id = p.connectedToEquipmentId
+     WHERE mde.id = ? AND es.id = ?
+     ORDER BY COALESCE(p.sortOrder, 0), CAST(p.portNumber AS UNSIGNED), p.portNumber
+     LIMIT 100`,
+    [input.dgoElementId, input.slotId]
+  );
+  const dgoPortRow = (dgoPortRows as any[])[input.portNumber - 1] ?? null;
+
+  let txPowerDbm: number | null = null;
+  let equipmentName: string | null = null;
+
+  if (portLinkRow?.effectiveTxPowerDbm != null) {
+    txPowerDbm = Number(portLinkRow.effectiveTxPowerDbm);
+    equipmentName = portLinkRow.equipmentName ?? null;
+  } else if (dgoPortRow?.effectiveTxPowerDbm != null) {
+    txPowerDbm = Number(dgoPortRow.effectiveTxPowerDbm);
+    equipmentName = dgoPortRow.equipmentName ?? null;
+  }
+
+  if (txPowerDbm === null) {
+    const eqName = portLinkRow?.equipmentName ?? dgoPortRow?.equipmentName ?? null;
+    return noResult(eqName
+      ? `Equipamento "${eqName}" não tem Potência TX (dBm) cadastrada`
+      : "Nenhum equipamento com Potência TX (dBm) vinculado a esta porta"
+    );
+  }
+
+  // 2. Buscar o cabo de saída (side="out") da bandeja do DGO
+  // O cabo de saída conecta o DGO a um CEO ou CTO (toElementId ou fromElementId em map_elements)
+  const [cableRows] = await pool.execute<any[]>(
+    `SELECT
+       mr.id AS routeId,
+       mr.name AS routeName,
+       mr.fromElementId,
+       mr.toElementId,
+       dscl.side
+     FROM dgo_slot_cable_links dscl
+     JOIN map_routes mr ON mr.id = dscl.routeId
+     WHERE dscl.dgoElementId = ? AND dscl.slotId = ? AND dscl.side = 'out'
+     LIMIT 1`,
+    [input.dgoElementId, input.slotId]
+  );
+  const cableRow = (cableRows as any[])[0] ?? null;
+
+  if (!cableRow) {
+    return { ...noResult("Nenhum cabo de saída vinculado a esta bandeja"), txPowerDbm, equipmentName, cableOutElementId: null };
+  }
+
+  // O elemento destino do cabo de saída é o CEO/CTO que recebe a fibra do DGO
+  // O DGO não está em map_elements, então fromElementId e toElementId são sempre CEO/CTO
+  // O elemento "destino" do ponto de vista do DGO é o toElementId (ou fromElementId se o cabo for bidirecional)
+  const cableOutElementId = cableRow.toElementId ?? cableRow.fromElementId ?? null;
+
+  if (!cableOutElementId) {
+    return { ...noResult("Cabo de saída sem elemento destino configurado"), txPowerDbm, equipmentName, cableOutElementId: null };
+  }
+
+  // 3. Determinar a CTO alvo:
+  // - Se ctoElementId foi fornecido, usar diretamente
+  // - Caso contrário, usar o elemento destino do cabo de saída (que pode ser CEO ou CTO)
+  const targetElementId = input.ctoElementId ?? cableOutElementId;
+
+  // 4. Calcular o balanço óptico completo usando calculateOpticalBalance com override
+  try {
+    const result = await calculateOpticalBalance(targetElementId, {
+      overrideTxPowerDbm: txPowerDbm,
+      overrideEquipmentName: equipmentName ?? "DGO",
+    });
+    return { ...result, txPowerDbm, equipmentName, cableOutElementId };
+  } catch (err) {
+    console.error('[calculateOpticalBalanceFromDgo] erro ao calcular balanço:', err);
+    return { ...noResult(`Erro ao calcular balanço: ${(err as Error).message}`), txPowerDbm, equipmentName, cableOutElementId };
+  }
+}
+
+// ─── CTOs alcançáveis pelo cabo de saída de uma bandeja do DGO ─────────────────
+// Dado um dgoElementId + slotId + portNumber, busca o cabo de saída da bandeja,
+// encontra todas as CTOs conectadas ao elemento destino do cabo (CEO ou CTO),
+// e calcula o balanço óptico estimado para cada CTO usando o txPowerDbm do
+// equipamento (OLT/Switch) conectado à porta do DGO.
+export async function getDgoSlotCtoBalances(input: {
+  dgoElementId: number;
+  slotId: number;
+  portNumber: number;
+}): Promise<Array<{
+  ctoElementId: number;
+  ctoName: string;
+  balance: OpticalBalanceResult;
+}>> {
+  if (!_pool) return [];
+  const pool = _pool.promise();
+
+  // 1. Buscar a potência TX efetiva da porta do DGO
+  const [portLinkRows] = await pool.execute<any[]>(
+    `SELECT
+       COALESCE(p.txPowerDbm, eq.txPowerDbm) AS effectiveTxPowerDbm,
+       eq.name AS equipmentName
+     FROM dgo_port_links dpl
+     LEFT JOIN ports p ON p.id = dpl.portId
+     LEFT JOIN equipments eq ON eq.id = p.connectedToEquipmentId
+     WHERE dpl.dgoElementId = ? AND dpl.slotId = ? AND dpl.portNumber = ?
+     LIMIT 1`,
+    [input.dgoElementId, input.slotId, input.portNumber]
+  );
+  const portLinkRow = portLinkRows[0] ?? null;
+
+  // Tentativa 2: via portas do equipamento do DGO
+  const [dgoPortRows] = await pool.execute<any[]>(
+    `SELECT
+       COALESCE(p.txPowerDbm, eq.txPowerDbm) AS effectiveTxPowerDbm,
+       eq.name AS equipmentName
+     FROM equipment_slots es
+     JOIN ports p ON p.slotId = es.id
+     JOIN map_dgo_elements mde ON mde.equipmentId = es.equipmentId
+     LEFT JOIN equipments eq ON eq.id = p.connectedToEquipmentId
+     WHERE mde.id = ? AND es.id = ?
+     ORDER BY COALESCE(p.sortOrder, 0), CAST(p.portNumber AS UNSIGNED), p.portNumber
+     LIMIT 100`,
+    [input.dgoElementId, input.slotId]
+  );
+  const dgoPortRow = (dgoPortRows as any[])[input.portNumber - 1] ?? null;
+
+  const txPowerDbm: number | null =
+    portLinkRow?.effectiveTxPowerDbm != null ? Number(portLinkRow.effectiveTxPowerDbm) :
+    dgoPortRow?.effectiveTxPowerDbm != null ? Number(dgoPortRow.effectiveTxPowerDbm) :
+    null;
+
+  const equipmentName: string | null =
+    portLinkRow?.equipmentName ?? dgoPortRow?.equipmentName ?? null;
+
+  if (txPowerDbm === null) return [];
+
+  // 2. Buscar o cabo de saída (side="out") da bandeja e o elemento destino
+  const [cableRows] = await pool.execute<any[]>(
+    `SELECT mr.fromElementId, mr.toElementId
+     FROM dgo_slot_cable_links dscl
+     JOIN map_routes mr ON mr.id = dscl.routeId
+     WHERE dscl.dgoElementId = ? AND dscl.slotId = ? AND dscl.side = 'out'
+     LIMIT 1`,
+    [input.dgoElementId, input.slotId]
+  );
+  const cableRow = (cableRows as any[])[0] ?? null;
+  if (!cableRow) return [];
+
+  const cableOutElementId = cableRow.toElementId ?? cableRow.fromElementId ?? null;
+  if (!cableOutElementId) return [];
+
+  // 3. Buscar o tipo do elemento destino (CEO ou CTO)
+  const [elemRows] = await pool.execute<any[]>(
+    `SELECT me.id, me.type, me.referenceId,
+            COALESCE(ceo.name, cto.name) AS elementName
+     FROM map_elements me
+     LEFT JOIN ceos ceo ON ceo.id = me.referenceId AND me.type = 'ceo'
+     LEFT JOIN ctos cto ON cto.id = me.referenceId AND me.type = 'cto'
+     WHERE me.id = ?
+     LIMIT 1`,
+    [cableOutElementId]
+  );
+  const elemRow = (elemRows as any[])[0] ?? null;
+  if (!elemRow) return [];
+
+  // 4. Coletar as CTOs alvo:
+  // - Se o elemento destino for uma CTO → calcular diretamente
+  // - Se for um CEO → buscar todas as CTOs conectadas a esse CEO via map_routes
+  let ctoTargets: Array<{ ctoElementId: number; ctoName: string }> = [];
+
+  if (elemRow.type === 'cto') {
+    ctoTargets.push({ ctoElementId: elemRow.id, ctoName: elemRow.elementName ?? `CTO #${elemRow.id}` });
+  } else if (elemRow.type === 'ceo') {
+    // Buscar todas as CTOs conectadas a este CEO via map_routes
+    const [ctoRows] = await pool.execute<any[]>(
+      `SELECT me.id AS ctoElementId, cto.name AS ctoName
+       FROM map_routes mr
+       JOIN map_elements me ON (
+         (mr.fromElementId = ? AND me.id = mr.toElementId) OR
+         (mr.toElementId = ? AND me.id = mr.fromElementId)
+       )
+       JOIN ctos cto ON cto.id = me.referenceId
+       WHERE me.type = 'cto'
+       ORDER BY cto.name`,
+      [cableOutElementId, cableOutElementId]
+    );
+    ctoTargets = (ctoRows as any[]).map(r => ({
+      ctoElementId: r.ctoElementId,
+      ctoName: r.ctoName ?? `CTO #${r.ctoElementId}`,
+    }));
+  }
+
+  if (ctoTargets.length === 0) return [];
+
+  // 5. Calcular o balanço óptico para cada CTO
+  const results: Array<{ ctoElementId: number; ctoName: string; balance: OpticalBalanceResult }> = [];
+  for (const target of ctoTargets) {
+    try {
+      const balance = await calculateOpticalBalance(target.ctoElementId, {
+        overrideTxPowerDbm: txPowerDbm,
+        overrideEquipmentName: equipmentName ?? "DGO",
+      });
+      results.push({ ctoElementId: target.ctoElementId, ctoName: target.ctoName, balance });
+    } catch (err) {
+      console.error(`[getDgoSlotCtoBalances] erro CTO #${target.ctoElementId}:`, err);
+    }
+  }
+
+  return results;
 }

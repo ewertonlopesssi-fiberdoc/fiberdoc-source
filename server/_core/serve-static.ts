@@ -1,10 +1,14 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import fs from "fs";
 import path from "path";
 
 /**
  * Serve ficheiros estáticos do build de produção.
  * Este ficheiro NÃO importa o vite, pelo que é seguro em produção.
+ *
+ * Em modo multi-tenant, o tenantMiddleware já reescreveu req.url removendo
+ * o slug antes de chegar aqui. Portanto o express.static e o fallback para
+ * index.html funcionam normalmente para todos os tenants.
  */
 export function serveStatic(app: Express) {
   const distPath =
@@ -18,10 +22,13 @@ export function serveStatic(app: Express) {
     );
   }
 
+  // Servir arquivos estáticos (CSS, JS, imagens, etc.)
   app.use(express.static(distPath));
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  // Fallback para index.html — necessário para SPA (React Router / Wouter)
+  // Captura qualquer rota que não foi tratada pelas rotas anteriores
+  // Isso inclui rotas de tenant como /edivaldofibra/ (após reescrita pelo tenantMiddleware)
+  app.use((_req: Request, res: Response) => {
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

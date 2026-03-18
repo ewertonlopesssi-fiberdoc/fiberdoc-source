@@ -139,6 +139,8 @@ type EquipmentForm = {
   sshUser: string;
   sshPassword: string;
   sshPort: string;
+  // Potência óptica TX (OLT/Switch)
+  txPowerDbm: string;
 };
 
 const defaultForm: EquipmentForm = {
@@ -172,6 +174,7 @@ const defaultForm: EquipmentForm = {
   sshUser: "",
   sshPassword: "",
   sshPort: "22",
+  txPowerDbm: "",
 };
 
 // ─── Formulário de Interface de Rede ────────────────────────────────────────
@@ -394,6 +397,7 @@ export default function Equipments() {
       sshUser: (eq as any).sshUser ?? "",
       sshPassword: "",  // nunca pré-preencher a password
       sshPort: (eq as any).sshPort?.toString() ?? "22",
+      txPowerDbm: (eq as any).txPowerDbm?.toString() ?? "",
     });
     setDialogOpen(true);
   }
@@ -430,6 +434,7 @@ export default function Equipments() {
       sshUser: form.sshUser || null,
       sshPassword: form.sshPassword || null,
       sshPort: form.sshPort ? parseInt(form.sshPort) : null,
+      txPowerDbm: form.txPowerDbm ? parseFloat(form.txPowerDbm) : undefined,
     };
     if (editId) {
       updateMutation.mutate({ id: editId, ...payload });
@@ -850,6 +855,34 @@ export default function Equipments() {
                 className="bg-background border-border/50"
               />
             </div>
+
+            {/* Potência Óptica TX — apenas para OLT e Switch */}
+            {(form.type === "olt" || form.type === "switch") && (
+              <div className="col-span-2 space-y-1.5">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-medium text-cyan-400">&#9675; Óptica</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="flex items-center gap-1.5">
+                      Potência TX
+                      <span className="text-[10px] text-cyan-400 font-normal">(dBm)</span>
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      value={form.txPowerDbm}
+                      onChange={(e) => setForm({ ...form, txPowerDbm: e.target.value })}
+                      placeholder="Ex: 5.0 ou -3.0"
+                      className="bg-background border-cyan-500/30 focus:border-cyan-500/60"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Potência de transmissão óptica da porta. Usada no cálculo do balanço óptico estimado quando vinculada a um DGO.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Imagem do Equipamento — Upload */}
             <div className="col-span-2 space-y-1.5">

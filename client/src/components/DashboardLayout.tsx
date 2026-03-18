@@ -19,7 +19,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { getLoginUrl } from "@/const";
+import { getLoginUrl, getTenantSlug } from "@/const";
 import { useRole } from "@/hooks/useRole";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
@@ -104,6 +104,7 @@ const adminOnlyMenuItems = [
   { icon: ShieldCheck, label: "Backup & Atualização", path: "/backup" },
   { icon: Settings, label: "Sistema", path: "/sistema" },
   { icon: PlugZap, label: "Configuração de Rede", path: "/rede" },
+  { icon: Crown, label: "Gerenciar Provedores", path: "/admin/provedores" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -126,18 +127,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [sidebarWidth]);
 
   useEffect(() => {
-    fetch("/api/local-auth-enabled")
+    const slug = getTenantSlug();
+    const base = slug ? `/${slug}` : "";
+    fetch(`${base}/api/local-auth-enabled`)
       .then((r) => r.json())
       .then((data: { enabled: boolean }) => setLocalAuthEnabled(!!data.enabled))
       .catch(() => setLocalAuthEnabled(false));
   }, []);
 
+  // Redirecionar para login quando não autenticado (dentro de useEffect para evitar render side-effects)
+  useEffect(() => {
+    if (loading || localAuthEnabled === null) return;
+    if (user) return;
+    if (localAuthEnabled) {
+      // Modo local: redirecionar para /login preservando o slug do tenant
+      const loginUrl = getLoginUrl();
+      window.location.replace(loginUrl);
+    }
+  }, [loading, localAuthEnabled, user]);
+
   if (loading || localAuthEnabled === null) return <DashboardLayoutSkeleton />;
 
   if (!user) {
-    // Modo local (OAUTH_SERVER_URL não configurado no servidor): redirecionar para /login
+    // Aguardando redirecionamento via useEffect acima
     if (localAuthEnabled) {
-      window.location.replace("/login");
       return <DashboardLayoutSkeleton />;
     }
     // Modo OAuth Manus: exibir tela de login com botão Manus

@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  FiberDoc — Script de Implantação v5.97
+#  FiberDoc — Script de Implantação v5.99 (Multi-Tenant)
 #  Uso: bash deploy.sh [FIBERDOC_DIR] [FIBERDOC_SERVICE]
 #  Padrões: /opt/fiberdoc  e  fiberdoc
+#
+#  Novidade v5.99: Suporte a arquitetura multi-tenant
+#  - Cada provedor ISP tem banco de dados MySQL isolado
+#  - Acesso via URL: https://servidor/slug-do-provedor
+#  - Painel de administração em /admin/provedores
 # =============================================================================
 set -euo pipefail
 
@@ -13,7 +18,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "============================================================"
-echo "  FiberDoc — Implantação v5.97"
+echo "  FiberDoc — Implantação v5.99 (Multi-Tenant)"
 echo "  Diretório: ${FIBERDOC_DIR}"
 echo "  Serviço:   ${FIBERDOC_SERVICE}"
 echo "  Data/Hora: $(date '+%d/%m/%Y %H:%M:%S')"
@@ -60,9 +65,16 @@ rsync -a --delete "${SCRIPT_DIR}/dist/" "${FIBERDOC_DIR}/dist/"
 [[ -f "${SCRIPT_DIR}/migrate-v9.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v9.sql"  "${FIBERDOC_DIR}/migrate-v9.sql"  || true
 [[ -f "${SCRIPT_DIR}/migrate-v10.sql" ]] && cp "${SCRIPT_DIR}/migrate-v10.sql" "${FIBERDOC_DIR}/migrate-v10.sql" || true
 [[ -f "${SCRIPT_DIR}/migrate-v11.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v11.sql"  "${FIBERDOC_DIR}/migrate-v11.sql"  || true
-[[ -f "${SCRIPT_DIR}/migrate-v11b.sql" ]] && cp "${SCRIPT_DIR}/migrate-v11b.sql" "${FIBERDOC_DIR}/migrate-v11b.sql" || true
+[[ -f "${SCRIPT_DIR}/migrate-
+v11b.sql" ]] && cp "${SCRIPT_DIR}/migrate-v11b.sql" "${FIBERDOC_DIR}/migrate-v11b.sql" || true
 [[ -f "${SCRIPT_DIR}/migrate-v12.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v12.sql"  "${FIBERDOC_DIR}/migrate-v12.sql"  || true
 [[ -f "${SCRIPT_DIR}/migrate-v13.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v13.sql"  "${FIBERDOC_DIR}/migrate-v13.sql"  || true
+[[ -f "${SCRIPT_DIR}/migrate-v14.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v14.sql"  "${FIBERDOC_DIR}/migrate-v14.sql"  || true
+[[ -f "${SCRIPT_DIR}/migrate-v15.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v15.sql"  "${FIBERDOC_DIR}/migrate-v15.sql"  || true
+[[ -f "${SCRIPT_DIR}/migrate-v16.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v16.sql"  "${FIBERDOC_DIR}/migrate-v16.sql"  || true
+[[ -f "${SCRIPT_DIR}/migrate-v17.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v17.sql"  "${FIBERDOC_DIR}/migrate-v17.sql"  || true
+[[ -f "${SCRIPT_DIR}/migrate-v18.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v18.sql"  "${FIBERDOC_DIR}/migrate-v18.sql"  || true
+[[ -f "${SCRIPT_DIR}/migrate-v19.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v19.sql"  "${FIBERDOC_DIR}/migrate-v19.sql"  || true
 echo "      Artefactos copiados."
 
 # ── 6. Instalar dependências ─────────────────────────────────────────────────
@@ -86,7 +98,7 @@ if [[ -f "${SERVICE_FILE}" ]]; then
 else
   cat > "${SERVICE_FILE}" <<EOF
 [Unit]
-Description=FiberDoc — Sistema de Documentação de Fibras Ópticas
+Description=FiberDoc — Sistema de Documentação de Fibras Ópticas (Multi-Tenant)
 After=network.target mysql.service mariadb.service
 Wants=mysql.service mariadb.service
 
@@ -106,7 +118,9 @@ SyslogIdentifier=${FIBERDOC_SERVICE}
 # Edite este arquivo em: ${SERVICE_FILE}
 Environment=NODE_ENV=production
 Environment=PORT=3000
-#Environment=DATABASE_URL=mysql://user:password@localhost:3306/fiberdoc
+# DATABASE_URL aponta para o banco master (fiberdoc_master ou o banco padrão)
+# Cada provedor terá seu próprio banco criado automaticamente (fiberdoc_slug)
+#Environment=DATABASE_URL=mysql://user:password@localhost:3306/fiberdoc_master
 #Environment=JWT_SECRET=seu_segredo_jwt_aqui
 #Environment=VITE_APP_ID=seu_app_id
 #Environment=OAUTH_SERVER_URL=https://api.manus.im
@@ -123,6 +137,9 @@ EOF
   echo "  │  ATENÇÃO: Configure as variáveis de ambiente antes de iniciar!  │"
   echo "  │  Edite: ${SERVICE_FILE}"
   echo "  │  Descomente e preencha as linhas #Environment=...               │"
+  echo "  │                                                                 │"
+  echo "  │  MULTI-TENANT: DATABASE_URL deve apontar para fiberdoc_master   │"
+  echo "  │  Provedores são criados em /admin/provedores após o login        │"
   echo "  └─────────────────────────────────────────────────────────────────┘"
   echo ""
   if ! id fiberdoc &>/dev/null; then
@@ -135,7 +152,7 @@ fi
 systemctl daemon-reload
 systemctl enable "${FIBERDOC_SERVICE}" 2>/dev/null || true
 
-# ── 8. Aplicar migrações SQL ──────────────────────────────────────────────────
+# ── 8. Aplicar migrações SQL no banco master ──────────────────────────────────
 echo "[6/7] Aplicando migrações de base de dados ..."
 
 # Extrair DATABASE_URL do arquivo de serviço systemd (linha activa, sem #)
@@ -160,16 +177,10 @@ if [[ -z "${DB_URL}" ]]; then
   echo "  [AVISO] DATABASE_URL não configurada — migrações SQL ignoradas."
   echo "          Após configurar, execute manualmente:"
   echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v7.sql"
-  echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v8.sql"
-  echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v9.sql"
-  echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v10.sql"
-  echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v11.sql
-          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v11b.sql
-          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v12.sql
-          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v13.sql"
+  echo "          ..."
+  echo "          mysql -h HOST -P PORTA -u USER -pSENHA DBNAME < ${FIBERDOC_DIR}/migrate-v19.sql"
 else
   # Parsear a URL: mysql://user:pass@host:port/dbname?...
-  # Remover prefixo mysql:// e parâmetros após ?
   DB_CLEAN=$(echo "${DB_URL}" | sed 's|mysql://||' | sed 's|?.*||')
   DB_USER=$(echo "${DB_CLEAN}" | sed 's|:.*||')
   DB_REST=$(echo "${DB_CLEAN}" | sed "s|${DB_USER}:||")
@@ -186,8 +197,15 @@ else
     SSL_OPT="--ssl-mode=REQUIRED"
   fi
 
-  # Aplicar cada ficheiro de migração em ordem
-  for MIGRATE_VER in "migrate-v7.sql" "migrate-v8.sql" "migrate-v9.sql" "migrate-v10.sql" "migrate-v11.sql" "migrate-v11b.sql" "migrate-v12.sql" "migrate-v13.sql"; do
+  # Criar banco master se não existir (para multi-tenant)
+  if command -v mysql &>/dev/null; then
+    echo "      Garantindo que o banco master '${DB_NAME}' existe ..."
+    mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" "-p${DB_PASS}" ${SSL_OPT} \
+      -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || true
+  fi
+
+  # Aplicar cada ficheiro de migração em ordem no banco master
+  for MIGRATE_VER in "migrate-v7.sql" "migrate-v8.sql" "migrate-v9.sql" "migrate-v10.sql" "migrate-v11.sql" "migrate-v11b.sql" "migrate-v12.sql" "migrate-v13.sql" "migrate-v14.sql" "migrate-v15.sql" "migrate-v16.sql" "migrate-v17.sql" "migrate-v18.sql" "migrate-v19.sql"; do
     MIGRATE_SQL="${FIBERDOC_DIR}/${MIGRATE_VER}"
     if [[ ! -f "${MIGRATE_SQL}" ]]; then
       MIGRATE_SQL="${SCRIPT_DIR}/${MIGRATE_VER}"
@@ -242,6 +260,12 @@ fi
 
 echo ""
 echo "============================================================"
-echo "  FiberDoc v5.97 implantado com sucesso!"
+echo "  FiberDoc v5.99 (Multi-Tenant) implantado com sucesso!"
 echo "  Backup anterior: ${BACKUP_DIR}/fiberdoc_backup_${TIMESTAMP}.tar.gz"
+echo ""
+echo "  PRÓXIMOS PASSOS (Multi-Tenant):"
+echo "  1. Acesse o sistema com usuário admin"
+echo "  2. Vá em: Menu → Gerenciar Provedores"
+echo "  3. Crie um provedor com slug único (ex: netfibra)"
+echo "  4. Acesse o provedor em: https://servidor/netfibra"
 echo "============================================================"

@@ -1,50 +1,51 @@
 import type { CookieOptions, Request } from "express";
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+/**
+ * Retorna as opções do cookie de sessão.
+ *
+ * Regras:
+ * - secure=true e sameSite=none SOMENTE quando há um domínio real (não IP) com HTTPS real
+ * - Em todos os outros casos (IP, localhost, certificado autoassinado, HTTP): secure=false, sameSite=lax
+ *
+ * Isso garante compatibilidade com instalações em IP privado (ex: 172.31.141.2)
+ * onde o browser rejeita cookies secure em contextos "inseguros".
+ */
 
-function isIpAddress(host: string) {
-  // Basic IPv4 check and IPv6 presence detection.
+function isIpAddress(host: string): boolean {
+  // IPv4
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
-  return host.includes(":");
+  // IPv6
+  if (host.includes(":")) return true;
+  return false;
 }
 
-function isSecureRequest(req: Request) {
-  if (req.protocol === "https") return true;
-
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  if (!forwardedProto) return false;
-
-  const protoList = Array.isArray(forwardedProto)
-    ? forwardedProto
-    : forwardedProto.split(",");
-
-  return protoList.some(proto => proto.trim().toLowerCase() === "https");
+function isLocalHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
 export function getSessionCookieOptions(
   req: Request
 ): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure"> {
-  // const hostname = req.hostname;
-  // const shouldSetDomain =
-  //   hostname &&
-  //   !LOCAL_HOSTS.has(hostname) &&
-  //   !isIpAddress(hostname) &&
-  //   hostname !== "127.0.0.1" &&
-  //   hostname !== "::1";
+  const hostname = req.hostname ?? "";
 
-  // const domain =
-  //   shouldSetDomain && !hostname.startsWith(".")
-  //     ? `.${hostname}`
-  //     : shouldSetDomain
-  //       ? hostname
-  //       : undefined;
+  // Verificar se é um domínio real (não IP, não localhost)
+  const hasRealDomain = !isIpAddress(hostname) && !isLocalHost(hostname) && hostname.includes(".");
 
-  const secure = isSecureRequest(req);
+  // Verificar se a requisição chegou via HTTPS real (não apenas proxy interno)
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const protoList = Array.isArray(forwardedProto)
+    ? forwardedProto
+    : (forwardedProto ?? "").split(",");
+  const isHttps = protoList.some(p => p.trim().toLowerCase() === "https") || req.protocol === "https";
+
+  // Usar secure+sameSite=none apenas com domínio real E HTTPS real
+  // Em IP ou localhost, sempre usar lax (sem secure) para máxima compatibilidade
+  const useSecure = hasRealDomain && isHttps;
+
   return {
     httpOnly: true,
     path: "/",
-    // sameSite=none requer secure=true; em HTTP usar lax para compatibilidade
-    sameSite: secure ? "none" : "lax",
-    secure,
+    sameSite: useSecure ? "none" : "lax",
+    secure: useSecure,
   };
 }

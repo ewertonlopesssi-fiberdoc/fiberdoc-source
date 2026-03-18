@@ -57,29 +57,21 @@ const STATUS_COLOR_HEX: Record<string, string> = {
 };
 
 function makeCeoIcon(status = "active", name = "", selected = false) {
-  const color = STATUS_COLOR_HEX[status] ?? "#6b7280";
-  const outline = selected ? "3px solid #22d3ee" : "3px solid white";
+  const statusColor = STATUS_COLOR_HEX[status] ?? "#6b7280";
   const safeName = name.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const html = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
-    <div style="width:28px;height:28px;background:${color};border:${outline};border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;">
-      <svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="white"/></svg>
-    </div>
-    <div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>
-  </div>`;
-  return L.divIcon({ html, className: "", iconSize: [80, 46], iconAnchor: [40, 14] });
+  const selectedRing = selected ? `<div style="position:absolute;inset:-3px;border:3px solid #22d3ee;border-radius:4px;pointer-events:none;"></div>` : "";
+  const nameHtml = `<div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>`;
+  const html = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><div style="position:relative;display:inline-flex;"><img src="/icons/ceo.png" style="width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6));" />${selectedRing}<div style="position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);width:10px;height:4px;background:${statusColor};border-radius:2px;"></div></div>${nameHtml}</div>`;
+  return L.divIcon({ html, className: "", iconSize: [80, 58], iconAnchor: [40, 24] });
 }
 
 function makeCtoIcon(status = "active", name = "", selected = false) {
-  const color = STATUS_COLOR_HEX[status] ?? "#6b7280";
-  const outline = selected ? "3px solid #22d3ee" : "3px solid white";
+  const statusColor = STATUS_COLOR_HEX[status] ?? "#6b7280";
   const safeName = name.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const html = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
-    <div style="width:28px;height:28px;background:${color};border:${outline};border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;">
-      <svg width="14" height="14" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="white"/></svg>
-    </div>
-    <div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>
-  </div>`;
-  return L.divIcon({ html, className: "", iconSize: [80, 46], iconAnchor: [40, 14] });
+  const selectedRing = selected ? `<div style="position:absolute;inset:-3px;border:3px solid #22d3ee;border-radius:4px;pointer-events:none;"></div>` : "";
+  const nameHtml = `<div style="background:rgba(0,0,0,0.75);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${safeName}</div>`;
+  const html = `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><div style="position:relative;display:inline-flex;"><img src="/icons/cto.png" style="width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6));" />${selectedRing}<div style="position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);width:10px;height:4px;background:${statusColor};border-radius:2px;"></div></div>${nameHtml}</div>`;
+  return L.divIcon({ html, className: "", iconSize: [80, 58], iconAnchor: [40, 24] });
 }
 
 interface MobileMapProps {
@@ -117,7 +109,9 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
   const [tubes, setTubes]               = useState<Tube[]>([]);
   const [selectedTube, setSelectedTube] = useState<Tube | null>(null);
   const [editTubeForm, setEditTubeForm] = useState<Partial<Tube>>({});
-  const [newTubeForm, setNewTubeForm]   = useState({ identifier: "", color: "blue", totalVias: 12, type: "tube" });
+  const [newTubeForm, setNewTubeForm]   = useState({ identifier: "", color: "blue", totalVias: 12, type: "tube", bandejaId: null as number | null });
+  const [bandejas, setBandejas] = useState<{ id: number; number: number; label: string | null }[]>([]);
+  const [bandejasLoading, setBandejasLoading] = useState(false);
 
   // Vias
   const [vias, setVias]               = useState<Via[]>([]);
@@ -143,6 +137,74 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
   const [routes, setRoutes] = useState<any[]>([]);
   const polylinesRef = useRef<Record<number, L.Polyline>>({});
   const [showCables, setShowCables] = useState(true);
+
+  // ─── Viabilidade ────────────────────────────────────────────────────────
+  const [viabOpen, setViabOpen] = useState(false);
+  const [viabLat, setViabLat] = useState("");
+  const [viabLng, setViabLng] = useState("");
+  const [viabRadius, setViabRadius] = useState("500");
+  const [viabResults, setViabResults] = useState<any[]>([]);
+  const [viabLoading, setViabLoading] = useState(false);
+  const [viabError, setViabError] = useState<string | null>(null);
+  const [viabLocating, setViabLocating] = useState(false);
+  const viabCircleRef = useRef<L.Circle | null>(null);
+
+  function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  async function runViabilidade() {
+    const lat = parseFloat(viabLat);
+    const lng = parseFloat(viabLng);
+    const radius = parseFloat(viabRadius);
+    if (isNaN(lat) || isNaN(lng)) { setViabError("Informe as coordenadas"); return; }
+    if (isNaN(radius) || radius <= 0) { setViabError("Raio inválido"); return; }
+    setViabLoading(true); setViabError(null); setViabResults([]);
+    // Desenhar círculo no mapa
+    if (viabCircleRef.current) { try { viabCircleRef.current.remove(); } catch {} }
+    if (mapRef.current) {
+      viabCircleRef.current = L.circle([lat, lng], {
+        radius, color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.08, weight: 2, dashArray: "6 4",
+      }).addTo(mapRef.current);
+      mapRef.current.setView([lat, lng], 15, { animate: true });
+    }
+    try {
+      // Filtrar CTOs dentro do raio com portas livres
+      const allCtos = ctos;
+      const allEls = elements.filter(e => e.type === "cto");
+      const nearby = allEls
+        .map(el => {
+          const cto = allCtos.find(c => c.id === el.referenceId);
+          if (!cto) return null;
+          const dist = haversineKm(lat, lng, el.lat, el.lng) * 1000;
+          if (dist > radius) return null;
+          const free = (cto.capacity ?? 0) - (cto.usedPorts ?? 0);
+          return { cto, el, dist: Math.round(dist), free, total: cto.capacity ?? 0 };
+        })
+        .filter(Boolean)
+        .sort((a: any, b: any) => a.dist - b.dist);
+      setViabResults(nearby as any[]);
+      if (nearby.length === 0) setViabError("Nenhuma CTO encontrada no raio informado");
+    } catch (e: any) { setViabError(e.message ?? "Erro ao calcular viabilidade"); }
+    setViabLoading(false);
+  }
+
+  async function viabUseGps() {
+    setViabLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setViabLat(pos.coords.latitude.toFixed(6));
+        setViabLng(pos.coords.longitude.toFixed(6));
+        setViabLocating(false);
+      },
+      () => { setViabError("Não foi possível obter localização"); setViabLocating(false); },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
 
   // ─── Balanço Óptico e OTDR no mapa ──────────────────────────────────────
   const [mapBalanceOpen, setMapBalanceOpen] = useState(false);
@@ -232,6 +294,19 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
       .finally(() => setSgpClientsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCto?.id, selectedCto?.sgpId]);
+
+  // ─── Carregar bandejas ao abrir formulário Novo Tubo (CEO) ─────────────
+  useEffect(() => {
+    if (panelView !== "newTube" || panelType !== "ceo") return;
+    const ceoId = selectedCeo?.id;
+    if (!ceoId) return;
+    setBandejasLoading(true);
+    client.ceoBandejas.byCeo.query({ ceoId })
+      .then((data: any) => setBandejas(data ?? []))
+      .catch(() => setBandejas([]))
+      .finally(() => setBandejasLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelView, panelType, selectedCeo?.id]);
 
   // ─── Carregar dados ─────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -771,24 +846,172 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
           )}
           {/* Botão Exportar PDF de Fusões */}
           {isOnline() && (() => {
-            const refId = panelType === "ceo" ? selectedCeo?.id : selectedCto?.id;
             const name = panelType === "ceo" ? selectedCeo?.name : selectedCto?.name;
-            if (!refId) return null;
+            const status = panelType === "ceo" ? selectedCeo?.status : selectedCto?.status;
+            if (!name) return null;
             return (
               <button
                 onClick={async () => {
                   try {
-                    const res = await fetch(`${serverUrl}/api/fusion-report/${panelType}/${refId}`, {
-                      headers: token ? { Authorization: `Bearer ${token}` } : {},
-                    });
-                    if (!res.ok) { setError("Falha ao gerar PDF"); return; }
-                    const blob = await res.blob();
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url; a.download = `fusoes_${(name ?? panelType).replace(/\s+/g, "_")}.pdf`;
-                    document.body.appendChild(a); a.click();
-                    document.body.removeChild(a); URL.revokeObjectURL(url);
-                  } catch { setError("Erro ao exportar PDF"); }
+                    // Garantir que todas as vias estejam carregadas antes de gerar o PDF
+                    const refId = panelType === "ceo" ? selectedCeo?.id : selectedCto?.id;
+                    if (!refId) { setError("Elemento não selecionado"); return; }
+                    // Buscar tubos se ainda não carregados
+                    let pdfTubes = tubes;
+                    if (pdfTubes.length === 0) {
+                      const tData = panelType === "ceo"
+                        ? await client.ceoTubes.byCeo.query({ ceoId: refId })
+                        : await client.ctoTubes.byCto.query({ ctoId: refId });
+                      pdfTubes = tData as unknown as Tube[];
+                      setTubes(pdfTubes);
+                    }
+                    // Sempre buscar TODAS as vias do CEO/CTO para o PDF (não depender do estado allVias)
+                    const vData = panelType === "ceo"
+                      ? await client.ceoVias.byCeo.query({ ceoId: refId })
+                      : await client.ctoVias.byCto.query({ ctoId: refId });
+                    const pdfAllVias = vData as unknown as Via[];
+                    setAllVias(pdfAllVias);
+                    // Gerar HTML localmente (igual à versão web) e abrir em nova aba
+                    const PRINT_VIA_COLORS: Record<number, { bg: string; text: string; border: string }> = {
+                      1:  { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
+                      2:  { bg: "#fef9c3", text: "#854d0e", border: "#fde047" },
+                      3:  { bg: "#f9fafb", text: "#374151", border: "#d1d5db" },
+                      4:  { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
+                      5:  { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" },
+                      6:  { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
+                      7:  { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" },
+                      8:  { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" },
+                      9:  { bg: "#1f2937", text: "#f9fafb", border: "#374151" },
+                      10: { bg: "#f3f4f6", text: "#374151", border: "#9ca3af" },
+                      11: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" },
+                      12: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
+                    };
+                    const escH = (s: string | null | undefined) => (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    const colorBadge = (colorName: string | null): string => {
+                      if (!colorName) return "";
+                      const cm: Record<string, { bg: string; text: string; border: string }> = {
+                        azul: { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" }, verde: { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
+                        amarelo: { bg: "#fef9c3", text: "#854d0e", border: "#fde047" }, vermelho: { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" },
+                        laranja: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" }, roxo: { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
+                        rosa: { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" }, branco: { bg: "#f9fafb", text: "#374151", border: "#d1d5db" },
+                        preto: { bg: "#1f2937", text: "#f9fafb", border: "#374151" }, cinza: { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" },
+                        marrom: { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" }, ciano: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
+                        blue: { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" }, green: { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
+                        yellow: { bg: "#fef9c3", text: "#854d0e", border: "#fde047" }, red: { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5" },
+                        orange: { bg: "#ffedd5", text: "#c2410c", border: "#fdba74" }, purple: { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe" },
+                        pink: { bg: "#fce7f3", text: "#be185d", border: "#f9a8d4" }, white: { bg: "#f9fafb", text: "#374151", border: "#d1d5db" },
+                        black: { bg: "#1f2937", text: "#f9fafb", border: "#374151" }, gray: { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" },
+                        brown: { bg: "#fef3c7", text: "#78350f", border: "#fcd34d" }, cyan: { bg: "#cffafe", text: "#0e7490", border: "#67e8f9" },
+                      };
+                      const st = cm[colorName.toLowerCase().trim()] ?? { bg: "#f3f4f6", text: "#374151", border: "#d1d5db" };
+                      return `<span style='background:${st.bg};color:${st.text};border:1px solid ${st.border};padding:1px 6px;border-radius:3px;font-size:7pt;font-weight:700;margin-left:6mm'>${colorName.toUpperCase()}</span>`;
+                    };
+                    const viaById: Record<number, Via> = {};
+                    for (const v of pdfAllVias) viaById[v.id] = v;
+                    const tubeById: Record<number, Tube> = {};
+                    for (const t of pdfTubes) tubeById[t.id] = t;
+                    const viasByTube: Record<number, Via[]> = {};
+                    for (const v of pdfAllVias) {
+                      if (!viasByTube[v.tubeId]) viasByTube[v.tubeId] = [];
+                      viasByTube[v.tubeId].push(v);
+                    }
+                    for (const k of Object.keys(viasByTube)) viasByTube[Number(k)].sort((a, b) => a.viaNumber - b.viaNumber);
+                    const totalVias = pdfTubes.reduce((s, t) => s + t.totalVias, 0);
+                    const fusedVias = pdfAllVias.filter(v => v.fusedToViaId !== null).length;
+                    const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+                    const renderTubeHtml = (tube: Tube): string => {
+                      const vias = viasByTube[tube.id] ?? [];
+                      const fused = vias.filter(v => v.fusedToViaId !== null).length;
+                      return `<div class="tube-section">
+                        <div class="tube-title${tube.type === "splitter" ? " splitter-title" : ""}">
+                          ${tube.type === "splitter" ? "SPLITTER" : "TUBO"} &mdash; ${escH(tube.identifier)}
+                          ${colorBadge(tube.color)}
+                          <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${tube.totalVias} vias &middot; ${fused} fusionada${fused !== 1 ? "s" : ""}</span>
+                        </div>
+                        <table><thead><tr>
+                          <th style="width:8%">VIA</th><th style="width:20%">ETIQUETA</th>
+                          <th style="width:12%">STATUS</th><th style="width:35%">IDENT. FUS&Atilde;O</th><th>OBSERVA&Ccedil;&Otilde;ES</th>
+                        </tr></thead><tbody>
+                        ${vias.map((via, idx) => {
+                          const ft = via.fusedToTubeId ? tubeById[via.fusedToTubeId] : null;
+                          const fv = via.fusedToViaId ? viaById[via.fusedToViaId] : null;
+                          const ok = !!(ft && fv);
+                          const bg = idx % 2 === 0 ? "#fff" : "#f8f9fa";
+                          const lbl = via.label ? "<b>" + escH(via.label) + "</b>" : "<span style='color:#9ca3af;font-style:italic'>&mdash;</span>";
+                          const st = ok ? "<span style='background:#d1fae5;color:#059669;padding:1px 5px;border-radius:3px;font-size:7pt;font-weight:700'>FUSIONADA</span>" : "<span style='background:#f3f4f6;color:#9ca3af;padding:1px 5px;border-radius:3px;font-size:7pt'>LIVRE</span>";
+                          const fc = ok ? "#059669" : "#9ca3af";
+                          const ft2 = ok ? "VIA " + fv!.viaNumber + " do " + escH(ft!.identifier) + (fv!.label ? " (" + escH(fv!.label) + ")" : "") : "&mdash;";
+                          const isEntryVia = tube.type === "splitter" && via.viaNumber === 0;
+                          const viaDisplayNum = isEntryVia ? "ENT" : (tube.type === "splitter" ? String(via.viaNumber).padStart(2, "0") : via.viaNumber);
+                          const vc = isEntryVia ? null : PRINT_VIA_COLORS[via.viaNumber];
+                          const vc2 = isEntryVia
+                            ? `<span style='background:#f3e8ff;color:#7c3aed;border:1px solid #c4b5fd;padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700'>ENT</span>`
+                            : (vc ? `<span style='background:${vc.bg};color:${vc.text};border:1px solid ${vc.border};padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700'>${viaDisplayNum}</span>` : `<b>${viaDisplayNum}</b>`);
+                          return `<tr style='background:${bg}'><td style='text-align:center'>${vc2}</td><td>${lbl}</td><td style='text-align:center'>${st}</td><td style='color:${fc}'>${ft2}</td><td style='font-size:8pt;color:#6b7280'>${escH(via.notes)}</td></tr>`;
+                        }).join("")}
+                        </tbody></table></div>`;
+                    };
+                    const allContent = pdfTubes.map(t => renderTubeHtml(t)).join("");
+                    const elNameSafe = escH(name);
+                    const statusColor = status === "active" ? "#059669" : "#d97706";
+                    const statusLabel = status === "active" ? "Ativo" : status === "maintenance" ? "Manuten&ccedil;&atilde;o" : "Inativo";
+                    const statsHtml = [
+                      { l: "Tubos", v: pdfTubes.filter(t => t.type === "tube").length },
+                      { l: "Splitters", v: pdfTubes.filter(t => t.type === "splitter").length },
+                      { l: "Total de Vias", v: totalVias },
+                      { l: "Vias Fusionadas", v: fusedVias },
+                      { l: "Vias Livres", v: totalVias - fusedVias },
+                      { l: "Ocupa&ccedil;&atilde;o", v: totalVias > 0 ? Math.round((fusedVias / totalVias) * 100) + "%" : "0%" },
+                    ].map(s => `<div class='stat'><div class='stat-val'>${s.v}</div><div class='stat-lbl'>${s.l}</div></div>`).join("");
+                    const html = `<!DOCTYPE html><html lang="pt-BR"><head>
+                      <meta charset="UTF-8">
+                      <title>Mapa de Fus&otilde;es &mdash; ${panelType.toUpperCase()} ${elNameSafe}</title>
+                      <style>
+                        * { box-sizing: border-box; margin: 0; padding: 0; }
+                        body { font-family: Arial, sans-serif; font-size: 10pt; color: #111; background: white; padding: 14mm 16mm; }
+                        h1 { font-size: 16pt; font-weight: 800; color: #1a1a2e; margin-bottom: 2mm; }
+                        h2 { font-size: 14pt; font-weight: 700; color: #059669; margin-bottom: 1mm; }
+                        .header { border-bottom: 2px solid #1a1a2e; padding-bottom: 6mm; margin-bottom: 6mm; display: flex; justify-content: space-between; align-items: flex-start; }
+                        .header-right { text-align: right; font-size: 8pt; color: #6b7280; }
+                        .stats { display: flex; gap: 6mm; margin-bottom: 6mm; flex-wrap: wrap; }
+                        .stat { border: 1px solid #ddd; padding: 3mm 5mm; text-align: center; min-width: 22mm; }
+                        .stat-val { font-size: 14pt; font-weight: 700; color: #1a1a2e; }
+                        .stat-lbl { font-size: 7pt; color: #6b7280; text-transform: uppercase; }
+                        table { width: 100%; border-collapse: collapse; margin-bottom: 6mm; font-size: 9pt; }
+                        th { background: #1a1a2e; color: white; padding: 4px 8px; text-align: left; font-size: 8pt; text-transform: uppercase; border: 1px solid #333; }
+                        td { padding: 4px 8px; border: 1px solid #ddd; vertical-align: middle; }
+                        .tube-section { margin-bottom: 8mm; page-break-inside: avoid; }
+                        .tube-title { font-size: 10pt; font-weight: 700; margin-bottom: 2mm; padding: 3px 8px; background: #d1fae5; border-left: 4px solid #059669; }
+                        .splitter-title { background: #f3e8ff; border-left-color: #7c3aed; }
+                        .footer { border-top: 1px solid #ddd; padding-top: 4mm; margin-top: 6mm; font-size: 7pt; color: #6b7280; display: flex; justify-content: space-between; }
+                        @media print { body { padding: 0; } @page { size: A4 portrait; margin: 14mm 16mm; } }
+                      </style>
+                    </head><body>
+                      <div class="header">
+                        <div>
+                          <h1>MAPA DE FUS&Otilde;ES &mdash; ${panelType.toUpperCase()}</h1>
+                          <h2>${elNameSafe}</h2>
+                        </div>
+                        <div class="header-right">
+                          <div style="font-weight:700;font-size:9pt;color:#1a1a2e;margin-bottom:1mm">FiberDoc</div>
+                          <div>Gerado em: ${now}</div>
+                          <div style="margin-top:1mm">Status: <b style="color:${statusColor}">${statusLabel}</b></div>
+                        </div>
+                      </div>
+                      <div class="stats">${statsHtml}</div>
+                      ${allContent}
+                      <div class="footer">
+                        <span>FiberDoc &mdash; Sistema de Gest&atilde;o de Infraestrutura de Rede &Oacute;ptica</span>
+                        <span>${elNameSafe} &middot; ${now}</span>
+                      </div>
+                    </body></html>`;
+                    const win = window.open("", "_blank");
+                    if (!win) { setError("Popup bloqueado. Permita popups para este site."); return; }
+                    win.document.write(html);
+                    win.document.close();
+                    win.focus();
+                    setTimeout(() => win.print(), 600);
+                  } catch { setError("Erro ao gerar PDF"); }
                 }}
                 className="w-full flex items-center justify-center gap-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-xl py-2.5 text-xs text-cyan-300 hover:bg-cyan-500/20 transition-colors"
               >
@@ -951,15 +1174,56 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
   // ═══════════════════════════════════════════════════════════════════════════
   function PanelNewTube() {
     const refId = panelType === "ceo" ? selectedCeo!.id : selectedCto!.id;
+    // Bandejas são carregadas pelo useEffect no nível do componente principal
     return (
       <>
-        <PanelHeader title="Novo Tubo" onBack={() => setPanelView("tubes")} backLabel="Cancelar" />
+        <PanelHeader title="Novo Tubo" onBack={() => { setPanelView("tubes"); setBandejas([]); }} backLabel="Cancelar" />
         <div className="flex-1 overflow-y-auto p-3 space-y-3">
           <ErrorBox />
           <div>
             <label className="text-xs text-zinc-400 mb-1 block">Identificador</label>
             <input type="text" value={newTubeForm.identifier} onChange={e => setNewTubeForm(f => ({ ...f, identifier: e.target.value }))} placeholder="ex: Tubo 1" className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500" />
           </div>
+          {/* Seleção de Bandeja — apenas para CEO */}
+          {panelType === "ceo" && (
+            <div>
+              <label className="text-xs text-zinc-400 mb-1 block">Bandeja (opcional)</label>
+              {bandejasLoading ? (
+                <div className="flex items-center gap-2 py-2 text-zinc-500 text-xs">
+                  <div className="w-3 h-3 border border-zinc-600 border-t-cyan-400 rounded-full animate-spin" />
+                  Carregando bandejas...
+                </div>
+              ) : bandejas.length === 0 ? (
+                <p className="text-xs text-zinc-500 py-1">Nenhuma bandeja cadastrada neste CEO</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() => setNewTubeForm(f => ({ ...f, bandejaId: null }))}
+                    className={`py-2 rounded-xl text-xs font-medium border transition-colors ${
+                      newTubeForm.bandejaId === null
+                        ? "bg-cyan-500 border-cyan-500 text-zinc-900"
+                        : "bg-zinc-800 border-zinc-700 text-zinc-300"
+                    }`}
+                  >
+                    Sem bandeja
+                  </button>
+                  {bandejas.map((b: any) => (
+                    <button
+                      key={b.id}
+                      onClick={() => setNewTubeForm(f => ({ ...f, bandejaId: b.id }))}
+                      className={`py-2 rounded-xl text-xs font-medium border transition-colors ${
+                        newTubeForm.bandejaId === b.id
+                          ? "bg-cyan-500 border-cyan-500 text-zinc-900"
+                          : "bg-zinc-800 border-zinc-700 text-zinc-300"
+                      }`}
+                    >
+                      {b.label ? b.label : `Bandeja ${b.number}`}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div>
             <label className="text-xs text-zinc-400 mb-1.5 block">Tipo</label>
             <div className="grid grid-cols-2 gap-2">
@@ -990,11 +1254,13 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
               setSaving(true); setError(null);
               try {
                 if (panelType === "ceo") {
-                  await client.ceoTubes.create.mutate({ ceoId: refId, identifier: newTubeForm.identifier, type: newTubeForm.type as "tube" | "splitter", totalVias: newTubeForm.totalVias, color: newTubeForm.color });
+                  await client.ceoTubes.create.mutate({ ceoId: refId, identifier: newTubeForm.identifier, type: newTubeForm.type as "tube" | "splitter", totalVias: newTubeForm.totalVias, color: newTubeForm.color, ...(newTubeForm.bandejaId ? { bandejaId: newTubeForm.bandejaId } : {}) });
                 } else {
                   await client.ctoTubes.create.mutate({ ctoId: refId, identifier: newTubeForm.identifier, type: newTubeForm.type as "tube" | "splitter", totalVias: newTubeForm.totalVias, color: newTubeForm.color });
                 }
                 await loadTubes(refId, panelType);
+                setNewTubeForm({ identifier: "", color: "blue", totalVias: 12, type: "tube", bandejaId: null });
+                setBandejas([]);
                 setPanelView("tubes");
               } catch (e: any) { setError(e?.message ?? "Erro ao criar tubo"); }
               finally { setSaving(false); }
@@ -1355,6 +1621,13 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
               {s === "all" ? "Todos status" : s === "active" ? "Activos" : "Inativos"}
             </button>
           ))}
+          <div className="w-px bg-zinc-700 flex-shrink-0 mx-0.5" />
+          <button
+            onClick={() => { setViabOpen(true); setViabResults([]); setViabError(null); }}
+            className="flex-shrink-0 flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-cyan-500/10 hover:border-cyan-500/40 hover:text-cyan-300"
+          >
+            <BarChart2 className="w-3 h-3" /> Viabilidade
+          </button>
         </div>
       </div>
 
@@ -1612,8 +1885,145 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
           </div>
         )}
 
-        {/* ─── Modal: Vincular CTO ao SGP ──────────────────────────────────────── */}
-        {linkSgpOpen && (       <div className="absolute inset-0 bg-black/70 flex items-end" style={{ zIndex: 30 }}>
+        {/* ─── Modal: Viabilidade ─────────────────────────────────────────────────────────────────────── */}
+        {viabOpen && (
+          <div className="absolute inset-0 bg-black/70 flex items-end" style={{ zIndex: 30 }}>
+            <div className="w-full bg-zinc-950 border-t border-zinc-800 rounded-t-2xl flex flex-col" style={{ maxHeight: "85vh" }}>
+              {/* Cabeçalho */}
+              <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-zinc-800 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <BarChart2 className="w-4 h-4 text-cyan-400" />
+                  <span className="text-sm font-bold text-white">Análise de Viabilidade</span>
+                </div>
+                <button onClick={() => {
+                  setViabOpen(false);
+                  if (viabCircleRef.current) { try { viabCircleRef.current.remove(); } catch {} viabCircleRef.current = null; }
+                }} className="text-zinc-500 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Formulário */}
+              <div className="px-4 py-3 space-y-3 flex-shrink-0 border-b border-zinc-800">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-zinc-400 uppercase tracking-wider">Latitude</label>
+                    <input
+                      type="text"
+                      value={viabLat}
+                      onChange={e => setViabLat(e.target.value)}
+                      placeholder="-8.797526"
+                      className="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-zinc-400 uppercase tracking-wider">Longitude</label>
+                    <input
+                      type="text"
+                      value={viabLng}
+                      onChange={e => setViabLng(e.target.value)}
+                      placeholder="-36.505970"
+                      className="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="text-[10px] text-zinc-400 uppercase tracking-wider">Raio (metros)</label>
+                    <input
+                      type="number"
+                      value={viabRadius}
+                      onChange={e => setViabRadius(e.target.value)}
+                      placeholder="500"
+                      className="w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none"
+                    />
+                  </div>
+                  <button
+                    onClick={viabUseGps}
+                    disabled={viabLocating}
+                    className="flex items-center gap-1.5 bg-blue-600/20 border border-blue-500/30 rounded-xl px-3 py-2 text-xs text-blue-300 hover:bg-blue-600/30 transition-colors disabled:opacity-50"
+                  >
+                    {viabLocating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LocateFixed className="w-3.5 h-3.5" />}
+                    GPS
+                  </button>
+                  <button
+                    onClick={runViabilidade}
+                    disabled={viabLoading}
+                    className="flex items-center gap-1.5 bg-cyan-600 rounded-xl px-3 py-2 text-xs text-white font-semibold hover:bg-cyan-500 transition-colors disabled:opacity-50"
+                  >
+                    {viabLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
+                    Analisar
+                  </button>
+                </div>
+              </div>
+
+              {/* Resultados */}
+              <div className="flex-1 overflow-y-auto">
+                {viabError && viabResults.length === 0 && (
+                  <div className="flex items-center gap-2 text-amber-400 text-xs p-4">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" /> {viabError}
+                  </div>
+                )}
+                {viabResults.length > 0 && (
+                  <div className="p-3 space-y-2">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider px-1">
+                      {viabResults.length} CTO{viabResults.length !== 1 ? "s" : ""} encontrada{viabResults.length !== 1 ? "s" : ""} no raio de {viabRadius}m
+                    </p>
+                    {viabResults.map((r: any) => {
+                      const pct = r.total > 0 ? Math.round(((r.total - r.free) / r.total) * 100) : 0;
+                      const hasSignal = r.free > 0;
+                      return (
+                        <button
+                          key={r.cto.id}
+                          onClick={() => {
+                            // Centralizar no mapa e fechar modal
+                            if (mapRef.current) mapRef.current.setView([r.el.lat, r.el.lng], 17, { animate: true });
+                            setViabOpen(false);
+                          }}
+                          className="w-full text-left bg-zinc-900 border border-zinc-800 rounded-xl p-3 space-y-2 hover:border-zinc-700 transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-2 h-2 rounded-sm ${hasSignal ? "bg-emerald-500" : "bg-rose-500"}`} />
+                              <span className="text-sm font-semibold text-white">{r.cto.name}</span>
+                            </div>
+                            <span className="text-xs text-zinc-400">{r.dist}m</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1">
+                              <div className="w-full bg-zinc-700 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${pct >= 90 ? "bg-rose-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500"}`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            </div>
+                            <span className={`text-xs font-semibold ${hasSignal ? "text-emerald-400" : "text-rose-400"}`}>
+                              {r.free} livre{r.free !== 1 ? "s" : ""} / {r.total}
+                            </span>
+                          </div>
+                          {r.cto.address && (
+                            <p className="text-[10px] text-zinc-500 truncate">{r.cto.address}</p>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {!viabLoading && viabResults.length === 0 && !viabError && (
+                  <div className="flex flex-col items-center justify-center h-32 text-zinc-600 gap-2">
+                    <BarChart2 className="w-8 h-8 opacity-30" />
+                    <p className="text-xs">Informe as coordenadas e clique em Analisar</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Modal: Vincular CTO ao SGP ──────────────────── */}
+        {linkSgpOpen && (
+          <div className="absolute inset-0 bg-black/70 flex items-end" style={{ zIndex: 30 }}>
             <div className="w-full bg-zinc-950 border-t border-zinc-800 rounded-t-2xl p-4 space-y-3 max-h-[80vh] flex flex-col">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
