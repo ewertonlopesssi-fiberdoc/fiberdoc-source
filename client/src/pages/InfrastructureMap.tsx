@@ -2278,6 +2278,22 @@ export default function InfrastructureMap() {
   // Sincronizar refs com estados para evitar stale closures nos handlers de click
   useEffect(() => { addingModeRef.current = addingMode; }, [addingMode]);
   useEffect(() => { groupSelectModeRef.current = groupSelectMode; }, [groupSelectMode]);
+  // Sincronizar sidePanel.route com a lista de rotas atualizada (evita objeto stale após salvar traçado)
+  useEffect(() => {
+    if (!routes.length) return;
+    setSidePanel(prev => {
+      if (prev?.kind !== "route") return prev;
+      const updated = routes.find((r: any) => r.id === prev.route.id);
+      if (!updated) return prev;
+      // Só atualiza se algo realmente mudou (fromElementId, toElementId ou path)
+      if (
+        updated.fromElementId === prev.route.fromElementId &&
+        updated.toElementId   === prev.route.toElementId   &&
+        updated.path          === prev.route.path
+      ) return prev;
+      return { ...prev, route: updated as any };
+    });
+  }, [routes]);
   // Desabilitar arrasto do mapa, mudar cursor e implementar box select quando modo seleção está ativo
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
@@ -2514,14 +2530,7 @@ export default function InfrastructureMap() {
 
   // ─── Edição de Traçado de Cabo ────────────────────────────────────────────
   const updateRoutePathMut = trpc.infraMap.updateRoute.useMutation({
-    onSuccess: (_data, variables) => {
-      refetchRoutes();
-      toast.success("Traçado salvo");
-      setSidePanel(prev => {
-        if (prev?.kind !== "route" || prev.route.id !== variables.id) return prev;
-        return { ...prev, route: { ...prev.route, ...(variables.fromElementId !== undefined ? { fromElementId: variables.fromElementId as any } : {}), ...(variables.toElementId !== undefined ? { toElementId: variables.toElementId as any } : {}), ...(variables.path !== undefined ? { path: variables.path } : {}) } };
-      });
-    },
+    onSuccess: () => { refetchRoutes(); toast.success("Traçado salvo"); },
     onError: (e) => toast.error(e.message),
   });
 
