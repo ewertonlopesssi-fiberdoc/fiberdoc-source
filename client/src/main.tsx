@@ -98,8 +98,36 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
       .register("/sw.js")
-      .then((reg) => console.log("[PWA] Service Worker registrado:", reg.scope))
+      .then((reg) => {
+        console.log("[PWA] Service Worker registrado:", reg.scope);
+        // Verificar atualizações imediatamente e a cada 60 segundos
+        reg.update();
+        setInterval(() => reg.update(), 60_000);
+        // Quando um novo SW é instalado e ativado, recarregar a página
+        reg.addEventListener("updatefound", () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener("statechange", () => {
+            if (newWorker.state === "activated" && navigator.serviceWorker.controller) {
+              console.log("[PWA] Nova versão detectada — recarregando...");
+              window.location.reload();
+            }
+          });
+        });
+      })
       .catch((err) => console.warn("[PWA] Falha ao registrar Service Worker:", err));
+    // Quando o SW envia mensagem de atualização, recarregar
+    navigator.serviceWorker.addEventListener("message", (event) => {
+      if (event.data && event.data.type === "SW_UPDATED") {
+        console.log("[PWA] SW atualizado para v" + event.data.version + " — recarregando...");
+        window.location.reload();
+      }
+    });
+    // Quando o SW muda (controllerchange), recarregar
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      console.log("[PWA] Service Worker trocado — recarregando...");
+      window.location.reload();
+    });
   });
 }
 

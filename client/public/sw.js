@@ -1,6 +1,6 @@
-// FiberDoc Service Worker — v5.95.0
+// FiberDoc Service Worker — v5.96.2
 // IMPORTANTE: altere APP_VERSION a cada release para forçar limpeza do cache
-const APP_VERSION = "6.2.2";
+const APP_VERSION = "5.96.2";
 const CACHE_NAME = `fiberdoc-${APP_VERSION}`;
 
 // Recursos estáticos para cache imediato (app shell)
@@ -53,6 +53,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // sw.js: sempre rede para detectar atualizações
+  if (url.pathname === "/sw.js") {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   // Assets com hash no nome (imutáveis): Cache-first
   const hasHash = /\/assets\/[^/]+-[A-Za-z0-9]{8,}\.(js|css)$/.test(url.pathname);
   if (hasHash) {
@@ -83,4 +89,23 @@ self.addEventListener("fetch", (event) => {
       })
       .catch(() => caches.match(event.request))
   );
+});
+
+// ─── Mensagens do cliente ─────────────────────────────────────────────────────
+self.addEventListener("message", (event) => {
+  // Comando para limpar todo o cache e recarregar
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+  if (event.data && event.data.type === "CLEAR_CACHE") {
+    caches.keys().then((keys) =>
+      Promise.all(keys.map((key) => caches.delete(key)))
+    ).then(() => {
+      self.clients.matchAll({ type: "window" }).then((clients) =>
+        clients.forEach((client) =>
+          client.postMessage({ type: "CACHE_CLEARED" })
+        )
+      );
+    });
+  }
 });
