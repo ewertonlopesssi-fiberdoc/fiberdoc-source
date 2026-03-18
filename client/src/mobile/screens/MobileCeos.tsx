@@ -493,10 +493,27 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                 <>
                   <button
                     onClick={async () => {
-                      setTubeViasCache(new Map());
+                      // Recarregar dados estruturais
+                      await Promise.all([
+                        loadTubes(selected.id),
+                        loadBandejas(selected.id),
+                        loadAllVias(selected.id),
+                        loadSplitters(selected.id),
+                      ]);
+                      // Recarregar vias de todos os tubos em paralelo para atualizar barras de ocupação
+                      const freshTubes = await client.ceoTubes.byCeo.query({ ceoId: selected.id }).catch(() => tubes);
+                      const newCache = new Map<number, Via[]>();
+                      await Promise.all(
+                        (freshTubes as unknown as typeof tubes).map(async (tube) => {
+                          try {
+                            const vias = await client.ceoVias.byTube.query({ tubeId: tube.id });
+                            newCache.set(tube.id, vias as unknown as Via[]);
+                          } catch { /* ignora */ }
+                        })
+                      );
+                      setTubeViasCache(newCache);
                       setExpandedTubeIds(new Set());
-                      await loadTubes(selected.id);
-                      await loadAllVias(selected.id);
+                      setExpandedBandejaIds(new Set());
                     }}
                     className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-400 transition-colors"
                     title="Atualizar dados"
