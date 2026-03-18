@@ -940,12 +940,19 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
                       viasByTube[v.tubeId].push(v);
                     }
                     for (const k of Object.keys(viasByTube)) viasByTube[Number(k)].sort((a, b) => a.viaNumber - b.viaNumber);
+                    const splitterViaById: Record<number, SplitterVia> = {};
+                    for (const sv of pdfSplitterVias) splitterViaById[sv.id] = sv;
+                    const assocByViaId: Record<number, ViaAssoc> = {};
+                    for (const a of pdfAssociations) {
+                      assocByViaId[a.sourceViaId] = a;
+                      assocByViaId[a.targetViaId] = a;
+                    }
                     const totalVias = pdfTubes.reduce((s, t) => s + t.totalVias, 0);
-                    const fusedVias = pdfAllVias.filter(v => v.fusedToViaId !== null).length;
+                    const fusedVias = pdfAllVias.filter(v => v.fusedToViaId !== null || assocByViaId[v.id] !== undefined).length;
                     const now = new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
                     const renderTubeHtml = (tube: Tube): string => {
                       const vias = viasByTube[tube.id] ?? [];
-                      const fused = vias.filter(v => v.fusedToViaId !== null).length;
+                      const fused = vias.filter(v => v.fusedToViaId !== null || assocByViaId[v.id] !== undefined).length;
                       return `<div class="tube-section">
                         <div class="tube-title${tube.type === "splitter" ? " splitter-title" : ""}">
                           ${tube.type === "splitter" ? "SPLITTER" : "TUBO"} &mdash; ${escH(tube.identifier)}
@@ -960,11 +967,38 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
                           const ft = via.fusedToTubeId ? tubeById[via.fusedToTubeId] : null;
                           const fv = via.fusedToViaId ? viaById[via.fusedToViaId] : null;
                           const ok = !!(ft && fv);
+                          // Verificar associação com splitter
+                          const assoc = assocByViaId[via.id];
+                          const hasAssoc = !!assoc;
                           const bg = idx % 2 === 0 ? "#fff" : "#f8f9fa";
                           const lbl = via.label ? "<b>" + escH(via.label) + "</b>" : "<span style='color:#9ca3af;font-style:italic'>&mdash;</span>";
-                          const st = ok ? "<span style='background:#d1fae5;color:#059669;padding:1px 5px;border-radius:3px;font-size:7pt;font-weight:700'>FUSIONADA</span>" : "<span style='background:#f3f4f6;color:#9ca3af;padding:1px 5px;border-radius:3px;font-size:7pt'>LIVRE</span>";
-                          const fc = ok ? "#059669" : "#9ca3af";
-                          const ft2 = ok ? "VIA " + fv!.viaNumber + " do " + escH(ft!.identifier) + (fv!.label ? " (" + escH(fv!.label) + ")" : "") : "&mdash;";
+                          let st: string;
+                          let fc: string;
+                          let ft2: string;
+                          if (ok) {
+                            st = "<span style='background:#d1fae5;color:#059669;padding:1px 5px;border-radius:3px;font-size:7pt;font-weight:700'>FUSIONADA</span>";
+                            fc = "#059669";
+                            ft2 = "VIA " + fv!.viaNumber + " do " + escH(ft!.identifier) + (fv!.label ? " (" + escH(fv!.label) + ")" : "");
+                          } else if (hasAssoc) {
+                            st = "<span style='background:#f0fdf4;color:#16a34a;padding:1px 5px;border-radius:3px;font-size:7pt;font-weight:700'>ASSOCIADA</span>";
+                            fc = "#16a34a";
+                            const isSrc = assoc.sourceViaId === via.id;
+                            const otherId = isSrc ? assoc.targetViaId : assoc.sourceViaId;
+                            const otherType = isSrc ? assoc.targetType : assoc.sourceType;
+                            if (otherType === "splitter") {
+                              const sv = splitterViaById[otherId];
+                              const sp = sv ? pdfSplitters.find(s => s.id === sv.splitterId) : null;
+                              ft2 = sv && sp ? `VIA ${String(sv.viaNumber).padStart(2,"0")} do Splitter ${escH(sp.identifier)}` : `Splitter Via #${otherId}`;
+                            } else {
+                              const ov = viaById[otherId];
+                              const ot = ov ? tubeById[ov.tubeId] : null;
+                              ft2 = ov && ot ? `VIA ${ov.viaNumber} do ${escH(ot.identifier)}` : `Via #${otherId}`;
+                            }
+                          } else {
+                            st = "<span style='background:#f3f4f6;color:#9ca3af;padding:1px 5px;border-radius:3px;font-size:7pt'>LIVRE</span>";
+                            fc = "#9ca3af";
+                            ft2 = "&mdash;";
+                          }
                           const isEntryVia = tube.type === "splitter" && via.viaNumber === 0;
                           const viaDisplayNum = isEntryVia ? "ENT" : (tube.type === "splitter" ? String(via.viaNumber).padStart(2, "0") : via.viaNumber);
                           const vc = isEntryVia ? null : PRINT_VIA_COLORS[via.viaNumber];
@@ -982,8 +1016,6 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
                       splitterViasBySplitter[sv.splitterId].push(sv);
                     }
                     for (const k of Object.keys(splitterViasBySplitter)) splitterViasBySplitter[Number(k)].sort((a, b) => a.viaNumber - b.viaNumber);
-                    const splitterViaById: Record<number, SplitterVia> = {};
-                    for (const sv of pdfSplitterVias) splitterViaById[sv.id] = sv;
                     const renderSplitterHtml = (spl: Splitter): string => {
                       const vias = splitterViasBySplitter[spl.id] ?? [];
                       const entrada = vias.find(v => v.viaNumber === 0);

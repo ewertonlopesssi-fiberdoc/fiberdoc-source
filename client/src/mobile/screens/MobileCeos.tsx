@@ -367,7 +367,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
     if (!assoc) return null;
     const isSource = assoc.sourceViaId === via.id;
     if (isSource) {
-      if (assoc.targetType === "splitter_via") {
+      if (assoc.targetType === "splitter") {
         const sv = allSplitterVias.find(sv => sv.id === assoc.targetViaId);
         const sp = splitters.find(s => s.id === sv?.splitterId);
         return `Splitter ${sp?.identifier ?? "?"} · Via ${sv?.viaNumber ?? "?"}`;
@@ -376,7 +376,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
       const targetTube = tubes.find(t => t.id === targetVia?.tubeId);
       return `${targetTube?.identifier ?? "?"} · Via ${targetVia?.viaNumber ?? "?"}`;
     } else {
-      if (assoc.sourceType === "splitter_via") {
+      if (assoc.sourceType === "splitter") {
         const sv = allSplitterVias.find(sv => sv.id === assoc.sourceViaId);
         const sp = splitters.find(s => s.id === sv?.splitterId);
         return `Splitter ${sp?.identifier ?? "?"} · Via ${sv?.viaNumber ?? "?"}`;
@@ -466,7 +466,8 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
   if (view === "detail" && selected) {
     const tubesWithoutBandeja = tubes.filter(t => !t.bandejaId);
     const splittersWithoutBandeja = splitters.filter(s => !s.bandejaId);
-    const fusedCount = allVias.filter(v => v.fusedToViaId != null).length;
+    const associatedViaIds = new Set(associations.flatMap(a => [a.sourceViaId, a.targetViaId]));
+    const fusedCount = allVias.filter(v => v.fusedToViaId != null || associatedViaIds.has(v.id)).length;
 
     return (
       <div className="flex flex-col h-full">
@@ -624,7 +625,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                               {bandejasTubes.map(tube => {
                                 const isExpanded = expandedTubeIds.has(tube.id);
                                 const cachedVias = tubeViasCache.get(tube.id) ?? [];
-                                const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
+                                const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null || associatedViaIds.has(v.id)).length;
                                 const occCount = fusedInTube;
                                 const occPct = tube.totalVias > 0 ? Math.round((occCount / tube.totalVias) * 100) : 0;
                                 const occBar = occPct >= 90 ? "bg-red-500" : occPct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
@@ -831,7 +832,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                 {tubesWithoutBandeja.map(tube => {
                   const isExpanded = expandedTubeIds.has(tube.id);
                   const cachedVias = tubeViasCache.get(tube.id) ?? [];
-                  const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
+                  const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null || associatedViaIds.has(v.id)).length;
                   const occCount = fusedInTube;
                   const occPct = tube.totalVias > 0 ? Math.round((occCount / tube.totalVias) * 100) : 0;
                   const occBar = occPct >= 90 ? "bg-red-500" : occPct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
@@ -1188,7 +1189,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                 {bandejasTubes.map(tube => {
                   const isExpanded = expandedTubeIds.has(tube.id);
                   const cachedVias = tubeViasCache.get(tube.id) ?? [];
-                  const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null).length;
+                  const fusedInTube = cachedVias.filter(v => v.fusedToViaId != null || associatedViaIds.has(v.id)).length;
                   const occCount = fusedInTube;
                   const occPct = tube.totalVias > 0 ? Math.round((occCount / tube.totalVias) * 100) : 0;
                   const occBar = occPct >= 90 ? "bg-red-500" : occPct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
