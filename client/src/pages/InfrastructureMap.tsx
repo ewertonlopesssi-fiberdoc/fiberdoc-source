@@ -2514,7 +2514,14 @@ export default function InfrastructureMap() {
 
   // ─── Edição de Traçado de Cabo ────────────────────────────────────────────
   const updateRoutePathMut = trpc.infraMap.updateRoute.useMutation({
-    onSuccess: () => { refetchRoutes(); toast.success("Traçado salvo"); },
+    onSuccess: (_data, variables) => {
+      refetchRoutes();
+      toast.success("Traçado salvo");
+      setSidePanel(prev => {
+        if (prev?.kind !== "route" || prev.route.id !== variables.id) return prev;
+        return { ...prev, route: { ...prev.route, ...(variables.fromElementId !== undefined ? { fromElementId: variables.fromElementId as any } : {}), ...(variables.toElementId !== undefined ? { toElementId: variables.toElementId as any } : {}), ...(variables.path !== undefined ? { path: variables.path } : {}) } };
+      });
+    },
     onError: (e) => toast.error(e.message),
   });
 
