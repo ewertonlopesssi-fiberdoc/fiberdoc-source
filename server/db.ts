@@ -947,6 +947,20 @@ export async function getTubesByCeo(ceoId: number) {
 export async function createCeoTube(data: Omit<InsertCeoTube, "id" | "createdAt" | "updatedAt">) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+  // Verificar se já existe tubo com mesmo identificador nesta CEO
+  const existing = await db.select({ id: ceoTubes.id, bandejaId: ceoTubes.bandejaId })
+    .from(ceoTubes)
+    .where(and(eq(ceoTubes.ceoId, data.ceoId), eq(ceoTubes.identifier, data.identifier.trim())));
+  if (existing.length > 0) {
+    // Se existe um tubo órfão (sem bandeja), reatribuir à nova bandeja em vez de criar duplicata
+    const orphan = existing.find(t => t.bandejaId === null);
+    if (orphan) {
+      const newBandejaId = (data as any).bandejaId ?? null;
+      await db.update(ceoTubes).set({ bandejaId: newBandejaId }).where(eq(ceoTubes.id, orphan.id));
+      return orphan.id;
+    }
+    throw new Error(`Já existe um tubo com o identificador "${data.identifier.trim()}" nesta CEO.`);
+  }
   // Garantir que color sempre tenha valor válido; omitir notes quando vazio para compatibilidade com NOT NULL
   const colorVal = (data.color && data.color.trim() !== "") ? data.color.trim() : "blue";
   const notesVal = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : undefined;
@@ -2881,7 +2895,7 @@ export async function updateCeoBandeja(id: number, data: Partial<Omit<InsertCeoB
   await db.update(ceoBandejas).set(data).where(eq(ceoBandejas.id, id));
 }
 
-export async function deleteCeoBandeja(id: number) {
+export async function deleteCeoBandeja(id: number, deleteTubes = false) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   // Remover splitters da bandeja
@@ -2890,8 +2904,19 @@ export async function deleteCeoBandeja(id: number) {
     await db.delete(ceoSplitterVias).where(eq(ceoSplitterVias.splitterId, s.id));
   }
   await db.delete(ceoSplitters).where(eq(ceoSplitters.bandejaId, id));
-  // Desvincular tubos desta bandeja (não apagar, apenas desassociar)
-  await db.update(ceoTubes).set({ bandejaId: null }).where(eq(ceoTubes.bandejaId, id));
+  if (deleteTubes) {
+    // Excluir os tubos e suas vias junto com a bandeja
+    const tubes = await db.select({ id: ceoTubes.id }).from(ceoTubes).where(eq(ceoTubes.bandejaId, id));
+    for (const t of tubes) {
+      // Limpar fusões que apontam para este tubo
+      await db.update(ceoVias).set({ fusedToTubeId: null, fusedToViaId: null }).where(eq(ceoVias.fusedToTubeId, t.id));
+      await db.delete(ceoVias).where(eq(ceoVias.tubeId, t.id));
+    }
+    await db.delete(ceoTubes).where(eq(ceoTubes.bandejaId, id));
+  } else {
+    // Desvincular tubos desta bandeja (não apagar, apenas desassociar)
+    await db.update(ceoTubes).set({ bandejaId: null }).where(eq(ceoTubes.bandejaId, id));
+  }
   await db.delete(ceoBandejas).where(eq(ceoBandejas.id, id));
 }
 

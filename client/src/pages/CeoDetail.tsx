@@ -937,6 +937,7 @@ export default function CeoDetail() {
   const [bandejaDialog, setBandejaDialog] = useState(false);
   const [editBandeja, setEditBandeja] = useState<Bandeja | null>(null);
   const [deleteBandejaId, setDeleteBandejaId] = useState<number | null>(null);
+  const [deleteBandejaWithTubes, setDeleteBandejaWithTubes] = useState(false);
   const [bandejaForm, setBandejaForm] = useState({ number: "", label: "", notes: "" });
 
   // Estados de tubo
@@ -1490,13 +1491,32 @@ export default function CeoDetail() {
       </Dialog>
 
       {/* Dialog: Confirmar exclusão de bandeja */}
-      <Dialog open={deleteBandejaId !== null} onOpenChange={() => setDeleteBandejaId(null)}>
+      <Dialog open={deleteBandejaId !== null} onOpenChange={() => { setDeleteBandejaId(null); setDeleteBandejaWithTubes(false); }}>
         <DialogContent className="bg-card border-border">
           <DialogHeader><DialogTitle>Remover Bandeja</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">Os splitters desta bandeja serão removidos. Os tubos serão desvinculados mas não apagados. Deseja continuar?</p>
+          <div className="space-y-3 py-1">
+            <p className="text-sm text-muted-foreground">Os splitters desta bandeja serão removidos permanentemente.</p>
+            <div className="flex items-start gap-3 rounded-md border border-border/50 p-3 bg-background">
+              <input
+                type="checkbox"
+                id="deleteTubesCheck"
+                checked={deleteBandejaWithTubes}
+                onChange={e => setDeleteBandejaWithTubes(e.target.checked)}
+                className="mt-0.5 h-4 w-4 cursor-pointer accent-destructive"
+              />
+              <div>
+                <label htmlFor="deleteTubesCheck" className="text-sm font-medium cursor-pointer">Excluir tubos junto com a bandeja</label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {deleteBandejaWithTubes
+                    ? "Os tubos e todas as suas vias e fusões serão excluídos permanentemente."
+                    : "Os tubos serão desvinculados da bandeja mas permanecerão cadastrados na CEO."}
+                </p>
+              </div>
+            </div>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteBandejaId(null)} className="border-border/50">Cancelar</Button>
-            <Button variant="destructive" onClick={() => deleteBandejaId && deleteBandejaMutation.mutate({ id: deleteBandejaId })} disabled={deleteBandejaMutation.isPending}>
+            <Button variant="outline" onClick={() => { setDeleteBandejaId(null); setDeleteBandejaWithTubes(false); }} className="border-border/50">Cancelar</Button>
+            <Button variant="destructive" onClick={() => deleteBandejaId && deleteBandejaMutation.mutate({ id: deleteBandejaId, deleteTubes: deleteBandejaWithTubes })} disabled={deleteBandejaMutation.isPending}>
               {deleteBandejaMutation.isPending ? "Removendo..." : "Remover"}
             </Button>
           </DialogFooter>

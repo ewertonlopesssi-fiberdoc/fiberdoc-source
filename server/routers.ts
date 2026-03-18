@@ -1043,8 +1043,8 @@ export const appRouter = router({
         await updateCeoBandeja(id, data as any);
       }),
     delete: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => deleteCeoBandeja(input.id)),
+      .input(z.object({ id: z.number(), deleteTubes: z.boolean().optional().default(false) }))
+      .mutation(async ({ input }) => deleteCeoBandeja(input.id, input.deleteTubes)),
   }),
   // ─── Splitters do CEO ─────────────────────────────────────────────────────
   ceoSplitters: router({
