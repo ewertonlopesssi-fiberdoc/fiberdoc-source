@@ -152,13 +152,11 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
       setExpandedTubeIds(prev => { const s = new Set(prev); s.delete(id); return s; });
       return;
     }
-    // Load vias if not cached
-    if (!tubeViasCache.has(id)) {
-      try {
-        const data = await client.ceoVias.byTube.query({ tubeId: id });
-        setTubeViasCache(prev => new Map(prev).set(id, data as unknown as Via[]));
-      } catch { setTubeViasCache(prev => new Map(prev).set(id, [])); }
-    }
+    // Sempre recarregar do servidor para garantir dados frescos (fusões feitas no web)
+    try {
+      const data = await client.ceoVias.byTube.query({ tubeId: id });
+      setTubeViasCache(prev => new Map(prev).set(id, data as unknown as Via[]));
+    } catch { setTubeViasCache(prev => new Map(prev).set(id, tubeViasCache.get(id) ?? [])); }
     setExpandedTubeIds(prev => new Set(prev).add(id));
   }
 
@@ -492,12 +490,26 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                 </button>
               )}
               {isOnline() && (
-                <button
-                  onClick={() => { setEditCeoForm({ ...selected }); setError(null); setView("editCeo"); }}
-                  className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white transition-colors"
-                >
-                  <Edit2 className="w-3.5 h-3.5" /> Editar
-                </button>
+                <>
+                  <button
+                    onClick={async () => {
+                      setTubeViasCache(new Map());
+                      setExpandedTubeIds(new Set());
+                      await loadTubes(selected.id);
+                      await loadAllVias(selected.id);
+                    }}
+                    className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-400 transition-colors"
+                    title="Atualizar dados"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => { setEditCeoForm({ ...selected }); setError(null); setView("editCeo"); }}
+                    className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white transition-colors"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" /> Editar
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -2048,8 +2060,17 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                   setSaving(true);
                   try {
                     await client.ceoVias.clearFusion.mutate({ viaId: selectedVia.id });
+                    const freshVias = await client.ceoVias.byTube.query({ tubeId: selectedTube.id });
+                    setTubeViasCache(prev => new Map(prev).set(selectedTube.id, freshVias as unknown as Via[]));
                     await loadVias(selectedTube.id);
                     await loadAllVias(selected!.id);
+                    // Atualizar também o tubo destino da fusão removida
+                    if (selectedVia.fusedToTubeId && selectedVia.fusedToTubeId !== selectedTube.id) {
+                      try {
+                        const destVias = await client.ceoVias.byTube.query({ tubeId: selectedVia.fusedToTubeId });
+                        setTubeViasCache(prev => new Map(prev).set(selectedVia.fusedToTubeId!, destVias as unknown as Via[]));
+                      } catch { /* ignora */ }
+                    }
                     setSelectedVia({ ...selectedVia, fusedToViaId: null, fusedToTubeId: null });
                     setView("vias");
                   } catch (e: any) { setError(e?.message ?? "Erro"); }
@@ -2135,6 +2156,15 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
                           fusedToTubeId: parseInt(fusionTubeId),
                           fusedToViaId: parseInt(fusionViaId),
                         });
+                        // Atualizar tubeViasCache para o tubo de origem e destino
+                        const freshSrc = await client.ceoVias.byTube.query({ tubeId: selectedTube.id });
+                        setTubeViasCache(prev => new Map(prev).set(selectedTube.id, freshSrc as unknown as Via[]));
+                        if (parseInt(fusionTubeId) !== selectedTube.id) {
+                          try {
+                            const freshDest = await client.ceoVias.byTube.query({ tubeId: parseInt(fusionTubeId) });
+                            setTubeViasCache(prev => new Map(prev).set(parseInt(fusionTubeId), freshDest as unknown as Via[]));
+                          } catch { /* ignora */ }
+                        }
                         await loadVias(selectedTube.id);
                         await loadAllVias(selected!.id);
                         setView("vias");
