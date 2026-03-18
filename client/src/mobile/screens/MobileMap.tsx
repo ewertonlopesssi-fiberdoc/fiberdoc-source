@@ -871,6 +871,30 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
                       : await client.ctoVias.byCto.query({ ctoId: refId });
                     const pdfAllVias = vData as unknown as Via[];
                     setAllVias(pdfAllVias);
+                    // Para CEO: buscar splitters, vias de splitters e associações
+                    type Splitter = { id: number; identifier: string; type: string; ratio: string; bandejaId?: number | null; notes?: string | null };
+                    type SplitterVia = { id: number; splitterId: number; viaNumber: number; label: string | null; lossDb: number | null; notes: string | null };
+                    type ViaAssoc = { id: number; sourceType: string; sourceViaId: number; targetType: string; targetViaId: number };
+                    let pdfSplitters: Splitter[] = [];
+                    let pdfSplitterVias: SplitterVia[] = [];
+                    let pdfAssociations: ViaAssoc[] = [];
+                    if (panelType === "ceo") {
+                      try {
+                        const [splData, assocData] = await Promise.all([
+                          (client as any).ceoSplitters.byCeo.query({ ceoId: refId }),
+                          (client as any).ceoViaAssociations.byCeo.query({ ceoId: refId }),
+                        ]);
+                        pdfSplitters = splData as Splitter[];
+                        pdfAssociations = assocData as ViaAssoc[];
+                        // Buscar vias de cada splitter em paralelo
+                        const splViaArrays = await Promise.all(
+                          pdfSplitters.map((s: Splitter) =>
+                            (client as any).ceoSplitterVias.bySplitter.query({ splitterId: s.id }).catch(() => [])
+                          )
+                        );
+                        pdfSplitterVias = splViaArrays.flat() as SplitterVia[];
+                      } catch { /* ignora erro — continua sem splitters */ }
+                    }
                     // Gerar HTML localmente (igual à versão web) e abrir em nova aba
                     const PRINT_VIA_COLORS: Record<number, { bg: string; text: string; border: string }> = {
                       1:  { bg: "#dcfce7", text: "#15803d", border: "#86efac" },
@@ -951,13 +975,70 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
                         }).join("")}
                         </tbody></table></div>`;
                     };
-                    const allContent = pdfTubes.map(t => renderTubeHtml(t)).join("");
+                    // Renderizar seção de splitter para o PDF (CEO)
+                    const splitterViasBySplitter: Record<number, SplitterVia[]> = {};
+                    for (const sv of pdfSplitterVias) {
+                      if (!splitterViasBySplitter[sv.splitterId]) splitterViasBySplitter[sv.splitterId] = [];
+                      splitterViasBySplitter[sv.splitterId].push(sv);
+                    }
+                    for (const k of Object.keys(splitterViasBySplitter)) splitterViasBySplitter[Number(k)].sort((a, b) => a.viaNumber - b.viaNumber);
+                    const splitterViaById: Record<number, SplitterVia> = {};
+                    for (const sv of pdfSplitterVias) splitterViaById[sv.id] = sv;
+                    const renderSplitterHtml = (spl: Splitter): string => {
+                      const vias = splitterViasBySplitter[spl.id] ?? [];
+                      const entrada = vias.find(v => v.viaNumber === 0);
+                      const saidas = vias.filter(v => v.viaNumber > 0);
+                      const typeLabel = spl.type === "balanced" ? "Balanceado" : "Desbalanceado";
+                      const rows = [...(entrada ? [entrada] : []), ...saidas];
+                      return `<div class="tube-section">
+                        <div class="tube-title splitter-title">
+                          ⊕ SPLITTER &mdash; ${escH(spl.identifier)}
+                          <span style="font-weight:400;font-size:7.5pt;margin-left:4mm;color:#92400e">${typeLabel} &middot; ${escH(spl.ratio)}</span>
+                          <span style="font-weight:400;font-size:8pt;margin-left:6mm;color:#6b7280">${vias.length} vias (1 entrada + ${saidas.length} saídas)</span>
+                        </div>
+                        <table><thead><tr>
+                          <th style="width:8%">VIA</th><th style="width:12%">TIPO</th><th style="width:18%">ETIQUETA</th>
+                          <th style="width:10%">PERDA (dB)</th><th style="width:32%">ASSOCIAÇÃO</th><th>OBSERVAÇÕES</th>
+                        </tr></thead><tbody>
+                        ${rows.map((via, idx) => {
+                          const isEntrada = via.viaNumber === 0;
+                          const bg = idx % 2 === 0 ? "#fff" : "#f8f9fa";
+                          const lbl = via.label ? "<b>" + escH(via.label) + "</b>" : "<span style='color:#9ca3af;font-style:italic'>&mdash;</span>";
+                          const tipoTag = isEntrada
+                            ? "<span style='background:#fef3c7;color:#92400e;padding:1px 4px;border-radius:3px;font-size:6.5pt;font-weight:700'>ENTRADA</span>"
+                            : "<span style='background:#e0f2fe;color:#0c4a6e;padding:1px 4px;border-radius:3px;font-size:6.5pt'>SAÍDA</span>";
+                          const loss = isEntrada ? "0 dB" : (via.lossDb !== null ? `~${via.lossDb} dB` : "&mdash;");
+                          const myAssocs = pdfAssociations.filter(a =>
+                            (a.sourceType === "splitter" && a.sourceViaId === via.id) ||
+                            (a.targetType === "splitter" && a.targetViaId === via.id)
+                          );
+                          const assocText = myAssocs.map(a => {
+                            const isSrc = a.sourceType === "splitter" && a.sourceViaId === via.id;
+                            const otherId = isSrc ? a.targetViaId : a.sourceViaId;
+                            const otherType = isSrc ? a.targetType : a.sourceType;
+                            if (otherType === "tube") {
+                              const ov = viaById[otherId];
+                              const ot = ov ? tubeById[ov.tubeId] : null;
+                              return ov && ot ? `VIA ${String(ov.viaNumber).padStart(2,"0")} · ${escH(ot.identifier)}` : `Via #${otherId}`;
+                            } else {
+                              const sv = splitterViaById[otherId];
+                              const sp = sv ? pdfSplitters.find(s => s.id === sv.splitterId) : null;
+                              return sv && sp ? `VIA ${String(sv.viaNumber).padStart(2,"0")} · ${escH(sp.identifier)}` : `Via #${otherId}`;
+                            }
+                          }).join(", ");
+                          const viaNum = isEntrada ? "<span style='background:#f3e8ff;color:#7c3aed;border:1px solid #c4b5fd;padding:2px 7px;border-radius:3px;font-size:8pt;font-weight:700'>ENT</span>" : `<b>${String(via.viaNumber).padStart(2,"0")}</b>`;
+                          return `<tr style='background:${bg}'><td style='text-align:center'>${viaNum}</td><td style='text-align:center'>${tipoTag}</td><td>${lbl}</td><td style='text-align:center;color:#6b7280'>${loss}</td><td style='font-size:8pt;color:${myAssocs.length > 0 ? "#059669" : "#9ca3af"}'>${assocText || "&mdash;"}</td><td style='font-size:8pt;color:#6b7280'>${escH(via.notes)}</td></tr>`;
+                        }).join("")}
+                        </tbody></table></div>`;
+                    };
+                    const splitterContent = pdfSplitters.map(s => renderSplitterHtml(s)).join("");
+                    const allContent = pdfTubes.map(t => renderTubeHtml(t)).join("") + splitterContent;
                     const elNameSafe = escH(name);
                     const statusColor = status === "active" ? "#059669" : "#d97706";
                     const statusLabel = status === "active" ? "Ativo" : status === "maintenance" ? "Manuten&ccedil;&atilde;o" : "Inativo";
                     const statsHtml = [
-                      { l: "Tubos", v: pdfTubes.filter(t => t.type === "tube").length },
-                      { l: "Splitters", v: pdfTubes.filter(t => t.type === "splitter").length },
+                      { l: "Tubos", v: pdfTubes.length },
+                      { l: "Splitters", v: pdfSplitters.length },
                       { l: "Total de Vias", v: totalVias },
                       { l: "Vias Fusionadas", v: fusedVias },
                       { l: "Vias Livres", v: totalVias - fusedVias },
