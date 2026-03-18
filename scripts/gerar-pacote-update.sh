@@ -268,6 +268,14 @@ if [[ -d "${PROJECT_DIR}/patches" ]]; then
   log_ok "patches/ incluído."
 fi
 
+# Copiar schema-base.sql (necessário para provisionamento de novos tenants)
+if [[ -f "${PROJECT_DIR}/schema-base.sql" ]]; then
+  cp "${PROJECT_DIR}/schema-base.sql" "${STAGE_ROOT}/schema-base.sql"
+  log_ok "schema-base.sql incluído."
+else
+  log_warn "schema-base.sql não encontrado — provisionamento de novos tenants pode falhar."
+fi
+
 # Copiar ficheiros de migração SQL incremental (migrate-vN.sql)
 for migrate_file in "${PROJECT_DIR}"/migrate-v*.sql; do
   [[ -f "${migrate_file}" ]] || continue

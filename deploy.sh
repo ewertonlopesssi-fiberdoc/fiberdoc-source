@@ -75,6 +75,7 @@ v11b.sql" ]] && cp "${SCRIPT_DIR}/migrate-v11b.sql" "${FIBERDOC_DIR}/migrate-v11
 [[ -f "${SCRIPT_DIR}/migrate-v17.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v17.sql"  "${FIBERDOC_DIR}/migrate-v17.sql"  || true
 [[ -f "${SCRIPT_DIR}/migrate-v18.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v18.sql"  "${FIBERDOC_DIR}/migrate-v18.sql"  || true
 [[ -f "${SCRIPT_DIR}/migrate-v19.sql" ]]  && cp "${SCRIPT_DIR}/migrate-v19.sql"  "${FIBERDOC_DIR}/migrate-v19.sql"  || true
+[[ -f "${SCRIPT_DIR}/schema-base.sql" ]]  && cp "${SCRIPT_DIR}/schema-base.sql"   "${FIBERDOC_DIR}/schema-base.sql"   || true
 echo "      Artefactos copiados."
 
 # ── 6. Instalar dependências ─────────────────────────────────────────────────
