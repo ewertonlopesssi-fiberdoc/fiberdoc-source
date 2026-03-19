@@ -1056,6 +1056,7 @@ export default function SystemSettingsPage() {
                 { path: "/backup", label: "Backup & Atualização" },
                 { path: "/sistema", label: "Sistema" },
                 { path: "/rede", label: "Configuração de Rede" },
+                { path: "/admin/provedores", label: "Gerenciar Provedores" },
               ].map(({ path, label }) => (
                 <label key={path} className="flex items-center gap-2 p-2 rounded-md hover:bg-accent/30 cursor-pointer select-none">
                   <input
