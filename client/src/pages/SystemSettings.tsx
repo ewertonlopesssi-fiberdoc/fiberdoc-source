@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves, Bell, RefreshCw, CheckCircle2, XCircle, Clock, History, PackageOpen, Cpu, Plus, Pencil, Trash2, MapPin, LocateFixed, Loader2, Globe, Copy, Check, Eye } from "lucide-react";
+import { Settings, Upload, Palette, Monitor, Sun, Moon, Zap, Leaf, Waves, Bell, RefreshCw, CheckCircle2, XCircle, Clock, History, PackageOpen, Cpu, Plus, Pencil, Trash2, MapPin, LocateFixed, Loader2, Globe, Copy, Check, Eye, Lock, ShieldCheck, AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -213,6 +213,14 @@ export default function SystemSettingsPage() {
   // ─── URL Pública do Servidor ─────────────────────────────────────────────────
   const [serverPublicUrl, setServerPublicUrl] = useState("");
   const [copiedUrl, setCopiedUrl] = useState(false);
+  // ─── Configuração SSL / Domínio ───────────────────────────────────────────────
+  const [sslDomain, setSslDomain] = useState("");
+  const [sslEmail, setSslEmail] = useState("");
+  const [sslRunning, setSslRunning] = useState(false);
+  const [sslLog, setSslLog] = useState<string[]>([]);
+  const [sslProgress, setSslProgress] = useState(0);
+  const [sslError, setSslError] = useState<string | null>(null);
+  const [sslSuccess, setSslSuccess] = useState(false);
   // ─── Visibilidade de Menus ────────────────────────────────────────────────────────
   const [hiddenMenus, setHiddenMenus] = useState<string[]>([]);
   // ─── Atualização Remota ────────────────────────────────────────────────────────────────────────────────────────
@@ -236,6 +244,53 @@ export default function SystemSettingsPage() {
       })
       .catch(() => {});
   }, [updateDone]);
+
+  // ─── tRPC: SSL / Domínio ───────────────────────────────────────────────
+  const configureSslMutation = trpc.systemConfig.configureSsl.useMutation();
+  const sslStatusQuery = trpc.systemConfig.sslStatus.useQuery(undefined, {
+    refetchInterval: sslRunning ? 2000 : false,
+    enabled: sslRunning,
+  });
+
+  // Sincronizar estado local com o polling do servidor
+  useEffect(() => {
+    const data = sslStatusQuery.data;
+    if (!data) return;
+    setSslLog(data.log ?? []);
+    setSslProgress(data.progress ?? 0);
+    if (!data.running) {
+      setSslRunning(false);
+      if (data.success) {
+        setSslSuccess(true);
+        setSslError(null);
+        toast.success(`Domínio ${data.domain ?? sslDomain} configurado com SSL com sucesso!`);
+        // Atualizar URL pública automaticamente
+        if (data.domain) {
+          setServerPublicUrl(`https://${data.domain}`);
+        }
+      } else if (data.error) {
+        setSslError(data.error);
+        toast.error("Falha na configuração SSL. Veja o log abaixo.");
+      }
+    }
+  }, [sslStatusQuery.data]);
+
+  const startSslConfig = async () => {
+    if (!sslDomain.trim()) { toast.error("Informe o domínio."); return; }
+    if (!sslEmail.trim()) { toast.error("Informe o e-mail para o certificado."); return; }
+    setSslRunning(true);
+    setSslLog([]);
+    setSslProgress(0);
+    setSslError(null);
+    setSslSuccess(false);
+    try {
+      await configureSslMutation.mutateAsync({ domain: sslDomain.trim(), email: sslEmail.trim() });
+    } catch (err: any) {
+      setSslRunning(false);
+      setSslError(err?.message ?? "Erro desconhecido");
+      toast.error(err?.message ?? "Erro ao iniciar configuração SSL");
+    }
+  };
 
   const handleUpdateFile = (file: File) => {
     if (!file.name.endsWith(".zip")) { toast.error("Selecione um arquivo .zip"); return; }
@@ -1013,6 +1068,113 @@ export default function SystemSettingsPage() {
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Configuração de Domínio + SSL */}
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Lock className="h-4 w-4 text-emerald-400" />
+              Domínio + SSL (Let's Encrypt)
+            </CardTitle>
+            <CardDescription>
+              Configure um domínio e obtenha um certificado SSL gratuito automaticamente. O Nginx e o Certbot serão configurados sem intervenção manual.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="sslDomain">Domínio</Label>
+                <Input
+                  id="sslDomain"
+                  value={sslDomain}
+                  onChange={(e) => setSslDomain(e.target.value)}
+                  placeholder="Ex: fiberdoc.suportinet.com.br"
+                  className="font-mono text-sm"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  disabled={sslRunning}
+                />
+                <p className="text-xs text-muted-foreground">O DNS do domínio deve apontar para o IP deste servidor.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="sslEmail">E-mail para o certificado</Label>
+                <Input
+                  id="sslEmail"
+                  type="email"
+                  value={sslEmail}
+                  onChange={(e) => setSslEmail(e.target.value)}
+                  placeholder="Ex: admin@suportinet.com.br"
+                  className="text-sm"
+                  disabled={sslRunning}
+                />
+                <p className="text-xs text-muted-foreground">Usado pelo Let's Encrypt para notificações de expiração.</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={startSslConfig}
+                disabled={sslRunning || !sslDomain.trim() || !sslEmail.trim()}
+                className="gap-2"
+              >
+                {sslRunning ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Configurando...</>
+                ) : (
+                  <><ShieldCheck className="h-4 w-4" /> Configurar Domínio + SSL</>
+                )}
+              </Button>
+              {sslSuccess && !sslRunning && (
+                <span className="flex items-center gap-1 text-sm text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4" /> Configurado com sucesso!
+                </span>
+              )}
+            </div>
+
+            {/* Barra de progresso */}
+            {(sslRunning || sslLog.length > 0) && (
+              <div className="space-y-2">
+                {sslRunning && (
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div
+                      className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${sslProgress}%` }}
+                    />
+                  </div>
+                )}
+                {/* Log */}
+                <div className="bg-black/40 rounded-lg p-3 max-h-48 overflow-y-auto font-mono text-xs space-y-0.5 border border-border/30">
+                  {sslLog.map((line, i) => (
+                    <div key={i} className={cn(
+                      line.includes("❌") || line.includes("Erro") || line.includes("Falha") ? "text-red-400" :
+                      line.includes("✅") || line.includes("🔒") ? "text-emerald-400" :
+                      "text-muted-foreground"
+                    )}>{line}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Erro */}
+            {sslError && !sslRunning && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-xs text-red-300 font-medium">Falha na configuração</p>
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">{sslError}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Aviso sobre requisitos */}
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-xs text-amber-300 font-medium">Requisitos</p>
+                <p className="text-xs text-muted-foreground">O domínio deve estar apontando para o IP deste servidor. As portas 80 e 443 devem estar abertas no firewall. O servidor deve ter acesso à internet.</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 

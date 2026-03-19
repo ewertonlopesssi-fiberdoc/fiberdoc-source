@@ -6,6 +6,7 @@ import { eq as eqOp, inArray as inArrayOp, isNotNull } from "drizzle-orm";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
+import { configureDomainSsl, getSslStatus } from "./sslManager";
 import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 
@@ -1512,6 +1513,25 @@ export const appRouter = router({
         await setSystemSettings({ logoUrl: url });
         return { url };
       }),
+
+    // ─── Configuração de Domínio + SSL Let's Encrypt ─────────────────────────
+    configureSsl: adminProcedure
+      .input(z.object({
+        domain: z.string().min(3, "Domínio inválido"),
+        email: z.string().email("E-mail inválido"),
+      }))
+      .mutation(async ({ input }) => {
+        const status = getSslStatus();
+        if (status.running) {
+          throw new TRPCError({ code: "CONFLICT", message: "Configuração SSL já está em andamento." });
+        }
+        // Inicia processo assíncrono (não bloqueia)
+        await configureDomainSsl(input.domain, input.email);
+        return { started: true };
+      }),
+
+    sslStatus: adminProcedure
+      .query(() => getSslStatus()),
   }),
 
   // ─── Relatório de Ocupação ─────────────────────────────────────────────────
