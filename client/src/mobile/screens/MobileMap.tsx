@@ -6,7 +6,7 @@ import { createMobileTrpcClient, isOnline, saveOfflineCache, loadOfflineCache } 
 import {
   Cable, Radio, MapPin, X, ChevronRight, Edit2, Check, ChevronLeft,
   Layers, Link2, Link2Off, RefreshCw, Loader2, AlertCircle, LocateFixed, Plus, Trash2, Users, Unlink,
-  BarChart2, Zap, Copy,
+  BarChart2, Zap, Copy, Satellite,
 } from "lucide-react";
 
 // ─── Cores de tubo ─────────────────────────────────────────────────────────
@@ -90,6 +90,8 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Record<number, L.Marker>>({});
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const [isSatellite, setIsSatellite] = useState(false);
 
   // ─── Dados do mapa ──────────────────────────────────────────────────────
   const [elements, setElements] = useState<MapEl[]>([]);
@@ -431,15 +433,42 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
       center: [-15.7801, -47.9292], zoom: 13,
       zoomControl: true,
     });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    const tile = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap",
       maxZoom: 19,
-    }).addTo(map);
+    });
+    tile.addTo(map);
+    tileLayerRef.current = tile;
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; };
+    return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; };
   }, []);
 
-  // ─── Função de localização do técnico ─────────────────────────────────
+  // ─── Trocar camada base (Mapa / Satélite) ─────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    // Remove tile layer atual
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+      tileLayerRef.current = null;
+    }
+    const newTile = isSatellite
+      ? L.tileLayer(
+          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+          { attribution: "Tiles © Esri", maxZoom: 19 }
+        )
+      : L.tileLayer(
+          "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          { attribution: "© OpenStreetMap", maxZoom: 19 }
+        );
+    newTile.addTo(map);
+    // Garantir que o tile fique abaixo dos markers
+    newTile.bringToBack();
+    tileLayerRef.current = newTile;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSatellite]);
+
+  // ─── Função de localização do técnico ─────────────────────────────────────────────────────
   const handleMyLocation = useCallback(() => {
     if (!navigator.geolocation) {
       setError("Geolocalização não suportada neste dispositivo");
@@ -1760,18 +1789,31 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
 
 
 
-        {/* Botão toggle de cabos */}
-        <button
-          onClick={() => setShowCables(v => !v)}
-          className={`absolute top-3 right-3 flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl border transition-colors ${
-            showCables
-              ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300"
-              : "bg-zinc-800/80 border-zinc-700 text-zinc-400"
-          }`}
-          style={{ zIndex: 5 }}
-        >
-          <Cable className="w-3.5 h-3.5" /> Cabos
-        </button>
+        {/* Controles de camada — canto superior direito */}
+        <div className="absolute top-3 right-3 flex flex-col gap-1.5" style={{ zIndex: 5 }}>
+          {/* Botão toggle de cabos */}
+          <button
+            onClick={() => setShowCables(v => !v)}
+            className={`flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl border transition-colors ${
+              showCables
+                ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300"
+                : "bg-zinc-800/80 border-zinc-700 text-zinc-400"
+            }`}
+          >
+            <Cable className="w-3.5 h-3.5" /> Cabos
+          </button>
+          {/* Botão toggle de satélite */}
+          <button
+            onClick={() => setIsSatellite(v => !v)}
+            className={`flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-xl border transition-colors ${
+              isSatellite
+                ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                : "bg-zinc-800/80 border-zinc-700 text-zinc-400"
+            }`}
+          >
+            <Satellite className="w-3.5 h-3.5" /> {isSatellite ? "Satélite" : "Mapa"}
+          </button>
+        </div>
 
         {/* Botão Minha Localização — rodapé do mapa */}
         <button
