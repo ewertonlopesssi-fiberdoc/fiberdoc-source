@@ -65,7 +65,8 @@ export default function Rooms() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [qrRoom, setQrRoom] = useState<{ id: number; name: string } | null>(null);
 
-  const { isAdmin } = useRole();
+  const { isAdmin: _isAdmin, isOperator } = useRole();
+  const isAdmin = _isAdmin || isOperator;
   const utils = trpc.useUtils();
 
   const { data: rooms, isLoading } = trpc.rooms.list.useQuery();

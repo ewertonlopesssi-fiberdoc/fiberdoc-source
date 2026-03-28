@@ -84,7 +84,7 @@ interface MobileMapProps {
 
 export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoords, onFocusConsumed }: MobileMapProps = {}) {
   const { serverUrl, token, user: mobileUser } = useMobileAuth();
-  const isMobileAdmin = mobileUser?.role === "admin";
+  const isMobileAdmin = mobileUser?.role === "admin" || mobileUser?.role === "operator";
   const client = createMobileTrpcClient(serverUrl, token);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);

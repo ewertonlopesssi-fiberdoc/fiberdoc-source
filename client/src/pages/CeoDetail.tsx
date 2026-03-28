@@ -954,7 +954,8 @@ export default function CeoDetail() {
   const [splitterBandejaId, setSplitterBandejaId] = useState<number | null>(null);
   const [splitterForm, setSplitterForm] = useState({ identifier: "", splitterType: "balanced" as "balanced" | "unbalanced", ratio: "1:8", notes: "" });
 
-  const { isAdmin } = useRole();
+  const { isAdmin: _isAdmin, isOperator } = useRole();
+  const isAdmin = _isAdmin || isOperator;
   const utils = trpc.useUtils();
 
   const { data: ceo, isLoading: ceoLoading } = trpc.ceos.byId.useQuery({ id: ceoId }, { enabled: ceoId > 0 });

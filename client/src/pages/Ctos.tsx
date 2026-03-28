@@ -31,7 +31,7 @@ const EMPTY_FORM = {
 
 export default function Ctos() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.role === "operator";
   const [, setLocation] = useLocation();
 
   const [search, setSearch] = useState("");

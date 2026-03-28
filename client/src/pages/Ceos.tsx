@@ -51,7 +51,8 @@ export default function Ceos() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [geoLoading, setGeoLoading] = useState(false);
 
-  const { isAdmin } = useRole();
+  const { isAdmin: _isAdmin, isOperator } = useRole();
+  const isAdmin = _isAdmin || isOperator;
   const utils = trpc.useUtils();
 
   async function handleGetLocation() {

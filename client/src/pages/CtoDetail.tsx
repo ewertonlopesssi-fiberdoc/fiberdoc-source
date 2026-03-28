@@ -746,7 +746,8 @@ function TubePanel({
 // ─── Componente: Painel SGP ONUs ────────────────────────────────────────────
 function SgpOnuPanel({ ctoId: _ctoId, sgpCtoId, ctoName: _ctoName }: { ctoId: number; sgpCtoId: number; ctoName: string }) {
   const [expanded, setExpanded] = useState(false);
-  const { isAdmin } = useRole();
+  const { isAdmin: _isAdmin, isOperator } = useRole();
+  const isAdmin = _isAdmin || isOperator;
   const { data, isLoading, refetch } = trpc.sgp.onusByCto.useQuery(
     { sgpCtoId },
     { enabled: expanded }
@@ -893,7 +894,8 @@ export default function CtoDetail() {
   const [selectedTubeIds, setSelectedTubeIds] = useState<Set<number>>(new Set());
   const [geoLoading, setGeoLoading] = useState(false);
 
-  const { isAdmin } = useRole();
+  const { isAdmin: _isAdmin, isOperator } = useRole();
+  const isAdmin = _isAdmin || isOperator;
   const utils = trpc.useUtils();
   const { data: cto, isLoading: ctoLoading } = trpc.ctos.byId.useQuery({ id: ctoId }, { enabled: ctoId > 0 });
   const { data: tubes = [], isLoading: tubesLoading } = trpc.ctoTubes.byCto.useQuery({ ctoId }, { enabled: ctoId > 0 });

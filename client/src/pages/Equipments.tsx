@@ -296,7 +296,8 @@ export default function Equipments() {
   const [showIfaceForm, setShowIfaceForm] = useState(false);
   const [editingIface, setEditingIface] = useState<any>(null);
   const [, setLocation] = useLocation();
-  const { isAdmin } = useRole();
+  const { isAdmin: _isAdmin, isOperator } = useRole();
+  const isAdmin = _isAdmin || isOperator;
 
   const utils = trpc.useUtils();
 

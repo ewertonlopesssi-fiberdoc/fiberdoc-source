@@ -294,7 +294,7 @@ function formatDistance(meters: number): string {
 
 export default function InfrastructureMap() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.role === "operator";
 
   const utils = trpc.useUtils();
   // staleTime: 2 min — dados do mapa mudam raramente, não precisam recarregar a cada foco de janela
