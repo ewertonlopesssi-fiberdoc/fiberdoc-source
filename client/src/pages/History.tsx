@@ -120,7 +120,15 @@ function computeDiff(before: Record<string, any>, after: Record<string, any>) {
   return changes;
 }
 
-function HistoryDiffView({ previousState, newState, action }: { previousState?: string | null; newState?: string | null; action: string }) {
+function HistoryDiffView({ previousState, newState, action, description, entityType, entityId, performedBy }: {
+  previousState?: string | null;
+  newState?: string | null;
+  action: string;
+  description?: string;
+  entityType?: string;
+  entityId?: number;
+  performedBy?: string | null;
+}) {
   let before: Record<string, any> | null = null;
   let after: Record<string, any> | null = null;
 
@@ -128,7 +136,36 @@ function HistoryDiffView({ previousState, newState, action }: { previousState?: 
   try { if (newState) after = JSON.parse(newState); } catch {}
 
   if (!before && !after) {
-    return <p className="text-xs text-muted-foreground italic">Nenhum detalhe de alteração disponível para este registro.</p>;
+    // Registro antigo sem snapshot — exibir informações básicas disponíveis
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-amber-400/80 italic mb-2">Este registro foi criado antes da versão 5.96.16 e não possui snapshot de dados detalhado.</p>
+        <div className="rounded-lg border border-border overflow-hidden">
+          {description && (
+            <div className="flex items-start gap-2 px-3 py-2 text-xs border-b border-border last:border-0">
+              <span className="text-muted-foreground w-28 shrink-0">Descrição</span>
+              <span className="text-foreground">{description}</span>
+            </div>
+          )}
+          {entityType && (
+            <div className="flex items-center gap-2 px-3 py-2 text-xs border-b border-border last:border-0">
+              <span className="text-muted-foreground w-28 shrink-0">Entidade</span>
+              <span className="text-foreground">{getEntityLabel(entityType)} #{entityId}</span>
+            </div>
+          )}
+          {performedBy && (
+            <div className="flex items-center gap-2 px-3 py-2 text-xs border-b border-border last:border-0">
+              <span className="text-muted-foreground w-28 shrink-0">Realizado por</span>
+              <span className="text-foreground">{performedBy}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-2 px-3 py-2 text-xs">
+            <span className="text-muted-foreground w-28 shrink-0">Ação</span>
+            <span className="text-foreground">{getActionInfo(action).label}</span>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (action === "created" && after) {
@@ -264,8 +301,9 @@ export default function History() {
     });
   }
 
-  function hasDetails(item: any) {
-    return !!(item.previousState || item.newState);
+  // Mostrar "Ver detalhes" em todos os registros
+  function hasDetails(_item: any) {
+    return true;
   }
 
   return (
@@ -374,6 +412,10 @@ export default function History() {
                             previousState={item.previousState}
                             newState={item.newState}
                             action={item.action}
+                            description={item.description}
+                            entityType={item.entityType}
+                            entityId={item.entityId}
+                            performedBy={item.performedBy}
                           />
                         </div>
                       )}
