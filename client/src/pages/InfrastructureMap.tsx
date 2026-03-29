@@ -455,7 +455,7 @@ export default function InfrastructureMap() {
   const [cablesReportOpen, setCablesReportOpen] = useState(false);
   const [cablesReportLoading, setCablesReportLoading] = useState(false);
   const [cablesGroupSummary, setCablesGroupSummary] = useState<any[] | null>(null);
-  const [cablesFilterGroupId, setCablesFilterGroupId] = useState<string>("all");
+  const [cablesFilterGroups, setCablesFilterGroups] = useState<Set<string>>(new Set(["all"]));
   const exportCablesMut = trpc.infraMap.exportCables.useMutation();
   const [expandedExportGrps, setExpandedExportGrps] = useState<Set<number>>(new Set());
   const [exportFormat, setExportFormat] = useState<"kml" | "kmz">("kmz");
@@ -5362,17 +5362,7 @@ export default function InfrastructureMap() {
               }}
             />
           )}
-          <div className="absolute bottom-8 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg p-3 text-xs space-y-1.5" style={{ zIndex: 1000 }}>
-            <div className="font-semibold text-foreground mb-1">Legenda</div>
-            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-emerald-500 border-2 border-white" /><span className="text-muted-foreground">Ativo</span></div>
-            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-amber-500 border-2 border-white" /><span className="text-muted-foreground">Manutenção</span></div>
-            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-red-500 border-2 border-white" /><span className="text-muted-foreground">Inativo</span></div>
-            <div className="border-t border-border pt-1.5 mt-1">
-              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-blue-400 border-2 border-white" /><span className="text-muted-foreground">CEO (círculo)</span></div>
-              <div className="flex items-center gap-2 mt-1"><div className="w-4 h-4 rounded bg-purple-400 border-2 border-white" /><span className="text-muted-foreground">CTO (quadrado)</span></div>
-              <div className="flex items-center gap-2 mt-1"><div className="w-4 h-4 rounded bg-amber-500 border-2 border-white flex items-center justify-center"><Signal style={{width:8,height:8,color:'white'}} /></div><span className="text-muted-foreground">OLT</span></div>
-            </div>
-          </div>
+          {/* Legenda removida conforme solicitação */}
           <div className="absolute top-4 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-xs" style={{ zIndex: 1000 }}>
             <span className="text-muted-foreground">{(elements as any[]).length} elementos · {(routes as any[]).length} cabos</span>
           </div>
@@ -8299,19 +8289,63 @@ export default function InfrastructureMap() {
               <div className="flex justify-between"><span className="text-muted-foreground">Cabos soltos</span><span className="font-medium text-amber-400">{(routes as any[]).filter((r: any) => !(elements as any[]).find((e: any) => e.id === r.fromElementId) || !(elements as any[]).find((e: any) => e.id === r.toElementId)).length}</span></div>
             </div>
             {/* Filtro por grupo */}
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground uppercase tracking-wide">Filtrar por grupo (CSV / PDF)</Label>
-              <select
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                value={cablesFilterGroupId}
-                onChange={e => setCablesFilterGroupId(e.target.value)}
-              >
-                <option value="all">Todos os grupos</option>
-                <option value="none">Sem grupo</option>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Filtrar por grupo (CSV / PDF)</Label>
+                <button
+                  className="text-xs text-cyan-400 hover:underline"
+                  onClick={() => setCablesFilterGroups(new Set(["all"]))}
+                >Limpar</button>
+              </div>
+              <div className="rounded-lg border border-border divide-y divide-border max-h-40 overflow-y-auto">
+                {/* Opção: Todos */}
+                <label className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-muted/20">
+                  <input type="checkbox" className="accent-cyan-500"
+                    checked={cablesFilterGroups.has("all")}
+                    onChange={e => {
+                      const s = new Set(cablesFilterGroups);
+                      if (e.target.checked) { s.clear(); s.add("all"); }
+                      else { s.delete("all"); }
+                      setCablesFilterGroups(s);
+                    }}
+                  />
+                  <span className="font-medium">Todos os grupos</span>
+                </label>
+                {/* Opção: Sem grupo */}
+                <label className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-muted/20">
+                  <input type="checkbox" className="accent-cyan-500"
+                    checked={cablesFilterGroups.has("none")}
+                    onChange={e => {
+                      const s = new Set(cablesFilterGroups);
+                      s.delete("all");
+                      if (e.target.checked) s.add("none"); else s.delete("none");
+                      if (s.size === 0) s.add("all");
+                      setCablesFilterGroups(s);
+                    }}
+                  />
+                  <span className="text-muted-foreground italic">Sem grupo</span>
+                </label>
+                {/* Grupos existentes */}
                 {(mapGroups as any[]).map((g: any) => (
-                  <option key={g.id} value={String(g.id)}>{g.name}</option>
+                  <label key={g.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-muted/20">
+                    <input type="checkbox" className="accent-cyan-500"
+                      checked={cablesFilterGroups.has(String(g.id))}
+                      onChange={e => {
+                        const s = new Set(cablesFilterGroups);
+                        s.delete("all");
+                        if (e.target.checked) s.add(String(g.id)); else s.delete(String(g.id));
+                        if (s.size === 0) s.add("all");
+                        setCablesFilterGroups(s);
+                      }}
+                    />
+                    <span className="w-3 h-3 rounded-full flex-shrink-0" style={{background: g.color ?? '#888'}} />
+                    <span className="truncate">{g.name}</span>
+                  </label>
                 ))}
-              </select>
+              </div>
+              {!cablesFilterGroups.has("all") && (
+                <p className="text-xs text-cyan-400">{cablesFilterGroups.size} grupo{cablesFilterGroups.size !== 1 ? 's' : ''} selecionado{cablesFilterGroups.size !== 1 ? 's' : ''}</p>
+              )}
             </div>
             {/* Resumo por grupo */}
             {cablesGroupSummary && (
@@ -8365,11 +8399,12 @@ export default function InfrastructureMap() {
               onClick={async () => {
                 setCablesReportLoading(true);
                 try {
-                  const result = await exportCablesMut.mutateAsync({ format: "csv", filterGroupId: cablesFilterGroupId });
+                  const filterGroupIds = cablesFilterGroups.has("all") ? undefined : Array.from(cablesFilterGroups);
+                  const result = await exportCablesMut.mutateAsync({ format: "csv", filterGroupIds });
                   const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
-                  const groupLabel = cablesFilterGroupId === "all" ? "todos" : cablesFilterGroupId === "none" ? "sem-grupo" : ((mapGroups as any[]).find((g: any) => String(g.id) === cablesFilterGroupId)?.name ?? cablesFilterGroupId).replace(/\s+/g, "-").toLowerCase();
+                  const groupLabel = cablesFilterGroups.has("all") ? "todos" : `${cablesFilterGroups.size}-grupos`;
                   a.href = url; a.download = `cabos-${groupLabel}-${new Date().toISOString().slice(0,10)}.csv`;
                   a.click(); URL.revokeObjectURL(url);
                   toast.success("CSV exportado com sucesso");
@@ -8384,8 +8419,10 @@ export default function InfrastructureMap() {
               onClick={async () => {
                 setCablesReportLoading(true);
                 try {
-                  const result = await exportCablesMut.mutateAsync({ format: "pdf", filterGroupId: cablesFilterGroupId });
+                  const filterGroupIds2 = cablesFilterGroups.has("all") ? undefined : Array.from(cablesFilterGroups);
+                  const result = await exportCablesMut.mutateAsync({ format: "pdf", filterGroupIds: filterGroupIds2 });
                   const rows = result.rows as any[];
+                  const groupLabelPdf = cablesFilterGroups.has("all") ? "Todos" : cablesFilterGroups.has("none") && cablesFilterGroups.size === 1 ? "Sem grupo" : `${cablesFilterGroups.size} grupos selecionados`;
                   // Gerar PDF via HTML/CSS usando window.print
                   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório de Cabos</title><style>
                     body{font-family:Arial,sans-serif;font-size:11px;margin:20px;color:#111}
@@ -8396,7 +8433,7 @@ export default function InfrastructureMap() {
                     @media print{body{margin:10px}}
                   </style></head><body>
                     <h1>Relatório de Cabos — FiberDoc</h1>
-                    <p>Gerado em ${new Date().toLocaleString("pt-BR")} · Grupo: ${cablesFilterGroupId === "all" ? "Todos" : cablesFilterGroupId === "none" ? "Sem grupo" : (mapGroups as any[]).find((g: any) => String(g.id) === cablesFilterGroupId)?.name ?? cablesFilterGroupId} · Total: ${rows.length} cabos</p>
+                    <p>Gerado em ${new Date().toLocaleString("pt-BR")} · Grupo: ${groupLabelPdf} · Total: ${rows.length} cabos</p>
                     <table><thead><tr>
                       <th>#</th><th>Nome</th><th>Tipo</th><th>Fibras</th><th>De</th><th>Para</th><th>Comp. (km)</th><th>Status</th><th>Notas</th>
                     </tr></thead><tbody>

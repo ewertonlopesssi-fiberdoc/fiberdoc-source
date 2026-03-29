@@ -235,10 +235,15 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
+        const before = await getRoomById(id);
         await updateRoom(id, data);
+        const after = await getRoomById(id);
         await createMaintenanceRecord({
           entityType: "room", entityId: id, action: "updated",
-          description: `Sala #${id} atualizada`, performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
+          description: `Sala "${after?.name ?? `#${id}`}" atualizada`,
+          performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
+          previousState: before ? JSON.stringify(before) : undefined,
+          newState: after ? JSON.stringify(after) : undefined,
         });
         return { success: true };
       }),
@@ -246,10 +251,13 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        const before = await getRoomById(input.id);
         await deleteRoom(input.id);
         await createMaintenanceRecord({
           entityType: "room", entityId: input.id, action: "deleted",
-          description: `Sala #${input.id} removida`, performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
+          description: `Sala "${before?.name ?? `#${input.id}`}" removida`,
+          performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
+          previousState: before ? JSON.stringify(before) : undefined,
         });
         return { success: true };
       }),
@@ -363,6 +371,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, sshPassword, ...data } = input;
+        const before = await getEquipmentById(id);
         if (sshPassword !== undefined) {
           if (sshPassword) {
             const { encryptPassword } = await import("./ssh");
@@ -372,9 +381,15 @@ export const appRouter = router({
           }
         }
         await updateEquipment(id, data);
+        const after = await getEquipmentById(id);
+        // Omitir campos sensíveis do snapshot
+        const safeSnap = (obj: any) => obj ? { ...obj, sshPasswordEnc: undefined } : null;
         await createMaintenanceRecord({
           entityType: "equipment", entityId: id, action: "updated",
-          description: `Equipamento #${id} atualizado`, performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
+          description: `Equipamento "${after?.name ?? `#${id}`}" atualizado`,
+          performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
+          previousState: safeSnap(before) ? JSON.stringify(safeSnap(before)) : undefined,
+          newState: safeSnap(after) ? JSON.stringify(safeSnap(after)) : undefined,
         });
         return { success: true };
       }),
@@ -382,10 +397,13 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        const before = await getEquipmentById(input.id);
         await deleteEquipment(input.id);
         await createMaintenanceRecord({
           entityType: "equipment", entityId: input.id, action: "deleted",
-          description: `Equipamento #${input.id} removido`, performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
+          description: `Equipamento "${before?.name ?? `#${input.id}`}" removido`,
+          performedBy: ctx.user.name ?? undefined, userId: ctx.user.id,
+          previousState: before ? JSON.stringify({ ...before, sshPasswordEnc: undefined }) : undefined,
         });
         return { success: true };
       }),
@@ -863,15 +881,36 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
+        const before = await getCeoById(id);
         await updateCeo(id, data as any);
-        await createMaintenanceRecord({ entityType: "ceo", entityId: id, action: "updated", description: `CEO #${id} atualizado`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
+        const after = await getCeoById(id);
+        const changedFields: Record<string, { before: any; after: any }> = {};
+        const trackKeys = ["name", "location", "roomId", "notes", "status"] as const;
+        for (const k of trackKeys) {
+          const bv = before ? (before as any)[k] : undefined;
+          const av = after ? (after as any)[k] : undefined;
+          if (bv !== av) changedFields[k] = { before: bv ?? null, after: av ?? null };
+        }
+        await createMaintenanceRecord({
+          entityType: "ceo", entityId: id, action: "updated",
+          description: `CEO "${after?.name ?? `#${id}`}" atualizado`,
+          performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id,
+          previousState: before ? JSON.stringify(before) : undefined,
+          newState: after ? JSON.stringify(after) : undefined,
+        });
       }),
 
      delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        const before = await getCeoById(input.id);
         await deleteCeo(input.id);
-        await createMaintenanceRecord({ entityType: "ceo", entityId: input.id, action: "deleted", description: `CEO #${input.id} removido`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
+        await createMaintenanceRecord({
+          entityType: "ceo", entityId: input.id, action: "deleted",
+          description: `CEO "${before?.name ?? `#${input.id}`}" removido`,
+          performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id,
+          previousState: before ? JSON.stringify(before) : undefined,
+        });
       }),
     mapElement: protectedProcedure
       .input(z.object({ ceoId: z.number() }))
@@ -2247,15 +2286,29 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
+        const before = await getCtoById(id);
         await updateCto(id, data);
-        await createMaintenanceRecord({ entityType: "cto", entityId: id, action: "updated", description: `CTO #${id} atualizado`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
+        const after = await getCtoById(id);
+        await createMaintenanceRecord({
+          entityType: "cto", entityId: id, action: "updated",
+          description: `CTO "${after?.name ?? `#${id}`}" atualizado`,
+          performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id,
+          previousState: before ? JSON.stringify(before) : undefined,
+          newState: after ? JSON.stringify(after) : undefined,
+        });
         return { ok: true };
       }),
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        const before = await getCtoById(input.id);
         await deleteCto(input.id);
-        await createMaintenanceRecord({ entityType: "cto", entityId: input.id, action: "deleted", description: `CTO #${input.id} removido`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
+        await createMaintenanceRecord({
+          entityType: "cto", entityId: input.id, action: "deleted",
+          description: `CTO "${before?.name ?? `#${input.id}`}" removido`,
+          performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id,
+          previousState: before ? JSON.stringify(before) : undefined,
+        });
         return { ok: true };
       }),
     importCsv: adminProcedure
@@ -2347,8 +2400,21 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
+        const allRoutesBefore = await getMapRoutes();
+        const before = (allRoutesBefore as any[]).find((r: any) => r.id === id) ?? null;
         await updateMapRoute(id, data);
-        await createMaintenanceRecord({ entityType: "cable", entityId: id, action: "updated", description: `Cabo/Rota #${id} atualizado`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
+        const allRoutesAfter = await getMapRoutes();
+        const after = (allRoutesAfter as any[]).find((r: any) => r.id === id) ?? null;
+        // Omitir campo path do snapshot para economizar espaço
+        const beforeSnap = before ? { ...before, path: undefined } : null;
+        const afterSnap = after ? { ...after, path: undefined } : null;
+        await createMaintenanceRecord({
+          entityType: "cable", entityId: id, action: "updated",
+          description: `Cabo/Rota "${after?.name ?? `#${id}`}" atualizado`,
+          performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id,
+          previousState: beforeSnap ? JSON.stringify(beforeSnap) : undefined,
+          newState: afterSnap ? JSON.stringify(afterSnap) : undefined,
+        });
         return { ok: true };
       }),
     splitRoute: adminProcedure
@@ -2391,8 +2457,15 @@ export const appRouter = router({
     deleteRoute: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        const allRoutes = await getMapRoutes();
+        const before = (allRoutes as any[]).find((r: any) => r.id === input.id) ?? null;
         await deleteMapRoute(input.id);
-        await createMaintenanceRecord({ entityType: "cable", entityId: input.id, action: "deleted", description: `Cabo/Rota #${input.id} removido`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
+        await createMaintenanceRecord({
+          entityType: "cable", entityId: input.id, action: "deleted",
+          description: `Cabo/Rota "${before?.name ?? `#${input.id}`}" removido`,
+          performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id,
+          previousState: before ? JSON.stringify({ ...before, path: undefined }) : undefined,
+        });
         return { ok: true };
       }),
     exportKml: protectedProcedure
@@ -2509,7 +2582,8 @@ ${fiberFolder}
     exportCables: protectedProcedure
       .input(z.object({
         format: z.enum(["csv", "pdf", "group_summary"]).default("csv"),
-        filterGroupId: z.string().optional(), // "all" | "none" | "<id>"
+        filterGroupId: z.string().optional(), // legado: "all" | "none" | "<id>"
+        filterGroupIds: z.array(z.string()).optional(), // multi-select: ["none", "1", "2"]
       }))
       .mutation(async ({ input }) => {
         const [allRoutes, allElements, allCtos, allCeos, allGroups, allRouteGroups] = await Promise.all([
@@ -2568,8 +2642,19 @@ ${fiberFolder}
           };
         });
 
-        // Aplicar filtro de grupo se fornecido
+        // Aplicar filtro de grupo (suporta multi-select via filterGroupIds ou legado filterGroupId)
         const filteredRows = (() => {
+          // Prioridade: novo campo filterGroupIds
+          if (input.filterGroupIds && input.filterGroupIds.length > 0) {
+            const ids = input.filterGroupIds;
+            return (rows as any[]).filter((r: any) => {
+              return ids.some((fid: string) => {
+                if (fid === "none") return r.groupIds.length === 0;
+                return r.groupIds.includes(Number(fid));
+              });
+            });
+          }
+          // Legado: filterGroupId
           const fgid = input.filterGroupId;
           if (!fgid || fgid === "all") return rows;
           if (fgid === "none") return (rows as any[]).filter((r: any) => r.groupIds.length === 0);

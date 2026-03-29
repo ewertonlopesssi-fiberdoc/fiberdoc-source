@@ -22,7 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Plus, History as HistoryIcon, Clock, Wrench, CheckCircle, AlertCircle, Trash2, Edit, Eye, RefreshCw } from "lucide-react";
+import { Plus, History as HistoryIcon, Clock, Wrench, CheckCircle, AlertCircle, Trash2, Edit, Eye, RefreshCw, ChevronDown, ChevronRight, ArrowRight } from "lucide-react";
 import { useRole } from "@/hooks/useRole";
 import { formatDistanceToNow, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -46,6 +46,151 @@ const ACTION_TYPES = [
   { value: "repaired", label: "Reparado", icon: CheckCircle, color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" },
   { value: "inspected", label: "Inspecionado", icon: Eye, color: "text-violet-400 bg-violet-400/10 border-violet-400/20" },
 ];
+
+// Mapeamento de nomes de campos para labels legíveis
+const FIELD_LABELS: Record<string, string> = {
+  name: "Nome",
+  location: "Localização",
+  address: "Endereço",
+  roomId: "Sala (ID)",
+  notes: "Notas",
+  status: "Status",
+  capacity: "Capacidade",
+  usedPorts: "Portas usadas",
+  lat: "Latitude",
+  lng: "Longitude",
+  type: "Tipo",
+  model: "Modelo",
+  manufacturer: "Fabricante",
+  serialNumber: "Número de série",
+  rack: "Rack",
+  rackPosition: "Posição no rack",
+  rackUnits: "Unidades de rack",
+  ipAddress: "Endereço IP",
+  macAddress: "Endereço MAC",
+  totalPorts: "Total de portas",
+  powerType: "Tipo de energia",
+  powerSource: "Fonte de energia",
+  voltage: "Tensão",
+  powerConsumptionW: "Consumo (W)",
+  txPowerDbm: "Potência TX (dBm)",
+  vlan: "VLAN",
+  interfaceIp: "IP da interface",
+  serviceDescription: "Descrição do serviço",
+  sshUser: "Usuário SSH",
+  sshPort: "Porta SSH",
+  description: "Descrição",
+  floor: "Andar",
+  city: "Cidade",
+  state: "Estado",
+  fiberCount: "Qtd. fibras",
+  cableType: "Tipo de cabo",
+  color: "Cor",
+  fromElementId: "Elemento origem (ID)",
+  toElementId: "Elemento destino (ID)",
+};
+
+// Campos a ignorar no diff (IDs internos, timestamps, etc.)
+const IGNORE_FIELDS = new Set(["id", "createdAt", "updatedAt", "imageUrl", "sshPasswordEnc", "path"]);
+
+function formatFieldValue(val: any): string {
+  if (val === null || val === undefined) return "—";
+  if (typeof val === "boolean") return val ? "Sim" : "Não";
+  if (val instanceof Date) return format(val, "dd/MM/yyyy HH:mm", { locale: ptBR });
+  return String(val);
+}
+
+function computeDiff(before: Record<string, any>, after: Record<string, any>) {
+  const allKeys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  const changes: { field: string; label: string; before: string; after: string }[] = [];
+  for (const key of allKeys) {
+    if (IGNORE_FIELDS.has(key)) continue;
+    const bv = before[key];
+    const av = after[key];
+    // Comparar como string para evitar diferenças de tipo
+    if (String(bv ?? "") !== String(av ?? "")) {
+      changes.push({
+        field: key,
+        label: FIELD_LABELS[key] ?? key,
+        before: formatFieldValue(bv),
+        after: formatFieldValue(av),
+      });
+    }
+  }
+  return changes;
+}
+
+function HistoryDiffView({ previousState, newState, action }: { previousState?: string | null; newState?: string | null; action: string }) {
+  let before: Record<string, any> | null = null;
+  let after: Record<string, any> | null = null;
+
+  try { if (previousState) before = JSON.parse(previousState); } catch {}
+  try { if (newState) after = JSON.parse(newState); } catch {}
+
+  if (!before && !after) {
+    return <p className="text-xs text-muted-foreground italic">Nenhum detalhe de alteração disponível para este registro.</p>;
+  }
+
+  if (action === "created" && after) {
+    const fields = Object.entries(after).filter(([k]) => !IGNORE_FIELDS.has(k) && after![k] != null && after![k] !== "");
+    return (
+      <div className="space-y-1">
+        <p className="text-xs font-semibold text-emerald-400 mb-2">Dados do registro criado:</p>
+        <div className="rounded-lg border border-border overflow-hidden">
+          {fields.map(([key, val]) => (
+            <div key={key} className="flex items-center gap-2 px-3 py-1.5 text-xs border-b border-border last:border-0">
+              <span className="text-muted-foreground w-36 shrink-0">{FIELD_LABELS[key] ?? key}</span>
+              <span className="text-emerald-400 font-medium">{formatFieldValue(val)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (action === "deleted" && before) {
+    const fields = Object.entries(before).filter(([k]) => !IGNORE_FIELDS.has(k) && before![k] != null && before![k] !== "");
+    return (
+      <div className="space-y-1">
+        <p className="text-xs font-semibold text-red-400 mb-2">Dados do registro removido:</p>
+        <div className="rounded-lg border border-border overflow-hidden">
+          {fields.map(([key, val]) => (
+            <div key={key} className="flex items-center gap-2 px-3 py-1.5 text-xs border-b border-border last:border-0">
+              <span className="text-muted-foreground w-36 shrink-0">{FIELD_LABELS[key] ?? key}</span>
+              <span className="text-red-400 font-medium line-through">{formatFieldValue(val)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (action === "updated" && before && after) {
+    const changes = computeDiff(before, after);
+    if (changes.length === 0) {
+      return <p className="text-xs text-muted-foreground italic">Nenhuma alteração de campo detectada (pode ser uma atualização de traçado ou dados internos).</p>;
+    }
+    return (
+      <div className="space-y-1">
+        <p className="text-xs font-semibold text-blue-400 mb-2">{changes.length} campo{changes.length !== 1 ? "s" : ""} alterado{changes.length !== 1 ? "s" : ""}:</p>
+        <div className="rounded-lg border border-border overflow-hidden">
+          {changes.map((c) => (
+            <div key={c.field} className="px-3 py-2 text-xs border-b border-border last:border-0">
+              <div className="text-muted-foreground font-medium mb-1">{c.label}</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="bg-red-500/10 border border-red-500/20 text-red-400 rounded px-2 py-0.5 font-mono">{c.before}</span>
+                <ArrowRight className="w-3 h-3 text-muted-foreground shrink-0" />
+                <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded px-2 py-0.5 font-mono">{c.after}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return <p className="text-xs text-muted-foreground italic">Detalhes não disponíveis para este tipo de ação.</p>;
+}
 
 function getActionInfo(action: string) {
   return ACTION_TYPES.find((a) => a.value === action) ?? {
@@ -80,6 +225,8 @@ export default function History() {
   const [filterEntity, setFilterEntity] = useState("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<HistoryForm>(defaultForm);
+  const [detailItem, setDetailItem] = useState<any | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   const { isAdmin } = useRole();
   const utils = trpc.useUtils();
@@ -107,6 +254,18 @@ export default function History() {
       description: form.description,
       performedBy: form.performedBy || undefined,
     });
+  }
+
+  function toggleExpand(id: number) {
+    setExpandedIds(prev => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return s;
+    });
+  }
+
+  function hasDetails(item: any) {
+    return !!(item.previousState || item.newState);
   }
 
   return (
@@ -163,6 +322,8 @@ export default function History() {
             {(history ?? []).map((item) => {
               const actionInfo = getActionInfo(item.action);
               const ActionIcon = actionInfo.icon;
+              const expanded = expandedIds.has(item.id);
+              const hasDiff = hasDetails(item);
               return (
                 <div key={item.id} className="flex gap-4 relative">
                   {/* Timeline dot */}
@@ -187,15 +348,35 @@ export default function History() {
                             )}
                           </div>
                         </div>
-                        <div className="text-right shrink-0">
+                        <div className="flex flex-col items-end gap-1 shrink-0">
                           <p className="text-xs text-muted-foreground">
                             {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: ptBR })}
                           </p>
-                          <p className="text-xs text-muted-foreground/50 mt-0.5">
+                          <p className="text-xs text-muted-foreground/50">
                             {format(new Date(item.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
                           </p>
+                          {hasDiff && (
+                            <button
+                              onClick={() => toggleExpand(item.id)}
+                              className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 mt-0.5"
+                            >
+                              {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                              {expanded ? "Ocultar detalhes" : "Ver detalhes"}
+                            </button>
+                          )}
                         </div>
                       </div>
+
+                      {/* Detalhes expandidos */}
+                      {expanded && hasDiff && (
+                        <div className="mt-3 pt-3 border-t border-border/50">
+                          <HistoryDiffView
+                            previousState={item.previousState}
+                            newState={item.newState}
+                            action={item.action}
+                          />
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </div>
