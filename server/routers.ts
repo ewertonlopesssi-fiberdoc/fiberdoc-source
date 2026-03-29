@@ -2511,14 +2511,13 @@ ${fiberFolder}
         format: z.enum(["csv", "pdf", "group_summary"]).default("csv"),
       }))
       .mutation(async ({ input }) => {
-        const dbMod = await import("./db");
         const [allRoutes, allElements, allCtos, allCeos, allGroups, allRouteGroups] = await Promise.all([
           getMapRoutes(),
           getMapElements(),
-          dbMod.getCtos(),
-          dbMod.getCeos(),
-          dbMod.getMapGroups(),
-          dbMod.getAllRouteGroupMemberships(),
+          getCtos(),
+          getCeos(),
+          getMapGroups(),
+          getAllRouteGroupMemberships(),
         ]);
 
         // Calcular comprimento do traçado em km
