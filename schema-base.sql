@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS `fibers` (
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `maintenance_history` (
 	`id` int AUTO_INCREMENT NOT NULL,
-	`entity_type` enum('equipment','fiber','port','connection','room') NOT NULL,
+	`entity_type` enum('equipment','fiber','port','connection','room','ceo','cto','cable') NOT NULL,
 	`entityId` int NOT NULL,
 	`action` enum('created','updated','deleted','maintenance','repaired','inspected') NOT NULL,
 	`description` text NOT NULL,

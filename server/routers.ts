@@ -178,7 +178,7 @@ const fiberTypeEnum = z.enum(["single_mode", "multi_mode", "armored", "aerial", 
 const fiberStatusEnum = z.enum(["active", "inactive", "reserved", "faulty"]);
 const connectionTypeEnum = z.enum(["direct", "spliced", "patch", "cross_connect"]);
 const connectionStatusEnum = z.enum(["active", "inactive", "testing"]);
-const entityTypeEnum = z.enum(["equipment", "fiber", "port", "connection", "room"]);
+const entityTypeEnum = z.enum(["equipment", "fiber", "port", "connection", "room", "ceo", "cto", "cable"]);
 const actionEnum = z.enum(["created", "updated", "deleted", "maintenance", "repaired", "inspected"]);
 
 export const appRouter = router({
@@ -840,7 +840,7 @@ export const appRouter = router({
         notes: z.string().optional(),
         status: z.enum(["active", "inactive", "maintenance"]).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const id = await createCeo({
           name: input.name,
           location: input.location ?? null,
@@ -848,6 +848,7 @@ export const appRouter = router({
           notes: input.notes ?? null,
           status: input.status ?? "active",
         });
+        await createMaintenanceRecord({ entityType: "ceo", entityId: id, action: "created", description: `CEO "${input.name}" criado`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
         return { id };
       }),
 
@@ -860,14 +861,18 @@ export const appRouter = router({
         notes: z.string().optional(),
         status: z.enum(["active", "inactive", "maintenance"]).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
         await updateCeo(id, data as any);
+        await createMaintenanceRecord({ entityType: "ceo", entityId: id, action: "updated", description: `CEO #${id} atualizado`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
       }),
 
      delete: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => deleteCeo(input.id)),
+      .mutation(async ({ input, ctx }) => {
+        await deleteCeo(input.id);
+        await createMaintenanceRecord({ entityType: "ceo", entityId: input.id, action: "deleted", description: `CEO #${input.id} removido`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
+      }),
     mapElement: protectedProcedure
       .input(z.object({ ceoId: z.number() }))
       .query(async ({ input }) => {
@@ -2223,8 +2228,9 @@ export const appRouter = router({
         lng: z.number().optional(),
         notes: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const id = await createCto(input);
+        await createMaintenanceRecord({ entityType: "cto", entityId: id, action: "created", description: `CTO "${input.name}" criado`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
         return { id };
       }),
     update: adminProcedure
@@ -2239,15 +2245,17 @@ export const appRouter = router({
         lng: z.number().optional(),
         notes: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
         await updateCto(id, data);
+        await createMaintenanceRecord({ entityType: "cto", entityId: id, action: "updated", description: `CTO #${id} atualizado`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
         return { ok: true };
       }),
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await deleteCto(input.id);
+        await createMaintenanceRecord({ entityType: "cto", entityId: input.id, action: "deleted", description: `CTO #${input.id} removido`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
         return { ok: true };
       }),
     importCsv: adminProcedure
@@ -2318,8 +2326,9 @@ export const appRouter = router({
         path: z.string().optional(),
         notes: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const id = await createMapRoute(input as any);
+        await createMaintenanceRecord({ entityType: "cable", entityId: id, action: "created", description: `Cabo/Rota "${input.name ?? `#${id}`}" criado`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
         return { id };
       }),
     updateRoute: adminProcedure
@@ -2336,9 +2345,10 @@ export const appRouter = router({
         fromTubeId: z.number().nullable().optional(),
         toTubeId: z.number().nullable().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
         await updateMapRoute(id, data);
+        await createMaintenanceRecord({ entityType: "cable", entityId: id, action: "updated", description: `Cabo/Rota #${id} atualizado`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
         return { ok: true };
       }),
     splitRoute: adminProcedure
@@ -2380,8 +2390,9 @@ export const appRouter = router({
       }),
     deleteRoute: adminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await deleteMapRoute(input.id);
+        await createMaintenanceRecord({ entityType: "cable", entityId: input.id, action: "deleted", description: `Cabo/Rota #${input.id} removido`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
         return { ok: true };
       }),
     exportKml: protectedProcedure

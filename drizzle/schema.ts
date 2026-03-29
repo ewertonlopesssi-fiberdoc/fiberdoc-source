@@ -187,7 +187,7 @@ export type InsertConnection = typeof connections.$inferInsert;
 // ─── Histórico de Manutenções ────────────────────────────────────────────────
 export const maintenanceHistory = mysqlTable("maintenance_history", {
   id: int("id").autoincrement().primaryKey(),
-  entityType: mysqlEnum("entity_type", ["equipment", "fiber", "port", "connection", "room"]).notNull(),
+  entityType: mysqlEnum("entity_type", ["equipment", "fiber", "port", "connection", "room", "ceo", "cto", "cable"]).notNull(),
   entityId: int("entityId").notNull(),
   action: mysqlEnum("action", ["created", "updated", "deleted", "maintenance", "repaired", "inspected"]).notNull(),
   description: text("description").notNull(),

@@ -33,6 +33,9 @@ const ENTITY_TYPES = [
   { value: "port", label: "Porta" },
   { value: "connection", label: "Conexão" },
   { value: "room", label: "Sala" },
+  { value: "ceo", label: "CEO" },
+  { value: "cto", label: "CTO" },
+  { value: "cable", label: "Cabo/Rota" },
 ];
 
 const ACTION_TYPES = [
