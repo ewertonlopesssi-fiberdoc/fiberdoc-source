@@ -135,22 +135,30 @@ function HistoryDiffView({ previousState, newState, action, description, entityT
   try { if (previousState) before = JSON.parse(previousState); } catch {}
   try { if (newState) after = JSON.parse(newState); } catch {}
 
+  // Tentar extrair o nome da entidade a partir do snapshot ou da descrição
+  const entityName: string | null = (() => {
+    const snap = after ?? before;
+    if (snap?.name) return String(snap.name);
+    // Fallback: extrair da descrição entre aspas (ex: CEO "Caixa 01" atualizado)
+    if (description) {
+      const m = description.match(/"([^"]+)"/);
+      if (m) return m[1];
+    }
+    return null;
+  })();
+
   if (!before && !after) {
     // Registro antigo sem snapshot — exibir informações básicas disponíveis
     return (
       <div className="space-y-2">
         <p className="text-xs text-amber-400/80 italic mb-2">Este registro foi criado antes da versão 5.96.16 e não possui snapshot de dados detalhado.</p>
         <div className="rounded-lg border border-border overflow-hidden">
-          {description && (
-            <div className="flex items-start gap-2 px-3 py-2 text-xs border-b border-border last:border-0">
-              <span className="text-muted-foreground w-28 shrink-0">Descrição</span>
-              <span className="text-foreground">{description}</span>
-            </div>
-          )}
           {entityType && (
             <div className="flex items-center gap-2 px-3 py-2 text-xs border-b border-border last:border-0">
               <span className="text-muted-foreground w-28 shrink-0">Entidade</span>
-              <span className="text-foreground">{getEntityLabel(entityType)} #{entityId}</span>
+              <span className="text-foreground">
+                {getEntityLabel(entityType)}{entityName ? ` — ${entityName}` : ` #${entityId}`}
+              </span>
             </div>
           )}
           {performedBy && (
