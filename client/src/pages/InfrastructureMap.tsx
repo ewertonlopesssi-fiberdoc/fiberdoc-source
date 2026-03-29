@@ -455,6 +455,7 @@ export default function InfrastructureMap() {
   const [cablesReportOpen, setCablesReportOpen] = useState(false);
   const [cablesReportLoading, setCablesReportLoading] = useState(false);
   const [cablesGroupSummary, setCablesGroupSummary] = useState<any[] | null>(null);
+  const exportCablesMut = trpc.infraMap.exportCables.useMutation();
   const [expandedExportGrps, setExpandedExportGrps] = useState<Set<number>>(new Set());
   const [exportFormat, setExportFormat] = useState<"kml" | "kmz">("kmz");
   const [exportLoading, setExportLoading] = useState(false);
@@ -8332,7 +8333,7 @@ export default function InfrastructureMap() {
               onClick={async () => {
                 setCablesReportLoading(true);
                 try {
-                  const result = await (trpc as any).infraMap.exportCables.mutate({ format: "group_summary" });
+                  const result = await exportCablesMut.mutateAsync({ format: "group_summary" });
                   const summaryArr = Array.isArray(result.summary) ? result.summary : Object.values(result.summary ?? {});
                   setCablesGroupSummary(summaryArr);
                   toast.success("Resumo por grupo carregado");
@@ -8348,7 +8349,7 @@ export default function InfrastructureMap() {
               onClick={async () => {
                 setCablesReportLoading(true);
                 try {
-                  const result = await (trpc as any).infraMap.exportCables.mutate({ format: "csv" });
+                  const result = await exportCablesMut.mutateAsync({ format: "csv" });
                   const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
@@ -8366,7 +8367,7 @@ export default function InfrastructureMap() {
               onClick={async () => {
                 setCablesReportLoading(true);
                 try {
-                  const result = await (trpc as any).infraMap.exportCables.mutate({ format: "pdf" });
+                  const result = await exportCablesMut.mutateAsync({ format: "pdf" });
                   const rows = result.rows as any[];
                   // Gerar PDF via HTML/CSS usando window.print
                   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório de Cabos</title><style>
