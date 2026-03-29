@@ -87,7 +87,6 @@ const publicMenuItems = [
   { icon: CircuitBoard, label: "Portas", path: "/portas" },
   { icon: Search, label: "Busca de Porta", path: "/busca-porta" },
   { icon: GitBranch, label: "Conexões", path: "/conexoes" },
-  { icon: History, label: "Histórico", path: "/historico" },
   { icon: Upload, label: "Importar CSV", path: "/importar" },
   { icon: FileBarChart, label: "Relatório de Ocupação", path: "/relatorio-ocupacao" },
   { icon: Zap, label: "Fontes de Energia", path: "/fontes-energia" },
@@ -105,6 +104,7 @@ const adminOnlyMenuItems = [
   { icon: Settings, label: "Sistema", path: "/sistema" },
   { icon: PlugZap, label: "Configuração de Rede", path: "/rede" },
   { icon: Crown, label: "Gerenciar Provedores", path: "/admin/provedores" },
+  { icon: History, label: "Histórico", path: "/historico" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
