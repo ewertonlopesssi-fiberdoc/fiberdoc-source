@@ -2509,6 +2509,7 @@ ${fiberFolder}
     exportCables: protectedProcedure
       .input(z.object({
         format: z.enum(["csv", "pdf", "group_summary"]).default("csv"),
+        filterGroupId: z.string().optional(), // "all" | "none" | "<id>"
       }))
       .mutation(async ({ input }) => {
         const [allRoutes, allElements, allCtos, allCeos, allGroups, allRouteGroups] = await Promise.all([
@@ -2567,6 +2568,15 @@ ${fiberFolder}
           };
         });
 
+        // Aplicar filtro de grupo se fornecido
+        const filteredRows = (() => {
+          const fgid = input.filterGroupId;
+          if (!fgid || fgid === "all") return rows;
+          if (fgid === "none") return (rows as any[]).filter((r: any) => r.groupIds.length === 0);
+          const gidNum = Number(fgid);
+          return (rows as any[]).filter((r: any) => r.groupIds.includes(gidNum));
+        })();
+
         if (input.format === "group_summary") {
           // Resumo por grupo: nome do grupo, total de cabos, comprimento total em metros
           const groupMap: Record<string, { groupId: number | null; groupName: string; groupColor: string; cabos: number; metros: number; fibras: number }> = {};
@@ -2595,7 +2605,7 @@ ${fiberFolder}
 
         if (input.format === "csv") {
           const header = ["ID","Nome","Tipo","Fibras","De","Para","Comprimento (km)","Comprimento (m)","Status","Grupos","Pontos no Traçado","Notas"];
-          const lines = (rows as any[]).map((r: any) => [
+          const lines = (filteredRows as any[]).map((r: any) => [
             r.id, `"${r.nome}"`, r.tipo, r.fibras,
             `"${r.de}"`, `"${r.para}"`, r.comprimento_km, r.comprimento_m ?? "",
             r.status, `"${r.grupos}"`, r.pontos, `"${r.notas}"`
@@ -2605,7 +2615,7 @@ ${fiberFolder}
         }
 
         // PDF: retorna dados para o frontend gerar
-        return { format: "pdf", csv: null, rows, summary: null, allRows: null };
+        return { format: "pdf", csv: null, rows: filteredRows, summary: null, allRows: null };
       }),
     routesOccupancy: protectedProcedure
       .query(async () => {

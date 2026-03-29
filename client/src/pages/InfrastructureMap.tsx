@@ -455,6 +455,7 @@ export default function InfrastructureMap() {
   const [cablesReportOpen, setCablesReportOpen] = useState(false);
   const [cablesReportLoading, setCablesReportLoading] = useState(false);
   const [cablesGroupSummary, setCablesGroupSummary] = useState<any[] | null>(null);
+  const [cablesFilterGroupId, setCablesFilterGroupId] = useState<string>("all");
   const exportCablesMut = trpc.infraMap.exportCables.useMutation();
   const [expandedExportGrps, setExpandedExportGrps] = useState<Set<number>>(new Set());
   const [exportFormat, setExportFormat] = useState<"kml" | "kmz">("kmz");
@@ -8297,6 +8298,21 @@ export default function InfrastructureMap() {
               <div className="flex justify-between"><span className="text-muted-foreground">Total de cabos</span><span className="font-medium">{(routes as any[]).length}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Cabos soltos</span><span className="font-medium text-amber-400">{(routes as any[]).filter((r: any) => !(elements as any[]).find((e: any) => e.id === r.fromElementId) || !(elements as any[]).find((e: any) => e.id === r.toElementId)).length}</span></div>
             </div>
+            {/* Filtro por grupo */}
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide">Filtrar por grupo (CSV / PDF)</Label>
+              <select
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                value={cablesFilterGroupId}
+                onChange={e => setCablesFilterGroupId(e.target.value)}
+              >
+                <option value="all">Todos os grupos</option>
+                <option value="none">Sem grupo</option>
+                {(mapGroups as any[]).map((g: any) => (
+                  <option key={g.id} value={String(g.id)}>{g.name}</option>
+                ))}
+              </select>
+            </div>
             {/* Resumo por grupo */}
             {cablesGroupSummary && (
               <div className="space-y-2">
@@ -8349,11 +8365,12 @@ export default function InfrastructureMap() {
               onClick={async () => {
                 setCablesReportLoading(true);
                 try {
-                  const result = await exportCablesMut.mutateAsync({ format: "csv" });
+                  const result = await exportCablesMut.mutateAsync({ format: "csv", filterGroupId: cablesFilterGroupId });
                   const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
-                  a.href = url; a.download = `cabos-${new Date().toISOString().slice(0,10)}.csv`;
+                  const groupLabel = cablesFilterGroupId === "all" ? "todos" : cablesFilterGroupId === "none" ? "sem-grupo" : ((mapGroups as any[]).find((g: any) => String(g.id) === cablesFilterGroupId)?.name ?? cablesFilterGroupId).replace(/\s+/g, "-").toLowerCase();
+                  a.href = url; a.download = `cabos-${groupLabel}-${new Date().toISOString().slice(0,10)}.csv`;
                   a.click(); URL.revokeObjectURL(url);
                   toast.success("CSV exportado com sucesso");
                 } catch (e: any) { toast.error(e.message ?? "Erro ao exportar"); }
@@ -8367,7 +8384,7 @@ export default function InfrastructureMap() {
               onClick={async () => {
                 setCablesReportLoading(true);
                 try {
-                  const result = await exportCablesMut.mutateAsync({ format: "pdf" });
+                  const result = await exportCablesMut.mutateAsync({ format: "pdf", filterGroupId: cablesFilterGroupId });
                   const rows = result.rows as any[];
                   // Gerar PDF via HTML/CSS usando window.print
                   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório de Cabos</title><style>
@@ -8379,7 +8396,7 @@ export default function InfrastructureMap() {
                     @media print{body{margin:10px}}
                   </style></head><body>
                     <h1>Relatório de Cabos — FiberDoc</h1>
-                    <p>Gerado em ${new Date().toLocaleString("pt-BR")} · Total: ${rows.length} cabos</p>
+                    <p>Gerado em ${new Date().toLocaleString("pt-BR")} · Grupo: ${cablesFilterGroupId === "all" ? "Todos" : cablesFilterGroupId === "none" ? "Sem grupo" : (mapGroups as any[]).find((g: any) => String(g.id) === cablesFilterGroupId)?.name ?? cablesFilterGroupId} · Total: ${rows.length} cabos</p>
                     <table><thead><tr>
                       <th>#</th><th>Nome</th><th>Tipo</th><th>Fibras</th><th>De</th><th>Para</th><th>Comp. (km)</th><th>Status</th><th>Notas</th>
                     </tr></thead><tbody>
