@@ -7,6 +7,7 @@
 import { build } from "esbuild";
 import path from "path";
 import { fileURLToPath } from "url";
+import { copyFileSync, existsSync, readdirSync } from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const viteProdStubPath = path.resolve(__dirname, "server/_core/vite.prod.ts");
@@ -43,3 +44,27 @@ await build({
 });
 
 console.log("✓ Server bundle built successfully (vite excluded from production bundle)");
+
+// ── Copiar arquivos SQL para dist/ ────────────────────────────────────────────
+// Garante que schema-base.sql e migrate-v*.sql estejam sempre disponíveis
+// no diretório dist/, que é o caminho prioritário do tenantProvisioner.
+const distDir = path.resolve(__dirname, "dist");
+
+// Copiar schema-base.sql
+const schemaBase = path.resolve(__dirname, "schema-base.sql");
+if (existsSync(schemaBase)) {
+  copyFileSync(schemaBase, path.join(distDir, "schema-base.sql"));
+  console.log("✓ schema-base.sql copiado para dist/");
+} else {
+  console.warn("⚠ schema-base.sql não encontrado na raiz do projeto");
+}
+
+// Copiar migrate-v*.sql
+const rootFiles = readdirSync(__dirname);
+const migrateFiles = rootFiles.filter(f => /^migrate-v\d/.test(f) && f.endsWith(".sql"));
+for (const f of migrateFiles) {
+  copyFileSync(path.resolve(__dirname, f), path.join(distDir, f));
+}
+if (migrateFiles.length > 0) {
+  console.log(`✓ ${migrateFiles.length} arquivo(s) migrate-v*.sql copiado(s) para dist/`);
+}

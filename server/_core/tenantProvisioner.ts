@@ -94,18 +94,28 @@ export async function provisionTenantDatabase(dbName: string): Promise<{ success
       "migrate-v18.sql", "migrate-v19.sql", "migrate-v20.sql",
     ];
 
+    // Caminhos de busca para arquivos SQL (em ordem de prioridade)
+    const sqlSearchPaths = [
+      migrationsDir,
+      process.cwd(),
+      path.join(process.cwd(), ".."),
+      "/opt/fiberdoc",
+      "/opt/fiberdoc/dist",
+      path.dirname(process.execPath),
+    ];
+
     for (const file of migrationFiles) {
       // Procurar o arquivo em vários locais possíveis
-      const candidates = [
-        path.join(migrationsDir, file),
-        path.join(process.cwd(), file),
-        path.join("/opt/fiberdoc", file),
-        path.join("/opt/fiberdoc/dist", file),
-      ];
+      const candidates = sqlSearchPaths.map(dir => path.join(dir, file));
 
       const sqlFile = candidates.find(f => fs.existsSync(f));
       if (!sqlFile) {
-        console.log(`[Provisioner] ${file} não encontrado — ignorado.`);
+        if (file === "schema-base.sql") {
+          console.error(`[Provisioner] ERRO CRÍTICO: ${file} não encontrado em nenhum caminho! Banco ${dbName} pode ficar sem tabelas.`);
+          console.error(`[Provisioner] Caminhos verificados: ${candidates.join(", ")}`);
+        } else {
+          console.log(`[Provisioner] ${file} não encontrado — ignorado.`);
+        }
         continue;
       }
 
