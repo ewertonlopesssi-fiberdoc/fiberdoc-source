@@ -216,27 +216,29 @@ log_step "[6/7] A instalar dependencias..."
 cd "${FIBERDOC_DIR}"
 INSTALL_OK=false
 
-if command -v npm >/dev/null 2>&1; then
-  log_info "A instalar com npm..."
-  if npm install --omit=dev --ignore-scripts 2>&1 | tail -5; then
-    log_ok "Dependencias instaladas com npm."; INSTALL_OK=true
-  else
-    log_warn "npm install falhou. A tentar pnpm..."
-  fi
-fi
-
-if [ "${INSTALL_OK}" = "false" ] && command -v pnpm >/dev/null 2>&1; then
+# Tentar pnpm primeiro (projeto usa pnpm como gestor de pacotes)
+if command -v pnpm >/dev/null 2>&1; then
   log_info "A instalar com pnpm..."
   if pnpm install --prod --no-frozen-lockfile --ignore-scripts 2>&1 | tail -5; then
     log_ok "Dependencias instaladas com pnpm."; INSTALL_OK=true
   else
-    log_warn "pnpm install tambem falhou."
+    log_warn "pnpm install falhou. A tentar npm..."
+  fi
+fi
+
+# Fallback: npm
+if [ "${INSTALL_OK}" = "false" ] && command -v npm >/dev/null 2>&1; then
+  log_info "A instalar com npm..."
+  if npm install --omit=dev --ignore-scripts 2>&1 | tail -5; then
+    log_ok "Dependencias instaladas com npm."; INSTALL_OK=true
+  else
+    log_warn "npm install tambem falhou."
   fi
 fi
 
 if [ "${INSTALL_OK}" = "false" ]; then
   log_warn "Nao foi possivel instalar dependencias automaticamente."
-  log_warn "Execute: cd ${FIBERDOC_DIR} && npm install --omit=dev"
+  log_warn "Execute manualmente: cd ${FIBERDOC_DIR} && pnpm install --prod"
 fi
 
 # -- 6b. Migracao SQL -----------------------------------------------------------
