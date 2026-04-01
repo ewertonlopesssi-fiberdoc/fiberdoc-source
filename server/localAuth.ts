@@ -37,26 +37,77 @@ export function registerLocalAuthRoutes(app: Express) {
 
       const tenantDb = (req as any).tenantDb;
 
+      const tenantSlug = (req as any).tenantSlug ?? "(sem tenant)";
+
       // Usar banco do tenant se disponível
       const doLogin = async () => {
-        const user = await getUserByEmail(email.trim().toLowerCase());
+        // 1. Buscar usuário
+        let user: any;
+        try {
+          user = await getUserByEmail(email.trim().toLowerCase());
+        } catch (dbErr: any) {
+          console.error(`[local-login][${tenantSlug}] Erro ao buscar usuário:`, dbErr?.message ?? dbErr);
+          return res.status(500).json({ error: "Erro ao acessar o banco de dados" });
+        }
+
+        // Auto-seed: se o banco do tenant não tem usuários, criar o admin padrão
+        if (!user && tenantDb) {
+          console.warn(`[local-login][${tenantSlug}] Nenhum usuário encontrado. Tentando criar admin padrão...`);
+          try {
+            const { hash } = await import("bcryptjs");
+            const { getDb } = await import("./db");
+            const { users: usersTable } = await import("../drizzle/schema");
+            const db = await getDb();
+            if (db) {
+              const passwordHash = await hash("fiberdoc2025", 12);
+              const openId = "local:admin@fiberdoc.local";
+              await db.insert(usersTable).values({
+                openId,
+                name: "Administrador",
+                email: "admin@fiberdoc.local",
+                role: "admin",
+                loginMethod: "local",
+                passwordHash,
+                mustChangePassword: true,
+                lastSignedIn: new Date(),
+              } as any).onDuplicateKeyUpdate({ set: { lastSignedIn: new Date() } });
+              user = await getUserByEmail(email.trim().toLowerCase());
+              console.log(`[local-login][${tenantSlug}] Admin padrão criado com sucesso.`);
+            }
+          } catch (seedErr: any) {
+            console.error(`[local-login][${tenantSlug}] Falha ao criar admin padrão:`, seedErr?.message);
+          }
+        }
+
         if (!user || !user.passwordHash) {
+          console.warn(`[local-login][${tenantSlug}] Usuário não encontrado ou sem senha: ${email}`);
           return res.status(401).json({ error: "Usuário ou senha inválidos" });
         }
 
+        // 2. Verificar senha
         const valid = await compare(password, user.passwordHash);
         if (!valid) {
           return res.status(401).json({ error: "Usuário ou senha inválidos" });
         }
 
-        // Gerar token de sessão usando o mesmo mecanismo do OAuth
-        const sessionToken = await sdk.signSession(
-          { openId: user.openId, appId: "local", name: user.name || user.email || "usuario" },
-          { expiresInMs: ONE_YEAR_MS }
-        );
+        // 3. Gerar token de sessão
+        let sessionToken: string;
+        try {
+          sessionToken = await sdk.signSession(
+            { openId: user.openId, appId: "local", name: user.name || user.email || "usuario" },
+            { expiresInMs: ONE_YEAR_MS }
+          );
+        } catch (jwtErr: any) {
+          console.error(`[local-login][${tenantSlug}] Erro ao gerar token JWT:`, jwtErr?.message ?? jwtErr);
+          return res.status(500).json({ error: "Erro ao gerar sessão" });
+        }
 
-        // Atualizar lastSignedIn
-        await upsertUser({ openId: user.openId, lastSignedIn: new Date() });
+        // 4. Atualizar lastSignedIn (não crítico — não bloquear login se falhar)
+        try {
+          await upsertUser({ openId: user.openId, lastSignedIn: new Date() });
+        } catch (upsertErr: any) {
+          console.warn(`[local-login][${tenantSlug}] Aviso: não foi possível atualizar lastSignedIn:`, upsertErr?.message);
+        }
 
         const cookieOptions = getSessionCookieOptions(req);
         res.cookie(COOKIE_NAME, sessionToken, {
@@ -66,7 +117,7 @@ export function registerLocalAuthRoutes(app: Express) {
 
         return res.json({
           ok: true,
-          mustChangePassword: user.mustChangePassword === true,
+          mustChangePassword: user.mustChangePassword === true || user.mustChangePassword === 1,
           user: { id: user.id, name: user.name, email: user.email, role: user.role },
         });
       };

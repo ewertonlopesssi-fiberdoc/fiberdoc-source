@@ -173,21 +173,41 @@ async function seedTenantAdmin(conn: mysql.Connection): Promise<{ email: string;
     const passwordHash = await hash(DEFAULT_PASSWORD, 12);
     const now = new Date().toISOString().slice(0, 19).replace("T", " ");
 
-    // Verificar se já existe usuário
-    const [existing] = await conn.execute(
-      `SELECT id FROM users WHERE login_method = 'local' LIMIT 1`
-    );
-    if ((existing as any[]).length > 0) {
+    // Verificar se já existe usuário (usar loginMethod - camelCase conforme schema)
+    let existingCount = 0;
+    try {
+      const [existing] = await conn.execute(
+        `SELECT id FROM users WHERE loginMethod = 'local' LIMIT 1`
+      );
+      existingCount = (existing as any[]).length;
+    } catch {
+      // Coluna pode ter nome diferente em instalações antigas — ignorar e tentar inserir
+    }
+    if (existingCount > 0) {
       console.log("[Provisioner] Usuário admin já existe no banco do tenant.");
       return null;
     }
 
-    // Usar camelCase (nomes de coluna do Drizzle/schema-base.sql)
-    await conn.execute(
-      `INSERT INTO users (openId, name, email, role, loginMethod, passwordHash, mustChangePassword, lastSignedIn)
-       VALUES (?, ?, ?, 'admin', 'local', ?, 1, ?)`,
-      [openId, DEFAULT_NAME, DEFAULT_EMAIL, passwordHash, now]
-    );
+    // Inserir usuário admin padrão
+    // Tentar com camelCase primeiro (schema atual), depois snake_case (legado)
+    try {
+      await conn.execute(
+        `INSERT INTO users (openId, name, email, role, loginMethod, passwordHash, mustChangePassword, lastSignedIn)
+         VALUES (?, ?, ?, 'admin', 'local', ?, 1, ?)`,
+        [openId, DEFAULT_NAME, DEFAULT_EMAIL, passwordHash, now]
+      );
+    } catch (insertErr: any) {
+      // Fallback: tentar com snake_case para instalações legadas
+      if (insertErr?.code === 'ER_BAD_FIELD_ERROR') {
+        await conn.execute(
+          `INSERT INTO users (open_id, name, email, role, login_method, password_hash, must_change_password, last_signed_in)
+           VALUES (?, ?, ?, 'admin', 'local', ?, 1, ?)`,
+          [openId, DEFAULT_NAME, DEFAULT_EMAIL, passwordHash, now]
+        );
+      } else {
+        throw insertErr;
+      }
+    }
 
     console.log(`[Provisioner] ✅ Usuário admin padrão criado no banco do tenant.`);
     return { email: DEFAULT_EMAIL, password: DEFAULT_PASSWORD };
