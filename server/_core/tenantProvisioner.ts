@@ -120,26 +120,39 @@ export async function provisionTenantDatabase(dbName: string): Promise<{ success
       }
 
       try {
-        const sql = fs.readFileSync(sqlFile, "utf-8");
-        // Executar cada statement separadamente
+        let sql = fs.readFileSync(sqlFile, "utf-8");
+
+        // Remover marcadores Drizzle (--> statement-breakpoint) que são inválidos no MySQL
+        sql = sql.replace(/--> statement-breakpoint/g, "");
+
+        // Dividir em statements individuais, ignorando linhas de comentário
         const statements = sql
           .split(";")
           .map(s => s.trim())
-          .filter(s => s.length > 0 && !s.startsWith("--"));
+          .filter(s => {
+            if (s.length === 0) return false;
+            // Ignorar blocos que só têm comentários
+            const nonCommentLines = s.split("\n")
+              .map(l => l.trim())
+              .filter(l => l.length > 0 && !l.startsWith("--"));
+            return nonCommentLines.length > 0;
+          });
 
+        let appliedCount = 0;
         for (const stmt of statements) {
           try {
             await conn.execute(stmt);
+            appliedCount++;
           } catch (stmtErr: any) {
             // Ignorar erros de "já existe" (idempotente)
             if (stmtErr.code !== "ER_TABLE_EXISTS_ERROR" &&
                 stmtErr.code !== "ER_DUP_FIELDNAME" &&
                 stmtErr.code !== "ER_DUP_KEYNAME") {
-              console.warn(`[Provisioner] Aviso em ${file}:`, stmtErr.message);
+              console.warn(`[Provisioner] Aviso em ${file}:`, stmtErr.message?.slice(0, 120));
             }
           }
         }
-        console.log(`[Provisioner] ${file} aplicado em ${dbName}.`);
+        console.log(`[Provisioner] ${file} aplicado em ${dbName} (${appliedCount}/${statements.length} statements).`);
       } catch (fileErr) {
         console.warn(`[Provisioner] Erro ao aplicar ${file}:`, fileErr);
       }
