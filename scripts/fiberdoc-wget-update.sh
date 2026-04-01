@@ -1,5 +1,5 @@
 #!/bin/bash
-# fiberdoc-wget-update.sh v1.4
+# fiberdoc-wget-update.sh v1.5
 # Compativel com bash 3.x, 4.x e 5.x (Debian, Ubuntu, CentOS)
 # Aceita URL remota OU caminho local para o ficheiro ZIP
 
@@ -199,6 +199,7 @@ if [ -d "${ENV_BACKUP}/local-uploads" ]; then
 fi
 log_ok "Ficheiros aplicados em ${FIBERDOC_DIR}."
 
+
 # -- Verificar variaveis obrigatorias no ficheiro de configuracao --
 if [ -f "${ENV_DEST}" ]; then
   JWT_VAL=$(grep '^JWT_SECRET=' "${ENV_DEST}" 2>/dev/null | head -1 | sed 's/^JWT_SECRET=//' | tr -d '"' || true)
@@ -211,15 +212,35 @@ if [ -f "${ENV_DEST}" ]; then
   fi
 fi
 
-# -- 6. Instalar dependencias ---------------------------------------------------
+## -- 6. Instalar dependencias ---------------------------------------------------
 log_step "[6/7] A instalar dependencias..."
 cd "${FIBERDOC_DIR}"
 INSTALL_OK=false
 
-# Tentar pnpm primeiro (projeto usa pnpm como gestor de pacotes)
-if command -v pnpm >/dev/null 2>&1; then
-  log_info "A instalar com pnpm..."
-  if pnpm install --prod --no-frozen-lockfile --ignore-scripts 2>&1 | tail -5; then
+# Localizar pnpm em varios caminhos possiveis (nvm, npm global, etc.)
+PNPM_BIN=""
+for _p in pnpm \
+  /usr/local/bin/pnpm \
+  /usr/bin/pnpm \
+  "$(npm bin -g 2>/dev/null)/pnpm" \
+  "${HOME}/.local/share/pnpm/pnpm" \
+  "${NVM_BIN:-}/pnpm"; do
+  if [ -x "${_p}" ] 2>/dev/null || command -v "${_p}" >/dev/null 2>&1; then
+    PNPM_BIN="${_p}"; break
+  fi
+done
+
+# Se pnpm nao encontrado, instalar globalmente via npm
+if [ -z "${PNPM_BIN}" ] && command -v npm >/dev/null 2>&1; then
+  log_info "pnpm nao encontrado. A instalar pnpm globalmente..."
+  npm install -g pnpm --quiet 2>&1 | tail -3 || true
+  PNPM_BIN="$(command -v pnpm 2>/dev/null || true)"
+fi
+
+# Tentar pnpm
+if [ -n "${PNPM_BIN}" ]; then
+  log_info "A instalar com pnpm (${PNPM_BIN})..."
+  if "${PNPM_BIN}" install --prod --no-frozen-lockfile --ignore-scripts 2>&1; then
     log_ok "Dependencias instaladas com pnpm."; INSTALL_OK=true
   else
     log_warn "pnpm install falhou. A tentar npm..."
@@ -229,7 +250,7 @@ fi
 # Fallback: npm
 if [ "${INSTALL_OK}" = "false" ] && command -v npm >/dev/null 2>&1; then
   log_info "A instalar com npm..."
-  if npm install --omit=dev --ignore-scripts 2>&1 | tail -5; then
+  if npm install --omit=dev --ignore-scripts 2>&1; then
     log_ok "Dependencias instaladas com npm."; INSTALL_OK=true
   else
     log_warn "npm install tambem falhou."
@@ -238,7 +259,7 @@ fi
 
 if [ "${INSTALL_OK}" = "false" ]; then
   log_warn "Nao foi possivel instalar dependencias automaticamente."
-  log_warn "Execute manualmente: cd ${FIBERDOC_DIR} && pnpm install --prod"
+  log_warn "Execute manualmente: cd ${FIBERDOC_DIR} && npm install --omit=dev"
 fi
 
 # -- 6b. Migracao SQL -----------------------------------------------------------
