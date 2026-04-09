@@ -62,3 +62,22 @@ export const adminProcedure = t.procedure.use(injectTenantDb).use(
     });
   }),
 );
+
+// operatorProcedure: injeta banco do tenant E exige role admin OU operator
+// Usado para operações de criação/edição de infraestrutura e mapa
+export const operatorProcedure = t.procedure.use(injectTenantDb).use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+
+    if (!ctx.user || (ctx.user.role !== 'admin' && ctx.user.role !== 'operator')) {
+      throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
+    }
+
+    return next({
+      ctx: {
+        ...ctx,
+        user: ctx.user,
+      },
+    });
+  }),
+);

@@ -8,7 +8,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { configureDomainSsl, getSslStatus } from "./sslManager";
 import { TRPCError } from "@trpc/server";
-import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, operatorProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 
 // Helper: salva arquivo localmente quando S3 não está disponível
 const LOCAL_UPLOADS_DIR = process.env.BACKUP_LOCAL_DIR
@@ -1253,7 +1253,7 @@ export const appRouter = router({
         const { id, ...data } = input;
         await updateCtoTube(id, data);
       }),
-    delete: adminProcedure
+    delete: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => deleteCtoTube(input.id)),
   }),
@@ -1992,7 +1992,7 @@ export const appRouter = router({
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => getPowerSourceById(input.id)),
-    create: adminProcedure
+    create: operatorProcedure
       .input(z.object({
         name: z.string().min(1).max(128),
         type: z.enum(["rectifier", "inverter", "ups", "grid", "generator", "other"]).default("rectifier"),
@@ -2037,7 +2037,7 @@ export const appRouter = router({
         alertAcFailEnabled: z.boolean().default(false),
       }))
       .mutation(({ input }) => createPowerSource(input as any)),
-    update: adminProcedure
+    update: operatorProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().min(1).max(128).optional(),
@@ -2086,10 +2086,10 @@ export const appRouter = router({
         const { id, ...data } = input;
         return updatePowerSource(id, data as any);
       }),
-    delete: adminProcedure
+    delete: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input }) => deletePowerSource(input.id)),
-     pollNow: adminProcedure
+     pollNow: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input }) => pollSinglePowerSource(input.id)),
     readings: protectedProcedure
@@ -2109,17 +2109,17 @@ export const appRouter = router({
     activeCount: protectedProcedure
       .query(() => countActiveSnmpAlerts()),
 
-    acknowledge: adminProcedure
+    acknowledge: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input, ctx }) =>
         acknowledgeSnmpAlert(input.id, ctx.user.name ?? ctx.user.openId)
       ),
 
-    resolve: adminProcedure
+    resolve: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input }) => resolveSnmpAlert(input.id)),
 
-    testTelegram: adminProcedure
+    testTelegram: operatorProcedure
       .input(z.object({ botToken: z.string(), chatId: z.string() }))
       .mutation(async ({ input }) => {
         const result = await sendTelegramMessage(
@@ -2136,7 +2136,7 @@ export const appRouter = router({
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => getTuyaDeviceById(input.id)),
-    create: adminProcedure
+    create: operatorProcedure
       .input(z.object({
         name: z.string().min(1),
         deviceId: z.string().min(1),
@@ -2159,7 +2159,7 @@ export const appRouter = router({
         scheduleTuyaDevice(id, input.pollInterval);
         return { id };
       }),
-    update: adminProcedure
+    update: operatorProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().min(1).optional(),
@@ -2186,14 +2186,14 @@ export const appRouter = router({
         }
         return { ok: true };
       }),
-    delete: adminProcedure
+    delete: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         unscheduleTuyaDevice(input.id);
         await deleteTuyaDevice(input.id);
         return { ok: true };
       }),
-    pollNow: adminProcedure
+    pollNow: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(({ input }) => pollSingleTuyaDevice(input.id)),
     readings: protectedProcedure
@@ -2201,10 +2201,10 @@ export const appRouter = router({
       .query(({ input }) => getTuyaReadingsByDevice(input.id, input.hours)),
     latestAll: protectedProcedure
       .query(() => getLatestTuyaReadings()),
-    syncDevices: adminProcedure
+    syncDevices: operatorProcedure
       .input(z.object({ accountId: z.number() }))
       .mutation(({ input }) => syncDevicesFromTuya(input.accountId)),
-    testConnection: adminProcedure
+    testConnection: operatorProcedure
       .input(z.object({ accessId: z.string(), accessSecret: z.string(), region: z.enum(["us", "eu", "cn", "in"]) }))
       .mutation(({ input }) => testTuyaConnection(input)),
   }),
@@ -2214,7 +2214,7 @@ export const appRouter = router({
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => getTuyaAccountById(input.id)),
-    create: adminProcedure
+    create: operatorProcedure
       .input(z.object({
         name: z.string().min(1),
         accessId: z.string().min(1),
@@ -2226,7 +2226,7 @@ export const appRouter = router({
         const id = await createTuyaAccount(input);
         return { id };
       }),
-    update: adminProcedure
+    update: operatorProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().min(1).optional(),
@@ -2240,13 +2240,13 @@ export const appRouter = router({
         await updateTuyaAccount(id, data);
         return { ok: true };
       }),
-    delete: adminProcedure
+    delete: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteTuyaAccount(input.id);
         return { ok: true };
       }),
-    testConnection: adminProcedure
+    testConnection: operatorProcedure
       .input(z.object({ accessId: z.string(), accessSecret: z.string(), region: z.enum(["us", "eu", "cn", "in"]) }))
       .mutation(({ input }) => testTuyaConnection(input)),
   }),
@@ -2256,7 +2256,7 @@ export const appRouter = router({
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => getCtoById(input.id)),
-    create: adminProcedure
+    create: operatorProcedure
       .input(z.object({
         name: z.string().min(1),
         address: z.string().optional(),
@@ -2272,7 +2272,7 @@ export const appRouter = router({
         await createMaintenanceRecord({ entityType: "cto", entityId: id, action: "created", description: `CTO "${input.name}" criado`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
         return { id };
       }),
-    update: adminProcedure
+    update: operatorProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().min(1).optional(),
@@ -2298,7 +2298,7 @@ export const appRouter = router({
         });
         return { ok: true };
       }),
-    delete: adminProcedure
+    delete: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const before = await getCtoById(input.id);
@@ -2348,7 +2348,7 @@ export const appRouter = router({
   infraMap: router({
     elements: protectedProcedure.query(() => getMapElements()),
     routes: protectedProcedure.query(() => getMapRoutes()),
-    upsertElement: adminProcedure
+    upsertElement: operatorProcedure
       .input(z.object({
         type: z.enum(["ceo", "cto"]),
         referenceId: z.number(),
@@ -2360,13 +2360,13 @@ export const appRouter = router({
         const id = await upsertMapElement(input.type, input.referenceId, input.lat, input.lng, input.color);
         return { id };
       }),
-    deleteElement: adminProcedure
+    deleteElement: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteMapElement(input.id);
         return { ok: true };
       }),
-    createRoute: adminProcedure
+    createRoute: operatorProcedure
       .input(z.object({
         name: z.string().optional(),
         fromElementId: z.number().optional(),
@@ -2384,7 +2384,7 @@ export const appRouter = router({
         await createMaintenanceRecord({ entityType: "cable", entityId: id, action: "created", description: `Cabo/Rota "${input.name ?? `#${id}`}" criado`, performedBy: ctx.user?.name ?? undefined, userId: ctx.user?.id });
         return { id };
       }),
-    updateRoute: adminProcedure
+    updateRoute: operatorProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().optional(),
@@ -2417,7 +2417,7 @@ export const appRouter = router({
         });
         return { ok: true };
       }),
-    splitRoute: adminProcedure
+    splitRoute: operatorProcedure
       .input(z.object({
         id: z.number(),                    // rota a dividir
         splitPointIndex: z.number().int(), // índice do ponto no path onde dividir
@@ -2454,7 +2454,7 @@ export const appRouter = router({
         } as any);
         return { ok: true, newRouteId: newId };
       }),
-    deleteRoute: adminProcedure
+    deleteRoute: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const allRoutes = await getMapRoutes();
@@ -2714,7 +2714,7 @@ ${fiberFolder}
     routeExtraTubes: protectedProcedure
       .input(z.object({ routeId: z.number() }))
       .query(({ input }) => getRouteExtraTubes(input.routeId)),
-    addRouteExtraTube: adminProcedure
+    addRouteExtraTube: operatorProcedure
       .input(z.object({
         routeId: z.number(),
         elementId: z.number(),
@@ -2726,7 +2726,7 @@ ${fiberFolder}
         const id = await addRouteExtraTube(input);
         return { id };
       }),
-    deleteRouteExtraTube: adminProcedure
+    deleteRouteExtraTube: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteRouteExtraTube(input.id);
@@ -2753,7 +2753,7 @@ ${fiberFolder}
     oltElementById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => getMapOltElementById(input.id)),
-    createOltElement: adminProcedure
+    createOltElement: operatorProcedure
       .input(z.object({
         equipmentId: z.number(),
         lat: z.number(),
@@ -2767,7 +2767,7 @@ ${fiberFolder}
         const id = await createMapOltElement(input);
         return { id };
       }),
-    updateOltElement: adminProcedure
+    updateOltElement: operatorProcedure
       .input(z.object({
         id: z.number(),
         lat: z.number().optional(),
@@ -2782,7 +2782,7 @@ ${fiberFolder}
         await updateMapOltElement(id, data);
         return { ok: true };
       }),
-    deleteOltElement: adminProcedure
+    deleteOltElement: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteMapOltElement(input.id);
@@ -2791,7 +2791,7 @@ ${fiberFolder}
     oltPortLinks: protectedProcedure
       .input(z.object({ oltElementId: z.number() }))
       .query(({ input }) => getOltPortLinks(input.oltElementId)),
-    createOltPortLink: adminProcedure
+    createOltPortLink: operatorProcedure
       .input(z.object({
         oltElementId: z.number(),
         portId: z.number(),
@@ -2805,7 +2805,7 @@ ${fiberFolder}
         const id = await createOltPortLink(input);
         return { id };
       }),
-    updateOltPortLink: adminProcedure
+    updateOltPortLink: operatorProcedure
       .input(z.object({
         id: z.number(),
         txPowerDbm: z.number().nullable().optional(),
@@ -2819,7 +2819,7 @@ ${fiberFolder}
         await updateOltPortLink(id, data);
         return { ok: true };
       }),
-    deleteOltPortLink: adminProcedure
+    deleteOltPortLink: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteOltPortLink(input.id);
@@ -2846,7 +2846,7 @@ ${fiberFolder}
     dgoPortFiberLinks: protectedProcedure
       .input(z.object({ dgoElementId: z.number() }))
       .query(({ input }) => getDgoPortFiberLinks(input.dgoElementId)),
-    createDgoPortFiberLink: adminProcedure
+    createDgoPortFiberLink: operatorProcedure
       .input(z.object({
         dgoElementId: z.number(),
         portId: z.number(),
@@ -2860,7 +2860,7 @@ ${fiberFolder}
         const id = await createDgoPortFiberLink(input);
         return { id };
       }),
-    updateDgoPortFiberLink: adminProcedure
+    updateDgoPortFiberLink: operatorProcedure
       .input(z.object({
         id: z.number(),
         txPowerDbm: z.number().nullable().optional(),
@@ -2874,7 +2874,7 @@ ${fiberFolder}
         await updateDgoPortFiberLink(id, data);
         return { ok: true };
       }),
-    deleteDgoPortFiberLink: adminProcedure
+    deleteDgoPortFiberLink: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteDgoPortFiberLink(input.id);
@@ -2892,7 +2892,7 @@ ${fiberFolder}
     dgoElementById: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => getMapDgoElementById(input.id)),
-    createDgoElement: adminProcedure
+    createDgoElement: operatorProcedure
       .input(z.object({
         equipmentId: z.number(),
         lat: z.number(),
@@ -2903,7 +2903,7 @@ ${fiberFolder}
         const id = await createMapDgoElement(input);
         return { id };
       }),
-    updateDgoElement: adminProcedure
+    updateDgoElement: operatorProcedure
       .input(z.object({
         id: z.number(),
         lat: z.number().optional(),
@@ -2915,7 +2915,7 @@ ${fiberFolder}
         await updateMapDgoElement(id, data);
         return { ok: true };
       }),
-    deleteDgoElement: adminProcedure
+    deleteDgoElement: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteMapDgoElement(input.id);
@@ -2924,7 +2924,7 @@ ${fiberFolder}
     dgoSlotLinks: protectedProcedure
       .input(z.object({ dgoElementId: z.number() }))
       .query(({ input }) => getDgoSlotCableLinks(input.dgoElementId)),
-    createDgoSlotLink: adminProcedure
+    createDgoSlotLink: operatorProcedure
       .input(z.object({
         dgoElementId: z.number(),
         slotId: z.number(),
@@ -2936,7 +2936,7 @@ ${fiberFolder}
         const id = await createDgoSlotCableLink(input);
         return { id };
       }),
-    deleteDgoSlotLink: adminProcedure
+    deleteDgoSlotLink: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteDgoSlotCableLink(input.id);
@@ -2953,7 +2953,7 @@ ${fiberFolder}
     dgoPortLinks: protectedProcedure
       .input(z.object({ dgoElementId: z.number() }))
       .query(({ input }) => getDgoPortLinks(input.dgoElementId)),
-    upsertDgoPortLink: adminProcedure
+    upsertDgoPortLink: operatorProcedure
       .input(z.object({
         dgoElementId: z.number(),
         slotId: z.number(),
@@ -2966,7 +2966,7 @@ ${fiberFolder}
         const id = await upsertDgoPortLink(input);
         return { id };
       }),
-    deleteDgoPortLink: adminProcedure
+    deleteDgoPortLink: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteDgoPortLink(input.id);
@@ -3731,7 +3731,7 @@ ${fiberFolder}
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => getRackById(input.id)),
-    create: adminProcedure
+    create: operatorProcedure
       .input(z.object({
         name: z.string().min(1),
         roomId: z.number().int(),
@@ -3742,7 +3742,7 @@ ${fiberFolder}
         const id = await createRack(input);
         return { id };
       }),
-    update: adminProcedure
+    update: operatorProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().min(1).optional(),
@@ -3755,7 +3755,7 @@ ${fiberFolder}
         await updateRack(id, data);
         return { ok: true };
       }),
-    delete: adminProcedure
+    delete: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteRack(input.id);
@@ -3844,20 +3844,20 @@ ${fiberFolder}
     members: protectedProcedure
       .input(z.object({ groupId: z.number() }))
       .query(({ input }) => getGroupMembers(input.groupId)),
-    create: adminProcedure
+    create: operatorProcedure
       .input(z.object({ name: z.string().min(1), color: z.string().optional(), description: z.string().optional(), parentId: z.number().nullable().optional() }))
       .mutation(async ({ input }) => {
         const id = await createMapGroup(input);
         return { id };
       }),
-    update: adminProcedure
+    update: operatorProcedure
       .input(z.object({ id: z.number(), name: z.string().optional(), color: z.string().optional(), description: z.string().optional(), parentId: z.number().nullable().optional() }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         await updateMapGroup(id, data);
         return { ok: true };
       }),
-    addElements: adminProcedure
+    addElements: operatorProcedure
       .input(z.object({ elementIds: z.array(z.number()), groupId: z.number() }))
       .mutation(async ({ input }) => {
         for (const elementId of input.elementIds) {
@@ -3865,7 +3865,7 @@ ${fiberFolder}
         }
         return { ok: true, count: input.elementIds.length };
       }),
-    removeElements: adminProcedure
+    removeElements: operatorProcedure
       .input(z.object({ elementIds: z.array(z.number()), groupId: z.number() }))
       .mutation(async ({ input }) => {
         for (const elementId of input.elementIds) {
@@ -3873,73 +3873,73 @@ ${fiberFolder}
         }
         return { ok: true, count: input.elementIds.length };
       }),
-    delete: adminProcedure
+    delete: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteMapGroup(input.id);
         return { ok: true };
       }),
-    addElement: adminProcedure
+    addElement: operatorProcedure
       .input(z.object({ elementId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await addElementToGroup(input.elementId, input.groupId);
         return { ok: true };
       }),
-    removeElement: adminProcedure
+    removeElement: operatorProcedure
       .input(z.object({ elementId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await removeElementFromGroup(input.elementId, input.groupId);
         return { ok: true };
       }),
-    addRoute: adminProcedure
+    addRoute: operatorProcedure
       .input(z.object({ routeId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await addRouteToGroup(input.routeId, input.groupId);
         return { ok: true };
       }),
-    removeRoute: adminProcedure
+    removeRoute: operatorProcedure
       .input(z.object({ routeId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await removeRouteFromGroup(input.routeId, input.groupId);
         return { ok: true };
       }),
-    addPole: adminProcedure
+    addPole: operatorProcedure
       .input(z.object({ poleId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await addPoleToGroup(input.poleId, input.groupId);
         return { ok: true };
       }),
-    removePole: adminProcedure
+    removePole: operatorProcedure
       .input(z.object({ poleId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await removePoleFromGroup(input.poleId, input.groupId);
         return { ok: true };
       }),
-    addReserve: adminProcedure
+    addReserve: operatorProcedure
       .input(z.object({ reserveId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await addReserveToGroup(input.reserveId, input.groupId);
         return { ok: true };
       }),
-    removeReserve: adminProcedure
+    removeReserve: operatorProcedure
       .input(z.object({ reserveId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await removeReserveFromGroup(input.reserveId, input.groupId);
         return { ok: true };
       }),
-    addOlt: adminProcedure
+    addOlt: operatorProcedure
       .input(z.object({ oltId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await addOltToGroup(input.oltId, input.groupId);
         return { ok: true };
       }),
-    removeOlt: adminProcedure
+    removeOlt: operatorProcedure
       .input(z.object({ oltId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await removeOltFromGroup(input.oltId, input.groupId);
         return { ok: true };
       }),
-    reorder: adminProcedure
+    reorder: operatorProcedure
       .input(z.object({
         updates: z.array(z.object({
           id: z.number(),
@@ -3951,25 +3951,25 @@ ${fiberFolder}
         await reorderMapGroups(input.updates);
         return { ok: true };
       }),
-    addPoi: adminProcedure
+    addPoi: operatorProcedure
       .input(z.object({ poiId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await addPoiToGroup(input.poiId, input.groupId);
         return { ok: true };
       }),
-    removePoi: adminProcedure
+    removePoi: operatorProcedure
       .input(z.object({ poiId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await removePoiFromGroup(input.poiId, input.groupId);
         return { ok: true };
       }),
-    addDgo: adminProcedure
+    addDgo: operatorProcedure
       .input(z.object({ dgoId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await addDgoToGroup(input.dgoId, input.groupId);
         return { ok: true };
       }),
-    removeDgo: adminProcedure
+    removeDgo: operatorProcedure
       .input(z.object({ dgoId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await removeDgoFromGroup(input.dgoId, input.groupId);
@@ -4035,7 +4035,7 @@ ${fiberFolder}
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(({ input }) => getMapPoleById(input.id)),
-    create: adminProcedure
+    create: operatorProcedure
       .input(z.object({
         name: z.string().min(1),
         reference: z.string().optional(),
@@ -4048,7 +4048,7 @@ ${fiberFolder}
         const id = await createMapPole(input as any);
         return { id };
       }),
-    update: adminProcedure
+    update: operatorProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().optional(),
@@ -4063,7 +4063,7 @@ ${fiberFolder}
         await updateMapPole(id, data as any);
         return { ok: true };
       }),
-    delete: adminProcedure
+    delete: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteMapPole(input.id);
@@ -4079,7 +4079,7 @@ ${fiberFolder}
     byRoute: protectedProcedure
       .input(z.object({ routeId: z.number() }))
       .query(({ input }) => getMapTechnicalReservesByRoute(input.routeId)),
-    create: adminProcedure
+    create: operatorProcedure
       .input(z.object({
         name: z.string().min(1),
         sizeMeters: z.number().int().min(0),
@@ -4092,7 +4092,7 @@ ${fiberFolder}
         const id = await createMapTechnicalReserve(input as any);
         return { id };
       }),
-    update: adminProcedure
+    update: operatorProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().optional(),
@@ -4107,7 +4107,7 @@ ${fiberFolder}
         await updateMapTechnicalReserve(id, data as any);
         return { ok: true };
       }),
-    delete: adminProcedure
+    delete: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteMapTechnicalReserve(input.id);
@@ -4124,7 +4124,7 @@ ${fiberFolder}
     byId: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => getMapPoiById(input.id)),
-    create: adminProcedure
+    create: operatorProcedure
       .input(z.object({
         name: z.string().min(1),
         category: z.string().optional(),
@@ -4137,7 +4137,7 @@ ${fiberFolder}
         const id = await createMapPoi(input as any);
         return { id };
       }),
-    update: adminProcedure
+    update: operatorProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().optional(),
@@ -4152,19 +4152,19 @@ ${fiberFolder}
         await updateMapPoi(id, data as any);
         return { ok: true };
       }),
-    delete: adminProcedure
+    delete: operatorProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteMapPoi(input.id);
         return { ok: true };
       }),
-    addToGroup: adminProcedure
+    addToGroup: operatorProcedure
       .input(z.object({ poiId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await addPoiToGroup(input.poiId, input.groupId);
         return { ok: true };
       }),
-    removeFromGroup: adminProcedure
+    removeFromGroup: operatorProcedure
       .input(z.object({ poiId: z.number(), groupId: z.number() }))
       .mutation(async ({ input }) => {
         await removePoiFromGroup(input.poiId, input.groupId);
