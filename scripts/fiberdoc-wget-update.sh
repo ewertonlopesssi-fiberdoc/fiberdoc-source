@@ -340,6 +340,35 @@ else
   log_info "Nenhum ficheiro de migracao SQL encontrado."
 fi
 
+# -- 6.5 Ajustar max_connections do MySQL se necessário -----------------------
+if command -v mysql >/dev/null 2>&1 && [ -n "${DB_URL:-}" ]; then
+  DB_CLEAN2=$(echo "${DB_URL}" | sed 's|mysql://||' | sed 's|?.*||')
+  DB_USER2=$(echo "${DB_CLEAN2}" | cut -d: -f1)
+  DB_REST2=$(echo "${DB_CLEAN2}" | cut -d: -f2-)
+  DB_PASS2=$(echo "${DB_REST2}" | cut -d@ -f1)
+  DB_HOSTPORT2=$(echo "${DB_REST2}" | cut -d@ -f2 | cut -d/ -f1)
+  DB_HOST2=$(echo "${DB_HOSTPORT2}" | cut -d: -f1)
+  DB_PORT2=$(echo "${DB_HOSTPORT2}" | cut -d: -f2)
+  DB_PORT2=${DB_PORT2:-3306}
+  CURRENT_MAX=$(mysql -h "${DB_HOST2}" -P "${DB_PORT2}" -u "${DB_USER2}" "-p${DB_PASS2}" \
+    --batch --skip-column-names -e "SELECT @@max_connections;" 2>/dev/null || echo "0")
+  if [ "${CURRENT_MAX}" -lt 300 ] 2>/dev/null; then
+    mysql -h "${DB_HOST2}" -P "${DB_PORT2}" -u "${DB_USER2}" "-p${DB_PASS2}" \
+      -e "SET GLOBAL max_connections = 300;" 2>/dev/null && \
+      log_ok "max_connections ajustado para 300 (era ${CURRENT_MAX})." || \
+      log_warn "Nao foi possivel ajustar max_connections (sem privilegio SUPER). Ajuste manualmente."
+    # Persistir no my.cnf para sobreviver a reinicializações
+    MYCNF="/etc/mysql/mysql.conf.d/mysqld.cnf"
+    [ -f "${MYCNF}" ] || MYCNF="/etc/mysql/my.cnf"
+    if [ -f "${MYCNF}" ] && ! grep -q "max_connections" "${MYCNF}"; then
+      echo -e "\n[mysqld]\nmax_connections = 300" >> "${MYCNF}" 2>/dev/null && \
+        log_ok "max_connections=300 persistido em ${MYCNF}." || true
+    fi
+  else
+    log_ok "max_connections ja esta em ${CURRENT_MAX} (>= 300)."
+  fi
+fi
+
 # -- 7. Reiniciar servico -------------------------------------------------------
 log_step "[7/7] A reiniciar o servico ${FIBERDOC_SERVICE}..."
 systemctl daemon-reload

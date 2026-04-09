@@ -46,10 +46,10 @@ export function getTenantDb(dbName: string): DrizzleDb {
     password: pass,
     database: dbName,
     waitForConnections: true,
-    connectionLimit: 5,
-    queueLimit: 0,
+    connectionLimit: 2,
+    queueLimit: 50,
     enableKeepAlive: true,
-    keepAliveInitialDelay: 30000,
+    keepAliveInitialDelay: 60000,
     connectTimeout: 10000,
   });
 

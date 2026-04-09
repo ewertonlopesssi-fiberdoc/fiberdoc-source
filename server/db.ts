@@ -98,10 +98,10 @@ function createPool(): mysql.Pool {
   const pool = mysql.createPool({
     uri: process.env.DATABASE_URL!,
     waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
+    connectionLimit: 3,
+    queueLimit: 50,
     enableKeepAlive: true,
-    keepAliveInitialDelay: 30000,
+    keepAliveInitialDelay: 60000,
     connectTimeout: 10000,
     // Sem timezone forçado — usar timezone do servidor MySQL (consistente com timestamps guardados)
   });
