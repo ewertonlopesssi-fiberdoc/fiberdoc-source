@@ -96,6 +96,14 @@ const trpcClient = trpc.createClient({
 // ─── Registro do Service Worker (PWA) ───────────────────────────────────────
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", () => {
+    // Em modo multi-tenant (com slug na URL), desregistrar qualquer SW existente
+    // para evitar que ele intercepte requisicoes /api/ com o slug errado
+    if (tenantSlug) {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        regs.forEach((reg) => reg.unregister());
+      });
+      return;
+    }
     navigator.serviceWorker
       .register("/sw.js")
       .then((reg) => {
