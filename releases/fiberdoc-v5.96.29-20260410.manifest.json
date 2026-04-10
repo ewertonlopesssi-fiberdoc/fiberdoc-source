@@ -1,0 +1,19 @@
+{
+  "name": "FiberDoc",
+  "version": "5.96.29",
+  "package": "fiberdoc-v5.96.29-20260410.zip",
+  "generated_at": "2026-04-10T13:18:49Z",
+  "size_bytes": 1488245,
+  "size_human": "1.5M",
+  "sha256": "1074ff82984ff6313bfc40462bdd7e1247636655e047656a7219dbc53bb2215b",
+  "file_count": 70,
+  "includes": {
+    "dist": true,
+    "migrate_sql": true,
+    "package_json": true,
+    "scripts": true,
+    "deploy_sh": true
+  },
+  "node_version_used": "v22.13.0",
+  "build_command": "pnpm build"
+}

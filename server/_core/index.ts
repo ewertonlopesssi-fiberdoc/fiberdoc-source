@@ -71,6 +71,60 @@ async function startServer() {
   // Local login (for standalone installations without OAuth)
   registerLocalAuthRoutes(app);
 
+  // ─── Rota /clear-sw: página HTML que força desregistro do Service Worker ────────
+  // Útil para usuários que têm o SW antigo em cache e não conseguem fazer login.
+  // Acesse: https://servidor/clear-sw
+  app.get("/clear-sw", (_req, res) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.send(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FiberDoc &mdash; Limpando cache...</title>
+  <style>
+    body{font-family:system-ui,sans-serif;background:#0a0f1e;color:#e2e8f0;
+         display:flex;align-items:center;justify-content:center;
+         min-height:100vh;margin:0;}
+    .box{text-align:center;max-width:400px;padding:2rem;}
+    h1{color:#00d4ff;margin-bottom:1rem;}
+    p{color:#94a3b8;margin:0.5rem 0;}
+    .status{margin-top:1.5rem;padding:1rem;background:#0f1729;
+            border-radius:8px;border:1px solid #1e3a5f;}
+    #msg{color:#00d4ff;font-weight:600;}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>FiberDoc</h1>
+    <p>Limpando Service Worker e cache...</p>
+    <div class="status"><span id="msg">Aguarde...</span></div>
+  </div>
+  <script>
+    var msg=document.getElementById('msg');
+    async function clearAll(){
+      var count=0;
+      if('serviceWorker' in navigator){
+        var regs=await navigator.serviceWorker.getRegistrations();
+        for(var r of regs){await r.unregister();count++;}
+      }
+      if('caches' in window){
+        var keys=await caches.keys();
+        for(var k of keys){await caches.delete(k);}
+      }
+      msg.textContent=(count>0?count+' Service Worker(s) removido(s). ':'Cache limpo. ')+'Redirecionando...';
+      setTimeout(function(){window.location.replace('/');},1500);
+    }
+    clearAll().catch(function(e){
+      msg.textContent='Erro: '+e.message+'. Redirecionando...';
+      setTimeout(function(){window.location.replace('/');},2000);
+    });
+  <\/script>
+</body>
+</html>`);
+  });
+
   // Webhook do SGP TSMx para sincronização automática
   app.post("/api/webhooks/sgp", async (req, res) => {
     try {

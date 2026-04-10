@@ -93,49 +93,19 @@ const trpcClient = trpc.createClient({
   ],
 });
 
-// ─── Registro do Service Worker (PWA) ───────────────────────────────────────
-if ("serviceWorker" in navigator && import.meta.env.PROD) {
-  window.addEventListener("load", () => {
-    // Em modo multi-tenant (com slug na URL), desregistrar qualquer SW existente
-    // para evitar que ele intercepte requisicoes /api/ com o slug errado
-    if (tenantSlug) {
-      navigator.serviceWorker.getRegistrations().then((regs) => {
-        regs.forEach((reg) => reg.unregister());
-      });
-      return;
+// ─── Service Worker: desregistrar SEMPRE (PWA desativado) ───────────────────
+// O Service Worker causava interferência com o fetch de /api/local-auth-enabled
+// em modo multi-tenant, exibindo "Entrar com Manus" em vez do login local.
+// O PWA foi desativado permanentemente. O sw.js no servidor também se
+// auto-desregistra para limpar caches de browsers que ainda têm o SW antigo.
+if ("serviceWorker" in navigator) {
+  // Desregistrar IMEDIATAMENTE (não esperar pelo evento load)
+  // para garantir que o SW não intercepte nenhuma requisição nesta sessão
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    if (regs.length > 0) {
+      console.log(`[PWA] Desregistrando ${regs.length} Service Worker(s) antigo(s)...`);
+      regs.forEach((reg) => reg.unregister());
     }
-    navigator.serviceWorker
-      .register("/sw.js")
-      .then((reg) => {
-        console.log("[PWA] Service Worker registrado:", reg.scope);
-        // Verificar atualizações imediatamente e a cada 60 segundos
-        reg.update();
-        setInterval(() => reg.update(), 60_000);
-        // Quando um novo SW é instalado e ativado, recarregar a página
-        reg.addEventListener("updatefound", () => {
-          const newWorker = reg.installing;
-          if (!newWorker) return;
-          newWorker.addEventListener("statechange", () => {
-            if (newWorker.state === "activated" && navigator.serviceWorker.controller) {
-              console.log("[PWA] Nova versão detectada — recarregando...");
-              window.location.reload();
-            }
-          });
-        });
-      })
-      .catch((err) => console.warn("[PWA] Falha ao registrar Service Worker:", err));
-    // Quando o SW envia mensagem de atualização, recarregar
-    navigator.serviceWorker.addEventListener("message", (event) => {
-      if (event.data && event.data.type === "SW_UPDATED") {
-        console.log("[PWA] SW atualizado para v" + event.data.version + " — recarregando...");
-        window.location.reload();
-      }
-    });
-    // Quando o SW muda (controllerchange), recarregar
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      console.log("[PWA] Service Worker trocado — recarregando...");
-      window.location.reload();
-    });
   });
 }
 

@@ -22,6 +22,12 @@ export function serveStatic(app: Express) {
     );
   }
 
+  // sw.js nunca deve ser cacheado pelo browser (garante que o novo SW é sempre baixado)
+  app.get("/sw.js", (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.sendFile(path.resolve(distPath, "sw.js"));
+  });
+
   // Servir arquivos estáticos (CSS, JS, imagens, etc.)
   app.use(express.static(distPath));
 
