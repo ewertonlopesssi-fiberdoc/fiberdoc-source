@@ -132,7 +132,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     fetch(`${base}/api/local-auth-enabled`)
       .then((r) => r.json())
       .then((data: { enabled: boolean }) => setLocalAuthEnabled(!!data.enabled))
-      .catch(() => setLocalAuthEnabled(false));
+      // Em caso de erro (ex: Service Worker antigo interceptando), assumir login local
+      // pois a grande maioria das instalações usa autenticação local
+      .catch(() => setLocalAuthEnabled(true));
   }, []);
 
   // Redirecionar para login quando não autenticado (dentro de useEffect para evitar render side-effects)
