@@ -200,10 +200,15 @@ export function registerLocalAuthRoutes(app: Express) {
   });
 
   // GET /api/local-auth-enabled — indica se o modo local está ativo
-  app.get("/api/local-auth-enabled", (_req, res) => {
+  // Registrado em ambas as formas para funcionar com e sem slug de tenant
+  // (o tenantMiddleware pode falhar ao resolver o slug, mas este endpoint
+  //  não precisa do banco do tenant para responder)
+  const localAuthEnabledHandler = (_req: import("express").Request, res: import("express").Response) => {
     const isLocal = !process.env.OAUTH_SERVER_URL;
     res.json({ enabled: isLocal });
-  });
+  };
+  app.get("/api/local-auth-enabled", localAuthEnabledHandler);
+  app.get("/:slug/api/local-auth-enabled", localAuthEnabledHandler);
 }
 
 /**

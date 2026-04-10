@@ -1,6 +1,6 @@
-// FiberDoc Service Worker — v5.96.26
+// FiberDoc Service Worker — v5.96.27
 // IMPORTANTE: altere APP_VERSION a cada release para forçar limpeza do cache
-const APP_VERSION = "5.96.26";
+const APP_VERSION = "5.96.27";
 const CACHE_NAME = `fiberdoc-${APP_VERSION}`;
 
 // Recursos estáticos para cache imediato (app shell)
