@@ -91,7 +91,7 @@ export async function provisionTenantDatabase(dbName: string): Promise<{ success
       "migrate-v7.sql", "migrate-v8.sql", "migrate-v9.sql", "migrate-v10.sql",
       "migrate-v11.sql", "migrate-v11b.sql", "migrate-v12.sql", "migrate-v13.sql",
       "migrate-v14.sql", "migrate-v15.sql", "migrate-v16.sql", "migrate-v17.sql",
-      "migrate-v18.sql", "migrate-v19.sql", "migrate-v20.sql",
+      "migrate-v18.sql", "migrate-v19.sql", "migrate-v20.sql", "migrate-v21.sql",
     ];
 
     // Caminhos de busca para arquivos SQL (em ordem de prioridade)

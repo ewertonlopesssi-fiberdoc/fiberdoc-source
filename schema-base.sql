@@ -627,6 +627,8 @@ CREATE TABLE IF NOT EXISTS `map_groups` (
 	`name` varchar(128) NOT NULL,
 	`color` varchar(16) NOT NULL DEFAULT '#6366f1',
 	`description` text,
+	`parentId` int DEFAULT NULL,
+	`sortOrder` int NOT NULL DEFAULT 0,
 	`createdAt` timestamp NOT NULL DEFAULT (now()),
 	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
 	CONSTRAINT `map_groups_id` PRIMARY KEY(`id`)

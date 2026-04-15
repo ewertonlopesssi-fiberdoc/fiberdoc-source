@@ -200,6 +200,33 @@ FLUSH PRIVILEGES;`,
     }
   });
 
+  // POST /api/admin/tenants/reprovision-all — reaplicar migrações em TODOS os tenants
+  app.post("/api/admin/tenants/reprovision-all", requireAdmin, async (_req, res) => {
+    try {
+      const tenants = await getAllTenants();
+      const results: { slug: string; dbName: string; ok: boolean; error?: string }[] = [];
+      for (const tenant of tenants) {
+        const result = await provisionTenantDatabase(tenant.dbName);
+        results.push({
+          slug: tenant.slug,
+          dbName: tenant.dbName,
+          ok: result.success,
+          error: result.success ? undefined : result.error,
+        });
+      }
+      const failed = results.filter(r => !r.ok);
+      res.json({
+        ok: failed.length === 0,
+        total: tenants.length,
+        success: results.filter(r => r.ok).length,
+        failed: failed.length,
+        results,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Erro interno" });
+    }
+  });
+
   // GET /api/admin/tenants/check-slug/:slug — verificar disponibilidade de slug
   app.get("/api/admin/tenants/check-slug/:slug", requireAdmin, async (req, res) => {
     try {
