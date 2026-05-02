@@ -601,6 +601,14 @@ export default function InfrastructureMap() {
   const [linkEndpointsTo, setLinkEndpointsTo] = useState<number | null>(null);
   const [linkEndpointsFromSearch, setLinkEndpointsFromSearch] = useState("");
   const [linkEndpointsToSearch, setLinkEndpointsToSearch] = useState("");
+  // Posição da janela flutuante de associação (arrastável)
+  const [linkEndpointsPos, setLinkEndpointsPos] = useState<{ x: number; y: number } | null>(null);
+  const linkEndpointsDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  // Modo de seleção por clique no mapa: "from" | "to" | null
+  const [linkEndpointsPickMode, setLinkEndpointsPickMode] = useState<"from" | "to" | null>(null);
+  const linkEndpointsPickModeRef = useRef<"from" | "to" | null>(null);
+  const linkEndpointsFromRef = useRef<number | null>(null);
+  const linkEndpointsToRef = useRef<number | null>(null);
 
   // Grupos/Pastas
   const { data: mapGroups = [], refetch: refetchGroups } = trpc.mapGroups.list.useQuery(undefined, MAP_QUERY_OPTS);
@@ -1746,6 +1754,24 @@ export default function InfrastructureMap() {
           toast.info(`OTDR: ${name} seleccionado como ponto de partida`);
           return;
         }
+        // Modo de seleção por clique para associar extremos de cabo
+        if (linkEndpointsPickModeRef.current) {
+          const pickMode = linkEndpointsPickModeRef.current;
+          if (pickMode === "from") {
+            setLinkEndpointsFrom(el.id);
+            // Avançar automaticamente para seleção do destino se destino ainda não definido
+            if (linkEndpointsToRef.current === null) {
+              setLinkEndpointsPickMode("to");
+            } else {
+              setLinkEndpointsPickMode(null);
+            }
+          } else {
+            setLinkEndpointsTo(el.id);
+            setLinkEndpointsPickMode(null);
+          }
+          toast.success(`${pickMode === "from" ? "Origem" : "Destino"}: ${name} selecionado`);
+          return;
+        }
         setSidePanel({ kind: "element", element: { ...el, name, status, capacity: ref?.capacity, usedPorts: ref?.usedPorts, sgpId: ref?.sgpId ?? null, color: el.color ?? null } });
       });
       markersRef.current[el.id] = marker;
@@ -2418,6 +2444,9 @@ export default function InfrastructureMap() {
   }, [groupSelectMode, mapReady, elements, routes, mapPoles, mapReserves]);
   useEffect(() => { addingRouteModeRef.current = addingRouteMode; }, [addingRouteMode]);
   useEffect(() => { otdrModeRef.current = otdrMode; }, [otdrMode]);
+  useEffect(() => { linkEndpointsPickModeRef.current = linkEndpointsPickMode; }, [linkEndpointsPickMode]);
+  useEffect(() => { linkEndpointsFromRef.current = linkEndpointsFrom; }, [linkEndpointsFrom]);
+  useEffect(() => { linkEndpointsToRef.current = linkEndpointsTo; }, [linkEndpointsTo]);
   useEffect(() => { movingElementIdRef.current = movingElementId; }, [movingElementId]);
   useEffect(() => { editModeRef.current = editMode; }, [editMode]);
   useEffect(() => { editingRouteIdRef.current = editingRouteId; }, [editingRouteId]);
@@ -7273,22 +7302,91 @@ export default function InfrastructureMap() {
         </DialogContent>
       </Dialog>
 
-      {/* ─── Diálogo de Associação de Extremos de Cabo ─────────────────────── */}
-      <Dialog open={linkEndpointsOpen} onOpenChange={v => { if (!v) { setLinkEndpointsOpen(false); setLinkEndpointsRouteId(null); } }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Cable className="w-4 h-4 text-emerald-400" />
-              Associar Equipamentos ao Cabo
-            </DialogTitle>
-          </DialogHeader>
-          <div className="text-xs text-muted-foreground mb-4">
-            Seleccione os equipamentos (CEO/CTO) a ligar aos extremos deste cabo. Pode deixar um extremo sem equipamento.
-          </div>
+      {/* ─── Janela flutuante arrastável de Associação de Extremos de Cabo ── */}
+      {linkEndpointsOpen && (() => {
+        const winX = linkEndpointsPos?.x ?? Math.max(20, (window.innerWidth - 420) / 2);
+        const winY = linkEndpointsPos?.y ?? Math.max(20, (window.innerHeight - 560) / 2);
+        return (
+          <div
+            style={{
+              position: "fixed", left: winX, top: winY, zIndex: 10000,
+              width: 420, maxWidth: "calc(100vw - 32px)",
+              background: "var(--background)", border: "1px solid var(--border)",
+              borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+              display: "flex", flexDirection: "column",
+              userSelect: linkEndpointsDragRef.current ? "none" : "auto",
+            }}
+          >
+            {/* Cabeçalho arrastável */}
+            <div
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "12px 16px", borderBottom: "1px solid var(--border)",
+                cursor: "grab", flexShrink: 0,
+              }}
+              onMouseDown={e => {
+                linkEndpointsDragRef.current = { startX: e.clientX, startY: e.clientY, origX: winX, origY: winY };
+                const onMove = (ev: MouseEvent) => {
+                  if (!linkEndpointsDragRef.current) return;
+                  const dx = ev.clientX - linkEndpointsDragRef.current.startX;
+                  const dy = ev.clientY - linkEndpointsDragRef.current.startY;
+                  setLinkEndpointsPos({
+                    x: Math.max(0, Math.min(window.innerWidth - 420, linkEndpointsDragRef.current.origX + dx)),
+                    y: Math.max(0, Math.min(window.innerHeight - 100, linkEndpointsDragRef.current.origY + dy)),
+                  });
+                };
+                const onUp = () => {
+                  linkEndpointsDragRef.current = null;
+                  window.removeEventListener("mousemove", onMove);
+                  window.removeEventListener("mouseup", onUp);
+                };
+                window.addEventListener("mousemove", onMove);
+                window.addEventListener("mouseup", onUp);
+                e.preventDefault();
+              }}
+            >
+              <Cable className="w-4 h-4 text-emerald-400" style={{ flexShrink: 0 }} />
+              <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>Associar Equipamentos ao Cabo</span>
+              <button
+                onClick={() => { setLinkEndpointsOpen(false); setLinkEndpointsRouteId(null); setLinkEndpointsPickMode(null); setLinkEndpointsPos(null); }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted-foreground)", padding: 4, lineHeight: 1 }}
+              >✕</button>
+            </div>
+            {/* Corpo */}
+            <div style={{ padding: "12px 16px", overflowY: "auto", maxHeight: "calc(100vh - 200px)" }}>
+              {/* Dica de modo de seleção */}
+              {linkEndpointsPickMode && (
+                <div style={{
+                  background: linkEndpointsPickMode === "from" ? "rgba(34,197,94,0.15)" : "rgba(59,130,246,0.15)",
+                  border: `1px solid ${linkEndpointsPickMode === "from" ? "#22c55e" : "#3b82f6"}`,
+                  borderRadius: 6, padding: "6px 10px", marginBottom: 10,
+                  fontSize: 11, color: linkEndpointsPickMode === "from" ? "#22c55e" : "#60a5fa",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}>
+                  <span style={{ fontSize: 14 }}>🖱️</span>
+                  Clique em um CEO/CTO no mapa para definir o <strong>{linkEndpointsPickMode === "from" ? "Extremo Origem" : "Extremo Destino"}</strong>
+                  <button
+                    onClick={() => setLinkEndpointsPickMode(null)}
+                    style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 12, padding: 0 }}
+                  >✕ Cancelar</button>
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground mb-4">
+                Seleccione os equipamentos (CEO/CTO) a ligar aos extremos deste cabo. Pode deixar um extremo sem equipamento.
+              </div>
           <div className="space-y-4">
             {/* Extremo Origem */}
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Extremo Origem (Início)</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Extremo Origem (Início)</label>
+                <button
+                  className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${linkEndpointsPickMode === "from" ? "bg-emerald-500/20 border-emerald-500 text-emerald-400" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"}`}
+                  onClick={() => setLinkEndpointsPickMode(prev => prev === "from" ? null : "from")}
+                  title="Clique em um elemento no mapa para selecioná-lo"
+                >
+                  🖱️ {linkEndpointsPickMode === "from" ? "Aguardando clique..." : "Selecionar no mapa"}
+                </button>
+              </div>
               <input
                 type="text"
                 placeholder="Buscar CEO/CTO..."
@@ -7331,7 +7429,16 @@ export default function InfrastructureMap() {
             </div>
             {/* Extremo Destino */}
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Extremo Destino (Fim)</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Extremo Destino (Fim)</label>
+                <button
+                  className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${linkEndpointsPickMode === "to" ? "bg-blue-500/20 border-blue-500 text-blue-400" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"}`}
+                  onClick={() => setLinkEndpointsPickMode(prev => prev === "to" ? null : "to")}
+                  title="Clique em um elemento no mapa para selecioná-lo"
+                >
+                  🖱️ {linkEndpointsPickMode === "to" ? "Aguardando clique..." : "Selecionar no mapa"}
+                </button>
+              </div>
               <input
                 type="text"
                 placeholder="Buscar CEO/CTO..."
@@ -7373,32 +7480,37 @@ export default function InfrastructureMap() {
               })()}
             </div>
           </div>
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setLinkEndpointsOpen(false)}>Cancelar</Button>
-            <Button
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
-              disabled={linkEndpointsFrom === null && linkEndpointsTo === null}
-              onClick={() => {
-                if (!linkEndpointsRouteId) return;
-                updateRoutePathMut.mutate({
-                  id: linkEndpointsRouteId,
-                  fromElementId: linkEndpointsFrom ?? undefined,
-                  toElementId: linkEndpointsTo ?? undefined,
-                }, {
-                  onSuccess: () => {
-                    toast.success("Extremos associados com sucesso");
-                    setLinkEndpointsOpen(false);
-                    setLinkEndpointsRouteId(null);
-                  },
-                  onError: (e) => toast.error(e.message ?? "Erro ao associar extremos"),
-                });
-              }}
-            >
-              <span className="text-xs mr-1">🔗</span> Associar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              <div className="flex gap-2 mt-4 justify-end">
+                <Button variant="outline" size="sm" onClick={() => { setLinkEndpointsOpen(false); setLinkEndpointsRouteId(null); setLinkEndpointsPickMode(null); setLinkEndpointsPos(null); }}>Cancelar</Button>
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  disabled={linkEndpointsFrom === null && linkEndpointsTo === null}
+                  onClick={() => {
+                    if (!linkEndpointsRouteId) return;
+                    updateRoutePathMut.mutate({
+                      id: linkEndpointsRouteId,
+                      fromElementId: linkEndpointsFrom ?? undefined,
+                      toElementId: linkEndpointsTo ?? undefined,
+                    }, {
+                      onSuccess: () => {
+                        toast.success("Extremos associados com sucesso");
+                        setLinkEndpointsOpen(false);
+                        setLinkEndpointsRouteId(null);
+                        setLinkEndpointsPickMode(null);
+                        setLinkEndpointsPos(null);
+                      },
+                      onError: (e) => toast.error(e.message ?? "Erro ao associar extremos"),
+                    });
+                  }}
+                >
+                  <span className="text-xs mr-1">🔗</span> Associar
+                </Button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ─── Diálogo de Pré-visualização KML ─────────────────────────────────── */}
       <Dialog open={kmlPreviewOpen} onOpenChange={v => { if (!v && !kmlImportingPreview) { setKmlPreviewOpen(false); setKmlPreviewItems([]); setKmlPreviewFilter("all"); } }}>
