@@ -122,6 +122,13 @@ import L from "leaflet";
 import { unzipSync, strFromU8 } from "fflate";
 import { OltCreateDialog, OltDetailPanel } from "./OltMapComponents";
 import { DgoCreateDialog, DgoDetailPanel } from "./DgoMapComponents";
+import { getTenantSlug } from "@/const";
+
+/** Gera URL com prefixo do tenant quando necessário. Ex: /topnet/ceo/455 */
+function tenantUrl(path: string): string {
+  const slug = getTenantSlug();
+  return slug ? `/${slug}${path}` : path;
+}
 
 // Cores padrão de fibras ópticas (norma ABNT/EIA-598)
 const FIBER_VIA_COLORS: Record<number, string> = {
@@ -4058,7 +4065,7 @@ export default function InfrastructureMap() {
             <Link2 className="w-3.5 h-3.5" /> Abrir detalhes
           </Button>
           <a
-            href={isCto ? `/cto/${el.referenceId}` : `/ceo/${el.referenceId}`}
+            href={isCto ? tenantUrl(`/cto/${el.referenceId}`) : tenantUrl(`/ceo/${el.referenceId}`)}
             target="_blank"
             rel="noopener noreferrer"
             title="Abrir em nova aba"
@@ -9136,7 +9143,7 @@ export default function InfrastructureMap() {
         {detailPanel !== null && (
           <iframe
             key={`${detailPanel.type}-${detailPanel.id}`}
-            src={detailPanel.type === "cto" ? `/cto/${detailPanel.id}` : `/ceo/${detailPanel.id}`}
+            src={detailPanel.type === "cto" ? tenantUrl(`/cto/${detailPanel.id}`) : tenantUrl(`/ceo/${detailPanel.id}`)}
             className="w-full border-0"
             style={{ height: "calc(100vh - 56px)", minHeight: 600 }}
             title={detailPanel.type === "cto" ? `CTO ${detailPanel.id}` : `CEO ${detailPanel.id}`}
