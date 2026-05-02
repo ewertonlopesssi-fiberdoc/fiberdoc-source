@@ -4441,7 +4441,7 @@ export default function InfrastructureMap() {
               <div className="text-xs text-muted-foreground mb-2 font-medium flex items-center gap-1">
                 <Layers className="w-3 h-3" /> Tubos e Vias
                 {(tubeCount > 0 || splitterCount > 0) && <span className="ml-auto text-muted-foreground/60">{tubeCount} tubo{tubeCount !== 1 ? "s" : ""}{splitterCount > 0 ? ` · ${splitterCount} splitter${splitterCount !== 1 ? "s" : ""}` : ""}</span>}
-                {isAdmin && (
+                {isAdmin && isCto && (
                   <button
                     className="ml-auto flex items-center gap-0.5 text-xs text-primary hover:text-primary/80 font-medium"
                     onClick={() => {
