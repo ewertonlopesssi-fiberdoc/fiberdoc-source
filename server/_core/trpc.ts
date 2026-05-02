@@ -2,7 +2,7 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
-import { runWithTenantDb } from "./tenantContext";
+import { runWithTenantDb, runWithTenantDbAndName } from "./tenantContext";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -12,12 +12,19 @@ export const router = t.router;
 
 // Middleware que injeta o banco do tenant via AsyncLocalStorage
 // Isso garante que todas as chamadas a getDb() dentro do handler
-// usem automaticamente o banco correto do tenant
+// usem automaticamente o banco correto do tenant.
+// Também injeta o dbName para que funções com SQL raw (createMapRoute, updateMapRoute)
+// possam obter o pool raw do tenant via getTenantDbNameFromContext().
 const injectTenantDb = t.middleware(async opts => {
   const { ctx, next } = opts;
 
+  if (ctx.tenantDb && ctx.tenantDbName) {
+    // Executar o handler dentro do contexto do banco do tenant (com dbName)
+    return runWithTenantDbAndName(ctx.tenantDb, ctx.tenantDbName, () => next({ ctx }));
+  }
+
   if (ctx.tenantDb) {
-    // Executar o handler dentro do contexto do banco do tenant
+    // Fallback: sem dbName (compatibilidade)
     return runWithTenantDb(ctx.tenantDb, () => next({ ctx }));
   }
 

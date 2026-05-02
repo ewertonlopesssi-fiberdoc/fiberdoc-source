@@ -86,6 +86,19 @@ export function removeTenantPool(dbName: string) {
 }
 
 /**
+ * Retorna o pool raw de conexão MySQL de um tenant (para SQL raw com NULL).
+ * Cria o pool se ainda não existir.
+ */
+export function getTenantRawPool(dbName: string): mysql.Pool {
+  if (tenantPools.has(dbName)) {
+    return tenantPools.get(dbName)!;
+  }
+  // Criar o pool e o db (getTenantDb já faz isso)
+  getTenantDb(dbName);
+  return tenantPools.get(dbName)!;
+}
+
+/**
  * Lista todos os tenants com pool ativo.
  */
 export function getActiveTenantPools(): string[] {

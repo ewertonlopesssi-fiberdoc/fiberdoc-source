@@ -1,0 +1,25 @@
+{
+  "name": "FiberDoc",
+  "version": "5.96.32",
+  "package": "fiberdoc-v5.96.32-20260502.zip",
+  "generated_at": "2026-05-02T13:31:03Z",
+  "size_bytes": 1101660,
+  "size_human": "1.1M",
+  "sha256": "0ebc15acb291831c9c2b57f6feaf8778ec66edde1ec1b6d082b1bbcaa1ecc3e7",
+  "file_count": 44,
+  "includes": {
+    "dist": true,
+    "migrate_sql": true,
+    "package_json": true,
+    "scripts": true
+  },
+  "node_version_used": "v22.13.0",
+  "build_command": "pnpm build",
+  "changes": [
+    "FIX: createMapRoute e updateMapRoute agora usam o pool do tenant correto (multi-tenant)",
+    "FIX: getRoutesOccupancy, getRouteExtraTubes, getDgoPortLinks, getPortsByEquipmentForDgo, upsertDgoPortLink, getDgoSlotCtoBalances agora usam o pool do tenant",
+    "FEAT: tenantContext.ts exporta runWithTenantDbAndName e getTenantDbNameFromContext",
+    "FEAT: tenantPool.ts exporta getTenantRawPool para acesso ao pool raw do tenant",
+    "FIX: trpc.ts injeta dbName no contexto via runWithTenantDbAndName para SQL raw"
+  ]
+}

@@ -89,7 +89,8 @@ import {
   InsertRouteExtraTube,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
-import { getTenantDbFromContext } from "./_core/tenantContext";
+import { getTenantDbFromContext, getTenantDbNameFromContext } from "./_core/tenantContext";
+import { getTenantRawPool } from "./_core/tenantPool";
 
 let _pool: mysql.Pool | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -2321,8 +2322,6 @@ export async function getMapRoutes(): Promise<MapRoute[]> {
   return db.select().from(mapRoutes).orderBy(mapRoutes.id);
 }
 export async function createMapRoute(data: Omit<InsertMapRoute, "id" | "createdAt" | "updatedAt">): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
   // Usar SQL raw para garantir que fromElementId e toElementId sejam sempre passados
   // como valores inteiros (nunca como DEFAULT), pois no servidor físico são NOT NULL
   const fromId = (data.fromElementId != null && data.fromElementId > 0) ? data.fromElementId : 0;
@@ -2333,9 +2332,10 @@ export async function createMapRoute(data: Omit<InsertMapRoute, "id" | "createdA
   const color      = data.color      ?? "#22d3ee";
   const path       = data.path       ?? "[]";
   const notes      = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : null;
-  // Usar pool diretamente para SQL raw (evita que Drizzle gere DEFAULT em campos NOT NULL)
-  if (!_pool) _pool = createPool();
-  const [result] = await _pool.promise().execute(
+  // Obter o pool correto: tenant ou padrão
+  const tenantDbName = getTenantDbNameFromContext();
+  const pool = tenantDbName ? getTenantRawPool(tenantDbName) : (_pool ?? (_pool = createPool()));
+  const [result] = await pool.promise().execute(
     `INSERT INTO map_routes (name, fromElementId, toElementId, fiberCount, cableType, color, path, notes)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [name, fromId, toId, fiberCount, cableType, color, path, notes]
@@ -2343,9 +2343,10 @@ export async function createMapRoute(data: Omit<InsertMapRoute, "id" | "createdA
   return (result as any).insertId;
 }
 export async function updateMapRoute(id: number, data: Partial<Omit<InsertMapRoute, "id" | "createdAt" | "updatedAt">> & { fromElementId?: number | null; toElementId?: number | null; fromTubeId?: number | null; toTubeId?: number | null }): Promise<void> {
-  // Usar raw SQL via _pool para garantir que null é enviado como SQL NULL
-  // O Drizzle ORM com sql`NULL` ainda pode falhar em alguns drivers MySQL/TiDB
-  if (!_pool) _pool = createPool();
+  // Usar raw SQL para garantir que null é enviado como SQL NULL
+  // Obtém o pool correto: tenant (via AsyncLocalStorage) ou padrão
+  const tenantDbName = getTenantDbNameFromContext();
+  const pool = tenantDbName ? getTenantRawPool(tenantDbName) : (_pool ?? (_pool = createPool()));
   const setClauses: string[] = [];
   const params: any[] = [];
   for (const [key, value] of Object.entries(data)) {
@@ -2359,7 +2360,7 @@ export async function updateMapRoute(id: number, data: Partial<Omit<InsertMapRou
   }
   if (setClauses.length === 0) return;
   params.push(id);
-  await _pool.promise().execute(
+  await pool.promise().execute(
     `UPDATE \`map_routes\` SET ${setClauses.join(", ")} WHERE \`id\` = ?`,
     params
   );
@@ -2684,8 +2685,10 @@ export async function getAllRouteGroupMemberships(): Promise<MapRouteGroup[]> {
 // ─── Ocupação de Fibras por Rota ─────────────────────────────────────────────
 export async function getRoutesOccupancy(): Promise<{ routeId: number; fiberCount: number; fusedCount: number; pct: number; tubeLabel: string | null }[]> {
   // Versão otimizada: substitui N+1 queries por batch queries agrupadas
-  if (!_pool) _pool = createPool();
-  const pool = _pool.promise();
+  // Usa o pool do tenant quando disponível (multi-tenant)
+  const tenantDbName = getTenantDbNameFromContext();
+  if (!tenantDbName && !_pool) _pool = createPool();
+  const pool = (tenantDbName ? getTenantRawPool(tenantDbName) : _pool!).promise();
 
   // 1. Buscar todas as rotas
   const [routeRows] = await pool.execute<any[]>(
@@ -5128,8 +5131,9 @@ export async function getAllDgoGroupMemberships(): Promise<MapDgoGroup[]> {
 
 // ─── Tubos extras por cabo (múltiplos tubos de origem/destino) ────────────────
 export async function getRouteExtraTubes(routeId: number): Promise<{ id: number; routeId: number; elementId: number; tubeId: number; side: string; notes: string | null; createdAt: Date; tubeIdentifier: string; elementName: string; elementType: string }[]> {
-  if (!_pool) return [];
-  const pool = _pool.promise();
+  const tenantDbName = getTenantDbNameFromContext();
+  if (!tenantDbName && !_pool) return [];
+  const pool = (tenantDbName ? getTenantRawPool(tenantDbName) : _pool!).promise();
   const [rows] = await pool.execute<any[]>(
     `SELECT
        ret.id,
@@ -5199,8 +5203,9 @@ export async function getDgoPortLinks(dgoElementId: number): Promise<{
   connectedToPortLabel: string | null;
   notes: string | null;
 }[]> {
-  if (!_pool) return [];
-  const pool = _pool.promise();
+  const tenantDbName = getTenantDbNameFromContext();
+  if (!tenantDbName && !_pool) return [];
+  const pool = (tenantDbName ? getTenantRawPool(tenantDbName) : _pool!).promise();
   const [rows] = await pool.execute<any[]>(
     `SELECT
        dpl.id,
@@ -5245,8 +5250,9 @@ export async function upsertDgoPortLink(data: {
   portId?: number | null;
   notes?: string | null;
 }): Promise<number> {
-  if (!_pool) throw new Error("DB not available");
-  const pool = _pool.promise();
+  const tenantDbName = getTenantDbNameFromContext();
+  if (!tenantDbName && !_pool) throw new Error("DB not available");
+  const pool = (tenantDbName ? getTenantRawPool(tenantDbName) : _pool!).promise();
   // Verificar se já existe
   const [existing] = await pool.execute<any[]>(
     `SELECT id FROM dgo_port_links WHERE dgoElementId = ? AND slotId = ? AND portNumber = ? LIMIT 1`,
@@ -5286,8 +5292,9 @@ export async function getPortsByEquipmentForDgo(equipmentId: number): Promise<{
   connectedToPortNumber: string | null;
   connectedToSlotLabel: string | null;
 }[]> {
-  if (!_pool) return [];
-  const pool = _pool.promise();
+  const tenantDbName = getTenantDbNameFromContext();
+  if (!tenantDbName && !_pool) return [];
+  const pool = (tenantDbName ? getTenantRawPool(tenantDbName) : _pool!).promise();
   try {
     const [rows] = await pool.execute<any[]>(
       `SELECT
@@ -5462,8 +5469,9 @@ export async function getDgoSlotCtoBalances(input: {
   ctoName: string;
   balance: OpticalBalanceResult;
 }>> {
-  if (!_pool) return [];
-  const pool = _pool.promise();
+  const tenantDbName = getTenantDbNameFromContext();
+  if (!tenantDbName && !_pool) return [];
+  const pool = (tenantDbName ? getTenantRawPool(tenantDbName) : _pool!).promise();
 
   // 1. Buscar a potência TX efetiva da porta do DGO
   const [portLinkRows] = await pool.execute<any[]>(
