@@ -7490,8 +7490,8 @@ export default function InfrastructureMap() {
                     if (!linkEndpointsRouteId) return;
                     updateRoutePathMut.mutate({
                       id: linkEndpointsRouteId,
-                      fromElementId: linkEndpointsFrom ?? undefined,
-                      toElementId: linkEndpointsTo ?? undefined,
+                      fromElementId: linkEndpointsFrom,
+                      toElementId: linkEndpointsTo,
                     }, {
                       onSuccess: () => {
                         toast.success("Extremos associados com sucesso");
