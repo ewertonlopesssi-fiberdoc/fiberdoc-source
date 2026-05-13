@@ -27,6 +27,16 @@ queryClient.getQueryCache().subscribe(event => {
     redirectToLoginIfUnauthorized(error);
     console.error("[API Query Error]", error);
   }
+  // Diagnóstico: logar quando infraMap.elements retorna vazio
+  if (event.type === "updated" && event.action.type === "success") {
+    const key = JSON.stringify(event.query.queryKey);
+    if (key.includes('elements') && key.includes('infraMap')) {
+      const data = event.query.state.data as any[];
+      if (Array.isArray(data) && data.length === 0) {
+        console.warn('[QueryCache] infraMap.elements retornou [] vazio! queryKey:', event.query.queryKey);
+      }
+    }
+  }
 });
 
 queryClient.getMutationCache().subscribe(event => {
