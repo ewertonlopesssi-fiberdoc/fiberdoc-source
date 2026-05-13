@@ -119,6 +119,13 @@ import {
   Milestone, Codesandbox, Wand2, ScanSearch, CircleDot, CheckCircle, XCircle, AlertCircle
 } from "lucide-react";
 import L from "leaflet";
+
+/** Remove um layer/marker do Leaflet com segurança (evita NotFoundError removeChild) */
+function safeLeafletRemove(layer: { remove: () => void } | null | undefined): void {
+  if (!layer) return;
+  try { layer.remove(); } catch (_e) { /* ignora erros de removeChild do DOM */ }
+}
+
 import { unzipSync, strFromU8 } from "fflate";
 import { OltCreateDialog, OltDetailPanel } from "./OltMapComponents";
 import { DgoCreateDialog, DgoDetailPanel } from "./DgoMapComponents";
@@ -1452,9 +1459,9 @@ export default function InfrastructureMap() {
   // Limpar polilinha e marcador OTDR quando o modo é desactivado
   useEffect(() => {
     if (!otdrMode) {
-      otdrPolylineRef.current?.remove();
+      safeLeafletRemove(otdrPolylineRef.current);
       otdrPolylineRef.current = null;
-      otdrMarkerRef.current?.remove();
+      safeLeafletRemove(otdrMarkerRef.current);
       otdrMarkerRef.current = null;
       setOtdrResult(null);
       setOtdrElementId(null);
@@ -1468,8 +1475,8 @@ export default function InfrastructureMap() {
   useEffect(() => {
     if (!mapRef.current || !otdrResult) return;
     // Limpar traçado anterior
-    otdrPolylineRef.current?.remove();
-    otdrMarkerRef.current?.remove();
+    safeLeafletRemove(otdrPolylineRef.current);
+    safeLeafletRemove(otdrMarkerRef.current);
     otdrPolylineRef.current = null;
     otdrMarkerRef.current = null;
     if (otdrResult.tracedPath.length >= 2) {
@@ -1648,7 +1655,7 @@ export default function InfrastructureMap() {
     // Remover marcadores de elementos que já não existem
     for (const id of prevIds) {
       if (!currentIds.has(id)) {
-        markersRef.current[id]?.remove();
+        safeLeafletRemove(markersRef.current[id]);
         delete markersRef.current[id];
         delete prevMarkerStateRef.current[id];
       }
@@ -1657,17 +1664,17 @@ export default function InfrastructureMap() {
     (elements as any[]).forEach((el: any) => {
       const isCto = el.type === "cto";
       if (isCto && !showCtos) {
-        if (markersRef.current[el.id]) { markersRef.current[el.id].remove(); delete markersRef.current[el.id]; }
+        if (markersRef.current[el.id]) { safeLeafletRemove(markersRef.current[el.id]); delete markersRef.current[el.id]; }
         return;
       }
       if (!isCto && !showCeos) {
-        if (markersRef.current[el.id]) { markersRef.current[el.id].remove(); delete markersRef.current[el.id]; }
+        if (markersRef.current[el.id]) { safeLeafletRemove(markersRef.current[el.id]); delete markersRef.current[el.id]; }
         return;
       }
       // Visibilidade por item ou por grupo
       const isHiddenItem = hiddenElementIds.has(el.id) || isHiddenByGroup(elementGroupMap[el.id] ?? []);
       if (isHiddenItem) {
-        if (markersRef.current[el.id]) { markersRef.current[el.id].remove(); delete markersRef.current[el.id]; delete prevMarkerStateRef.current[el.id]; }
+        if (markersRef.current[el.id]) { safeLeafletRemove(markersRef.current[el.id]); delete markersRef.current[el.id]; delete prevMarkerStateRef.current[el.id]; }
         return;
       }
 
@@ -1795,8 +1802,8 @@ export default function InfrastructureMap() {
         // Visibilidade por item ou por grupo
         if (hiddenRouteIds.has(r.id) || isHiddenByGroup(routeGroupMap[r.id] ?? [])) {
           // Remover se estava visível antes
-          if (polylinesRef.current[r.id]) { polylinesRef.current[r.id].remove(); delete polylinesRef.current[r.id]; }
-          if (routeLabelsRef.current[r.id]) { routeLabelsRef.current[r.id].remove(); delete routeLabelsRef.current[r.id]; }
+          if (polylinesRef.current[r.id]) { safeLeafletRemove(polylinesRef.current[r.id]); delete polylinesRef.current[r.id]; }
+          if (routeLabelsRef.current[r.id]) { safeLeafletRemove(routeLabelsRef.current[r.id]); delete routeLabelsRef.current[r.id]; }
           delete prevRouteStateRef.current[r.id];
           return;
         }
@@ -1842,8 +1849,8 @@ export default function InfrastructureMap() {
     Object.keys(polylinesRef.current).forEach(idStr => {
       const id = Number(idStr);
       if (!activeIds.has(id)) {
-        polylinesRef.current[id].remove(); delete polylinesRef.current[id];
-        if (routeLabelsRef.current[id]) { routeLabelsRef.current[id].remove(); delete routeLabelsRef.current[id]; }
+        safeLeafletRemove(polylinesRef.current[id]); delete polylinesRef.current[id];
+        if (routeLabelsRef.current[id]) { safeLeafletRemove(routeLabelsRef.current[id]); delete routeLabelsRef.current[id]; }
         delete prevRouteStateRef.current[id];
       }
     });
@@ -1856,7 +1863,7 @@ export default function InfrastructureMap() {
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
     // Limpar marcadores OLT anteriores
-    Object.values(oltMarkersRef.current).forEach(m => m.remove());
+    Object.values(oltMarkersRef.current).forEach(m => safeLeafletRemove(m));
     oltMarkersRef.current = {};
     if (!showOlts) return;
     (oltElements as any[]).forEach((olt: any) => {
@@ -1894,7 +1901,7 @@ export default function InfrastructureMap() {
   // Renderizar marcadores DGO no mapa
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
-    Object.values(dgoMarkersRef.current).forEach(m => m.remove());
+    Object.values(dgoMarkersRef.current).forEach(m => safeLeafletRemove(m));
     dgoMarkersRef.current = {};
     if (!showDgos) return;
     (dgoElements as any[]).forEach((dgo: any) => {
@@ -1954,7 +1961,7 @@ export default function InfrastructureMap() {
   // Renderizar postes no mapa
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
-    Object.values(poleMarkersRef.current).forEach(m => m.remove());
+    Object.values(poleMarkersRef.current).forEach(m => safeLeafletRemove(m));
     poleMarkersRef.current = {};
     if (!showPoles) return;
     (mapPoles as any[]).forEach((pole: any) => {
@@ -2013,7 +2020,7 @@ export default function InfrastructureMap() {
   // Renderizar reservas técnicas no mapa
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
-    Object.values(reserveMarkersRef.current).forEach(m => m.remove());
+    Object.values(reserveMarkersRef.current).forEach(m => safeLeafletRemove(m));
     reserveMarkersRef.current = {};
     if (!showReserves) return;
     (mapReserves as any[]).forEach((reserve: any) => {
@@ -2051,7 +2058,7 @@ export default function InfrastructureMap() {
   // Renderizar POIs no mapa
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
-    Object.values(poiMarkersRef.current).forEach(m => m.remove());
+    Object.values(poiMarkersRef.current).forEach(m => safeLeafletRemove(m));
     poiMarkersRef.current = {};
     if (!showPois) return;
     const POI_CATEGORY_COLORS: Record<string, string> = {
@@ -2235,8 +2242,8 @@ export default function InfrastructureMap() {
     console.log('[POLY] effect triggered, results:', viabilityResults.length, 'mode:', viabilityMode, 'point:', !!viabilityPoint);
     if (!mapRef.current || !mapReady) return;
     // Remover polylines e labels anteriores usando refs (evita stale closure)
-    viabilityPolylinesRef.current.forEach(p => p.remove());
-    viabilityLabelsRef.current.forEach(l => l.remove());
+    viabilityPolylinesRef.current.forEach(p => safeLeafletRemove(p));
+    viabilityLabelsRef.current.forEach(l => safeLeafletRemove(l));
     viabilityPolylinesRef.current = [];
     viabilityLabelsRef.current = [];
     if (!viabilityPoint || !viabilityMode || viabilityResults.length === 0) { console.log('[POLY] early return'); return; }
@@ -2526,14 +2533,14 @@ export default function InfrastructureMap() {
     if (!addingRouteMode) {
       if (previewPolylineRef.current) { previewPolylineRef.current.remove(); previewPolylineRef.current = null; }
       if (mousePolylineRef.current) { mousePolylineRef.current.remove(); mousePolylineRef.current = null; }
-      drawingMarkersRef.current.forEach(m => m.remove()); drawingMarkersRef.current = [];
+      drawingMarkersRef.current.forEach(m => safeLeafletRemove(m)); drawingMarkersRef.current = [];
       return;
     }
     if (!previewPolylineRef.current) {
       previewPolylineRef.current = L.polyline([], { color: "#22d3ee", weight: 3, opacity: 0.9 }).addTo(mapRef.current!);
     }
     previewPolylineRef.current.setLatLngs(drawingPath.map(p => [p.lat, p.lng]));
-    drawingMarkersRef.current.forEach(m => m.remove()); drawingMarkersRef.current = [];
+    drawingMarkersRef.current.forEach(m => safeLeafletRemove(m)); drawingMarkersRef.current = [];
     drawingPath.forEach((pt, idx) => {
       const color = idx === 0 ? "#22c55e" : idx === drawingPath.length - 1 ? "#f59e0b" : "#22d3ee";
       const cm = L.circleMarker([pt.lat, pt.lng], { radius: idx === 0 || idx === drawingPath.length - 1 ? 7 : 5, color: "white", fillColor: color, fillOpacity: 1, weight: 2 }).addTo(mapRef.current!);
@@ -2574,9 +2581,9 @@ export default function InfrastructureMap() {
 
   // Limpar marcadores de edição do mapa
   const clearEditRouteMarkers = useCallback(() => {
-    editRouteMarkersRef.current.forEach(m => m.remove());
+    editRouteMarkersRef.current.forEach(m => safeLeafletRemove(m));
     editRouteMarkersRef.current = [];
-    editRouteMidMarkersRef.current.forEach(m => m.remove());
+    editRouteMidMarkersRef.current.forEach(m => safeLeafletRemove(m));
     editRouteMidMarkersRef.current = [];
     if (editRoutePolylineRef.current) { editRoutePolylineRef.current.remove(); editRoutePolylineRef.current = null; }
   }, []);
@@ -2709,7 +2716,7 @@ export default function InfrastructureMap() {
             pane: "editHandlesPane",
           }).addTo(mapRef.current);
         }
-        editRouteMidMarkersRef.current.forEach(m => m.remove());
+        editRouteMidMarkersRef.current.forEach(m => safeLeafletRemove(m));
         editRouteMidMarkersRef.current = [];
         renderMidpoints(newPath, routeColor);
       };
@@ -2839,7 +2846,7 @@ export default function InfrastructureMap() {
   // Renderizar pontos médios entre vértices (arrastáveis para inserir e posicionar)
   const renderMidpoints = useCallback((path: { lat: number; lng: number }[], routeColor: string) => {
     if (!mapRef.current) return;
-    editRouteMidMarkersRef.current.forEach(m => m.remove());
+    editRouteMidMarkersRef.current.forEach(m => safeLeafletRemove(m));
     editRouteMidMarkersRef.current = [];
     for (let i = 0; i < path.length - 1; i++) {
       const midLat = (path[i].lat + path[i + 1].lat) / 2;
