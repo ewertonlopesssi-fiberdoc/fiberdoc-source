@@ -308,18 +308,20 @@ function formatDistance(meters: number): string {
 
 // Opções de query estáveis — definidas fora do componente para não recriar a cada render
 const MAP_QUERY_OPTS = { staleTime: 2 * 60 * 1000, refetchOnWindowFocus: false } as const;
-// placeholderData: (prev) => prev — mantém os dados anteriores durante refetch,
-// evitando que elements/routes voltem a [] temporariamente e causem "0 elementos · 0 cabos"
-const _keepPrev = (prev: any) => prev;
-const MAP_QUERY_OPTS_STABLE = { ...MAP_QUERY_OPTS, placeholderData: _keepPrev };
 
 export default function InfrastructureMap() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "operator";
 
   const utils = trpc.useUtils();
-  const { data: elements = [], refetch: refetchElements, isSuccess: elementsLoaded, isFetching: elementsFetching } = trpc.infraMap.elements.useQuery(undefined, MAP_QUERY_OPTS_STABLE);
-  const { data: routes = [], refetch: refetchRoutes, isSuccess: routesLoaded, isFetching: routesFetching } = trpc.infraMap.routes.useQuery(undefined, MAP_QUERY_OPTS_STABLE);
+  const { data: elements = [], refetch: refetchElements } = trpc.infraMap.elements.useQuery(undefined, MAP_QUERY_OPTS);
+  const { data: routes = [], refetch: refetchRoutes } = trpc.infraMap.routes.useQuery(undefined, MAP_QUERY_OPTS);
+  // Refs para guardar os últimos valores não-vazios de elements e routes
+  // Usados no contador para evitar flash de "0 elementos · 0 cabos" durante refetch
+  const lastElementsCountRef = useRef<number>(0);
+  const lastRoutesCountRef = useRef<number>(0);
+  if ((elements as any[]).length > 0) lastElementsCountRef.current = (elements as any[]).length;
+  if ((routes as any[]).length > 0) lastRoutesCountRef.current = (routes as any[]).length;
   const { data: routesOccupancy = [] } = trpc.infraMap.routesOccupancy.useQuery(undefined, MAP_QUERY_OPTS);
   const { data: ctos = [], refetch: refetchCtos } = trpc.ctos.list.useQuery(undefined, MAP_QUERY_OPTS);
   const { data: ceosRaw = [], refetch: refetchCeos } = trpc.ceos.list.useQuery({}, MAP_QUERY_OPTS);
@@ -1653,8 +1655,7 @@ export default function InfrastructureMap() {
   // Renderizar marcadores — diff incremental: só recria marcadores que mudaram
   const renderMarkers = useCallback(() => {
     if (!mapRef.current || !mapReady) return;
-    // Proteção: não remover marcadores se os dados ainda não carregaram (evita 0 elementos temporário)
-    if (!elementsLoaded && (elements as any[]).length === 0) return;
+
 
     const currentIds = new Set<number>((elements as any[]).map((el: any) => el.id as number));
     const prevIds = Object.keys(markersRef.current).map(Number);
@@ -1796,8 +1797,7 @@ export default function InfrastructureMap() {
   // Renderizar rotas (diff incremental — só cria/actualiza/remove o que mudou)
   const renderRoutes = useCallback(() => {
     if (!mapRef.current || !mapReady) return;
-    // Proteção: não remover rotas se os dados ainda não carregaram
-    if (!routesLoaded && (routes as any[]).length === 0) return;
+
     const activeIds = new Set<number>();
     if (showRoutes) {
       (routes as any[]).forEach((r: any) => {
@@ -5416,16 +5416,7 @@ export default function InfrastructureMap() {
           )}
           {/* Legenda removida conforme solicitação */}
           <div className="absolute top-4 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-xs" style={{ zIndex: 1000 }}>
-            <span className="text-muted-foreground">{(() => {
-              // Usar markersRef como fallback se elements estiver vazio durante refetch
-              const elCount = elementsLoaded && (elements as any[]).length > 0
-                ? (elements as any[]).length
-                : Object.keys(markersRef.current).length;
-              const rtCount = routesLoaded && (routes as any[]).length > 0
-                ? (routes as any[]).length
-                : Object.keys(polylinesRef.current).length;
-              return `${elCount} elementos · ${rtCount} cabos`;
-            })()}</span>
+            <span className="text-muted-foreground">{(elements as any[]).length > 0 ? (elements as any[]).length : lastElementsCountRef.current} elementos · {(routes as any[]).length > 0 ? (routes as any[]).length : lastRoutesCountRef.current} cabos</span>
           </div>
 
           {/* Painel OTDR Virtual flutuante */}
