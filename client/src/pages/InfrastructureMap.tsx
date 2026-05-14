@@ -306,18 +306,16 @@ function formatDistance(meters: number): string {
   return `${Math.round(meters)} m`;
 }
 
-// Opções de query estáveis — definidas fora do componente para não recriar a cada render
-const MAP_QUERY_OPTS = { staleTime: 2 * 60 * 1000, refetchOnWindowFocus: false } as const;
-
 export default function InfrastructureMap() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "operator";
 
   const utils = trpc.useUtils();
+  // staleTime: 2 min — dados do mapa mudam raramente, não precisam recarregar a cada foco de janela
+  const MAP_QUERY_OPTS = { staleTime: 2 * 60 * 1000, refetchOnWindowFocus: false } as const;
   const { data: elements = [], refetch: refetchElements } = trpc.infraMap.elements.useQuery(undefined, MAP_QUERY_OPTS);
   const { data: routes = [], refetch: refetchRoutes } = trpc.infraMap.routes.useQuery(undefined, MAP_QUERY_OPTS);
-  // Refs para guardar os últimos valores não-vazios de elements e routes
-  // Usados no contador para evitar flash de "0 elementos · 0 cabos" durante refetch
+  // Refs para guardar o último count não-zero (evita flash de "0 elementos" durante refetch)
   const lastElementsCountRef = useRef<number>(0);
   const lastRoutesCountRef = useRef<number>(0);
   if ((elements as any[]).length > 0) lastElementsCountRef.current = (elements as any[]).length;
@@ -1656,7 +1654,6 @@ export default function InfrastructureMap() {
   const renderMarkers = useCallback(() => {
     if (!mapRef.current || !mapReady) return;
 
-
     const currentIds = new Set<number>((elements as any[]).map((el: any) => el.id as number));
     const prevIds = Object.keys(markersRef.current).map(Number);
 
@@ -1797,7 +1794,6 @@ export default function InfrastructureMap() {
   // Renderizar rotas (diff incremental — só cria/actualiza/remove o que mudou)
   const renderRoutes = useCallback(() => {
     if (!mapRef.current || !mapReady) return;
-
     const activeIds = new Set<number>();
     if (showRoutes) {
       (routes as any[]).forEach((r: any) => {
