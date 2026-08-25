@@ -53,6 +53,7 @@ import {
   Terminal,
   Router,
   PlugZap,
+  Ruler
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -83,6 +84,7 @@ const publicMenuItems = [
   { icon: Box, label: "CEO", path: "/ceo" },
   { icon: Radio, label: "CTO", path: "/cto" },
   { icon: Map, label: "Mapa de Infraestrutura", path: "/mapa" },
+  { icon: Ruler, label: "Mapa 2.0 (beta)", path: "/mapa2" },
   { icon: Cable, label: "Fibras Ópticas", path: "/fibras" },
   { icon: CircuitBoard, label: "Portas", path: "/portas" },
   { icon: Search, label: "Busca de Porta", path: "/busca-porta" },
