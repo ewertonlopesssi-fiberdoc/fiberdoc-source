@@ -288,6 +288,16 @@ function createLeafletIcon(
   return L.divIcon({ html: iconHtml, className: "", iconSize: [80, onuBadge && onuBadge.total > 0 ? 70 : 58], iconAnchor: [40, 24] });
 }
 
+// ─── Limites de zoom das camadas base ───────────────────────────────────────
+// Esri World Imagery: nível 19 em cobertura global, nível 21 nas coleções
+// Advanced (áreas metropolitanas). Buscar até 21 e permitir um nível extra de
+// ampliação digital dá o comportamento do Google Earth: quando acaba a imagem
+// real, o último tile é ampliado em vez de o mapa travar.
+const SATELLITE_MAX_NATIVE_ZOOM = 21;
+const SATELLITE_MAX_ZOOM = 22;
+// OpenStreetMap não publica tiles acima do nível 19.
+const STREET_MAX_ZOOM = 19;
+
 // Calcula distância em metros entre dois pontos (Haversine)
 function haversineDistance(latlngs: L.LatLngExpression[]): number {
   let total = 0;
@@ -1888,7 +1898,7 @@ export default function InfrastructureMap() {
     const map = L.map(mapContainerRef.current, { center: initCenter, zoom: initZoom, zoomControl: true });
     const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
+      maxZoom: STREET_MAX_ZOOM,
     });
     osmLayer.addTo(map);
     tileLayerRef.current = osmLayer;
@@ -3437,15 +3447,23 @@ export default function InfrastructureMap() {
     if (tileLayerRef.current) { tileLayerRef.current.remove(); }
     if (newMode) {
       // ESRI World Imagery (satélite gratuito)
+      // maxNativeZoom: até onde a Esri tem imagem real (19 global, 21 em áreas
+      // metropolitanas). maxZoom acima disso permite ampliação digital do último
+      // tile real, como faz o Google Earth quando acaba a resolução.
       tileLayerRef.current = L.tileLayer(
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        { attribution: "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community", maxZoom: 18, maxNativeZoom: 18 }
+        { attribution: "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community", maxNativeZoom: SATELLITE_MAX_NATIVE_ZOOM, maxZoom: SATELLITE_MAX_ZOOM }
       );
     } else {
       tileLayerRef.current = L.tileLayer(
         "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', maxZoom: 19 }
+        { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', maxZoom: STREET_MAX_ZOOM }
       );
+      // Voltando para ruas: o teto do OSM é menor que o do satélite, então é
+      // preciso recuar o zoom se o usuário estava além dele.
+      if (mapRef.current.getZoom() > STREET_MAX_ZOOM) {
+        mapRef.current.setZoom(STREET_MAX_ZOOM);
+      }
     }
     tileLayerRef.current.addTo(mapRef.current);
     tileLayerRef.current.bringToBack();

@@ -82,6 +82,11 @@ interface MobileMapProps {
   onFocusConsumed?: () => void;
 }
 
+// ─── Limites de zoom das camadas base (espelham InfrastructureMap.tsx) ──────
+const SATELLITE_MAX_NATIVE_ZOOM = 21;
+const SATELLITE_MAX_ZOOM = 22;
+const STREET_MAX_ZOOM = 19;
+
 export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoords, onFocusConsumed }: MobileMapProps = {}) {
   const { serverUrl, token, user: mobileUser } = useMobileAuth();
   const isMobileAdmin = mobileUser?.role === "admin" || mobileUser?.role === "operator";
@@ -435,7 +440,7 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
     });
     const tile = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap",
-      maxZoom: 19,
+      maxZoom: STREET_MAX_ZOOM,
     });
     tile.addTo(map);
     tileLayerRef.current = tile;
@@ -455,12 +460,15 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
     const newTile = isSatellite
       ? L.tileLayer(
           "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-          { attribution: "Tiles © Esri", maxZoom: 19 }
+          { attribution: "Tiles © Esri", maxNativeZoom: SATELLITE_MAX_NATIVE_ZOOM, maxZoom: SATELLITE_MAX_ZOOM }
         )
       : L.tileLayer(
           "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          { attribution: "© OpenStreetMap", maxZoom: 19 }
+          { attribution: "© OpenStreetMap", maxZoom: STREET_MAX_ZOOM }
         );
+    if (!isSatellite && map.getZoom() > STREET_MAX_ZOOM) {
+      map.setZoom(STREET_MAX_ZOOM);
+    }
     newTile.addTo(map);
     // Garantir que o tile fique abaixo dos markers
     newTile.bringToBack();

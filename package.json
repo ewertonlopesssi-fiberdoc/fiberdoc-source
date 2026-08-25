@@ -1,6 +1,6 @@
 {
   "name": "fiber_doc_system",
-  "version": "5.96.45",
+  "version": "5.96.46",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -128,6 +128,6 @@
       "tailwindcss>nanoid": "3.3.7"
     }
   },
-  "buildDate": "2026-02-27",
+  "buildDate": "2026-08-25",
   "description": "FiberDoc — Sistema de Documentação de Fibras e Equipamentos — build 2026-02-27"
 }
