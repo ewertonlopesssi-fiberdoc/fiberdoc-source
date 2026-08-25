@@ -3,6 +3,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useMobileAuth } from "../MobileAuthContext";
 import { createMobileTrpcClient, isOnline, saveOfflineCache, loadOfflineCache } from "../mobileTrpc";
+import { createStreetLayer, createSatelliteLayer, clampZoomForStreet } from "@/lib/mapTiles";
 import {
   Cable, Radio, MapPin, X, ChevronRight, Edit2, Check, ChevronLeft,
   Layers, Link2, Link2Off, RefreshCw, Loader2, AlertCircle, LocateFixed, Plus, Trash2, Users, Unlink,
@@ -81,11 +82,6 @@ interface MobileMapProps {
   focusCoords?: { lat: number; lng: number } | null;
   onFocusConsumed?: () => void;
 }
-
-// ─── Limites de zoom das camadas base (espelham InfrastructureMap.tsx) ──────
-const SATELLITE_MAX_NATIVE_ZOOM = 21;
-const SATELLITE_MAX_ZOOM = 22;
-const STREET_MAX_ZOOM = 19;
 
 export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoords, onFocusConsumed }: MobileMapProps = {}) {
   const { serverUrl, token, user: mobileUser } = useMobileAuth();
@@ -438,10 +434,7 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
       center: [-15.7801, -47.9292], zoom: 13,
       zoomControl: true,
     });
-    const tile = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap",
-      maxZoom: STREET_MAX_ZOOM,
-    });
+    const tile = createStreetLayer();
     tile.addTo(map);
     tileLayerRef.current = tile;
     mapRef.current = map;
@@ -457,18 +450,8 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
       map.removeLayer(tileLayerRef.current);
       tileLayerRef.current = null;
     }
-    const newTile = isSatellite
-      ? L.tileLayer(
-          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-          { attribution: "Tiles © Esri", maxNativeZoom: SATELLITE_MAX_NATIVE_ZOOM, maxZoom: SATELLITE_MAX_ZOOM }
-        )
-      : L.tileLayer(
-          "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          { attribution: "© OpenStreetMap", maxZoom: STREET_MAX_ZOOM }
-        );
-    if (!isSatellite && map.getZoom() > STREET_MAX_ZOOM) {
-      map.setZoom(STREET_MAX_ZOOM);
-    }
+    const newTile = isSatellite ? createSatelliteLayer() : createStreetLayer();
+    if (!isSatellite) clampZoomForStreet(map);
     newTile.addTo(map);
     // Garantir que o tile fique abaixo dos markers
     newTile.bringToBack();

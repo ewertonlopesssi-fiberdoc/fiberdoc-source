@@ -96,6 +96,7 @@ function ResizableDetailPanel({ open, onClose, title, children }: {
   );
 }
 import { trpc } from "@/lib/trpc";
+import { createStreetLayer, createSatelliteLayer, clampZoomForStreet, satelliteProviderLabel } from "@/lib/mapTiles";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuCheckboxItem } from "@/components/ui/dropdown-menu";
@@ -117,7 +118,7 @@ import {
   Lock, Unlock, ExternalLink, Move, CheckCircle2,
   Zap, Crosshair, MapPin, Copy, Signal, Wifi, FolderTree, ChevronDown, CornerDownRight,
   Milestone, Codesandbox, Wand2, ScanSearch, CircleDot, CheckCircle, XCircle, AlertCircle,
-  BarChart3, PenLine, Ruler
+  BarChart3, PenLine, Ruler, Star
 } from "lucide-react";
 import L from "leaflet";
 
@@ -288,16 +289,6 @@ function createLeafletIcon(
   return L.divIcon({ html: iconHtml, className: "", iconSize: [80, onuBadge && onuBadge.total > 0 ? 70 : 58], iconAnchor: [40, 24] });
 }
 
-// ─── Limites de zoom das camadas base ───────────────────────────────────────
-// Esri World Imagery: nível 19 em cobertura global, nível 21 nas coleções
-// Advanced (áreas metropolitanas). Buscar até 21 e permitir um nível extra de
-// ampliação digital dá o comportamento do Google Earth: quando acaba a imagem
-// real, o último tile é ampliado em vez de o mapa travar.
-const SATELLITE_MAX_NATIVE_ZOOM = 21;
-const SATELLITE_MAX_ZOOM = 22;
-// OpenStreetMap não publica tiles acima do nível 19.
-const STREET_MAX_ZOOM = 19;
-
 // Calcula distância em metros entre dois pontos (Haversine)
 function haversineDistance(latlngs: L.LatLngExpression[]): number {
   let total = 0;
@@ -315,6 +306,100 @@ function haversineDistance(latlngs: L.LatLngExpression[]): number {
 function formatDistance(meters: number): string {
   if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
   return `${Math.round(meters)} m`;
+}
+
+// ─── Sub-componente: Menu de Contexto do Mapa ───────────────────────────────
+// Aberto com o botão direito sobre o mapa. Cria o elemento já na coordenada
+// clicada, dispensando o passo "escolher o tipo no topo, depois clicar no mapa".
+//
+// Deliberadamente escrito como sub-componente de topo, e não como IIFE dentro
+// do render: foi exatamente esse padrão que causou o Erro React #185 no menu
+// Adicionar Elemento (ver v5.96.43).
+export interface MapContextMenuTarget {
+  /** Posição do cursor na janela, para ancorar o menu. */
+  x: number;
+  y: number;
+  /** Coordenada geográfica correspondente ao ponto clicado. */
+  lat: number;
+  lng: number;
+}
+interface MapContextMenuProps {
+  target: MapContextMenuTarget;
+  isAdmin: boolean;
+  onClose: () => void;
+  onAdd: (tipo: "ceo" | "cto" | "poste" | "reserva" | "poi", lat: number, lng: number) => void;
+  onCopyCoords: (lat: number, lng: number) => void;
+}
+function MapContextMenu({ target, isAdmin, onClose, onAdd, onCopyCoords }: MapContextMenuProps) {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  // Fecha ao clicar fora ou com Esc — o menu vive fora do fluxo do Radix,
+  // porque precisa ser posicionado em coordenadas absolutas do cursor.
+  useEffect(() => {
+    const onDown = (ev: MouseEvent) => {
+      if (ref.current && !ref.current.contains(ev.target as Node)) onClose();
+    };
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === "Escape") onClose(); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  // Mantém o menu dentro da janela quando o clique é perto da borda.
+  const LARGURA = 208;
+  const ALTURA_ESTIMADA = isAdmin ? 240 : 96;
+  const x = Math.min(target.x, window.innerWidth - LARGURA - 8);
+  const y = Math.min(target.y, window.innerHeight - ALTURA_ESTIMADA - 8);
+
+  const itens: Array<{ tipo: "ceo" | "cto" | "poste" | "reserva" | "poi"; rotulo: string; Icone: any; cor: string }> = [
+    { tipo: "cto", rotulo: "Adicionar CTO aqui", Icone: Box, cor: "text-emerald-400" },
+    { tipo: "ceo", rotulo: "Adicionar CEO aqui", Icone: Radio, cor: "text-blue-400" },
+    { tipo: "poste", rotulo: "Adicionar poste aqui", Icone: MapPin, cor: "text-amber-400" },
+    { tipo: "reserva", rotulo: "Adicionar reserva aqui", Icone: Layers, cor: "text-cyan-400" },
+    { tipo: "poi", rotulo: "Adicionar POI aqui", Icone: Star, cor: "text-violet-400" },
+  ];
+
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      style={{ position: "fixed", left: x, top: y, width: LARGURA, zIndex: 1200 }}
+      className="rounded-md border border-border bg-popover shadow-lg py-1 text-popover-foreground"
+      onContextMenu={e => e.preventDefault()}
+    >
+      {isAdmin && (
+        <>
+          <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">Criar neste ponto</div>
+          {itens.map(({ tipo, rotulo, Icone, cor }) => (
+            <button
+              key={tipo}
+              role="menuitem"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left"
+              onClick={() => { onAdd(tipo, target.lat, target.lng); onClose(); }}
+            >
+              <Icone className={`w-3.5 h-3.5 ${cor}`} />
+              <span>{rotulo}</span>
+            </button>
+          ))}
+          <div className="my-1 h-px bg-border" />
+        </>
+      )}
+      <button
+        role="menuitem"
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left"
+        onClick={() => { onCopyCoords(target.lat, target.lng); onClose(); }}
+      >
+        <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+        <span>Copiar coordenadas</span>
+      </button>
+      <div className="px-3 pt-1 pb-0.5 text-[10px] text-muted-foreground/70 font-mono">
+        {target.lat.toFixed(6)}, {target.lng.toFixed(6)}
+      </div>
+    </div>
+  );
 }
 
 // ─── Sub-componente: Menu de Adicionar Elemento ─────────────────────────────
@@ -594,6 +679,8 @@ export default function InfrastructureMap() {
   });
   // Modo edição: quando false, os markers ficam bloqueados (não arrastáveis)
   const [editMode, setEditMode] = useState(false);
+  // Menu de contexto do mapa (botão direito) — ver sub-componente MapContextMenu
+  const [contextMenuTarget, setContextMenuTarget] = useState<MapContextMenuTarget | null>(null);
   // Elemento em modo de mover individualmente (drag individual sem modo edição global)
   const [movingElementId, setMovingElementId] = useState<number | null>(null);
   // Posição pendente após drag — aguarda confirmação do utilizador
@@ -1896,10 +1983,7 @@ export default function InfrastructureMap() {
     const initCenter: [number, number] = (!isNaN(cfgLat) && !isNaN(cfgLng)) ? [cfgLat, cfgLng] : [-15.7801, -47.9292];
     const initZoom = !isNaN(cfgZoom) ? cfgZoom : 5;
     const map = L.map(mapContainerRef.current, { center: initCenter, zoom: initZoom, zoomControl: true });
-    const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: STREET_MAX_ZOOM,
-    });
+    const osmLayer = createStreetLayer();
     osmLayer.addTo(map);
     tileLayerRef.current = osmLayer;
     // Criar pane personalizado para pontos de edição de traçado (acima de tudo)
@@ -2368,7 +2452,9 @@ export default function InfrastructureMap() {
           <div style="background:${isGroupSelected ? 'rgba(6,182,212,0.9)' : 'rgba(0,0,0,0.75)'};color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${(pole.name ?? '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
         </div>`;
       const poleIcon = L.divIcon({ className: "", iconSize: [32, 46], iconAnchor: [16, 46], html: poleIconHtml });
-      const marker = L.marker([Number(pole.lat), Number(pole.lng)], { icon: poleIcon, draggable: isAdmin && !groupSelectModeRef.current, bubblingMouseEvents: false } as any).addTo(mapRef.current!);
+      // Postes respeitam o modo edição, como os demais elementos: sem o cadeado
+      // aberto o marcador não arrasta, o que evita mover por engano ao navegar.
+      const marker = L.marker([Number(pole.lat), Number(pole.lng)], { icon: poleIcon, draggable: isAdmin && editMode && !groupSelectModeRef.current, bubblingMouseEvents: false } as any).addTo(mapRef.current!);
       marker.on("click", () => {
         if (editingRouteIdRef.current !== null) return;
         // No modo de seleção em grupo, adicionar/remover poste da seleção
@@ -2398,7 +2484,7 @@ export default function InfrastructureMap() {
       }
       poleMarkersRef.current[pole.id] = marker;
     });
-  }, [mapPoles, showPoles, mapReady, isAdmin, hiddenPoleIds, poleGroupMap, isHiddenByGroup, toggleGroupPole, groupSelectedPoles, groupSelectMode]);
+  }, [mapPoles, showPoles, mapReady, isAdmin, editMode, hiddenPoleIds, poleGroupMap, isHiddenByGroup, toggleGroupPole, groupSelectedPoles, groupSelectMode]);
 
   // Renderizar reservas técnicas no mapa
   useEffect(() => {
@@ -2419,7 +2505,8 @@ export default function InfrastructureMap() {
           <div style="background:rgba(8,145,178,0.85);color:white;font-size:10px;font-weight:600;padding:1px 4px;border-radius:3px;margin-top:2px;white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;">${reserve.sizeMeters ?? 0}m</div>
         </div>`,
       });
-      const marker = L.marker([Number(reserve.lat), Number(reserve.lng)], { icon, draggable: isAdmin, bubblingMouseEvents: false } as any).addTo(mapRef.current!);
+      // Ver nota nos postes: reservas técnicas também respeitam o modo edição.
+      const marker = L.marker([Number(reserve.lat), Number(reserve.lng)], { icon, draggable: isAdmin && editMode, bubblingMouseEvents: false } as any).addTo(mapRef.current!);
       marker.on("click", () => {
         if (editingRouteIdRef.current !== null) return;
         if (!isAdmin) return;
@@ -2437,7 +2524,7 @@ export default function InfrastructureMap() {
       }
       reserveMarkersRef.current[reserve.id] = marker;
     });
-   }, [mapReserves, showReserves, mapReady, isAdmin, hiddenReserveIds, reserveGroupMap, isHiddenByGroup]);
+   }, [mapReserves, showReserves, mapReady, isAdmin, editMode, hiddenReserveIds, reserveGroupMap, isHiddenByGroup]);
   // Renderizar POIs no mapa
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
@@ -2859,6 +2946,73 @@ export default function InfrastructureMap() {
       if (el) el.style.pointerEvents = isEditing ? "none" : "";
     });
   }, [editingRouteId]);
+
+  // ─── Menu de contexto do mapa (botão direito) ──────────────────────────────
+  // Não abre durante um modo de posicionamento ou edição de traçado em curso,
+  // para não competir com a interação que o usuário já iniciou.
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const map = mapRef.current;
+    const handler = (e: L.LeafletMouseEvent) => {
+      if (editingRouteIdRef.current !== null) return;
+      if (addingModeRef.current || addingRouteModeRef.current) return;
+      const orig = e.originalEvent as MouseEvent | undefined;
+      // Sem isto o menu nativo do navegador aparece por cima do nosso.
+      orig?.preventDefault();
+      setContextMenuTarget({
+        x: orig?.clientX ?? 0,
+        y: orig?.clientY ?? 0,
+        lat: e.latlng.lat,
+        lng: e.latlng.lng,
+      });
+    };
+    map.on("contextmenu", handler);
+    // Rolar ou arrastar o mapa fecha o menu, senão ele fica solto na tela.
+    const fechar = () => setContextMenuTarget(null);
+    map.on("movestart", fechar);
+    map.on("zoomstart", fechar);
+    return () => {
+      map.off("contextmenu", handler);
+      map.off("movestart", fechar);
+      map.off("zoomstart", fechar);
+    };
+  }, [mapReady]);
+
+  // Cria o elemento escolhido no menu de contexto já na coordenada clicada,
+  // abrindo o mesmo diálogo que o fluxo normal usaria.
+  const handleContextAdd = useCallback((tipo: "ceo" | "cto" | "poste" | "reserva" | "poi", lat: number, lng: number) => {
+    if (tipo === "ceo" || tipo === "cto") {
+      pickDialogTypeRef.current = tipo;
+      setPickDialogLat(lat); setPickDialogLng(lng);
+      setPickSelectedId(null); setPickCreateNew(false);
+      setPickNewName(""); setPickNewAddress(""); setPickNewCapacity(8);
+      setPickDialogKey(k => k + 1);
+      setPickDialogOpen(true);
+      return;
+    }
+    if (tipo === "poste") {
+      setPoleDialogLat(lat); setPoleDialogLng(lng);
+      setEditingPoleId(null); setPoleForm({ name: "", reference: "", effort: "", notes: "" });
+      setPoleDialogOpen(true);
+      return;
+    }
+    if (tipo === "reserva") {
+      setReserveDialogLat(lat); setReserveDialogLng(lng);
+      setEditingReserveId(null); setReserveForm({ name: "", sizeMeters: 0, routeId: null, notes: "" });
+      setReserveDialogOpen(true);
+      return;
+    }
+    setPoiDialogLat(lat); setPoiDialogLng(lng);
+    setPoiCreateForm({ name: "", category: "geral", notes: "", groupId: null });
+    setPoiDialogOpen(true);
+  }, []);
+
+  const handleCopyCoords = useCallback((lat: number, lng: number) => {
+    const texto = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    navigator.clipboard?.writeText(texto)
+      .then(() => toast.success(`Coordenadas copiadas: ${texto}`))
+      .catch(() => toast.error("Não foi possível copiar"));
+  }, []);
 
   // Modo de adição de elemento
   useEffect(() => {
@@ -3446,24 +3600,10 @@ export default function InfrastructureMap() {
     setSatelliteMode(newMode);
     if (tileLayerRef.current) { tileLayerRef.current.remove(); }
     if (newMode) {
-      // ESRI World Imagery (satélite gratuito)
-      // maxNativeZoom: até onde a Esri tem imagem real (19 global, 21 em áreas
-      // metropolitanas). maxZoom acima disso permite ampliação digital do último
-      // tile real, como faz o Google Earth quando acaba a resolução.
-      tileLayerRef.current = L.tileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        { attribution: "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community", maxNativeZoom: SATELLITE_MAX_NATIVE_ZOOM, maxZoom: SATELLITE_MAX_ZOOM }
-      );
+      tileLayerRef.current = createSatelliteLayer();
     } else {
-      tileLayerRef.current = L.tileLayer(
-        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', maxZoom: STREET_MAX_ZOOM }
-      );
-      // Voltando para ruas: o teto do OSM é menor que o do satélite, então é
-      // preciso recuar o zoom se o usuário estava além dele.
-      if (mapRef.current.getZoom() > STREET_MAX_ZOOM) {
-        mapRef.current.setZoom(STREET_MAX_ZOOM);
-      }
+      tileLayerRef.current = createStreetLayer();
+      clampZoomForStreet(mapRef.current);
     }
     tileLayerRef.current.addTo(mapRef.current);
     tileLayerRef.current.bringToBack();
@@ -5334,7 +5474,7 @@ export default function InfrastructureMap() {
               className="h-7 pl-6 pr-2 text-xs bg-background border border-border rounded-md w-44 focus:outline-none focus:ring-1 focus:ring-ring" />
             {searchLoading && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
           </div>
-          <Button size="sm" variant={satelliteMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${satelliteMode ? "bg-emerald-700 hover:bg-emerald-800 border-emerald-600" : ""}`} onClick={toggleSatellite} title={satelliteMode ? "Voltar para mapa de ruas" : "Ativar imagem de satélite"}>
+          <Button size="sm" variant={satelliteMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${satelliteMode ? "bg-emerald-700 hover:bg-emerald-800 border-emerald-600" : ""}`} onClick={toggleSatellite} title={satelliteMode ? `Voltar para mapa de ruas (satélite: ${satelliteProviderLabel()})` : `Ativar imagem de satélite (${satelliteProviderLabel()})`}>
             <Layers className="w-3 h-3" />{satelliteMode ? "Satélite" : "Ruas"}
           </Button>
           <Button size="sm" variant={groupSelectMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${groupSelectMode ? "bg-cyan-600 hover:bg-cyan-700 border-cyan-500" : ""}`} onClick={toggleGroupSelectMode}>
@@ -9639,6 +9779,17 @@ export default function InfrastructureMap() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Menu de contexto do mapa (botão direito) ── */}
+      {contextMenuTarget && (
+        <MapContextMenu
+          target={contextMenuTarget}
+          isAdmin={isAdmin}
+          onClose={() => setContextMenuTarget(null)}
+          onAdd={handleContextAdd}
+          onCopyCoords={handleCopyCoords}
+        />
+      )}
 
       {/* ── Painel de detalhes CEO/CTO sobreposto ao mapa (redimensionável) ── */}
       <ResizableDetailPanel
