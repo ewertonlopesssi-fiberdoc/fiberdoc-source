@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 // ─── Painel de detalhes redimensionável ─────────────────────────────────────
@@ -336,13 +337,19 @@ function MapContextMenu({ target, isAdmin, onClose, onAdd, onCopyCoords }: MapCo
   // Fecha ao clicar fora ou com Esc — o menu vive fora do fluxo do Radix,
   // porque precisa ser posicionado em coordenadas absolutas do cursor.
   useEffect(() => {
+    // O mousedown que abriu o menu ainda pode estar a propagar quando este
+    // efeito corre; sem a espera de um tick o menu fecharia no mesmo clique.
+    let armado = false;
+    const timer = setTimeout(() => { armado = true; }, 0);
     const onDown = (ev: MouseEvent) => {
+      if (!armado) return;
       if (ref.current && !ref.current.contains(ev.target as Node)) onClose();
     };
     const onKey = (ev: KeyboardEvent) => { if (ev.key === "Escape") onClose(); };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
+      clearTimeout(timer);
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
@@ -362,11 +369,15 @@ function MapContextMenu({ target, isAdmin, onClose, onAdd, onCopyCoords }: MapCo
     { tipo: "poi", rotulo: "Adicionar POI aqui", Icone: Star, cor: "text-violet-400" },
   ];
 
-  return (
+  // Renderizado em portal no body: dentro da árvore do mapa, qualquer ancestral
+  // com transform, filter ou contexto de empilhamento próprio faria o
+  // position:fixed passar a se ancorar nele, jogando o menu para fora da tela
+  // ou para trás dos painéis sobrepostos.
+  return createPortal(
     <div
       ref={ref}
       role="menu"
-      style={{ position: "fixed", left: x, top: y, width: LARGURA, zIndex: 1200 }}
+      style={{ position: "fixed", left: x, top: y, width: LARGURA, zIndex: 9999 }}
       className="rounded-md border border-border bg-popover shadow-lg py-1 text-popover-foreground"
       onContextMenu={e => e.preventDefault()}
     >
@@ -398,7 +409,8 @@ function MapContextMenu({ target, isAdmin, onClose, onAdd, onCopyCoords }: MapCo
       <div className="px-3 pt-1 pb-0.5 text-[10px] text-muted-foreground/70 font-mono">
         {target.lat.toFixed(6)}, {target.lng.toFixed(6)}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
