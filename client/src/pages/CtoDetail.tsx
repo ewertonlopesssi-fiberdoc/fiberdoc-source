@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Plus, Radio, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle, MapPin, LocateFixed, Loader2,
+  ArrowLeft, Plus, Radio, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle, MapPin, LocateFixed, Loader2, Minus,
   Wifi, WifiOff, RefreshCw, Zap, RotateCcw, ChevronDown, ChevronUp,
   Signal, GitBranch, Box, Ruler, Bookmark,
 } from "lucide-react";
@@ -80,7 +80,7 @@ const FIBER_VIA_COLORS: Record<number, { bg: string; text: string; border: strin
 // ─── Componente: Card de Via ────────────────────────────────────────────────
 function ViaCard({
   via, tubes, allVias, fibers, tubeType,
-  onSetFusion, onClearFusion, onEditLabel, onSetFiber, onClearFiber,
+  onSetFusion, onClearFusion, onEditLabel, onClearFiber, onDeleteVia,
 }: {
   via: Via;
   tubes: Tube[];
@@ -90,8 +90,8 @@ function ViaCard({
   onSetFusion: (via: Via) => void;
   onClearFusion: (via: Via) => void;
   onEditLabel: (via: Via) => void;
-  onSetFiber: (via: Via) => void;
   onClearFiber: (viaId: number) => void;
+  onDeleteVia: (via: Via) => void;
 }) {
   const fused = via.fusedToViaId !== null;
   const fusedTube = fused ? tubes.find(t => t.id === via.fusedToTubeId) : null;
@@ -138,7 +138,7 @@ function ViaCard({
           >
             <Tag className="h-3 w-3" />
           </button>
-          {/* Associar fibra */}
+          {/* Fibra */}
           {fiber ? (
             <button
               onClick={() => onClearFiber(via.id)}
@@ -147,13 +147,15 @@ function ViaCard({
             >
               <XCircle className="h-3 w-3" />
             </button>
-          ) : (
+          ) : null}
+          {/* Excluir via (somente se livre) */}
+          {!fused && (
             <button
-              onClick={() => onSetFiber(via)}
-              className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-              title="Associar fibra óptica"
+              onClick={() => onDeleteVia(via)}
+              className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              title="Excluir via"
             >
-              <Cable className="h-3 w-3" />
+              <Minus className="h-3 w-3" />
             </button>
           )}
           {/* Fusão */}
@@ -232,6 +234,7 @@ function TubePanel({
   const [selectedFiberId, setSelectedFiberId] = useState<string>("");
   const [viaColorFilter, setViaColorFilter] = useState<number | null>(null);
   const [viaStatusFilter, setViaStatusFilter] = useState<"all" | "fused" | "free">("all");
+  const [deleteViaConfirmDialog, setDeleteViaConfirmDialog] = useState<Via | null>(null);
   const [sgpClientSearch, setSgpClientSearch] = useState("");
   const [sgpClientSelected, setSgpClientSelected] = useState<{ id: number; name: string; login?: string } | null>(null);
 
@@ -297,6 +300,15 @@ function TubePanel({
       toast.success("Fibra desassociada!");
       utils.ctoVias.byTube.invalidate({ tubeId: tube.id });
       utils.ctoVias.byCto.invalidate({ ctoId });
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+  const deleteViaMutation = trpc.ctoVias.deleteVia.useMutation({
+    onSuccess: () => {
+      toast.success("Via excluída!");
+      utils.ctoVias.byTube.invalidate({ tubeId: tube.id });
+      utils.ctoVias.byCto.invalidate({ ctoId });
+      setDeleteViaConfirmDialog(null);
     },
     onError: e => toast.error("Erro: " + e.message),
   });
@@ -499,14 +511,41 @@ function TubePanel({
                   onSetFusion={v => { setFusionDialog(v); setFusionTubeId(""); setFusionViaNumber(""); }}
                   onClearFusion={via => setClearFusionConfirmDialog(via)}
                   onEditLabel={openLabelDialog}
-                  onSetFiber={openFiberDialog}
                   onClearFiber={id => clearFiberMutation.mutate({ viaId: id })}
+                  onDeleteVia={v => setDeleteViaConfirmDialog(v)}
                 />
               ))}
             </div>
           </>
         );
       })()}
+
+      {/* Dialog: Confirmar Exclusão de Via */}
+      <Dialog open={deleteViaConfirmDialog !== null} onOpenChange={() => setDeleteViaConfirmDialog(null)}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader>
+            <DialogTitle>Excluir Via</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-foreground mb-2">
+              Tem certeza que deseja excluir a <span className="font-semibold">VIA {deleteViaConfirmDialog?.viaNumber}</span>?
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Esta ação remove a via permanentemente. Vias com fusão ativa não podem ser excluídas.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteViaConfirmDialog(null)} className="border-border/50">
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={() => {
+              if (deleteViaConfirmDialog) deleteViaMutation.mutate({ viaId: deleteViaConfirmDialog.id });
+            }} disabled={deleteViaMutation.isPending}>
+              {deleteViaMutation.isPending ? "Excluindo..." : "Excluir Via"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog: Confirmação de Desfazer Fusão */}
       <Dialog open={clearFusionConfirmDialog !== null} onOpenChange={() => setClearFusionConfirmDialog(null)}>

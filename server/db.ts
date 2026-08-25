@@ -1111,6 +1111,26 @@ export async function setViaFiber(viaId: number, fiberId: number | null) {
   await db.update(ceoVias).set({ fiberId }).where(eq(ceoVias.id, viaId));
 }
 
+/** Exclui uma via CEO somente quando ela está realmente livre. */
+export async function deleteCeoVia(viaId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const [via] = await db.select().from(ceoVias).where(eq(ceoVias.id, viaId)).limit(1);
+  if (!via) throw new Error("Via não encontrada");
+  if (via.fiberId !== null) throw new Error("Não é possível excluir uma via com fibra associada. Remova a fibra primeiro.");
+  if (via.fusedToViaId !== null || via.fusedToTubeId !== null || via.fusedToSplitterId !== null || via.fusedToSplitterViaId !== null) {
+    throw new Error("Não é possível excluir uma via fusionada. Remova a fusão primeiro.");
+  }
+  const [reverse] = await db.select({ id: ceoVias.id }).from(ceoVias).where(eq(ceoVias.fusedToViaId, viaId)).limit(1);
+  if (reverse) throw new Error("Não é possível excluir: outra via ainda aponta para esta fusão.");
+  const [association] = await db.select({ id: ceoViaAssociations.id }).from(ceoViaAssociations).where(
+    or(eq(ceoViaAssociations.sourceViaId, viaId), eq(ceoViaAssociations.targetViaId, viaId))
+  ).limit(1);
+  if (association) throw new Error("Não é possível excluir uma via associada a um splitter.");
+  await db.delete(ceoVias).where(eq(ceoVias.id, viaId));
+  return { ok: true };
+}
+
 // ─── CTO Tubes ──────────────────────────────────────────────────────────────────
 export async function getTubesByCto(ctoId: number) {
   const db = await getDb();
@@ -1218,6 +1238,26 @@ export async function setCtoViaFiber(viaId: number, fiberId: number | null) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   await db.update(ctoVias).set({ fiberId }).where(eq(ctoVias.id, viaId));
+}
+
+/** Exclui uma via CTO somente quando ela está realmente livre. */
+export async function deleteCtoVia(viaId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const [via] = await db.select().from(ctoVias).where(eq(ctoVias.id, viaId)).limit(1);
+  if (!via) throw new Error("Via não encontrada");
+  if (via.fiberId !== null) throw new Error("Não é possível excluir uma via com fibra associada. Remova a fibra primeiro.");
+  if (via.fusedToViaId !== null || via.fusedToTubeId !== null) {
+    throw new Error("Não é possível excluir uma via fusionada. Remova a fusão primeiro.");
+  }
+  const [reverse] = await db.select({ id: ctoVias.id }).from(ctoVias).where(eq(ctoVias.fusedToViaId, viaId)).limit(1);
+  if (reverse) throw new Error("Não é possível excluir: outra via ainda aponta para esta fusão.");
+  const [association] = await db.select({ id: ctoViaAssociations.id }).from(ctoViaAssociations).where(
+    or(eq(ctoViaAssociations.sourceViaId, viaId), eq(ctoViaAssociations.targetViaId, viaId))
+  ).limit(1);
+  if (association) throw new Error("Não é possível excluir uma via associada a outro equipamento.");
+  await db.delete(ctoVias).where(eq(ctoVias.id, viaId));
+  return { ok: true };
 }
 // ─── Gerenciamento de Usuários ────────────────────────────────────────────────
 export async function getAllUsers(): Promise<Array<{
@@ -4645,7 +4685,7 @@ export async function calculateOpticalBalance(
       const dgoEquip = allEquipments.find((e: any) => e.id === foundDgo!.element.equipmentId);
       resolvedTxPower = dgoEquip?.txPowerDbm ?? 5.0;
     }
-    txPower = resolvedTxPower;
+    txPower = resolvedTxPower ?? 5.0;
     attenuationPerKm = 0.35;
     fusionLossPerFusion = 0.1;
   } else {

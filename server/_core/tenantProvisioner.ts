@@ -38,7 +38,7 @@ function isPermissionError(err: any): boolean {
  * Cria um novo banco de dados para o tenant e aplica as migrações.
  * @param dbName Nome do banco a criar (ex: fiberdoc_netfibra)
  */
-export async function provisionTenantDatabase(dbName: string): Promise<{ success: boolean; error?: string; permissionError?: boolean; permissionHelp?: string }> {
+export async function provisionTenantDatabase(dbName: string): Promise<{ success: boolean; error?: string; permissionError?: boolean; permissionHelp?: string; defaultCredentials?: { email: string; password: string } | null }> {
   const baseUrl = process.env.DATABASE_URL ?? "";
   if (!baseUrl) return { success: false, error: "DATABASE_URL não configurada" };
 

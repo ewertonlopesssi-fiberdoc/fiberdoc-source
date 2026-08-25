@@ -30,13 +30,13 @@ async function uploadFile(buffer: Buffer, key: string, mimeType: string): Promis
 import {
   getCeos, getCeoById, createCeo, updateCeo, deleteCeo,
   getTubesByCeo, createCeoTube, updateCeoTube, deleteCeoTube,
-  getViasByTube, getViasByCeo, setViaFusion, setViaFusionToSplitter, clearViaFusion, updateVia, setViaFiber,
+  getViasByTube, getViasByCeo, setViaFusion, setViaFusionToSplitter, clearViaFusion, updateVia, setViaFiber, deleteCeoVia,
   getBandejasByCeo, createCeoBandeja, updateCeoBandeja, deleteCeoBandeja,
   getSplittersByCeo, getSplittersByBandeja, createCeoSplitter, updateCeoSplitter, deleteCeoSplitter,
   getSplitterViasBySplitter, getSplitterViasByCeo, updateCeoSplitterVia,
   getViaAssociationsByCeo, createViaAssociation, deleteViaAssociation, deleteViaAssociationByVias,
   getTubesByCto, createCtoTube, updateCtoTube, deleteCtoTube,
-  getViasByCtotube, getViasByCto, setCtoViaFusion, clearCtoViaFusion, updateCtoVia, setCtoViaFiber,
+  getViasByCtotube, getViasByCto, setCtoViaFusion, clearCtoViaFusion, updateCtoVia, setCtoViaFiber, deleteCtoVia,
   getViaAssociationsByCto, createCtoViaAssociation, deleteCtoViaAssociation, deleteCtoViaAssociationByVias,
 } from "./db";
 import {
@@ -1054,6 +1054,12 @@ export const appRouter = router({
     clearFiber: protectedProcedure
       .input(z.object({ viaId: z.number() }))
       .mutation(async ({ input }) => setViaFiber(input.viaId, null)),
+
+    deleteVia: protectedProcedure
+      .input(z.object({ viaId: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteCeoVia(input.viaId);
+      }),
   }),
   // ─── Bandejas do CEO ──────────────────────────────────────────────────────
   ceoBandejas: router({
@@ -1306,6 +1312,12 @@ export const appRouter = router({
     clearFiber: protectedProcedure
       .input(z.object({ viaId: z.number() }))
       .mutation(async ({ input }) => setCtoViaFiber(input.viaId, null)),
+
+    deleteVia: protectedProcedure
+      .input(z.object({ viaId: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteCtoVia(input.viaId);
+      }),
   }),
   // ─── CTO Via Associations (tubo ↔ splitter) ───────────────────────────────
   ctoViaAssociations: router({
@@ -4169,6 +4181,152 @@ ${fiberFolder}
       .mutation(async ({ input }) => {
         await removePoiFromGroup(input.poiId, input.groupId);
         return { ok: true };
+      }),
+  }),
+
+  // ─── Dimensionamento de Projeto FTTH ─────────────────────────────────────────
+  planning: router({
+    /**
+     * Recebe um polígono (array de {lat, lng}) e retorna:
+     * - edificações residenciais por rua (via Overpass API)
+     * - dimensionamento de CTOs (16 portas, taxa de adesão configurável)
+     * - posições sugeridas de CTOs (centróide de cada grupo de casas)
+     */
+    analyzeArea: operatorProcedure
+      .input(z.object({
+        polygon: z.array(z.object({ lat: z.number(), lng: z.number() })).min(3),
+        adhesionRate: z.number().min(0.01).max(1).default(0.5),
+        portsPerCto: z.number().int().min(1).default(16),
+      }))
+      .mutation(async ({ input }) => {
+        const { polygon, adhesionRate, portsPerCto } = input;
+
+        // Montar bbox e poly para Overpass
+        const lats = polygon.map(p => p.lat);
+        const lngs = polygon.map(p => p.lng);
+        const south = Math.min(...lats), north = Math.max(...lats);
+        const west = Math.min(...lngs), east = Math.max(...lngs);
+        const polyStr = polygon.map(p => `${p.lat} ${p.lng}`).join(" ");
+
+        // Query Overpass: edificações residenciais dentro do polígono
+        const overpassQuery = `
+[out:json][timeout:30];
+(
+  way["building"~"yes|house|residential|apartments|detached|semi_detached|terrace"](poly:"${polyStr}");
+  node["building"~"yes|house|residential|apartments|detached|semi_detached|terrace"](poly:"${polyStr}");
+);
+out center tags;`;
+
+        let buildings: Array<{ lat: number; lng: number; street: string }> = [];
+        try {
+          const resp = await fetch("https://overpass-api.de/api/interpreter", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "data=" + encodeURIComponent(overpassQuery),
+            signal: AbortSignal.timeout(35000),
+          });
+          if (!resp.ok) throw new Error(`Overpass HTTP ${resp.status}`);
+          const data = await resp.json() as { elements: any[] };
+
+          for (const el of data.elements) {
+            const lat = el.lat ?? el.center?.lat;
+            const lng = el.lon ?? el.center?.lon;
+            if (!lat || !lng) continue;
+            const street =
+              el.tags?.["addr:street"] ||
+              el.tags?.["addr:place"] ||
+              el.tags?.["name"] ||
+              "Rua não identificada";
+            buildings.push({ lat, lng, street });
+          }
+        } catch (err: any) {
+          throw new Error("Falha ao consultar OpenStreetMap: " + (err?.message ?? String(err)));
+        }
+
+        // Agrupar por rua
+        const byStreet: Record<string, Array<{ lat: number; lng: number }>> = {};
+        for (const b of buildings) {
+          if (!byStreet[b.street]) byStreet[b.street] = [];
+          byStreet[b.street].push({ lat: b.lat, lng: b.lng });
+        }
+
+        const totalBuildings = buildings.length;
+        const totalTarget = Math.ceil(totalBuildings * adhesionRate);
+        const totalCtos = Math.ceil(totalTarget / portsPerCto);
+
+        // Distribuir CTOs pelas ruas proporcionalmente
+        const streets = Object.entries(byStreet).map(([name, pts]) => {
+          const streetTarget = Math.ceil(pts.length * adhesionRate);
+          const streetCtos = Math.ceil(streetTarget / portsPerCto);
+          // Posições sugeridas: dividir os pontos da rua em N grupos e pegar centróide
+          const suggestedPositions: Array<{ lat: number; lng: number }> = [];
+          if (streetCtos > 0 && pts.length > 0) {
+            const chunkSize = Math.ceil(pts.length / streetCtos);
+            for (let i = 0; i < streetCtos; i++) {
+              const chunk = pts.slice(i * chunkSize, (i + 1) * chunkSize);
+              if (chunk.length === 0) continue;
+              const avgLat = chunk.reduce((s, p) => s + p.lat, 0) / chunk.length;
+              const avgLng = chunk.reduce((s, p) => s + p.lng, 0) / chunk.length;
+              suggestedPositions.push({ lat: avgLat, lng: avgLng });
+            }
+          }
+          return {
+            name,
+            buildingCount: pts.length,
+            targetCount: streetTarget,
+            ctoCount: streetCtos,
+            suggestedPositions,
+          };
+        }).sort((a, b) => b.buildingCount - a.buildingCount);
+
+        return {
+          totalBuildings,
+          totalTarget,
+          totalCtos,
+          adhesionRate,
+          portsPerCto,
+          streets,
+        };
+      }),
+
+    /**
+     * Confirma o projeto: cria as CTOs provisórias como CTOs reais no banco
+     * e as posiciona no mapa (mapElements).
+     */
+    confirmProject: operatorProcedure
+      .input(z.object({
+        ctos: z.array(z.object({
+          name: z.string().min(1),
+          lat: z.number(),
+          lng: z.number(),
+          capacity: z.number().int().min(1).default(16),
+          address: z.string().optional(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const created: Array<{ id: number; name: string; lat: number; lng: number }> = [];
+        for (const c of input.ctos) {
+          const id = await createCto({
+            name: c.name,
+            address: c.address,
+            capacity: c.capacity,
+            usedPorts: 0,
+            status: "active",
+            lat: c.lat,
+            lng: c.lng,
+          });
+          await upsertMapElement("cto", id, c.lat, c.lng, null);
+          await createMaintenanceRecord({
+            entityType: "cto",
+            entityId: id,
+            action: "created",
+            description: `CTO "${c.name}" criada via Dimensionamento de Projeto`,
+            performedBy: ctx.user?.name ?? undefined,
+            userId: ctx.user?.id,
+          });
+          created.push({ id, name: c.name, lat: c.lat, lng: c.lng });
+        }
+        return { created, count: created.length };
       }),
   }),
 });

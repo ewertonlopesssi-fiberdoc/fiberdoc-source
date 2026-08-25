@@ -18,7 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   ArrowLeft, Plus, Box, Layers, Pencil, Trash2, Link2, Link2Off, Tag, Printer, Cable, XCircle,
-  MapPin, LocateFixed, Loader2, ChevronDown, ChevronRight, GitBranch, LayoutGrid,
+  MapPin, LocateFixed, Loader2, ChevronDown, ChevronRight, GitBranch, LayoutGrid, Minus,
 } from "lucide-react";
 import { CeoFusionPrint } from "@/components/CeoFusionPrint";
 import { cn } from "@/lib/utils";
@@ -123,13 +123,14 @@ function FusedToSplitterBadge({ splitterId, splitterViaId, splitters, allSplitte
 // ─── ViaCard ──────────────────────────────────────────────────────────────────
 function ViaCard({
   via, tubes, allVias, fibers, associations, allSplitterVias, splitters,
-  onSetFusion, onClearFusion, onEditLabel, onSetFiber, onClearFiber,
+  onSetFusion, onClearFusion, onEditLabel, onClearFiber, onDeleteVia,
 }: {
   via: Via; tubes: Tube[]; allVias: Via[]; fibers: Fiber[];
   associations?: ViaAssociation[]; allSplitterVias?: SplitterVia[]; splitters?: Splitter[];
   onSetFusion: (via: Via) => void; onClearFusion: (via: Via) => void;
-  onEditLabel: (via: Via) => void; onSetFiber: (via: Via) => void;
+  onEditLabel: (via: Via) => void;
   onClearFiber: (viaId: number) => void;
+  onDeleteVia: (via: Via) => void;
 }) {
   // Associação tubo↔splitter via ceoViaAssociations
   const myAssoc = (associations ?? []).find(a =>
@@ -178,8 +179,9 @@ function ViaCard({
           <button onClick={() => onEditLabel(via)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Editar etiqueta"><Tag className="h-3 w-3" /></button>
           {fiber ? (
             <button onClick={() => onClearFiber(via.id)} className="h-5 w-5 rounded flex items-center justify-center text-emerald-400 hover:text-destructive hover:bg-destructive/10 transition-colors" title="Remover fibra"><XCircle className="h-3 w-3" /></button>
-          ) : (
-            <button onClick={() => onSetFiber(via)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" title="Associar fibra"><Cable className="h-3 w-3" /></button>
+          ) : null}
+          {!fused && (
+            <button onClick={() => onDeleteVia(via)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Excluir via"><Minus className="h-3 w-3" /></button>
           )}
           {fused ? (
             <button onClick={() => onClearFusion(via)} className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Remover fusão"><Link2Off className="h-3 w-3" /></button>
@@ -311,6 +313,7 @@ function TubePanel({
   const [viaStatusFilter, setViaStatusFilter] = useState<"all" | "fused" | "free">("all");
   const [assocTargetTubeId, setAssocTargetTubeId] = useState("");
   const [assocTargetViaId, setAssocTargetViaId] = useState("");
+  const [deleteViaConfirmDialog, setDeleteViaConfirmDialog] = useState<Via | null>(null);
 
   const { data: vias = [], isLoading } = trpc.ceoVias.byTube.useQuery({ tubeId: tube.id });
   const { data: allVias = [] } = trpc.ceoVias.byCeo.useQuery({ ceoId });
@@ -364,6 +367,14 @@ function TubePanel({
     onSuccess: () => {
       toast.success("Fibra desassociada!");
       utils.ceoVias.byTube.invalidate({ tubeId: tube.id }); utils.ceoVias.byCeo.invalidate({ ceoId });
+    },
+    onError: e => toast.error("Erro: " + e.message),
+  });
+  const deleteViaMutation = trpc.ceoVias.deleteVia.useMutation({
+    onSuccess: () => {
+      toast.success("Via excluída!");
+      utils.ceoVias.byTube.invalidate({ tubeId: tube.id }); utils.ceoVias.byCeo.invalidate({ ceoId });
+      setDeleteViaConfirmDialog(null);
     },
     onError: e => toast.error("Erro: " + e.message),
   });
@@ -487,8 +498,8 @@ function TubePanel({
                   onSetFusion={v => { setFusionDialog(v); setFusionTubeId(""); setFusionViaNumber(""); }}
                   onClearFusion={via => setClearFusionConfirmDialog(via)}
                   onEditLabel={v => { setLabelDialog(v); setLabelValue(v.label ?? ""); setLabelNotes(v.notes ?? ""); }}
-                  onSetFiber={v => { setFiberDialog(v); setSelectedFiberId(v.fiberId ? String(v.fiberId) : ""); setFiberSearch(""); }}
                   onClearFiber={id => clearFiberMutation.mutate({ viaId: id })}
+                  onDeleteVia={v => setDeleteViaConfirmDialog(v)}
                 />
               ))}
             </div>
@@ -521,6 +532,33 @@ function TubePanel({
               }
             }} disabled={clearFusionMutation.isPending}>
               {clearFusionMutation.isPending ? "Removendo..." : "Remover Fusão"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Confirmar Exclusão de Via */}
+      <Dialog open={deleteViaConfirmDialog !== null} onOpenChange={() => setDeleteViaConfirmDialog(null)}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader>
+            <DialogTitle>Excluir Via</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-foreground mb-2">
+              Tem certeza que deseja excluir a <span className="font-semibold">VIA {deleteViaConfirmDialog?.viaNumber}</span>?
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Esta ação remove a via permanentemente. Vias com fusão ativa não podem ser excluídas.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteViaConfirmDialog(null)} className="border-border/50">
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={() => {
+              if (deleteViaConfirmDialog) deleteViaMutation.mutate({ viaId: deleteViaConfirmDialog.id });
+            }} disabled={deleteViaMutation.isPending}>
+              {deleteViaMutation.isPending ? "Excluindo..." : "Excluir Via"}
             </Button>
           </DialogFooter>
         </DialogContent>

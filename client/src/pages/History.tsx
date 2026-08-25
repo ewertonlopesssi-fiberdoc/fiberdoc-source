@@ -103,7 +103,7 @@ function formatFieldValue(val: any): string {
 function computeDiff(before: Record<string, any>, after: Record<string, any>) {
   const allKeys = new Set([...Object.keys(before), ...Object.keys(after)]);
   const changes: { field: string; label: string; before: string; after: string }[] = [];
-  for (const key of allKeys) {
+  for (const key of Array.from(allKeys)) {
     if (IGNORE_FIELDS.has(key)) continue;
     const bv = before[key];
     const av = after[key];

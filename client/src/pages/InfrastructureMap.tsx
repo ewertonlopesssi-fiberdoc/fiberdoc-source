@@ -116,7 +116,8 @@ import {
   Pencil, Link2, Link2Off, GitMerge, AlertTriangle, FileText, Unlink, RefreshCw,
   Lock, Unlock, ExternalLink, Move, CheckCircle2,
   Zap, Crosshair, MapPin, Copy, Signal, Wifi, FolderTree, ChevronDown, CornerDownRight,
-  Milestone, Codesandbox, Wand2, ScanSearch, CircleDot, CheckCircle, XCircle, AlertCircle
+  Milestone, Codesandbox, Wand2, ScanSearch, CircleDot, CheckCircle, XCircle, AlertCircle,
+  BarChart3, PenLine, Ruler
 } from "lucide-react";
 import L from "leaflet";
 
@@ -646,6 +647,28 @@ export default function InfrastructureMap() {
   const [viabilityLoadingRoutes, setViabilityLoadingRoutes] = useState(false);
   const [viabilityHoveredId, setViabilityHoveredId] = useState<number | null>(null);
   const viabilityModeRef = useRef(false);
+  // ─── Dimensionamento de Projeto FTTH ───────────────────────────────────────────────────
+  const [planningMode, setPlanningMode] = useState(false);
+  const planningModeRef = useRef(false);
+  const [planningPolygon, setPlanningPolygon] = useState<Array<{ lat: number; lng: number }>>([]);
+  const planningPolygonRef = useRef<Array<{ lat: number; lng: number }>>([]);
+  const planningLayersRef = useRef<L.Layer[]>([]); // polígono + pontos temporários
+  const [planningResult, setPlanningResult] = useState<{
+    totalBuildings: number;
+    totalTarget: number;
+    totalCtos: number;
+    adhesionRate: number;
+    portsPerCto: number;
+    streets: Array<{ name: string; buildingCount: number; targetCount: number; ctoCount: number; suggestedPositions: Array<{ lat: number; lng: number }> }>;
+  } | null>(null);
+  const [planningAdhesion, setPlanningAdhesion] = useState(50); // percentual 1-100
+  const [planningPortsPerCto, setPlanningPortsPerCto] = useState(16);
+  // CTOs provisórias: podem ser arrastadas antes de confirmar
+  const [provisionalCtos, setProvisionalCtos] = useState<Array<{ id: string; name: string; lat: number; lng: number; capacity: number }>>([]);
+  const provisionalMarkersRef = useRef<Map<string, L.Marker>>(new Map());
+  const [planningLoading, setPlanningLoading] = useState(false);
+  const [planningPanelOpen, setPlanningPanelOpen] = useState(false);
+
   const [mapBoxSelectRect, setMapBoxSelectRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const mapBoxSelectStartRef = useRef<{ x: number; y: number } | null>(null);
   const [groupSelectedElements, setGroupSelectedElements] = useState<Set<number>>(new Set());
@@ -1427,6 +1450,96 @@ export default function InfrastructureMap() {
   });
   const createCeoMut = trpc.ceos.create.useMutation({ onError: (e) => toast.error(e.message) });
   const createCtoMut = trpc.ctos.create.useMutation({ onError: (e) => toast.error(e.message) });
+  const analyzePlanningMut = trpc.planning.analyzeArea.useMutation({
+    onSuccess: (result) => {
+      setPlanningResult(result as any);
+      setPlanningMode(false);
+      planningModeRef.current = false;
+      setPlanningLoading(false);
+      setPlanningPanelOpen(true);
+      toast.success(`${result.totalBuildings} edificações encontradas; ${result.totalCtos} CTOs sugeridas.`);
+    },
+    onError: (e) => {
+      setPlanningLoading(false);
+      toast.error(e.message || "Não foi possível consultar o OpenStreetMap");
+    },
+  });
+  const confirmPlanningMut = trpc.planning.confirmProject.useMutation({
+    onSuccess: (result) => {
+      toast.success(`${result.count} CTO${result.count === 1 ? "" : "s"} cadastrada${result.count === 1 ? "" : "s"} no mapa.`);
+      setPlanningPanelOpen(false);
+      setPlanningResult(null);
+      setPlanningPolygon([]);
+      planningPolygonRef.current = [];
+      setProvisionalCtos([]);
+      planningLayersRef.current.forEach(safeLeafletRemove);
+      planningLayersRef.current = [];
+      provisionalMarkersRef.current.forEach(safeLeafletRemove);
+      provisionalMarkersRef.current.clear();
+      refetchCtos();
+      refetchElements();
+    },
+    onError: (e) => toast.error(e.message || "Não foi possível confirmar o projeto"),
+  });
+  const clearPlanningPreview = useCallback(() => {
+    planningLayersRef.current.forEach(safeLeafletRemove);
+    planningLayersRef.current = [];
+    provisionalMarkersRef.current.forEach(safeLeafletRemove);
+    provisionalMarkersRef.current.clear();
+    planningPolygonRef.current = [];
+    setPlanningPolygon([]);
+    setPlanningResult(null);
+    setProvisionalCtos([]);
+    setPlanningMode(false);
+    planningModeRef.current = false;
+    setPlanningPanelOpen(false);
+    setPlanningLoading(false);
+  }, []);
+  const startPlanning = useCallback(() => {
+    clearPlanningPreview();
+    // Desligar os modos que também capturam cliques no mapa, sem alterar dados existentes.
+    setAddingMode(null);
+    setAddingRouteMode(false);
+    setAddingOltMode(false);
+    setAddingDgoMode(false);
+    setAddingPoleMode(false);
+    setAddingReserveMode(false);
+    setAddingPoiMode(false);
+    setViabilityMode(false);
+    setGroupSelectMode(false);
+    setOtdrMode(false);
+    setPlanningPanelOpen(true);
+    setPlanningMode(true);
+    planningModeRef.current = true;
+  }, [clearPlanningPreview]);
+  const finishPlanningPolygon = useCallback(() => {
+    const polygon = planningPolygonRef.current;
+    if (polygon.length < 3) {
+      toast.error("Desenhe pelo menos 3 pontos para fechar a área.");
+      return;
+    }
+    setPlanningLoading(true);
+    analyzePlanningMut.mutate({
+      polygon,
+      adhesionRate: Math.max(0.01, Math.min(1, planningAdhesion / 100)),
+      portsPerCto: planningPortsPerCto,
+    });
+  }, [analyzePlanningMut, planningAdhesion, planningPortsPerCto]);
+  const confirmPlanningProject = useCallback(() => {
+    if (provisionalCtos.length === 0) {
+      toast.error("Nenhuma CTO provisória para confirmar.");
+      return;
+    }
+    confirmPlanningMut.mutate({
+      ctos: provisionalCtos.map((cto) => ({
+        name: cto.name,
+        lat: cto.lat,
+        lng: cto.lng,
+        capacity: cto.capacity,
+      })),
+    });
+  }, [confirmPlanningMut, provisionalCtos]);
+  const cancelPlanning = clearPlanningPreview;
   const deleteCeoMut = trpc.ceos.delete.useMutation({
     onSuccess: () => { refetchCeos(); },
     onError: (e) => toast.error(e.message),
@@ -1790,6 +1903,120 @@ export default function InfrastructureMap() {
     setTimeout(() => { map.invalidateSize(); }, 500);
     return () => { map.remove(); mapRef.current = null; tileLayerRef.current = null; };
   }, []);
+
+  // Desenho da área de planejamento no mapa. O modo é isolado dos marcadores/cabos reais.
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const map = mapRef.current;
+    if (!planningMode) {
+      map.getContainer().style.cursor = "";
+      return;
+    }
+    map.getContainer().style.cursor = "crosshair";
+    const handlePlanningClick = (event: L.LeafletMouseEvent) => {
+      const point = { lat: event.latlng.lat, lng: event.latlng.lng };
+      planningPolygonRef.current = [...planningPolygonRef.current, point];
+      setPlanningPolygon(planningPolygonRef.current);
+    };
+    map.on("click", handlePlanningClick);
+    return () => {
+      map.off("click", handlePlanningClick);
+      map.getContainer().style.cursor = "";
+    };
+  }, [planningMode, mapReady]);
+
+  // Renderiza o polígono de planejamento e os pontos de referência das edificações.
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    planningLayersRef.current.forEach(safeLeafletRemove);
+    planningLayersRef.current = [];
+    if (planningPolygon.length === 0) return;
+    const map = mapRef.current;
+    const latLngs = planningPolygon.map(p => [p.lat, p.lng] as [number, number]);
+    const polygon = L.polygon(latLngs, {
+      color: "#f59e0b",
+      weight: 2,
+      dashArray: "7 5",
+      fillColor: "#f59e0b",
+      fillOpacity: 0.12,
+      interactive: false,
+    }).addTo(map);
+    planningLayersRef.current.push(polygon);
+    planningPolygon.forEach((point, index) => {
+      const marker = L.circleMarker([point.lat, point.lng], {
+        radius: 5,
+        color: "#fbbf24",
+        weight: 2,
+        fillColor: "#111827",
+        fillOpacity: 1,
+        interactive: false,
+      }).bindTooltip(`Ponto ${index + 1}`, { direction: "top", opacity: 0.85 });
+      marker.addTo(map);
+      planningLayersRef.current.push(marker);
+    });
+    return () => {
+      planningLayersRef.current.forEach(safeLeafletRemove);
+      planningLayersRef.current = [];
+    };
+  }, [planningPolygon, mapReady]);
+
+  // Converte as posições devolvidas pelo backend em CTOs que ainda não existem no banco.
+  useEffect(() => {
+    if (!planningResult) {
+      setProvisionalCtos([]);
+      return;
+    }
+    const suggested = planningResult.streets.flatMap(street =>
+      street.suggestedPositions.map(position => ({ street: street.name, position }))
+    );
+    setProvisionalCtos(suggested.map((item, index) => ({
+      id: `planning-cto-${index + 1}`,
+      name: `CTO Projeto ${String(index + 1).padStart(2, "0")}`,
+      lat: item.position.lat,
+      lng: item.position.lng,
+      capacity: planningResult.portsPerCto,
+    })));
+  }, [planningResult]);
+
+  // Marcadores provisórios são arrastáveis e não entram em markersRef nem no banco.
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const map = mapRef.current;
+    const currentIds = new Set(provisionalCtos.map(cto => cto.id));
+    provisionalMarkersRef.current.forEach((marker, id) => {
+      if (!currentIds.has(id)) {
+        safeLeafletRemove(marker);
+        provisionalMarkersRef.current.delete(id);
+      }
+    });
+    provisionalCtos.forEach(cto => {
+      let marker = provisionalMarkersRef.current.get(cto.id);
+      if (!marker) {
+        const icon = L.divIcon({
+          className: "planning-cto-marker",
+          html: `<div style="width:30px;height:30px;border-radius:50%;background:#f59e0b;border:3px solid #fff;box-shadow:0 2px 8px #0008;display:flex;align-items:center;justify-content:center;color:#111827;font-weight:800;font-size:12px">${cto.id.replace("planning-cto-", "")}</div>`,
+          iconSize: [30, 30],
+          iconAnchor: [15, 15],
+        });
+        marker = L.marker([cto.lat, cto.lng], { icon, draggable: true, zIndexOffset: 1000 });
+        marker.bindTooltip(`${cto.name} • provisória`, { direction: "top", opacity: 0.95 });
+        marker.on("dragend", () => {
+          const latLng = marker!.getLatLng();
+          setProvisionalCtos(previous => previous.map(item => item.id === cto.id
+            ? { ...item, lat: latLng.lat, lng: latLng.lng }
+            : item));
+        });
+        marker.addTo(map);
+        provisionalMarkersRef.current.set(cto.id, marker);
+      } else {
+        const current = marker.getLatLng();
+        if (Math.abs(current.lat - cto.lat) > 1e-10 || Math.abs(current.lng - cto.lng) > 1e-10) {
+          marker.setLatLng([cto.lat, cto.lng]);
+        }
+        marker.setTooltipContent(`${cto.name} • provisória`);
+      }
+    });
+  }, [provisionalCtos, mapReady]);
 
   // Renderizar marcadores — diff incremental: só recria marcadores que mudaram
   const renderMarkers = useCallback(() => {
@@ -2812,7 +3039,7 @@ export default function InfrastructureMap() {
 
       // Snap: encontrar elemento mais próximo dentro do threshold
       // Ignora o elemento já vinculado a esta extremidade enquanto não se afastou o suficiente
-      const findSnap = (lat: number, lng: number): { id: number; lat: number; lng: number; name: string } | null => {
+      const findSnap = (lat: number, lng: number): { id: number; lat: number; lng: number; name: string; _isDgo?: boolean } | null => {
         // Só activar snap após o utilizador se afastar do ponto inicial
         if (!hasMoved) return null;
         let best: any = null;
@@ -5098,6 +5325,15 @@ export default function InfrastructureMap() {
           <Button size="sm" variant={viabilityMode ? "default" : "outline"} className={`h-7 gap-1 text-xs ${viabilityMode ? "bg-amber-600 hover:bg-amber-700 border-amber-500" : ""}`} onClick={() => { setViabilityMode(v => { if (v) { setViabilityPoint(null); setViabilityResults([]); } return !v; }); }} title="Viabilidade Técnica">
             <ScanSearch className="w-3 h-3" />{viabilityMode ? "Viabilidade" : "Viabilidade"}
           </Button>
+          <Button
+            size="sm"
+            variant={planningMode || planningPanelOpen ? "default" : "outline"}
+            className={`h-7 gap-1 text-xs ${planningMode || planningPanelOpen ? "bg-orange-600 hover:bg-orange-700 border-orange-500 text-white" : "border-orange-500/40 text-orange-400 hover:bg-orange-500/10"}`}
+            onClick={() => planningPanelOpen && !planningMode ? setPlanningPanelOpen(true) : startPlanning()}
+            title="Dimensionar projeto FTTH usando edificações do OpenStreetMap"
+          >
+            <Ruler className="w-3 h-3" />Dimensionar
+          </Button>
           {isAdmin && (
             <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => { setKmlImportResult(null); setKmlImportOpen(true); }} title="Importar posições de CEO/CTO de um arquivo KML">
               <Upload className="w-3 h-3" />Importar KML
@@ -5306,6 +5542,93 @@ export default function InfrastructureMap() {
           )}
         </div>
       )}
+      {planningMode && (
+        <div className="border-b border-orange-500/30 bg-orange-500/5">
+          <div className="px-4 py-2 text-orange-300 text-xs flex items-center gap-3 flex-wrap">
+            <PenLine className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="flex-1 min-w-[180px]">
+              Clique no mapa para desenhar a área do projeto. Depois feche com pelo menos 3 pontos para consultar as edificações do OpenStreetMap.
+            </span>
+            <span className="rounded bg-orange-500/15 px-2 py-1 font-medium">{planningPolygon.length} ponto{planningPolygon.length !== 1 ? "s" : ""}</span>
+            <button onClick={finishPlanningPolygon} disabled={planningLoading || planningPolygon.length < 3} className="h-6 px-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded text-xs font-medium">
+              {planningLoading ? <Loader2 className="w-3 h-3 animate-spin inline mr-1" /> : null}
+              {planningLoading ? "Consultando…" : "Concluir área"}
+            </button>
+            <button onClick={cancelPlanning} disabled={planningLoading} className="text-orange-300 hover:text-orange-200 underline text-xs">Cancelar</button>
+          </div>
+        </div>
+      )}
+      <Sheet open={planningPanelOpen} onOpenChange={(open) => { if (!open && !planningLoading) cancelPlanning(); }}>
+        <SheetContent side="right" className="w-full sm:max-w-[440px] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2"><Ruler className="w-5 h-5 text-orange-400" />Dimensionar Projeto</SheetTitle>
+          </SheetHeader>
+          <div className="space-y-4 pt-4 pb-6">
+            <div className="rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 text-xs text-muted-foreground">
+              <p className="font-medium text-orange-300 mb-1">Como funciona</p>
+              <p>Defina a área no mapa. O sistema consulta edificações mapeadas no OpenStreetMap, agrupa-as por rua e sugere CTOs de 16 portas. As CTOs ficam provisórias até a confirmação.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="planning-adhesion" className="text-xs text-muted-foreground">Taxa de adesão (%)</Label>
+                <Input id="planning-adhesion" type="number" min={1} max={100} step={1} value={planningAdhesion} onChange={e => setPlanningAdhesion(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} className="mt-1 h-8" />
+              </div>
+              <div>
+                <Label htmlFor="planning-ports" className="text-xs text-muted-foreground">Portas por CTO</Label>
+                <Input id="planning-ports" type="number" min={1} max={64} step={1} value={planningPortsPerCto} onChange={e => setPlanningPortsPerCto(Math.max(1, Math.min(64, Number(e.target.value) || 16)))} className="mt-1 h-8" />
+              </div>
+            </div>
+            {!planningResult && (
+              <div className="rounded-lg border border-border p-3 text-sm space-y-2">
+                <div className="flex items-center gap-2 text-muted-foreground"><PenLine className="w-4 h-4 text-orange-400" />Área ainda não desenhada</div>
+                <p className="text-xs text-muted-foreground">Clique em “Iniciar desenho” para habilitar os cliques no mapa e depois use “Concluir área”.</p>
+                {!planningMode && <Button size="sm" className="w-full bg-orange-600 hover:bg-orange-700" onClick={() => { setPlanningPanelOpen(false); startPlanning(); }}><PenLine className="w-4 h-4 mr-2" />Iniciar desenho</Button>}
+              </div>
+            )}
+            {planningResult && (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-border p-2 text-center"><div className="text-xl font-semibold text-sky-400">{planningResult.totalBuildings}</div><div className="text-[10px] text-muted-foreground">edificações</div></div>
+                  <div className="rounded-lg border border-border p-2 text-center"><div className="text-xl font-semibold text-violet-400">{planningResult.totalTarget}</div><div className="text-[10px] text-muted-foreground">atendidas ({Math.round(planningResult.adhesionRate * 100)}%)</div></div>
+                  <div className="rounded-lg border border-orange-500/40 bg-orange-500/5 p-2 text-center"><div className="text-xl font-semibold text-orange-400">{planningResult.totalCtos}</div><div className="text-[10px] text-muted-foreground">CTOs sugeridas</div></div>
+                </div>
+                <div className="rounded-lg border border-border p-3 text-xs space-y-2">
+                  <div className="flex items-center justify-between"><span className="font-medium">Resultado por rua</span><span className="text-muted-foreground">{planningResult.streets.length} rua{planningResult.streets.length !== 1 ? "s" : ""}</span></div>
+                  <div className="max-h-44 overflow-y-auto divide-y divide-border">
+                    {planningResult.streets.length === 0 ? <p className="py-3 text-muted-foreground">Nenhuma edificação foi localizada na área selecionada.</p> : planningResult.streets.map(street => (
+                      <div key={street.name} className="py-2 flex items-center gap-2">
+                        <span className="truncate flex-1" title={street.name}>{street.name}</span>
+                        <span className="text-muted-foreground whitespace-nowrap">{street.buildingCount} casa{street.buildingCount !== 1 ? "s" : ""}</span>
+                        <span className="text-orange-400 whitespace-nowrap">{street.ctoCount} CTO{street.ctoCount !== 1 ? "s" : ""}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 text-orange-300 font-medium mb-1"><Move className="w-3.5 h-3.5" />Ajuste visual</div>
+                  <p>Arraste as marcações laranja para a posição desejada na rua. A posição será usada somente quando você confirmar o projeto.</p>
+                </div>
+                <div className="rounded-lg border border-border p-3 space-y-2">
+                  <div className="flex items-center justify-between"><span className="font-medium text-sm">CTOs provisórias</span><Badge variant="secondary">{provisionalCtos.length}</Badge></div>
+                  {provisionalCtos.length === 0 ? <p className="text-xs text-muted-foreground">Não há CTOs para confirmar nesta área.</p> : provisionalCtos.map((cto, index) => (
+                    <div key={cto.id} className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-full bg-orange-500 text-gray-950 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{index + 1}</span>
+                      <Input value={cto.name} onChange={e => setProvisionalCtos(prev => prev.map(item => item.id === cto.id ? { ...item, name: e.target.value } : item))} className="h-7 text-xs" />
+                      <button className="text-muted-foreground hover:text-orange-400" title="Ver no mapa" onClick={() => mapRef.current?.flyTo([cto.lat, cto.lng], 17, { duration: 0.6 })}><MapPin className="w-3.5 h-3.5" /></button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="flex-1" onClick={finishPlanningPolygon} disabled={planningLoading}><RefreshCw className="w-3.5 h-3.5 mr-1.5" />Recalcular</Button>
+                  <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={confirmPlanningProject} disabled={planningLoading || confirmPlanningMut.isPending || provisionalCtos.length === 0}><Check className="w-3.5 h-3.5 mr-1.5" />Confirmar projeto</Button>
+                </div>
+              </>
+            )}
+            <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={cancelPlanning} disabled={planningLoading}>Cancelar e limpar prévia</Button>
+            <p className="text-[10px] leading-relaxed text-muted-foreground">Fonte: OpenStreetMap/Overpass. A contagem depende do nível de mapeamento da região e serve como estimativa de projeto; nenhuma alteração é feita nos elementos já cadastrados.</p>
+          </div>
+        </SheetContent>
+      </Sheet>
       {addingMode && (
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
           <Navigation className="w-3.5 h-3.5" />Clique no mapa para posicionar um {addingMode.toUpperCase()}
@@ -8573,7 +8896,7 @@ export default function InfrastructureMap() {
                 try {
                   const filterGroupIds = cablesFilterGroups.has("all") ? undefined : Array.from(cablesFilterGroups);
                   const result = await exportCablesMut.mutateAsync({ format: "csv", filterGroupIds });
-                  const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
+                  const blob = new Blob([result.csv ?? ""], { type: "text/csv;charset=utf-8;" });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
                   const groupLabel = cablesFilterGroups.has("all") ? "todos" : `${cablesFilterGroups.size}-grupos`;

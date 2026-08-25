@@ -126,6 +126,7 @@ export default function MobileCeos({ initialCeoId, onDeepLinkConsumed, onGoToMap
   });
   // Associações
   const [associations, setAssociations]     = useState<Association[]>([]);
+  const associatedViaIds = new Set<number>(associations.flatMap(a => [a.sourceViaId, a.targetViaId]));
   const [allSplitterVias, setAllSplitterVias] = useState<SplitterVia[]>([]);
   // Formulário de associação (via tubo ↔ via splitter)
   const [assocSplitterId, setAssocSplitterId] = useState<string>("");

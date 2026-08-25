@@ -1275,7 +1275,7 @@ export default function MobileMap({ onOpenDetail, focusType, focusId, focusCoord
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {isOnline() && (
             <button
-              onClick={() => { setNewTubeForm({ identifier: `Tubo ${tubes.length + 1}`, color: "blue", totalVias: 12, type: "tube" }); setError(null); setPanelView("newTube"); }}
+              onClick={() => { setNewTubeForm({ identifier: `Tubo ${tubes.length + 1}`, color: "blue", totalVias: 12, type: "tube", bandejaId: null }); setError(null); setPanelView("newTube"); }}
               className="w-full flex items-center justify-center gap-1.5 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded-xl py-2.5 text-xs font-medium"
             >
               <Plus className="w-3.5 h-3.5" /> Novo Tubo
