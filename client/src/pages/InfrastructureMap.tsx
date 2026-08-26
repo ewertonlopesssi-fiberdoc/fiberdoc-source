@@ -20,7 +20,9 @@ import MapContextMenu, { type MapContextMenuTarget } from "@/components/map/MapC
 import AddElementDropdown from "@/components/map/AddElementDropdown";
 
 import { trpc } from "@/lib/trpc";
-import { PROJECT_STATUSES, PROJECT_STATUS_LABEL, PROJECT_STATUS_COLOR, percentualImplantado } from "@shared/projectStatus";
+import { PROJECT_STATUSES, PROJECT_STATUS_LABEL, PROJECT_STATUS_COLOR, PROJECT_TIPO_LABEL, percentualImplantado } from "@shared/projectStatus";
+import { resumirProjeto, formatarContagem } from "@shared/projectSummary";
+import { Switch } from "@/components/ui/switch";
 import { createStreetLayer, createSatelliteLayer, clampZoomForStreet, satelliteProviderLabel } from "@/lib/mapTiles";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -383,9 +385,22 @@ export default function InfrastructureMap() {
 
   // Grupos/Pastas
   const { data: mapGroups = [], refetch: refetchGroups } = trpc.mapGroups.list.useQuery(undefined, MAP_QUERY_OPTS);
+  // Contagens cruas por grupo, tipo e estado. A conta em cima delas é feita por
+  // resumirProjeto, que é pura — chamada direto no render de cada projeto, sem
+  // useMemo de propósito: é barata (cinco tipos) e um hook a mais neste
+  // componente é uma lista de dependências a mais para errar.
+  //
+  // Opções próprias, e não MAP_QUERY_OPTS: aquele tem staleTime de 2 min com
+  // refetchOnWindowFocus desligado, o que aqui deixaria o percentual parado
+  // depois de mexer nos itens do projeto. Isto é uma consulta pequena —
+  // contagens agregadas — e vale mantê-la fresca.
+  const { data: projectSummaries = {}, refetch: refetchProjectSummaries } =
+    trpc.mapGroups.projectSummary.useQuery(undefined, { staleTime: 30 * 1000, refetchOnWindowFocus: true });
   const [groupsPanelOpen, setGroupsPanelOpen] = useState(false);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
-  const [groupForm, setGroupForm] = useState({ name: "", color: "#6366f1", description: "", parentId: null as number | null });
+  // `isProject` faz da pasta um projeto: passa a exibir o percentual implantado
+  // do próprio conjunto. Ver migrate-v23.sql. Padrão false — pasta continua pasta.
+  const [groupForm, setGroupForm] = useState({ name: "", color: "#6366f1", description: "", parentId: null as number | null, isProject: false });
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [activeGroupFilter, setActiveGroupFilter] = useState<number | null>(null);
   const [assignGroupDialogOpen, setAssignGroupDialogOpen] = useState(false);
@@ -611,7 +626,7 @@ export default function InfrastructureMap() {
   }, [hiddenGroupIds]);
 
   const createGroupMut = trpc.mapGroups.create.useMutation({
-    onSuccess: () => { refetchGroups(); setGroupDialogOpen(false); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null }); toast.success("Grupo criado"); },
+    onSuccess: () => { refetchGroups(); setGroupDialogOpen(false); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null, isProject: false }); toast.success("Grupo criado"); },
     onError: (e) => toast.error(e.message),
   });
   const updateGroupMut = trpc.mapGroups.update.useMutation({
@@ -683,6 +698,9 @@ export default function InfrastructureMap() {
     onSuccess: () => {
       toast.success("Estado de projeto atualizado");
       refetchElements();
+      // Sem isto o percentual do projeto continuaria mostrando o número
+      // anterior — é justamente esta mutação que o move.
+      refetchProjectSummaries();
     },
     onError: e => toast.error("Erro ao atualizar estado: " + e.message),
   });
@@ -5769,6 +5787,32 @@ export default function InfrastructureMap() {
                     onClick={() => setExpandedGroupElements(prev => { const n = new Set(prev); if (n.has(group.id)) n.delete(group.id); else n.add(group.id); return n; })}>
                     {group.name}
                   </span>
+                  {/* Percentual implantado do projeto. Só para pastas marcadas
+                      como projeto — as demais ficam exactamente como estavam. */}
+                  {group.isProject && (() => {
+                    const resumo = resumirProjeto((projectSummaries as any)[group.id]);
+                    if (resumo.vazio) {
+                      return (
+                        <span
+                          className="text-[10px] px-1 py-px rounded flex-shrink-0 text-muted-foreground/60 border border-border"
+                          title="Projeto sem itens ainda. Adicione CTOs, CEOs, cabos, postes ou reservas para o percentual começar a contar."
+                        >
+                          projeto
+                        </span>
+                      );
+                    }
+                    const completo = resumo.percentual === 100;
+                    const cor = completo ? PROJECT_STATUS_COLOR.deployed : PROJECT_STATUS_COLOR.planned;
+                    return (
+                      <span
+                        className="text-[10px] px-1 py-px rounded flex-shrink-0 tabular-nums"
+                        style={{ color: cor, background: `${cor}1f` }}
+                        title={`${resumo.feitos} de ${resumo.total} implantados · ${formatarContagem(resumo, PROJECT_TIPO_LABEL)}`}
+                      >
+                        {resumo.percentual}%
+                      </span>
+                    );
+                  })()}
                   <div className="flex items-center gap-0.5 flex-shrink-0">
                     <span className="text-[10px] text-muted-foreground/60">{counts.elems + counts.routes}</span>
                     {/* Seta para minimizar/expandir itens da pasta */}
@@ -5784,14 +5828,14 @@ export default function InfrastructureMap() {
                     {isAdmin && (
                       <>
                         <button
-                          onClick={() => { setEditingGroupId(null); setGroupForm({ name: "", color: group.color ?? "#6366f1", description: "", parentId: group.id }); setGroupDialogOpen(true); }}
+                          onClick={() => { setEditingGroupId(null); setGroupForm({ name: "", color: group.color ?? "#6366f1", description: "", parentId: group.id, isProject: false }); setGroupDialogOpen(true); }}
                           className="p-0.5 text-muted-foreground hover:text-violet-400"
                           title="Criar subpasta aqui"
                         >
                           <FolderPlus className="w-3 h-3" />
                         </button>
                         <button
-                          onClick={() => { setEditingGroupId(group.id); setGroupForm({ name: group.name, color: group.color ?? "#6366f1", description: group.description ?? "", parentId: group.parentId ?? null }); setGroupDialogOpen(true); }}
+                          onClick={() => { setEditingGroupId(group.id); setGroupForm({ name: group.name, color: group.color ?? "#6366f1", description: group.description ?? "", parentId: group.parentId ?? null, isProject: Boolean(group.isProject) }); setGroupDialogOpen(true); }}
                           className="p-0.5 text-muted-foreground hover:text-foreground"
                           title="Editar grupo"
                         >
@@ -6031,7 +6075,7 @@ export default function InfrastructureMap() {
                         {isOrganizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                       </button>
                       <button
-                        onClick={() => { setEditingGroupId(null); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null }); setGroupDialogOpen(true); }}
+                        onClick={() => { setEditingGroupId(null); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null, isProject: false }); setGroupDialogOpen(true); }}
                         className="text-violet-400 hover:text-violet-300"
                         title="Nova pasta raiz"
                       >
@@ -6785,7 +6829,7 @@ export default function InfrastructureMap() {
       {/* Diálogo criação/edição de grupo */}
       <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><FolderTree className="w-4 h-4 text-violet-400" />{editingGroupId ? "Editar Pasta" : "Nova Pasta"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><FolderTree className="w-4 h-4 text-violet-400" />{groupForm.isProject ? (editingGroupId ? "Editar Projeto" : "Novo Projeto") : (editingGroupId ? "Editar Pasta" : "Nova Pasta")}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5"><Label>Nome da pasta *</Label><Input value={groupForm.name} onChange={e => setGroupForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Projeto 1, Setor Norte, CTOs..." /></div>
             <div className="space-y-1.5"><Label>Pasta pai (opcional)</Label>
@@ -6807,6 +6851,23 @@ export default function InfrastructureMap() {
             <div className="space-y-1.5"><Label>Descrição</Label><Input value={groupForm.description} onChange={e => setGroupForm(f => ({ ...f, description: e.target.value }))} placeholder="Descrição opcional" /></div>
             <div className="space-y-1.5"><Label>Cor de identificação</Label>
               <div className="flex gap-2 items-center"><input type="color" value={groupForm.color} onChange={e => setGroupForm(f => ({ ...f, color: e.target.value }))} className="w-10 h-8 rounded cursor-pointer border border-border" /><span className="text-xs text-muted-foreground">{groupForm.color}</span></div>
+            </div>
+            {/* Projeto é a excepção que a pessoa liga; pasta comum é o padrão e
+                não muda em nada. Ver migrate-v23.sql. */}
+            <div className="flex items-start gap-3 rounded-md border border-border p-3">
+              <Switch
+                id="grupo-e-projeto"
+                checked={groupForm.isProject}
+                onCheckedChange={v => setGroupForm(f => ({ ...f, isProject: v }))}
+                className="mt-0.5 flex-shrink-0"
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="grupo-e-projeto" className="cursor-pointer">Isto é um projeto</Label>
+                <p className="text-[11px] text-muted-foreground leading-snug">
+                  Passa a mostrar o percentual implantado deste conjunto, calculado
+                  do estado de projeto dos itens. Pastas comuns não mudam.
+                </p>
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -6836,7 +6897,7 @@ export default function InfrastructureMap() {
             {(mapGroups as any[]).length === 0 ? (
               <div className="text-center py-4 text-sm text-muted-foreground">
                 <p>Nenhuma pasta criada ainda.</p>
-                <button onClick={() => { setQuickAssignDialogOpen(false); setEditingGroupId(null); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null }); setGroupDialogOpen(true); }} className="text-violet-400 underline text-xs mt-1">Criar nova pasta</button>
+                <button onClick={() => { setQuickAssignDialogOpen(false); setEditingGroupId(null); setGroupForm({ name: "", color: "#6366f1", description: "", parentId: null, isProject: false }); setGroupDialogOpen(true); }} className="text-violet-400 underline text-xs mt-1">Criar nova pasta</button>
               </div>
             ) : (() => {
               const allG = mapGroups as any[];
