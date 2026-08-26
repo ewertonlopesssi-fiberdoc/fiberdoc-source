@@ -5,7 +5,7 @@ import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
-import { getLoginUrl } from "./const";
+import { getLoginUrl, RESERVED_SLUGS } from "./const";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -55,19 +55,10 @@ queryClient.getMutationCache().subscribe(event => {
  * processar a requisição, então o frontend precisa incluir o slug
  * nas chamadas de API para que o servidor saiba qual tenant usar.
  *
- * Slugs reservados que não são tenants:
+ * A lista de slugs reservados vive em @/const e é importada acima. Havia uma
+ * cópia aqui, que precisava ser mantida igual à mão — e foi exatamente essa
+ * sincronização manual que falhou quando a rota /mapa2 foi criada.
  */
-const RESERVED_SLUGS = new Set([
-  "api", "admin", "static", "public", "assets", "mobile",
-  "login", "bem-vindo", "alterar-senha", "relatorio-sala",
-  // Rotas internas do sistema que não são slugs de tenant
-  "mapa", "equipamentos", "fibras", "portas", "conexoes", "topologia",
-  "historico", "salas", "importar", "relatorio-ocupacao", "ceo", "cto",
-  "busca-porta", "usuarios", "backup", "sistema", "rede", "ip-doc",
-  "fontes-energia", "alertas", "sensores-tuya", "sgp", "ssh-commander",
-  "cpe-manager", "monitor-rede", "404",
-]);
-
 function detectTenantSlug(): string | null {
   const parts = window.location.pathname.split("/").filter(Boolean);
   const first = parts[0];

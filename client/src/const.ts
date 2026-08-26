@@ -1,7 +1,18 @@
 export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 
-// Slugs reservados que não são tenants (deve ser igual ao do main.tsx)
-const RESERVED_SLUGS = new Set([
+/**
+ * Slugs reservados: primeiros segmentos de URL que são rotas do sistema, e não
+ * nomes de tenant.
+ *
+ * TODA rota de topo registrada em App.tsx precisa estar aqui. Esquecer uma faz
+ * o getTenantSlug() tratá-la como tenant e prefixar todas as chamadas de API
+ * com ela — o que quebra a aplicação inteira para quem abrir aquela URL,
+ * inclusive o login, e sem nenhuma mensagem que aponte para a causa.
+ *
+ * Esta é a única definição: main.tsx importa daqui. Antes havia uma segunda
+ * cópia lá, com um comentário pedindo que fossem mantidas iguais à mão.
+ */
+export const RESERVED_SLUGS = new Set([
   "api", "admin", "static", "public", "assets", "mobile",
   "login", "bem-vindo", "alterar-senha", "relatorio-sala",
   // Rotas internas do sistema que não são slugs de tenant
@@ -9,7 +20,7 @@ const RESERVED_SLUGS = new Set([
   "historico", "salas", "importar", "relatorio-ocupacao", "ceo", "cto",
   "busca-porta", "usuarios", "backup", "sistema", "rede", "ip-doc",
   "fontes-energia", "alertas", "sensores-tuya", "sgp", "ssh-commander",
-  "cpe-manager", "monitor-rede", "404",
+  "cpe-manager", "monitor-rede", "404", "mapa2",
 ]);
 
 /**
