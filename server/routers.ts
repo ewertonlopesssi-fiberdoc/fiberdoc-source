@@ -39,7 +39,7 @@ import {
   getTubesByCto, createCtoTube, updateCtoTube, deleteCtoTube,
   getViasByCtotube, getViasByCto, setCtoViaFusion, clearCtoViaFusion, updateCtoVia, setCtoViaFiber, deleteCtoVia,
   getViaAssociationsByCto, createCtoViaAssociation, deleteCtoViaAssociation, deleteCtoViaAssociationByVias,
-  setProjectStatus, setProjectStatusEmLote, getProjectStatusSummary, type ProjectStatusTipo,
+  setProjectStatus, setProjectStatusEmLote, getProjectStatusSummary, getProjectSummaries, type ProjectStatusTipo,
 } from "./db";
 import {
   createConnection,
@@ -3858,14 +3858,21 @@ ${fiberFolder}
     members: protectedProcedure
       .input(z.object({ groupId: z.number() }))
       .query(({ input }) => getGroupMembers(input.groupId)),
+    /**
+     * Contagens por projeto, por tipo e estado. A conta em si (percentual,
+     * totais, o que omitir) vive em shared/projectSummary.ts — aqui só sai o
+     * dado cru, para servidor e cliente interpretarem do mesmo jeito.
+     */
+    projectSummary: protectedProcedure
+      .query(() => getProjectSummaries()),
     create: operatorProcedure
-      .input(z.object({ name: z.string().min(1), color: z.string().optional(), description: z.string().optional(), parentId: z.number().nullable().optional() }))
+      .input(z.object({ name: z.string().min(1), color: z.string().optional(), description: z.string().optional(), parentId: z.number().nullable().optional(), isProject: z.boolean().optional() }))
       .mutation(async ({ input }) => {
         const id = await createMapGroup(input);
         return { id };
       }),
     update: operatorProcedure
-      .input(z.object({ id: z.number(), name: z.string().optional(), color: z.string().optional(), description: z.string().optional(), parentId: z.number().nullable().optional() }))
+      .input(z.object({ id: z.number(), name: z.string().optional(), color: z.string().optional(), description: z.string().optional(), parentId: z.number().nullable().optional(), isProject: z.boolean().optional() }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
         await updateMapGroup(id, data);

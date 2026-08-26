@@ -742,6 +742,10 @@ export const mapGroups = mysqlTable("map_groups", {
   description: text("description"),
   parentId: int("parentId"),
   sortOrder: int("sortOrder").default(0).notNull(),
+  // Um projeto é um grupo que também acompanha execução: exibe o percentual
+  // implantado do próprio conjunto, calculado do projectStatus dos membros.
+  // Ver migrate-v23.sql para por que é um campo e não uma tabela.
+  isProject: boolean("isProject").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

@@ -88,6 +88,8 @@ import {
   RouteExtraTube,
   InsertRouteExtraTube,
 } from "../drizzle/schema";
+import { normalizeProjectStatus, type ProjectTipo } from "../shared/projectStatus";
+import type { ContagensDoProjeto } from "../shared/projectSummary";
 import { ENV } from "./_core/env";
 import { getTenantDbFromContext, getTenantDbNameFromContext } from "./_core/tenantContext";
 import { getTenantRawPool } from "./_core/tenantPool";
@@ -2558,7 +2560,7 @@ export async function getMapGroups(): Promise<MapGroup[]> {
   return db.select().from(mapGroups).orderBy(mapGroups.name);
 }
 
-export async function createMapGroup(data: { name: string; color?: string; description?: string; parentId?: number | null }): Promise<number> {
+export async function createMapGroup(data: { name: string; color?: string; description?: string; parentId?: number | null; isProject?: boolean }): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   const [result] = await db.insert(mapGroups).values({
@@ -2566,11 +2568,13 @@ export async function createMapGroup(data: { name: string; color?: string; descr
     color: data.color ?? "#6366f1",
     description: data.description ?? null,
     parentId: data.parentId ?? null,
+    // Grupo comum é o padrão. Projeto é a excepção que a pessoa liga.
+    isProject: data.isProject ?? false,
   });
   return (result as any).insertId as number;
 }
 
-export async function updateMapGroup(id: number, data: { name?: string; color?: string; description?: string; parentId?: number | null }): Promise<void> {
+export async function updateMapGroup(id: number, data: { name?: string; color?: string; description?: string; parentId?: number | null; isProject?: boolean }): Promise<void> {
   const db = await getDb();
   if (!db) return;
   await db.update(mapGroups).set({ ...data, updatedAt: new Date() }).where(eq(mapGroups.id, id));
@@ -5639,16 +5643,23 @@ export async function getDgoSlotCtoBalances(input: {
 // Ver shared/projectStatus.ts para a semântica dos estados e a distinção em
 // relação ao campo `status`, que é operacional.
 
-/** Tabelas que têm ciclo de vida de projeto, e o rótulo usado na API. */
-const PROJECT_STATUS_TABLES = {
+/**
+ * Tabelas que têm ciclo de vida de projeto, e o rótulo usado na API.
+ *
+ * Tipado como Record<ProjectTipo, string> de propósito: a lista de tipos vive
+ * em shared/projectStatus.ts, e amarrar as duas faz de um esquecimento um erro
+ * de compilação. Sem isso, acrescentar um tipo lá e não acrescentar a tabela
+ * aqui daria `undefined` no nome da tabela e uma SQL inválida em produção.
+ */
+const PROJECT_STATUS_TABLES: Record<ProjectTipo, string> = {
   ceo: "ceos",
   cto: "ctos",
   cabo: "map_routes",
   poste: "map_poles",
   reserva: "map_technical_reserves",
-} as const;
+};
 
-export type ProjectStatusTipo = keyof typeof PROJECT_STATUS_TABLES;
+export type ProjectStatusTipo = ProjectTipo;
 
 function poolDoTenant() {
   const tenantDbName = getTenantDbNameFromContext();
@@ -5699,4 +5710,133 @@ export async function getProjectStatusSummary(): Promise<
     for (const l of linhas) saida[tipo][l.projectStatus ?? "deployed"] = Number(l.total);
   }
   return saida;
+}
+
+// ─── Resumo de execução por projeto ───────────────────────────────────────────
+//
+// Um projeto é um grupo do mapa com `isProject` ligado (migrate-v23.sql). O que
+// se quer saber dele é quanto já saiu do papel: dos seus CTOs, CEOs, cabos,
+// postes e reservas, quantos estão implantados.
+//
+// Escrito com Drizzle, e não com SQL crua como o resto desta secção, por um
+// motivo concreto: `map_pole_groups` e `map_reserve_groups` usam colunas em
+// snake_case (`pole_id`, `group_id`) enquanto `map_element_groups` e
+// `map_route_groups` usam camelCase (`elementId`, `groupId`). Escrevendo à mão
+// eu erraria, e o erro apareceria como um JOIN devolvendo zero linhas em
+// silêncio — não como um estouro que alguém nota.
+
+type LinhaDeContagem = { groupId: number; estado: string | null; total: unknown };
+
+/**
+ * Executa uma das consultas de contagem, devolvendo [] se a tabela ainda não
+ * existir (migração pendente). O mapa continua abrindo com os outros tipos, em
+ * vez de a tela inteira falhar por causa de um.
+ */
+async function contarPorGrupo(
+  tipo: ProjectTipo,
+  executar: () => Promise<LinhaDeContagem[]>
+): Promise<LinhaDeContagem[]> {
+  try {
+    return await executar();
+  } catch (erro) {
+    console.warn(`[getProjectSummaries] contagem de ${tipo} falhou:`, erro);
+    return [];
+  }
+}
+
+/**
+ * Contagens por grupo, tipo e estado de projeto.
+ *
+ * Devolve todos os grupos, não só os marcados como projeto: filtrar aqui
+ * economizaria pouco e obrigaria a refazer a consulta no dia em que um grupo
+ * comum quiser exibir a mesma informação. Quem decide o que mostrar é a tela.
+ *
+ * A interpretação dos números — percentual, o que omitir, o que conta como
+ * executado — vive em shared/projectSummary.ts. Aqui só sai o dado cru.
+ */
+export async function getProjectSummaries(): Promise<Record<number, ContagensDoProjeto>> {
+  const db = await getDb();
+  if (!db) return {};
+
+  const acc: Record<number, ContagensDoProjeto> = {};
+  const somar = (tipo: ProjectTipo, linhas: LinhaDeContagem[]) => {
+    for (const linha of linhas) {
+      const n = Number(linha.total);
+      if (!Number.isFinite(n) || n <= 0) continue;
+      const grupo = Number(linha.groupId);
+      if (!Number.isFinite(grupo)) continue;
+      const doGrupo = acc[grupo] ?? (acc[grupo] = {});
+      const doTipo = doGrupo[tipo] ?? (doGrupo[tipo] = {});
+      const st = normalizeProjectStatus(linha.estado);
+      doTipo[st] = (doTipo[st] ?? 0) + n;
+    }
+  };
+
+  // CEOs e CTOs passam por map_elements: o grupo guarda o id do elemento do
+  // mapa (que é só posição), e o projectStatus vive na tabela de cadastro.
+  somar("ceo", await contarPorGrupo("ceo", async () =>
+    db
+      .select({
+        groupId: mapElementGroups.groupId,
+        estado: ceos.projectStatus,
+        total: sql<number>`count(*)`,
+      })
+      .from(mapElementGroups)
+      .innerJoin(mapElements, eq(mapElements.id, mapElementGroups.elementId))
+      .innerJoin(ceos, eq(ceos.id, mapElements.referenceId))
+      .where(eq(mapElements.type, "ceo"))
+      .groupBy(mapElementGroups.groupId, ceos.projectStatus)
+  ));
+
+  somar("cto", await contarPorGrupo("cto", async () =>
+    db
+      .select({
+        groupId: mapElementGroups.groupId,
+        estado: ctos.projectStatus,
+        total: sql<number>`count(*)`,
+      })
+      .from(mapElementGroups)
+      .innerJoin(mapElements, eq(mapElements.id, mapElementGroups.elementId))
+      .innerJoin(ctos, eq(ctos.id, mapElements.referenceId))
+      .where(eq(mapElements.type, "cto"))
+      .groupBy(mapElementGroups.groupId, ctos.projectStatus)
+  ));
+
+  somar("cabo", await contarPorGrupo("cabo", async () =>
+    db
+      .select({
+        groupId: mapRouteGroups.groupId,
+        estado: mapRoutes.projectStatus,
+        total: sql<number>`count(*)`,
+      })
+      .from(mapRouteGroups)
+      .innerJoin(mapRoutes, eq(mapRoutes.id, mapRouteGroups.routeId))
+      .groupBy(mapRouteGroups.groupId, mapRoutes.projectStatus)
+  ));
+
+  somar("poste", await contarPorGrupo("poste", async () =>
+    db
+      .select({
+        groupId: mapPoleGroups.groupId,
+        estado: mapPoles.projectStatus,
+        total: sql<number>`count(*)`,
+      })
+      .from(mapPoleGroups)
+      .innerJoin(mapPoles, eq(mapPoles.id, mapPoleGroups.poleId))
+      .groupBy(mapPoleGroups.groupId, mapPoles.projectStatus)
+  ));
+
+  somar("reserva", await contarPorGrupo("reserva", async () =>
+    db
+      .select({
+        groupId: mapReserveGroups.groupId,
+        estado: mapTechnicalReserves.projectStatus,
+        total: sql<number>`count(*)`,
+      })
+      .from(mapReserveGroups)
+      .innerJoin(mapTechnicalReserves, eq(mapTechnicalReserves.id, mapReserveGroups.reserveId))
+      .groupBy(mapReserveGroups.groupId, mapTechnicalReserves.projectStatus)
+  ));
+
+  return acc;
 }

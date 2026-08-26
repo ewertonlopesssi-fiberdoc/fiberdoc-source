@@ -42,6 +42,30 @@ export const PROJECT_STATUS_COLOR: Record<ProjectStatus, string> = {
 /** Estados que contam como executado, para o cálculo de percentual implantado. */
 export const PROJECT_STATUS_DONE: ProjectStatus[] = ["deployed", "certified"];
 
+/**
+ * Tipos de item que têm ciclo de vida de projeto.
+ *
+ * POIs e OLTs ficam de fora de propósito: não receberam a coluna na v22, e não
+ * fazem sentido nesta conta. Um POI é uma anotação no mapa, e uma OLT não é
+ * implantada por projeto de expansão — ela já está no PoP antes de o projeto
+ * começar. Incluí-los só diluiria o percentual.
+ *
+ * A ordem é a de leitura no painel, não alfabética: primeiro o que a pessoa
+ * conta primeiro num projeto FTTH.
+ */
+export const PROJECT_TIPOS = ["cto", "ceo", "cabo", "poste", "reserva"] as const;
+
+export type ProjectTipo = (typeof PROJECT_TIPOS)[number];
+
+/** Rótulo no plural, que é como aparece na contagem ("8/12 CTOs"). */
+export const PROJECT_TIPO_LABEL: Record<ProjectTipo, string> = {
+  cto: "CTOs",
+  ceo: "CEOs",
+  cabo: "cabos",
+  poste: "postes",
+  reserva: "reservas",
+};
+
 /** Converte um valor vindo do banco num ProjectStatus válido. */
 export function normalizeProjectStatus(valor: unknown): ProjectStatus {
   return PROJECT_STATUSES.includes(valor as ProjectStatus)
