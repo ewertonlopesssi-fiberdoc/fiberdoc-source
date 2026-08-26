@@ -20,6 +20,7 @@ import MapContextMenu, { type MapContextMenuTarget } from "@/components/map/MapC
 import AddElementDropdown from "@/components/map/AddElementDropdown";
 
 import { trpc } from "@/lib/trpc";
+import { PROJECT_STATUSES, PROJECT_STATUS_LABEL, PROJECT_STATUS_COLOR, percentualImplantado } from "@shared/projectStatus";
 import { createStreetLayer, createSatelliteLayer, clampZoomForStreet, satelliteProviderLabel } from "@/lib/mapTiles";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -175,6 +176,9 @@ export default function InfrastructureMap() {
   const [mapReady, setMapReady] = useState(false);
 
   const [sidePanel, setSidePanel] = useState<SidePanelContent>(null);
+  // Filtro por estado de projeto. Conjunto vazio = mostrar tudo, que é o
+  // padrão: quem nunca usa o ciclo de vida não deve notar diferença.
+  const [projectStatusFilter, setProjectStatusFilter] = useState<Set<string>>(new Set());
   const [showCeos, setShowCeos] = useState(true);
   const [showCtos, setShowCtos] = useState(true);
   const [showRoutes, setShowRoutes] = useState(true);
@@ -348,6 +352,10 @@ export default function InfrastructureMap() {
   // Edição inline de CEO/CTO/Cabo pelo painel lateral
   const [editElementDialogOpen, setEditElementDialogOpen] = useState(false);
   const [editElementForm, setEditElementForm] = useState({ name: "", address: "", capacity: 8, status: "active", notes: "", color: "" });
+  // Estado de projeto vive fora do editElementForm porque não é salvo pelo
+  // mesmo procedure: updateCeo/updateCto tratam o cadastro, projectStatus.set
+  // trata o ciclo de vida. Separados também no código, como estão no domínio.
+  const [editElementProjectStatus, setEditElementProjectStatus] = useState<string>("deployed");
   const [editRouteDialogOpen, setEditRouteDialogOpen] = useState(false);
   const [editRouteForm, setEditRouteForm] = useState({ name: "", cableType: "FO", fiberCount: 12, color: "#22d3ee", notes: "", fromElementId: null as number | null, toElementId: null as number | null, fromTubeId: null as number | null, toTubeId: null as number | null });
   const [fromSearch, setFromSearch] = useState("");
@@ -587,6 +595,16 @@ export default function InfrastructureMap() {
     else if (type === "olt") setHiddenOltIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }, []);
   // Calcula se um elemento está oculto por grupo (pertence a pelo menos um grupo oculto)
+  // Percentual implantado dos elementos do mapa. Devolve null quando todos
+  // estão em `deployed` — ou seja, quando o ciclo de vida ainda não começou a
+  // ser usado —, para não mostrar "100% implantado" a quem nunca marcou nada.
+  const pctImplantado = useMemo(() => {
+    const estados = (elements as any[]).map(e => e.projectStatus ?? "deployed");
+    if (estados.length === 0) return null;
+    if (estados.every(e => e === "deployed")) return null;
+    return percentualImplantado(estados);
+  }, [elements]);
+
   const isHiddenByGroup = useCallback((itemGroupIds: number[]) => {
     if (hiddenGroupIds.size === 0) return false;
     return itemGroupIds.some(gid => hiddenGroupIds.has(gid));
@@ -661,6 +679,13 @@ export default function InfrastructureMap() {
   };
 
   // Mutations de edição inline
+  const setProjectStatusMut = trpc.projectStatus.set.useMutation({
+    onSuccess: () => {
+      toast.success("Estado de projeto atualizado");
+      refetchElements();
+    },
+    onError: e => toast.error("Erro ao atualizar estado: " + e.message),
+  });
   const updateCeoMut = trpc.ceos.update.useMutation({
     onSuccess: () => {
       mapUtils.ceos.list.invalidate();
@@ -1629,7 +1654,8 @@ export default function InfrastructureMap() {
         return;
       }
       // Visibilidade por item ou por grupo
-      const isHiddenItem = hiddenElementIds.has(el.id) || isHiddenByGroup(elementGroupMap[el.id] ?? []);
+      const isHiddenItem = hiddenElementIds.has(el.id) || isHiddenByGroup(elementGroupMap[el.id] ?? [])
+        || (projectStatusFilter.size > 0 && !projectStatusFilter.has(((el as any).projectStatus ?? "deployed") as string));
       if (isHiddenItem) {
         if (markersRef.current[el.id]) { safeLeafletRemove(markersRef.current[el.id]); delete markersRef.current[el.id]; delete prevMarkerStateRef.current[el.id]; }
         return;
@@ -1645,7 +1671,11 @@ export default function InfrastructureMap() {
 
       // Chave de estado: se igual ao anterior, apenas actualiza posição se mudou
       const badgeKey = onuBadgeData ? `${onuBadgeData.total}/${onuBadgeData.online ?? ''}` : '';
-      const stateKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}|${isDraggable ? 1 : 0}|${showElementNames ? 1 : 0}`;
+      // Estado de projeto do elemento (planned/pending/deployed/certified).
+      // Entra nas chaves abaixo porque o ícone é cacheado: sem isso, mudar o
+      // estado não trocaria o desenho do marcador.
+      const projStatus = ((el as any).projectStatus ?? null) as string | null;
+      const stateKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}|${isDraggable ? 1 : 0}|${showElementNames ? 1 : 0}|${projStatus ?? ''}`;
       const existingMarker = markersRef.current[el.id];
 
       if (existingMarker) {
@@ -1656,9 +1686,9 @@ export default function InfrastructureMap() {
         }
         // Actualizar ícone apenas se o estado visual mudou
         if (stateKey !== prevMarkerStateRef.current[el.id]) {
-          const iconKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}|${showElementNames ? 1 : 0}`;
+          const iconKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}|${showElementNames ? 1 : 0}|${projStatus ?? ''}`;
           if (!iconCacheRef.current[iconKey]) {
-            iconCacheRef.current[iconKey] = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null, showElementNames);
+            iconCacheRef.current[iconKey] = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null, showElementNames, projStatus);
           }
           existingMarker.setIcon(iconCacheRef.current[iconKey]);
           (existingMarker as any).dragging?.[isDraggable ? 'enable' : 'disable']();
@@ -1668,9 +1698,9 @@ export default function InfrastructureMap() {
       }
 
       // Criar novo marcador
-      const iconKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}|${showElementNames ? 1 : 0}`;
+      const iconKey = `${el.type}|${status}|${name}|${isSelected ? 1 : 0}|${badgeKey}|${el.color ?? ''}|${showElementNames ? 1 : 0}|${projStatus ?? ''}`;
       if (!iconCacheRef.current[iconKey]) {
-        iconCacheRef.current[iconKey] = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null, showElementNames);
+        iconCacheRef.current[iconKey] = createLeafletIcon(el.type, status, name, isSelected, onuBadgeData, el.color ?? null, showElementNames, projStatus);
       }
       const icon = iconCacheRef.current[iconKey];
       const marker = L.marker([Number(el.lat), Number(el.lng)], { icon, draggable: isDraggable, bubblingMouseEvents: false } as any).addTo(mapRef.current!);
@@ -1741,7 +1771,7 @@ export default function InfrastructureMap() {
       markersRef.current[el.id] = marker;
       prevMarkerStateRef.current[el.id] = stateKey;
     });
-  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, movingElementId, onuCountMap, otdrMode, hiddenElementIds, elementGroupMap, isHiddenByGroup, showElementNames]);
+  }, [elements, ctos, ceos, showCeos, showCtos, mapReady, addingRouteMode, groupSelectMode, groupSelectedElements, toggleGroupElement, isAdmin, editMode, movingElementId, onuCountMap, otdrMode, hiddenElementIds, elementGroupMap, isHiddenByGroup, showElementNames, projectStatusFilter]);
 
   // Renderizar rotas (diff incremental — só cria/actualiza/remove o que mudou)
   const renderRoutes = useCallback(() => {
@@ -4749,6 +4779,39 @@ export default function InfrastructureMap() {
               <MapPin className="w-3 h-3 mr-1.5 text-muted-foreground" />POIs
             </DropdownMenuCheckboxItem>
             <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-muted-foreground py-1">
+              Estado de projeto
+              {projectStatusFilter.size > 0 && (
+                <button
+                  className="ml-2 text-[10px] text-primary hover:underline"
+                  onClick={e => { e.preventDefault(); setProjectStatusFilter(new Set()); }}
+                >
+                  limpar
+                </button>
+              )}
+            </DropdownMenuLabel>
+            {PROJECT_STATUSES.map(st => (
+              <DropdownMenuCheckboxItem
+                key={st}
+                checked={projectStatusFilter.size === 0 || projectStatusFilter.has(st)}
+                onCheckedChange={() => setProjectStatusFilter(atual => {
+                  // Conjunto vazio significa "tudo". O primeiro clique passa a
+                  // isolar o estado escolhido, em vez de esconder só ele —
+                  // que é o que a pessoa quer ao filtrar.
+                  const novo = atual.size === 0 ? new Set([st]) : new Set(atual);
+                  if (atual.size > 0) { novo.has(st) ? novo.delete(st) : novo.add(st); }
+                  return novo.size === PROJECT_STATUSES.length ? new Set() : novo;
+                })}
+                className="text-xs"
+              >
+                <span
+                  className="w-2.5 h-2.5 rounded-sm mr-1.5 shrink-0 border"
+                  style={{ background: PROJECT_STATUS_COLOR[st], borderColor: PROJECT_STATUS_COLOR[st] }}
+                />
+                {PROJECT_STATUS_LABEL[st]}
+              </DropdownMenuCheckboxItem>
+            ))}
+            <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-xs text-muted-foreground py-1">Cabos</DropdownMenuLabel>
             <DropdownMenuCheckboxItem checked={showRoutes} onCheckedChange={() => setShowRoutes(v => !v)} className="text-xs">
               <Cable className="w-3 h-3 mr-1.5 text-muted-foreground" />Cabos
@@ -5266,6 +5329,14 @@ export default function InfrastructureMap() {
           {/* Legenda removida conforme solicitação */}
           <div className="absolute top-4 left-4 bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 text-xs" style={{ zIndex: 1000 }}>
             <span className="text-muted-foreground">{(elements as any[]).length > 0 ? (elements as any[]).length : lastElementsCountRef.current} elementos · {(routes as any[]).length > 0 ? (routes as any[]).length : lastRoutesCountRef.current} cabos</span>
+            {pctImplantado !== null && (
+              <span
+                className="text-muted-foreground/70 border-l border-border/50 pl-2 ml-1"
+                title="Percentual de elementos com estado Implantado ou Certificado"
+              >
+                {pctImplantado}% implantado
+              </span>
+            )}
           </div>
 
           {/* Painel OTDR Virtual flutuante */}
@@ -5759,7 +5830,7 @@ export default function InfrastructureMap() {
                           >{elName}</span>
                           <span className="text-muted-foreground/40 uppercase text-[9px]">{el.type ?? ""}</span>
                           {isAdmin && (<>
-                            <button title="Editar" className="opacity-0 group-hover:opacity-100 hover:text-cyan-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); setEditElementForm({ name: el.name ?? "", address: "", capacity: el.capacity ?? 8, status: el.status ?? "active", notes: "", color: el.color ?? "" }); setSidePanel({ kind: "element", element: el }); setEditElementDialogOpen(true); }}><Pencil className="w-3 h-3" /></button>
+                            <button title="Editar" className="opacity-0 group-hover:opacity-100 hover:text-cyan-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); setEditElementForm({ name: el.name ?? "", address: "", capacity: el.capacity ?? 8, status: el.status ?? "active", notes: "", color: el.color ?? "" }); setEditElementProjectStatus((el as any).projectStatus ?? "deployed"); setSidePanel({ kind: "element", element: el }); setEditElementDialogOpen(true); }}><Pencil className="w-3 h-3" /></button>
                             <button title="Remover do grupo" className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-muted-foreground/50 flex-shrink-0" onClick={e => { e.stopPropagation(); removeElementFromGroupMut.mutate({ groupId: group.id, elementId: el.id }); }}><X className="w-3 h-3" /></button>
                           </>)}
                         </div>
@@ -6861,7 +6932,7 @@ export default function InfrastructureMap() {
               </div>
             )}
             <div className="space-y-1.5">
-              <Label>Status</Label>
+              <Label>Status operacional</Label>
               <Select value={editElementForm.status} onValueChange={v => setEditElementForm(f => ({ ...f, status: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -6870,6 +6941,27 @@ export default function InfrastructureMap() {
                   <SelectItem value="inactive">Inativo</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-[11px] text-muted-foreground">Se o elemento está funcionando.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Estado de projeto</Label>
+              <Select
+                value={editElementProjectStatus}
+                onValueChange={v => setEditElementProjectStatus(v)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PROJECT_STATUSES.map(st => (
+                    <SelectItem key={st} value={st}>
+                      <span className="inline-flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-sm" style={{ background: PROJECT_STATUS_COLOR[st] }} />
+                        {PROJECT_STATUS_LABEL[st]}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">Em que ponto do projeto ele está. Independente do status acima.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Cor do marcador</Label>
@@ -6918,6 +7010,10 @@ export default function InfrastructureMap() {
                 }
                 // Salvar cor personalizada no elemento do mapa
                 (upsertElementMut.mutate as any)({ type: el.type, referenceId: el.referenceId, lat: el.lat, lng: el.lng, color: editElementForm.color || null });
+                // Ciclo de vida: só chama quando mudou, para não gerar escrita à toa
+                if (editElementProjectStatus !== ((el as any).projectStatus ?? "deployed")) {
+                  setProjectStatusMut.mutate({ tipo: el.type as "ceo" | "cto", id: el.referenceId, status: editElementProjectStatus as any });
+                }
               }}
             >
               {updateCeoMut.isPending || updateCtoMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}

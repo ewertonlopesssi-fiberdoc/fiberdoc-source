@@ -2316,21 +2316,28 @@ export async function deleteCto(id: number): Promise<void> {
 }
 
 // ─── Map Elements ─────────────────────────────────────────────────────────────
-export async function getMapElements(): Promise<(MapElement & { elementName?: string })[]> {
+export async function getMapElements(): Promise<(MapElement & { elementName?: string; projectStatus?: string })[]> {
   const db = await getDb();
   if (!db) return [];
   const rows = await db.select().from(mapElements);
-  // Enrich with name from ceos/ctos
+  // Enrich with name from ceos/ctos.
+  // projectStatus vive na tabela do elemento (ceos/ctos), não em map_elements,
+  // que guarda só a posição. Vem junto para o mapa poder colorir por estado
+  // de projeto sem uma segunda consulta por marcador.
   const ceoIds = rows.filter(r => r.type === 'ceo').map(r => r.referenceId);
   const ctoIds = rows.filter(r => r.type === 'cto').map(r => r.referenceId);
-  const ceoRows = ceoIds.length > 0 ? await db.select({ id: ceos.id, name: ceos.name }).from(ceos).where(inArray(ceos.id, ceoIds)) : [];
-  const ctoRows = ctoIds.length > 0 ? await db.select({ id: ctos.id, name: ctos.name }).from(ctos).where(inArray(ctos.id, ctoIds)) : [];
-  const ceoMap = new Map(ceoRows.map(r => [r.id, r.name]));
-  const ctoMap = new Map(ctoRows.map(r => [r.id, r.name]));
-  return rows.map(r => ({
-    ...r,
-    elementName: r.type === 'ceo' ? (ceoMap.get(r.referenceId) ?? undefined) : (ctoMap.get(r.referenceId) ?? undefined),
-  }));
+  const ceoRows = ceoIds.length > 0 ? await db.select({ id: ceos.id, name: ceos.name, projectStatus: ceos.projectStatus }).from(ceos).where(inArray(ceos.id, ceoIds)) : [];
+  const ctoRows = ctoIds.length > 0 ? await db.select({ id: ctos.id, name: ctos.name, projectStatus: ctos.projectStatus }).from(ctos).where(inArray(ctos.id, ctoIds)) : [];
+  const ceoMap = new Map(ceoRows.map(r => [r.id, r]));
+  const ctoMap = new Map(ctoRows.map(r => [r.id, r]));
+  return rows.map(r => {
+    const origem = r.type === 'ceo' ? ceoMap.get(r.referenceId) : ctoMap.get(r.referenceId);
+    return {
+      ...r,
+      elementName: origem?.name ?? undefined,
+      projectStatus: origem?.projectStatus ?? undefined,
+    };
+  });
 }
 export async function upsertMapElement(type: string, referenceId: number, lat: number, lng: number, color?: string | null): Promise<number> {
   const db = await getDb();
