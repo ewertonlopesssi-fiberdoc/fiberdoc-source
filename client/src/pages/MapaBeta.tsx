@@ -63,16 +63,16 @@ export default function MapaBeta() {
   const carregando = carregandoCtos || carregandoCeos;
 
   // ─── Inicialização do mapa ────────────────────────────────────────────────
+  // Roda UMA vez. Recriar o mapa quando sysConfig chega destruiria a instância
+  // à qual os handlers de clique já foram ligados — e como mapPronto não muda
+  // nesse segundo ciclo, o efeito que os liga não roda de novo e os cliques
+  // ficam presos num mapa que não existe mais. A posição configurada é
+  // aplicada no efeito seguinte, sem recriar nada.
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
-    const lat = parseFloat((sysConfig as any)?.mapDefaultLat ?? "");
-    const lng = parseFloat((sysConfig as any)?.mapDefaultLng ?? "");
-    const zoom = parseInt((sysConfig as any)?.mapDefaultZoom ?? "");
-    const centro: [number, number] = !isNaN(lat) && !isNaN(lng) ? [lat, lng] : [-15.7801, -47.9292];
-
     const map = L.map(mapContainerRef.current, {
-      center: centro,
-      zoom: !isNaN(zoom) ? zoom : 5,
+      center: [-15.7801, -47.9292],
+      zoom: 5,
       zoomControl: true,
     });
     const base = createStreetLayer();
@@ -90,7 +90,21 @@ export default function MapaBeta() {
       camadaDadosRef.current = null;
       camadaMedicaoRef.current = null;
     };
-  }, [sysConfig]);
+  }, []);
+
+  // Centro e zoom padrão do sistema, aplicados quando a configuração chega.
+  // Só uma vez, e só se o usuário ainda não tiver mexido no mapa.
+  const posicaoAplicadaRef = useRef(false);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapPronto || !map || posicaoAplicadaRef.current || !sysConfig) return;
+    const lat = parseFloat((sysConfig as any)?.mapDefaultLat ?? "");
+    const lng = parseFloat((sysConfig as any)?.mapDefaultLng ?? "");
+    const zoom = parseInt((sysConfig as any)?.mapDefaultZoom ?? "");
+    if (isNaN(lat) || isNaN(lng)) return;
+    map.setView([lat, lng], !isNaN(zoom) ? zoom : 5);
+    posicaoAplicadaRef.current = true;
+  }, [mapPronto, sysConfig]);
 
   // ─── Camada base ──────────────────────────────────────────────────────────
   const alternarSatelite = useCallback(() => {
