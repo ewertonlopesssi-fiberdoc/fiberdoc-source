@@ -4012,6 +4012,11 @@ export default function InfrastructureMap() {
                 notes: "",
                 color: el.color ?? "",
               });
+              // Sem esta linha o campo mantém o valor da abertura anterior do
+              // diálogo, e salvar grava o estado de projeto de outro elemento
+              // sem avisar ninguém. O outro botão "Editar" (na lista de
+              // grupos, mais abaixo) já fazia isto; este ficou de fora.
+              setEditElementProjectStatus((el as any).projectStatus ?? "deployed");
               setEditElementDialogOpen(true);
             }}>
               <Pencil className="w-3.5 h-3.5" /> Editar
