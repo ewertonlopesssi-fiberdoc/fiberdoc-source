@@ -2316,21 +2316,28 @@ export async function deleteCto(id: number): Promise<void> {
 }
 
 // ─── Map Elements ─────────────────────────────────────────────────────────────
-export async function getMapElements(): Promise<(MapElement & { elementName?: string })[]> {
+export async function getMapElements(): Promise<(MapElement & { elementName?: string; projectStatus?: string })[]> {
   const db = await getDb();
   if (!db) return [];
   const rows = await db.select().from(mapElements);
-  // Enrich with name from ceos/ctos
+  // Enrich with name from ceos/ctos.
+  // projectStatus vive na tabela do elemento (ceos/ctos), não em map_elements,
+  // que guarda só a posição. Vem junto para o mapa poder colorir por estado
+  // de projeto sem uma segunda consulta por marcador.
   const ceoIds = rows.filter(r => r.type === 'ceo').map(r => r.referenceId);
   const ctoIds = rows.filter(r => r.type === 'cto').map(r => r.referenceId);
-  const ceoRows = ceoIds.length > 0 ? await db.select({ id: ceos.id, name: ceos.name }).from(ceos).where(inArray(ceos.id, ceoIds)) : [];
-  const ctoRows = ctoIds.length > 0 ? await db.select({ id: ctos.id, name: ctos.name }).from(ctos).where(inArray(ctos.id, ctoIds)) : [];
-  const ceoMap = new Map(ceoRows.map(r => [r.id, r.name]));
-  const ctoMap = new Map(ctoRows.map(r => [r.id, r.name]));
-  return rows.map(r => ({
-    ...r,
-    elementName: r.type === 'ceo' ? (ceoMap.get(r.referenceId) ?? undefined) : (ctoMap.get(r.referenceId) ?? undefined),
-  }));
+  const ceoRows = ceoIds.length > 0 ? await db.select({ id: ceos.id, name: ceos.name, projectStatus: ceos.projectStatus }).from(ceos).where(inArray(ceos.id, ceoIds)) : [];
+  const ctoRows = ctoIds.length > 0 ? await db.select({ id: ctos.id, name: ctos.name, projectStatus: ctos.projectStatus }).from(ctos).where(inArray(ctos.id, ctoIds)) : [];
+  const ceoMap = new Map(ceoRows.map(r => [r.id, r]));
+  const ctoMap = new Map(ctoRows.map(r => [r.id, r]));
+  return rows.map(r => {
+    const origem = r.type === 'ceo' ? ceoMap.get(r.referenceId) : ctoMap.get(r.referenceId);
+    return {
+      ...r,
+      elementName: origem?.name ?? undefined,
+      projectStatus: origem?.projectStatus ?? undefined,
+    };
+  });
 }
 export async function upsertMapElement(type: string, referenceId: number, lat: number, lng: number, color?: string | null): Promise<number> {
   const db = await getDb();
@@ -5626,4 +5633,70 @@ export async function getDgoSlotCtoBalances(input: {
   }
 
   return results;
+}
+
+// ─── Ciclo de vida de projeto ─────────────────────────────────────────────────
+// Ver shared/projectStatus.ts para a semântica dos estados e a distinção em
+// relação ao campo `status`, que é operacional.
+
+/** Tabelas que têm ciclo de vida de projeto, e o rótulo usado na API. */
+const PROJECT_STATUS_TABLES = {
+  ceo: "ceos",
+  cto: "ctos",
+  cabo: "map_routes",
+  poste: "map_poles",
+  reserva: "map_technical_reserves",
+} as const;
+
+export type ProjectStatusTipo = keyof typeof PROJECT_STATUS_TABLES;
+
+function poolDoTenant() {
+  const tenantDbName = getTenantDbNameFromContext();
+  if (!tenantDbName && !_pool) _pool = createPool();
+  return (tenantDbName ? getTenantRawPool(tenantDbName) : _pool!).promise();
+}
+
+/**
+ * Define o estado de projeto de um elemento.
+ * O nome da tabela vem de um mapa fechado, nunca da entrada — o tipo é
+ * validado antes de chegar aqui e nada do usuário entra na SQL.
+ */
+export async function setProjectStatus(tipo: ProjectStatusTipo, id: number, status: string): Promise<void> {
+  const tabela = PROJECT_STATUS_TABLES[tipo];
+  if (!tabela) throw new Error(`Tipo inválido: ${tipo}`);
+  const pool = poolDoTenant();
+  await pool.execute(`UPDATE \`${tabela}\` SET projectStatus = ? WHERE id = ?`, [status, id]);
+}
+
+/** Define o estado de projeto de vários elementos do mesmo tipo de uma vez. */
+export async function setProjectStatusEmLote(tipo: ProjectStatusTipo, ids: number[], status: string): Promise<number> {
+  if (ids.length === 0) return 0;
+  const tabela = PROJECT_STATUS_TABLES[tipo];
+  if (!tabela) throw new Error(`Tipo inválido: ${tipo}`);
+  const pool = poolDoTenant();
+  const marcadores = ids.map(() => "?").join(",");
+  const [res] = await pool.execute<any>(
+    `UPDATE \`${tabela}\` SET projectStatus = ? WHERE id IN (${marcadores})`,
+    [status, ...ids]
+  );
+  return res?.affectedRows ?? 0;
+}
+
+/**
+ * Contagem de elementos por estado de projeto, para cada tipo.
+ * É a base do percentual de implantação exibido no mapa.
+ */
+export async function getProjectStatusSummary(): Promise<
+  Record<ProjectStatusTipo, Record<string, number>>
+> {
+  const pool = poolDoTenant();
+  const saida = {} as Record<ProjectStatusTipo, Record<string, number>>;
+  for (const [tipo, tabela] of Object.entries(PROJECT_STATUS_TABLES) as [ProjectStatusTipo, string][]) {
+    const [linhas] = await pool.execute<any[]>(
+      `SELECT projectStatus, COUNT(*) AS total FROM \`${tabela}\` GROUP BY projectStatus`
+    );
+    saida[tipo] = {};
+    for (const l of linhas) saida[tipo][l.projectStatus ?? "deployed"] = Number(l.total);
+  }
+  return saida;
 }
