@@ -387,10 +387,20 @@ log_ok "Manifesto criado: ${MANIFEST_FILE}"
 log_step "[6/6] Verificação final do pacote..."
 
 # Verificar conteúdo mínimo
+#
+# A listagem é lida UMA vez para uma variável, em vez de `unzip -l | grep -q`
+# por ficheiro. O motivo é um falso negativo real: `grep -q` sai no primeiro
+# casamento, o `unzip` continua a escrever e apanha SIGPIPE (141), e com o
+# `set -o pipefail` do topo deste script o `if` vê o estado do unzip morto em
+# vez do sucesso do grep. Dava "✗ dist/index.js não encontrado" em pacotes
+# perfeitamente bons, e de forma intermitente — é uma corrida, depende de
+# quando o grep encontra. Um verificador que grita lobo treina quem o lê a
+# ignorar o aviso do dia em que a build falhar de verdade.
 REQUIRED=("dist/index.js" "dist/public/index.html" "package.json")
 ALL_OK=true
+ZIP_LIST=$(unzip -l "${ZIP_FILE}")
 for f in "${REQUIRED[@]}"; do
-  if unzip -l "${ZIP_FILE}" | grep -q "${f}"; then
+  if grep -qF "${f}" <<< "${ZIP_LIST}"; then
     log_ok "  ✓ ${f}"
   else
     log_warn "  ✗ ${f} — não encontrado no ZIP"
