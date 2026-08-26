@@ -5627,3 +5627,69 @@ export async function getDgoSlotCtoBalances(input: {
 
   return results;
 }
+
+// ─── Ciclo de vida de projeto ─────────────────────────────────────────────────
+// Ver shared/projectStatus.ts para a semântica dos estados e a distinção em
+// relação ao campo `status`, que é operacional.
+
+/** Tabelas que têm ciclo de vida de projeto, e o rótulo usado na API. */
+const PROJECT_STATUS_TABLES = {
+  ceo: "ceos",
+  cto: "ctos",
+  cabo: "map_routes",
+  poste: "map_poles",
+  reserva: "map_technical_reserves",
+} as const;
+
+export type ProjectStatusTipo = keyof typeof PROJECT_STATUS_TABLES;
+
+function poolDoTenant() {
+  const tenantDbName = getTenantDbNameFromContext();
+  if (!tenantDbName && !_pool) _pool = createPool();
+  return (tenantDbName ? getTenantRawPool(tenantDbName) : _pool!).promise();
+}
+
+/**
+ * Define o estado de projeto de um elemento.
+ * O nome da tabela vem de um mapa fechado, nunca da entrada — o tipo é
+ * validado antes de chegar aqui e nada do usuário entra na SQL.
+ */
+export async function setProjectStatus(tipo: ProjectStatusTipo, id: number, status: string): Promise<void> {
+  const tabela = PROJECT_STATUS_TABLES[tipo];
+  if (!tabela) throw new Error(`Tipo inválido: ${tipo}`);
+  const pool = poolDoTenant();
+  await pool.execute(`UPDATE \`${tabela}\` SET projectStatus = ? WHERE id = ?`, [status, id]);
+}
+
+/** Define o estado de projeto de vários elementos do mesmo tipo de uma vez. */
+export async function setProjectStatusEmLote(tipo: ProjectStatusTipo, ids: number[], status: string): Promise<number> {
+  if (ids.length === 0) return 0;
+  const tabela = PROJECT_STATUS_TABLES[tipo];
+  if (!tabela) throw new Error(`Tipo inválido: ${tipo}`);
+  const pool = poolDoTenant();
+  const marcadores = ids.map(() => "?").join(",");
+  const [res] = await pool.execute<any>(
+    `UPDATE \`${tabela}\` SET projectStatus = ? WHERE id IN (${marcadores})`,
+    [status, ...ids]
+  );
+  return res?.affectedRows ?? 0;
+}
+
+/**
+ * Contagem de elementos por estado de projeto, para cada tipo.
+ * É a base do percentual de implantação exibido no mapa.
+ */
+export async function getProjectStatusSummary(): Promise<
+  Record<ProjectStatusTipo, Record<string, number>>
+> {
+  const pool = poolDoTenant();
+  const saida = {} as Record<ProjectStatusTipo, Record<string, number>>;
+  for (const [tipo, tabela] of Object.entries(PROJECT_STATUS_TABLES) as [ProjectStatusTipo, string][]) {
+    const [linhas] = await pool.execute<any[]>(
+      `SELECT projectStatus, COUNT(*) AS total FROM \`${tabela}\` GROUP BY projectStatus`
+    );
+    saida[tipo] = {};
+    for (const l of linhas) saida[tipo][l.projectStatus ?? "deployed"] = Number(l.total);
+  }
+  return saida;
+}

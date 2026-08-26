@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PROJECT_STATUSES } from "@shared/projectStatus";
 import path from "path";
 import fs from "fs";
 // ssh.ts antigo: encryptPassword ainda é usada dinamicamente em equipamentos (import dinâmico)
@@ -38,6 +39,7 @@ import {
   getTubesByCto, createCtoTube, updateCtoTube, deleteCtoTube,
   getViasByCtotube, getViasByCto, setCtoViaFusion, clearCtoViaFusion, updateCtoVia, setCtoViaFiber, deleteCtoVia,
   getViaAssociationsByCto, createCtoViaAssociation, deleteCtoViaAssociation, deleteCtoViaAssociationByVias,
+  setProjectStatus, setProjectStatusEmLote, getProjectStatusSummary, type ProjectStatusTipo,
 } from "./db";
 import {
   createConnection,
@@ -4082,6 +4084,37 @@ ${fiberFolder}
         return { ok: true };
       }),
   }),
+  // ─── Ciclo de vida de projeto ───────────────────────────────────────────
+  // Estados: planned | pending | deployed | certified. Ver shared/projectStatus.ts.
+  // Independente do campo `status`, que é operacional.
+  projectStatus: router({
+    /** Contagem por estado, para cada tipo de elemento. */
+    summary: protectedProcedure
+      .query(() => getProjectStatusSummary()),
+
+    set: operatorProcedure
+      .input(z.object({
+        tipo: z.enum(["ceo", "cto", "cabo", "poste", "reserva"]),
+        id: z.number().int().positive(),
+        status: z.enum(PROJECT_STATUSES),
+      }))
+      .mutation(async ({ input }) => {
+        await setProjectStatus(input.tipo as ProjectStatusTipo, input.id, input.status);
+        return { ok: true };
+      }),
+
+    setMany: operatorProcedure
+      .input(z.object({
+        tipo: z.enum(["ceo", "cto", "cabo", "poste", "reserva"]),
+        ids: z.array(z.number().int().positive()).min(1).max(500),
+        status: z.enum(PROJECT_STATUSES),
+      }))
+      .mutation(async ({ input }) => {
+        const alterados = await setProjectStatusEmLote(input.tipo as ProjectStatusTipo, input.ids, input.status);
+        return { alterados };
+      }),
+  }),
+
   mapTechnicalReserves: router({
     list: protectedProcedure
       .query(() => getMapTechnicalReserves()),

@@ -209,6 +209,9 @@ export const ceos = mysqlTable("ceos", {
   roomId: int("roomId"),
   notes: text("notes"),
   status: mysqlEnum("ceo_status", ["active", "inactive", "maintenance"]).default("active").notNull(),
+  // Ciclo de vida de PROJETO (planned/pending/deployed/certified) — ver shared/projectStatus.ts.
+  // Independente de `status`, que é operacional. Ver comentário em migrate-v22.sql.
+  projectStatus: varchar("projectStatus", { length: 16 }).default("deployed").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -603,6 +606,9 @@ export const ctos = mysqlTable("ctos", {
   lng: double("lng"),                                                  // Longitude
   notes: text("notes"),
   sgpId: int("sgpId"),                                                 // ID da CTO no SGP (para sincronização)
+  // Ciclo de vida de PROJETO (planned/pending/deployed/certified) — ver shared/projectStatus.ts.
+  // Independente de `status`, que é operacional. Ver comentário em migrate-v22.sql.
+  projectStatus: varchar("projectStatus", { length: 16 }).default("deployed").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -635,6 +641,9 @@ export const mapRoutes = mysqlTable("map_routes", {
   color: varchar("color", { length: 16 }).default("#22d3ee"),         // Cor da linha no mapa
   path: text("path"),                                                  // JSON: [{lat, lng}] pontos intermediários
   notes: text("notes"),
+  // Ciclo de vida de PROJETO (planned/pending/deployed/certified) — ver shared/projectStatus.ts.
+  // Independente de `status`, que é operacional. Ver comentário em migrate-v22.sql.
+  projectStatus: varchar("projectStatus", { length: 16 }).default("deployed").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -1204,6 +1213,9 @@ export const mapPoles = mysqlTable("map_poles", {
   lat: double("lat").notNull(),
   lng: double("lng").notNull(),
   notes: text("notes"),
+  // Ciclo de vida de PROJETO (planned/pending/deployed/certified) — ver shared/projectStatus.ts.
+  // Independente de `status`, que é operacional. Ver comentário em migrate-v22.sql.
+  projectStatus: varchar("projectStatus", { length: 16 }).default("deployed").notNull(),
   createdAt: timestamp("pole_created_at").defaultNow().notNull(),
   updatedAt: timestamp("pole_updated_at").defaultNow().onUpdateNow().notNull(),
 });
@@ -1221,6 +1233,9 @@ export const mapTechnicalReserves = mysqlTable("map_technical_reserves", {
   lat: double("lat").notNull(),
   lng: double("lng").notNull(),
   notes: text("notes"),
+  // Ciclo de vida de PROJETO (planned/pending/deployed/certified) — ver shared/projectStatus.ts.
+  // Independente de `status`, que é operacional. Ver comentário em migrate-v22.sql.
+  projectStatus: varchar("projectStatus", { length: 16 }).default("deployed").notNull(),
   createdAt: timestamp("reserve_created_at").defaultNow().notNull(),
   updatedAt: timestamp("reserve_updated_at").defaultNow().onUpdateNow().notNull(),
 });
