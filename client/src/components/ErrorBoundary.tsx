@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
-import { AlertTriangle, RotateCcw } from "lucide-react";
+import { AlertTriangle, Copy, RotateCcw } from "lucide-react";
 import { Component, ReactNode } from "react";
+import { APP_VERSION } from "@/lib/buildVersion";
 interface Props {
   children: ReactNode;
 }
@@ -8,6 +9,27 @@ interface State {
   hasError: boolean;
   error: Error | null;
   autoRecovering: boolean;
+}
+
+/**
+ * Monta o texto que a pessoa copia e manda para quem vai investigar.
+ *
+ * A mensagem entra separada da pilha de propósito. No Firefox, `error.stack`
+ * traz só os quadros — sem o nome e sem a mensagem do erro. Esta tela exibia
+ * apenas a pilha, e o resultado foi uma investigação inteira gasta em cima de
+ * `oM@...:49:87866` repetido, quando a primeira linha ("Minified React error
+ * #NNN") teria dito a causa de imediato.
+ */
+function textoDoErro(error: Error | null): string {
+  const nome = error?.name || "Error";
+  const msg = error?.message || "(sem mensagem)";
+  const pilha = error?.stack || "(sem pilha)";
+  return [
+    `FiberDoc v${APP_VERSION}`,
+    `${nome}: ${msg}`,
+    "",
+    pilha,
+  ].join("\n");
 }
 
 // Erros do Leaflet que podem ser recuperados automaticamente
@@ -77,23 +99,47 @@ class ErrorBoundary extends Component<Props, State> {
               size={48}
               className="text-destructive mb-6 flex-shrink-0"
             />
-            <h2 className="text-xl mb-4">Ocorreu um erro inesperado.</h2>
-            <div className="p-4 w-full rounded bg-muted overflow-auto mb-6">
-              <pre className="text-sm text-muted-foreground whitespace-break-spaces">
-                {this.state.error?.stack}
+            <h2 className="text-xl mb-1">Ocorreu um erro inesperado.</h2>
+            <p className="text-xs text-muted-foreground mb-4">FiberDoc v{APP_VERSION}</p>
+            {/* A mensagem em destaque, acima da pilha: é ela que identifica a
+                causa, e no Firefox ela não aparece dentro de error.stack. */}
+            <div className="p-3 w-full rounded bg-destructive/10 border border-destructive/30 mb-3">
+              <pre className="text-sm text-foreground whitespace-break-spaces font-medium">
+                {(this.state.error?.name || "Error")}: {this.state.error?.message || "(sem mensagem)"}
               </pre>
             </div>
-            <button
-              onClick={() => window.location.reload()}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-lg",
-                "bg-primary text-primary-foreground",
-                "hover:opacity-90 cursor-pointer"
-              )}
-            >
-              <RotateCcw size={16} />
-              Recarregar página
-            </button>
+            <div className="p-4 w-full rounded bg-muted overflow-auto mb-4 max-h-64">
+              <pre className="text-xs text-muted-foreground whitespace-break-spaces">
+                {this.state.error?.stack ?? "(sem pilha)"}
+              </pre>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => window.location.reload()}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-lg",
+                  "bg-primary text-primary-foreground",
+                  "hover:opacity-90 cursor-pointer"
+                )}
+              >
+                <RotateCcw size={16} />
+                Recarregar página
+              </button>
+              <button
+                onClick={() => {
+                  // clipboard falha em http:// e em navegador antigo; sem
+                  // clipboard a pessoa ainda pode selecionar o texto acima.
+                  navigator.clipboard?.writeText(textoDoErro(this.state.error)).catch(() => {});
+                }}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-lg border border-border",
+                  "text-muted-foreground hover:text-foreground cursor-pointer"
+                )}
+              >
+                <Copy size={16} />
+                Copiar detalhes
+              </button>
+            </div>
           </div>
         </div>
       );

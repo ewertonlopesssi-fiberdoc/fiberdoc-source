@@ -44,6 +44,7 @@ import NetworkMonitor from "./pages/NetworkMonitor";
 import NetworkEquipmentDetail from "./pages/NetworkEquipmentDetail";
 import AdminProviders from "./pages/AdminProviders";
 import DashboardLayout from "./components/DashboardLayout";
+import NovaVersaoBanner from "./components/NovaVersaoBanner";
 import { getTenantSlug } from "./const";
 
 function AppRoutes() {
@@ -120,6 +121,8 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster richColors theme="dark" />
+          {/* Fica fora do Router: o aviso vale em qualquer tela */}
+          <NovaVersaoBanner />
           {/* Router do Wouter com base no slug do tenant */}
           <Router base={base}>
             <AppRoutes />
