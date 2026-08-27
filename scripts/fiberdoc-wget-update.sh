@@ -354,6 +354,21 @@ else
   N_BANCOS=$(echo "${DBS_ALVO}" | wc -w)
   log_info "Bancos a migrar (${N_BANCOS}): ${DBS_ALVO}"
 
+  # Aviso: ficheiros .sql que este laco NAO vai aplicar.
+  #
+  # migration_olt_groups.sql passou anos assim -- criava uma tabela que so
+  # existe no banco principal, aplicada a mao, porque o nome nao casa com
+  # migrate-v*.sql e ninguem reparou. O silencio foi o problema; a partir de
+  # agora um ficheiro ignorado aparece no ecra.
+  for sql_solto in "${SOURCE_DIR}"/*.sql; do
+    [ -f "${sql_solto}" ] || continue
+    nome_sql=$(basename "${sql_solto}")
+    case "${nome_sql}" in
+      migrate-v*.sql|schema-base.sql|migrate.sql|migrate-latest.sql) continue ;;
+    esac
+    log_info "AVISO: ${nome_sql} nao sera aplicado -- so migrate-v*.sql entram no laco dos tenants."
+  done
+
   # Incrementais em ordem numerica, depois a consolidada.
   for migrate_inc in $(ls "${SOURCE_DIR}"/migrate-v*.sql 2>/dev/null | sort -V); do
     [ -f "${migrate_inc}" ] || continue
