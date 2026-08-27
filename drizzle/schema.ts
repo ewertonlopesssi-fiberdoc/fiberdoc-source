@@ -1190,8 +1190,8 @@ export const dgoPortFiberLinks = mysqlTable("dgo_port_fiber_links", {
   tubeId: int("tubeId").notNull(),                              // FK ceo_tubes.id
   viaNumber: int("viaNumber").notNull(),                        // Número da via dentro do tubo
   notes: text("notes"),
-  createdAt: timestamp("dgo_link_created_at").defaultNow().notNull(),
-  updatedAt: timestamp("dgo_link_updated_at").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 export type DgoPortFiberLink = typeof dgoPortFiberLinks.$inferSelect;
 export type InsertDgoPortFiberLink = typeof dgoPortFiberLinks.$inferInsert;
@@ -1280,8 +1280,10 @@ export type MapPoiGroup = typeof mapPoiGroups.$inferSelect;
 // ─── Associação de OLTs a Grupos ─────────────────────────────────────────────
 export const mapOltGroups = mysqlTable("map_olt_groups", {
   id: int("id").autoincrement().primaryKey(),
-  oltId: int("oltId").notNull().references(() => mapOltElements.id, { onDelete: "cascade" }),
-  groupId: int("groupId").notNull().references(() => mapGroups.id, { onDelete: "cascade" }),
+  // snake_case porque a migracao que criou a tabela escreveu assim -- tal como
+  // map_pole_groups e map_reserve_groups, e ao contrario de map_element_groups.
+  oltId: int("olt_id").notNull().references(() => mapOltElements.id, { onDelete: "cascade" }),
+  groupId: int("group_id").notNull().references(() => mapGroups.id, { onDelete: "cascade" }),
 });
 export type MapOltGroup = typeof mapOltGroups.$inferSelect;
 
@@ -1330,8 +1332,8 @@ export const dgoPortLinks = mysqlTable("dgo_port_links", {
   ceoElementId: int("ceoElementId"),                            // FK map_elements.id (CEO de passagem, opcional)
   portId: int("portId"),                                        // FK ports.id (porta do equipamento: OLT, switch, etc.)
   notes: text("notes"),
-  createdAt: timestamp("dgo_port_link_created_at").defaultNow().notNull(),
-  updatedAt: timestamp("dgo_port_link_updated_at").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 export type DgoPortLink = typeof dgoPortLinks.$inferSelect;
 export type InsertDgoPortLink = typeof dgoPortLinks.$inferInsert;
