@@ -656,7 +656,13 @@ export const routeExtraTubes = mysqlTable("route_extra_tubes", {
   routeId: int("routeId").notNull(),                                  // FK map_routes.id
   elementId: int("elementId").notNull(),                              // FK map_elements.id (CEO ou CTO)
   tubeId: int("tubeId").notNull(),                                    // FK ceo_tubes.id ou cto_tubes.id
-  side: mysqlEnum("route_extra_tube_side", ["from", "to"]).notNull(), // Origem ou destino
+  // A coluna no banco chama-se "side". O nome comprido que estava aqui era
+  // artefacto do drizzle-kit, que batiza o tipo ENUM com tabela+coluna e por
+  // engano usou esse nome como nome da coluna. Ninguem tinha reparado porque
+  // todo o resto do sistema le esta tabela por SQL cru (ret.side); so o
+  // caminho novo do diagrama e o addRouteExtraTube passam pelo Drizzle.
+  // Conferido nos 6 bancos em producao: a coluna e "side" em todos.
+  side: mysqlEnum("side", ["from", "to"]).notNull(),                  // Origem ou destino
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });

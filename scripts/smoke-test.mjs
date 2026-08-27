@@ -154,6 +154,29 @@ const INTERACOES = [
     // outra ocorrência da palavra e daria um falso OK.
     esperar: "js:!!document.querySelector('[data-smoke=btn-editar]')",
   },
+  {
+    rota: "/mapa2",
+    nome: "o botao Editar abre o painel flutuante",
+    // O painel deixou de ser um dialogo modal do Radix e passou a ser um
+    // componente proprio, arrastavel. Uma troca dessas parte em silencio: o
+    // botao continua la, o painel e que nao aparece. Daqui em diante isto
+    // fica coberto.
+    // Continua a nao gravar: abrir o painel nao toca no "Salvar".
+    acao: `(() => {
+      const sel = document.querySelector('[data-smoke="modo-selecionar"]');
+      if (sel) sel.click();
+      const m = document.querySelector(".leaflet-marker-icon");
+      if (!m) return "sem-marcador";
+      m.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+      const b = document.querySelector('[data-smoke=btn-editar]');
+      if (!b) return "sem-botao-editar";
+      b.click();
+      return "ok";
+    })()`,
+    // Procura o painel pelo que ele e — um role=dialog com titulo "Editar" —
+    // e nao pela palavra solta, que apareceria no proprio botao.
+    esperar: "js:!!Array.from(document.querySelectorAll('[role=dialog]')).find(d => (d.getAttribute('aria-label') || '').indexOf('Editar') === 0)",
+  },
 ];
 
 function eRuido(texto) {

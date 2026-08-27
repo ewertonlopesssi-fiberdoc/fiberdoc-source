@@ -23,6 +23,7 @@ import { createStreetLayer, createSatelliteLayer, clampZoomForStreet, satelliteP
 import { createLeafletIcon } from "@/lib/map/icons";
 import { safeLeafletRemove } from "@/lib/map/leaflet-utils";
 import { distanciaTotal, distanciasPorTrecho, areaPoligono, formatarDistancia, formatarArea } from "@/lib/map/measure";
+import PainelFlutuante from "@/components/map/PainelFlutuante";
 import {
   PROJECT_STATUSES, PROJECT_STATUS_LABEL, PROJECT_STATUS_COLOR, PROJECT_TIPO_LABEL,
   normalizeProjectStatus, type ProjectStatus,
@@ -1419,17 +1420,20 @@ export default function MapaBeta() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Diálogo de edição ── */}
-      <Dialog open={dialogoEditar !== null} onOpenChange={aberto => { if (!aberto) setDialogoEditar(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>
-              Editar {dialogoEditar?.tipo === "cabo" ? "cabo"
-                : dialogoEditar?.tipo === "poste" ? "poste"
-                : dialogoEditar?.tipo?.toUpperCase() ?? ""}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
+      {/* ── Painel de edição ──
+          Flutuante e não modal de propósito: editar uma caixa é uma coisa que
+          se faz a olhar para o mapa. Arrasta-se pela barra de título e a
+          posição fica lembrada. */}
+      <PainelFlutuante
+        aberto={dialogoEditar !== null}
+        aoFechar={() => setDialogoEditar(null)}
+        chave="editar"
+        largura={300}
+        titulo={`Editar ${dialogoEditar?.tipo === "cabo" ? "cabo"
+          : dialogoEditar?.tipo === "poste" ? "poste"
+          : dialogoEditar?.tipo?.toUpperCase() ?? ""}`}
+      >
+          <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>Nome{dialogoEditar?.tipo === "cabo" ? "" : " *"}</Label>
               <Input value={edNome} autoFocus onChange={e => setEdNome(e.target.value)}
@@ -1505,15 +1509,14 @@ export default function MapaBeta() {
               perder o que está traçado. Mover e apagar continuam no Mapa de
               Infraestrutura.
             </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button size="sm" variant="outline" onClick={() => setDialogoEditar(null)} disabled={salvandoEdicao}>Cancelar</Button>
+              <Button size="sm" onClick={salvarEdicao} disabled={salvandoEdicao}>
+                {salvandoEdicao ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}
+              </Button>
+            </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogoEditar(null)} disabled={salvandoEdicao}>Cancelar</Button>
-            <Button onClick={salvarEdicao} disabled={salvandoEdicao}>
-              {salvandoEdicao ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </PainelFlutuante>
 
       {/* ── Diálogo do cabo ── */}
       <Dialog open={dialogoCabo} onOpenChange={setDialogoCabo}>
