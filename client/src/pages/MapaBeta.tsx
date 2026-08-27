@@ -7,7 +7,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import {
   MousePointer2, Ruler, Hexagon, Layers, Loader2, Trash2, Undo2, Info, Check,
-  FolderTree, Plus, ChevronDown, FolderPlus, Cable,
+  FolderTree, Plus, ChevronDown, FolderPlus, Cable, Pencil,
 } from "lucide-react";
 import MapContextMenu, { type MapContextMenuTarget, type MapContextMenuTipo } from "@/components/map/MapContextMenu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -55,8 +55,8 @@ import {
  */
 type Modo = "selecionar" | "regua" | "area" | "cabo";
 
-/** Tipos que esta tela sabe selecionar. Cabos e reservas ainda não. */
-type TipoSel = "cto" | "ceo" | "poste";
+/** Tipos que esta tela sabe selecionar. Reservas e POIs ainda não. */
+type TipoSel = "cto" | "ceo" | "poste" | "cabo";
 
 interface Item {
   tipo: TipoSel;
@@ -75,6 +75,14 @@ interface Item {
   /** Status operacional e cor do cadastro, para o ícone. */
   status: string;
   cor: string | null;
+  /**
+   * Traçado, só para cabos. Um cabo não tem um ponto — tem um percurso — e o
+   * lat/lng acima é o meio dele, usado para ancorar o destaque de selecção.
+   */
+  caminho?: L.LatLng[];
+  /** Contagem de fibras e tipo, só para cabos. */
+  fibras?: number;
+  tipoCabo?: string;
 }
 
 const chave = (tipo: TipoSel, id: number) => `${tipo}:${id}`;
@@ -224,6 +232,7 @@ export default function MapaBeta() {
       }
     }
     for (const p of (projeto.poles ?? [])) s.add(chave("poste", Number(p.poleId)));
+    for (const r of (projeto.routes ?? [])) s.add(chave("cabo", Number(r.routeId)));
     return s;
   }, [projeto, elementosMapa]);
 
@@ -271,6 +280,30 @@ export default function MapaBeta() {
       }
     }
 
+    if (mostrarCabos) {
+      for (const r of rotas as any[]) {
+        let bruto: { lat: number; lng: number }[] = [];
+        try { bruto = typeof r.path === "string" ? JSON.parse(r.path) : (r.path ?? []); } catch { bruto = []; }
+        const caminho = bruto
+          .map(p => L.latLng(Number(p.lat), Number(p.lng)))
+          .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+        if (caminho.length < 2) continue;
+        // O meio do percurso ancora o rótulo e o destaque. Não é o centróide
+        // exacto, é o vértice do meio — barato e suficiente para ancorar.
+        const meio = caminho[Math.floor(caminho.length / 2)];
+        saida.push({
+          tipo: "cabo", id: Number(r.id), lat: meio.lat, lng: meio.lng,
+          nome: r.name ?? `Cabo #${r.id}`,
+          estado: normalizeProjectStatus(r.projectStatus),
+          status: r.status ?? "active",
+          cor: r.color ?? "#3b82f6",
+          caminho,
+          fibras: Number(r.fiberCount) || undefined,
+          tipoCabo: r.cableType ?? undefined,
+        });
+      }
+    }
+
     if (mostrarPostes) {
       for (const r of postes as any[]) {
         if (r?.lat == null || r?.lng == null || r?.id == null) continue;
@@ -294,7 +327,7 @@ export default function MapaBeta() {
       return saida.filter(i => chavesDoProjeto.has(chave(i.tipo, i.id)));
     }
     return saida;
-  }, [ctos, ceos, postes, elementosMapa, mostrarCaixas, mostrarPostes, soDoProjeto, chavesDoProjeto]);
+  }, [ctos, ceos, postes, rotas, elementosMapa, mostrarCaixas, mostrarPostes, mostrarCabos, soDoProjeto, chavesDoProjeto]);
 
   const itensPorChave = useMemo(() => {
     const m = new Map<string, Item>();
@@ -401,18 +434,6 @@ export default function MapaBeta() {
     if (!mapPronto || !grupo) return;
     grupo.clearLayers();
 
-    if (mostrarCabos) {
-      (rotas as any[]).forEach(r => {
-        if (soDoProjeto && rotasDoProjeto && !rotasDoProjeto.has(Number(r.id))) return;
-        let caminho: { lat: number; lng: number }[] = [];
-        try { caminho = typeof r.path === "string" ? JSON.parse(r.path) : (r.path ?? []); } catch { caminho = []; }
-        if (caminho.length < 2) return;
-        L.polyline(caminho.map(p => [p.lat, p.lng] as [number, number]), {
-          color: r.color ?? "#3b82f6", weight: 3, opacity: 0.85,
-        }).bindTooltip(r.name ?? "Cabo", { sticky: true }).addTo(grupo);
-      });
-    }
-
     // O clique de selecção é ligado aqui, mas o destaque visual NÃO: ele mora
     // na camada de selecção. Se dependesse deste efeito, cada clique
     // redesenharia todos os marcadores do mapa.
@@ -423,6 +444,14 @@ export default function MapaBeta() {
       // ligação é o que faz o cabo valer alguma coisa no cadastro.
       if (modoRef.current === "cabo") {
         L.DomEvent.stopPropagation(e.originalEvent);
+        // Clicar num cabo existente enquanto se traça outro deve pôr o vértice
+        // ONDE se clicou, não no meio do cabo clicado — que é o ponto que o
+        // item guarda só para ancorar rótulo e destaque.
+        if (item.tipo === "cabo") {
+          setPontasIdx(a => [...a, null]);
+          setPontos(atuais => [...atuais, e.latlng]);
+          return;
+        }
         const idElemento = item.elementId ?? null;
         // Lido do ref, e não de dentro do actualizador do setPontos: disparar
         // um setState dentro do actualizador de outro roda duas vezes em modo
@@ -440,6 +469,22 @@ export default function MapaBeta() {
     };
 
     for (const item of itens) {
+      if (item.tipo === "cabo") {
+        L.polyline(item.caminho ?? [], {
+          color: item.cor ?? "#3b82f6", weight: 3, opacity: 0.85,
+          // Uma linha de 3 px é difícil de acertar com o rato. O Leaflet aceita
+          // uma área de clique maior que o traço, e sem isto seleccionar um
+          // cabo seria um exercício de pontaria.
+          bubblingMouseEvents: false,
+        } as any)
+          .bindTooltip(
+            `${item.nome} · ${item.fibras ? `${item.fibras}F · ` : ""}${PROJECT_STATUS_LABEL[item.estado]}`,
+            { sticky: true }
+          )
+          .on("click", aoClicarItem(item))
+          .addTo(grupo);
+        continue;
+      }
       if (item.tipo === "poste") {
         L.circleMarker([item.lat, item.lng], {
           radius: 4, color: "#f59e0b", fillColor: "#f59e0b", fillOpacity: 0.9, weight: 1,
@@ -461,7 +506,7 @@ export default function MapaBeta() {
         .on("click", aoClicarItem(item))
         .addTo(grupo);
     }
-  }, [mapPronto, itens, ctos, ceos, rotas, mostrarCabos, alternarItem, soDoProjeto, rotasDoProjeto]);
+  }, [mapPronto, itens, alternarItem]);
 
   // ─── Destaque da selecção ─────────────────────────────────────────────────
   // Camada própria, redesenhada a cada mudança de selecção. É barata: desenha
@@ -471,6 +516,14 @@ export default function MapaBeta() {
     if (!mapPronto || !grupo) return;
     grupo.clearLayers();
     for (const item of selecionadosVisiveis) {
+      if (item.tipo === "cabo") {
+        // Um cabo seleccionado ganha um traço grosso por baixo do seu, em vez
+        // de um anel no meio: o que se quer ver é o percurso inteiro realçado.
+        L.polyline(item.caminho ?? [], {
+          color: "#22d3ee", weight: 10, opacity: 0.35, interactive: false,
+        }).addTo(grupo);
+        continue;
+      }
       L.circleMarker([item.lat, item.lng], {
         radius: item.tipo === "poste" ? 9 : 22,
         color: "#22d3ee", weight: 2, fillColor: "#22d3ee", fillOpacity: 0.15,
@@ -738,6 +791,8 @@ export default function MapaBeta() {
   const addElementoGrupoMut = trpc.mapGroups.addElement.useMutation();
   const addPosteGrupoMut = trpc.mapGroups.addPole.useMutation();
   const criarProjetoMut = trpc.mapGroups.create.useMutation();
+  const criarRotaMut = trpc.infraMap.createRoute.useMutation();
+  const addRotaGrupoMut = trpc.mapGroups.addRoute.useMutation();
 
   const criando =
     criarCtoMut.isPending || criarCeoMut.isPending || criarPosteMut.isPending ||
@@ -802,7 +857,7 @@ export default function MapaBeta() {
     }
   }, [dialogoCriar, novoNome, novaCapacidade, novoEstado, projetoAtivo, projeto,
       criarCtoMut, criarCeoMut, criarPosteMut, upsertElementoMut, setStatusMut,
-      addElementoGrupoMut, addPosteGrupoMut, recarregarTudo]);
+      addElementoGrupoMut, addPosteGrupoMut, addRotaGrupoMut, recarregarTudo]);
 
   // ─── Juntar o que já está seleccionado ao projeto activo ──────────────────
   const adicionarSelecaoAoProjeto = useCallback(async () => {
@@ -819,6 +874,11 @@ export default function MapaBeta() {
       for (const i of novos) {
         if (i.tipo === "poste") {
           await addPosteGrupoMut.mutateAsync({ poleId: i.id, groupId: projetoAtivo });
+          entraram++;
+          continue;
+        }
+        if (i.tipo === "cabo") {
+          await addRotaGrupoMut.mutateAsync({ routeId: i.id, groupId: projetoAtivo });
           entraram++;
           continue;
         }
@@ -842,8 +902,6 @@ export default function MapaBeta() {
       addElementoGrupoMut, addPosteGrupoMut, recarregarTudo]);
 
   // ─── Gravar o cabo desenhado ──────────────────────────────────────────────
-  const criarRotaMut = trpc.infraMap.createRoute.useMutation();
-  const addRotaGrupoMut = trpc.mapGroups.addRoute.useMutation();
 
   /**
    * Vértices sem as repetições que o duplo clique deixa.
@@ -917,6 +975,74 @@ export default function MapaBeta() {
   }, [caboNome, caminhoCabo, pontasDoCabo, caboFibras, caboTipo, caboCor, caboEstado,
       comprimentoCabo, projetoAtivo, projeto, criarRotaMut, setStatusMut, addRotaGrupoMut,
       utils, recarregarTudo]);
+
+  // ─── Editar o item selecionado ────────────────────────────────────────────
+  //
+  // Editar é reversível — renomear errado conserta-se renomeando de novo — e
+  // por isso cabe na mesma justificação que abriu esta tela para escrever.
+  // Apagar continua fora: é o único gesto sem volta.
+  //
+  // Só com UM item selecionado. Edição em lote de nomes não faz sentido, e de
+  // capacidade ou fibras seria uma forma silenciosa de estragar muita coisa
+  // de uma vez.
+  const atualizarCtoMut = trpc.ctos.update.useMutation();
+  const atualizarCeoMut = trpc.ceos.update.useMutation();
+  const atualizarPosteMut = trpc.mapPoles.update.useMutation();
+  const atualizarRotaMut = trpc.infraMap.updateRoute.useMutation();
+
+  const [dialogoEditar, setDialogoEditar] = useState<Item | null>(null);
+  const [edNome, setEdNome] = useState("");
+  const [edCapacidade, setEdCapacidade] = useState(8);
+  const [edFibras, setEdFibras] = useState(12);
+  const [edTipoCabo, setEdTipoCabo] = useState("FO");
+  const [edCor, setEdCor] = useState("#22d3ee");
+  const [edEstado, setEdEstado] = useState<ProjectStatus>("deployed");
+
+  const abrirEdicao = useCallback((item: Item) => {
+    setDialogoEditar(item);
+    setEdNome(item.nome);
+    setEdCapacidade(Number((ctos as any[]).find(c => Number(c.id) === item.id)?.capacity) || 8);
+    setEdFibras(item.fibras ?? 12);
+    setEdTipoCabo(item.tipoCabo ?? "FO");
+    setEdCor(item.cor ?? "#22d3ee");
+    setEdEstado(item.estado);
+  }, [ctos]);
+
+  const salvarEdicao = useCallback(async () => {
+    const item = dialogoEditar;
+    if (!item) return;
+    const nome = edNome.trim();
+    if (!nome && item.tipo !== "cabo") { toast.error("Informe o nome."); return; }
+    try {
+      if (item.tipo === "cto") {
+        await atualizarCtoMut.mutateAsync({ id: item.id, name: nome, capacity: edCapacidade });
+      } else if (item.tipo === "ceo") {
+        await atualizarCeoMut.mutateAsync({ id: item.id, name: nome });
+      } else if (item.tipo === "poste") {
+        await atualizarPosteMut.mutateAsync({ id: item.id, name: nome });
+      } else {
+        await atualizarRotaMut.mutateAsync({
+          id: item.id, name: nome || undefined,
+          fiberCount: edFibras, cableType: edTipoCabo, color: edCor,
+        });
+      }
+      // O estado de projeto vive noutro procedure, e só é escrito se mudou.
+      if (edEstado !== item.estado) {
+        await setStatusMut.mutateAsync({ tipo: item.tipo, id: item.id, status: edEstado });
+      }
+      toast.success(`${nome || "Cabo"} atualizado`);
+      setDialogoEditar(null);
+      await Promise.all([utils.infraMap.routes.invalidate(), recarregarTudo()]);
+    } catch (e: any) {
+      toast.error("Erro ao salvar: " + (e?.message ?? "desconhecido"));
+    }
+  }, [dialogoEditar, edNome, edCapacidade, edFibras, edTipoCabo, edCor, edEstado,
+      atualizarCtoMut, atualizarCeoMut, atualizarPosteMut, atualizarRotaMut,
+      setStatusMut, utils, recarregarTudo]);
+
+  const salvandoEdicao =
+    atualizarCtoMut.isPending || atualizarCeoMut.isPending ||
+    atualizarPosteMut.isPending || atualizarRotaMut.isPending || setStatusMut.isPending;
 
   // ─── Criar projeto sem sair da prancheta ──────────────────────────────────
   const [dialogoProjeto, setDialogoProjeto] = useState(false);
@@ -1027,7 +1153,7 @@ export default function MapaBeta() {
         )}
 
         <div className="w-px h-6 bg-border mx-0.5" />
-        <BotaoModo ativo={modo === "selecionar"} onClick={() => trocarModo("selecionar")} Icone={MousePointer2} rotulo="Selecionar" />
+        <BotaoModo ativo={modo === "selecionar"} onClick={() => trocarModo("selecionar")} Icone={MousePointer2} rotulo="Selecionar" dataSmoke="modo-selecionar" />
         <div className="w-px h-6 bg-border mx-0.5" />
         <BotaoModo ativo={modo === "regua"} onClick={() => trocarModo("regua")} Icone={Ruler} rotulo="Régua" />
         <BotaoModo ativo={modo === "area"} onClick={() => trocarModo("area")} Icone={Hexagon} rotulo="Área" />
@@ -1137,6 +1263,14 @@ export default function MapaBeta() {
             <span className="text-xs text-muted-foreground border-l border-border pl-3">
               Só operadores podem alterar o estado de projeto.
             </span>
+          )}
+
+          {podeEditar && selecionadosVisiveis.length === 1 && (
+            <Button size="sm" variant="outline" className="h-7 gap-1 text-xs shrink-0"
+              data-smoke="btn-editar"
+              onClick={() => abrirEdicao(selecionadosVisiveis[0])}>
+              <Pencil className="w-3 h-3" />Editar
+            </Button>
           )}
 
           {podeEditar && projeto && (
@@ -1258,6 +1392,79 @@ export default function MapaBeta() {
             <Button variant="outline" onClick={() => setDialogoCriar(null)} disabled={criando}>Cancelar</Button>
             <Button onClick={confirmarCriacao} disabled={criando}>
               {criando ? <Loader2 className="w-4 h-4 animate-spin" /> : "Criar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Diálogo de edição ── */}
+      <Dialog open={dialogoEditar !== null} onOpenChange={aberto => { if (!aberto) setDialogoEditar(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              Editar {dialogoEditar?.tipo === "cabo" ? "cabo"
+                : dialogoEditar?.tipo === "poste" ? "poste"
+                : dialogoEditar?.tipo?.toUpperCase() ?? ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Nome{dialogoEditar?.tipo === "cabo" ? "" : " *"}</Label>
+              <Input value={edNome} autoFocus onChange={e => setEdNome(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !salvandoEdicao) salvarEdicao(); }} />
+            </div>
+
+            {dialogoEditar?.tipo === "cto" && (
+              <div className="space-y-1.5">
+                <Label>Capacidade (portas)</Label>
+                <Input type="number" min={1} value={edCapacidade}
+                  onChange={e => setEdCapacidade(Math.max(1, Number(e.target.value) || 1))} />
+              </div>
+            )}
+
+            {dialogoEditar?.tipo === "cabo" && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Fibras</Label>
+                    <Input type="number" min={1} value={edFibras}
+                      onChange={e => setEdFibras(Math.max(1, Number(e.target.value) || 1))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Tipo</Label>
+                    <Input value={edTipoCabo} onChange={e => setEdTipoCabo(e.target.value)} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Cor</Label>
+                  <div className="flex gap-2 items-center">
+                    <input type="color" value={edCor} onChange={e => setEdCor(e.target.value)}
+                      className="w-10 h-8 rounded cursor-pointer border border-border" />
+                    <span className="text-xs text-muted-foreground">{edCor}</span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="space-y-1.5">
+              <Label>Estado de projeto</Label>
+              <select value={edEstado} onChange={e => setEdEstado(e.target.value as ProjectStatus)}
+                className="w-full h-9 rounded-md border border-border bg-background text-sm px-2">
+                {PROJECT_STATUSES.map(st => (
+                  <option key={st} value={st}>{PROJECT_STATUS_LABEL[st]}</option>
+                ))}
+              </select>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground">
+              Posição e traçado não se editam aqui — para mover, use o Mapa de
+              Infraestrutura. Apagar também continua lá.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogoEditar(null)} disabled={salvandoEdicao}>Cancelar</Button>
+            <Button onClick={salvarEdicao} disabled={salvandoEdicao}>
+              {salvandoEdicao ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}
             </Button>
           </DialogFooter>
         </DialogContent>

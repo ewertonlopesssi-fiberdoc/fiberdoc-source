@@ -135,6 +135,25 @@ const INTERACOES = [
     })()`,
     esperar: "Clique para traçar o cabo",
   },
+  {
+    rota: "/mapa2",
+    nome: "seleccionar um item oferece Editar",
+    // Volta ao modo Selecionar (a interacção anterior deixou o modo cabo
+    // activo), clica no primeiro marcador e confirma que o botão aparece.
+    // Abrir o diálogo não grava — quem grava é o "Salvar", que não é tocado.
+    acao: `(() => {
+      const sel = document.querySelector('[data-smoke="modo-selecionar"]');
+      if (!sel) return "sem-modo-selecionar";
+      sel.click();
+      const m = document.querySelector(".leaflet-marker-icon");
+      if (!m) return "sem-marcador";
+      m.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+      return "ok";
+    })()`,
+    // Expressão, e não texto: "Editar" no corpo inteiro casaria com qualquer
+    // outra ocorrência da palavra e daria um falso OK.
+    esperar: "js:!!document.querySelector('[data-smoke=btn-editar]')",
+  },
 ];
 
 function eRuido(texto) {
@@ -355,14 +374,27 @@ async function main() {
         // entrega como "CRIAR NESTE PONTO". O textContent não transforma, mas
         // também não respeita elementos escondidos, e um menu fechado passaria
         // por aberto. Fica o innerText, comparado sem caixa.
-        const texto = ((await avaliar("document.body.innerText")) ?? "").toLowerCase();
         const novos = coletados.slice(antes);
+
+        // `esperar` aceita duas formas. Texto simples é procurado no innerText,
+        // sem distinguir caixa. Prefixado com "js:", é uma expressão avaliada
+        // na página — para quando o texto seria ambíguo demais: procurar a
+        // palavra "Editar" no corpo inteiro casaria com qualquer outra coisa
+        // escrita "editar" e daria um falso OK.
+        let cumpriu;
+        if (inter.esperar.startsWith("js:")) {
+          cumpriu = Boolean(await avaliar(inter.esperar.slice(3)));
+        } else {
+          const texto = ((await avaliar("document.body.innerText")) ?? "").toLowerCase();
+          cumpriu = texto.includes(inter.esperar.toLowerCase());
+        }
+
         if (novos.length > 0) {
           problemas.push(...novos.map(p => ({ ...p, tipo: `${p.tipo} após "${inter.nome}"` })));
-        } else if (!texto.includes(inter.esperar.toLowerCase())) {
+        } else if (!cumpriu) {
           problemas.push({
             tipo: "interacção sem efeito",
-            texto: `"${inter.nome}": esperava ver "${inter.esperar}" na página e não vi`,
+            texto: `"${inter.nome}": esperava ${inter.esperar.startsWith("js:") ? "que " + inter.esperar.slice(3) + " fosse verdadeiro" : `ver "${inter.esperar}" na página`} e não foi`,
           });
         } else {
           console.log(`  ok    ${rota}  → ${inter.nome}`);
