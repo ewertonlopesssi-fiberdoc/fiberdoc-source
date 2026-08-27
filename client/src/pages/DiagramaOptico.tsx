@@ -15,6 +15,18 @@ import { distanciaTotal, formatarDistancia } from "@/lib/map/measure";
  * criar splitters vêm depois, e é de propósito: um canvas que escreve antes de
  * o desenho estar provado transforma um engano de leitura em estrago real.
  *
+ * Duas escolhas de desenho, ambas para o diagrama se ler de relance:
+ *
+ * O splitter é um triângulo — o símbolo óptico de sempre — com a entrada no
+ * vértice e as saídas na base. Um 1:16 desenhado como lista de portas ocupava
+ * dezasseis linhas de texto e empurrava tudo o resto para fora do ecrã; como
+ * triângulo ocupa a altura de dezasseis pontos. O que interessa ver num
+ * splitter é para onde vai cada saída, não o nome de cada porta.
+ *
+ * As vias dos tubos aparecem todas, mas as que não têm fusão ficam esbatidas.
+ * Só mostrar as ocupadas encolheria o desenho, e perderia justamente a
+ * informação de quem projeta: quantas vias sobram naquele tubo.
+ *
  * O layout é automático e determinístico — tubos à esquerda, splitters à
  * direita — e não é guardado. Guardar posições de algo que ainda não se pode
  * arrastar seria guardar nada.
@@ -26,7 +38,7 @@ import { distanciaTotal, formatarDistancia } from "@/lib/map/measure";
  */
 
 // ─── Geometria do desenho ─────────────────────────────────────────────────────
-const LARG_BLOCO = 210;
+const LARG_TUBO = 210;
 const ALT_CABECALHO = 38;
 const ALT_VIA = 20;
 const ESP_VERTICAL = 26;
@@ -34,18 +46,39 @@ const COL_TUBOS_X = 40;
 const COL_SPLITTERS_X = 420;
 const MARGEM_TOPO = 30;
 
-interface Ancora { x: number; y: number }
+// Splitter: título por cima, triângulo por baixo.
+const LARG_SPLITTER = 88;
+const ALT_TITULO_SPL = 30;
+const ALT_PORTA_SPL = 14;
+const ALT_MIN_SPL = 54;
 
-type Bloco = {
-  chave: string;
-  titulo: string;
-  subtitulo: string;
-  x: number;
-  y: number;
-  altura: number;
-  cor: string | null;
-  vias: Array<{ id: number; viaNumber: number; label: string | null; y: number }>;
-};
+/** Ponto de ligação de uma via: onde uma linha entra e de onde sai. */
+interface Ancora { xEsq: number; xDir: number; y: number }
+
+type Via = { id: number; viaNumber: number; label: string | null; y: number };
+
+type Bloco =
+  | {
+      forma: "tubo";
+      chave: string;
+      titulo: string;
+      subtitulo: string;
+      x: number; y: number; altura: number;
+      cor: string | null;
+      vias: Via[];
+    }
+  | {
+      forma: "splitter";
+      chave: string;
+      titulo: string;
+      subtitulo: string;
+      x: number; y: number; altura: number;
+      cor: string | null;
+      /** Topo e altura só do triângulo, sem o título. */
+      yTri: number; altTri: number;
+      entrada: Via | null;
+      saidas: Via[];
+    };
 
 /** Cor da fibra pela numeração da norma, ciclando a cada 12. */
 function corDaVia(n: number): string {
@@ -98,11 +131,27 @@ export default function DiagramaOptico() {
 
   const repor = useCallback(() => { setEscala(1); setDeslocamento({ x: 0, y: 0 }); }, []);
 
+  /**
+   * Vias que têm fusão, para esbater as outras.
+   *
+   * A chave junta o tipo à identidade porque um id de via de tubo e um id de
+   * via de splitter são numerações independentes — sem o tipo, uma via livre
+   * aparecia ocupada por coincidência de número.
+   */
+  const viasEmUso = useMemo(() => {
+    const s = new Set<string>();
+    for (const f of data?.fusoes ?? []) {
+      s.add(`${f.sourceType}:${f.sourceViaId}`);
+      s.add(`${f.targetType}:${f.targetViaId}`);
+    }
+    return s;
+  }, [data]);
+
   // ─── Layout determinístico ──────────────────────────────────────────────────
-  const { blocos, ancoras, altura } = useMemo(() => {
+  const { blocos, ancoras, altura, largura } = useMemo(() => {
     const blocos: Bloco[] = [];
     const ancoras = new Map<string, Ancora>();
-    if (!data) return { blocos, ancoras, altura: 400 };
+    if (!data) return { blocos, ancoras, altura: 400, largura: 800 };
 
     // Que cabo chega a cada tubo — o cabo é o que dá sentido ao tubo no desenho.
     const caboPorTubo = new Map<number, { nome: string; fibras: number; cor: string | null; km: number }>();
@@ -119,52 +168,80 @@ export default function DiagramaOptico() {
       }
     }
 
-    const posicionar = (
-      lista: Array<{ chave: string; titulo: string; subtitulo: string; cor: string | null; vias: Bloco["vias"] }>,
-      x: number
-    ) => {
-      let y = MARGEM_TOPO;
-      for (const b of lista) {
-        const alt = ALT_CABECALHO + b.vias.length * ALT_VIA + 8;
-        const bloco: Bloco = { ...b, x, y, altura: alt };
-        bloco.vias = b.vias.map((v, i) => ({ ...v, y: y + ALT_CABECALHO + i * ALT_VIA + ALT_VIA / 2 }));
-        for (const v of bloco.vias) {
-          ancoras.set(`${b.chave}:${v.id}`, { x, y: v.y });
-        }
-        blocos.push(bloco);
-        y += alt + ESP_VERTICAL;
+    // ── Tubos: rectângulo com uma linha por via ──
+    let yTubo = MARGEM_TOPO;
+    for (const t of data.tubos) {
+      const cabo = caboPorTubo.get(t.id);
+      const alt = ALT_CABECALHO + t.vias.length * ALT_VIA + 8;
+      const vias: Via[] = t.vias.map((v, i) => ({
+        ...v,
+        y: yTubo + ALT_CABECALHO + i * ALT_VIA + ALT_VIA / 2,
+      }));
+      for (const v of vias) {
+        ancoras.set(`tube:${v.id}`, { xEsq: COL_TUBOS_X, xDir: COL_TUBOS_X + LARG_TUBO, y: v.y });
       }
-      return y;
-    };
+      blocos.push({
+        forma: "tubo",
+        chave: `tubo-${t.id}`,
+        titulo: t.identifier,
+        subtitulo: cabo
+          ? `${cabo.nome} · ${cabo.fibras} FO${cabo.km > 0 ? ` · ${formatarDistancia(cabo.km * 1000)}` : ""}`
+          : `${t.totalVias} vias · sem cabo ligado`,
+        x: COL_TUBOS_X, y: yTubo, altura: alt,
+        cor: cabo?.cor ?? t.cor ?? null,
+        vias,
+      });
+      yTubo += alt + ESP_VERTICAL;
+    }
 
-    const fimTubos = posicionar(
-      data.tubos.map(t => {
-        const cabo = caboPorTubo.get(t.id);
-        return {
-          chave: "tube",
-          titulo: t.identifier,
-          subtitulo: cabo
-            ? `${cabo.nome} · ${cabo.fibras} FO${cabo.km > 0 ? ` · ${formatarDistancia(cabo.km * 1000)}` : ""}`
-            : `${t.totalVias} vias · sem cabo ligado`,
-          cor: cabo?.cor ?? t.cor ?? null,
-          vias: t.vias.map(v => ({ ...v, y: 0 })),
-        };
-      }),
-      COL_TUBOS_X
-    );
+    // ── Splitters: triângulo, entrada no vértice, saídas na base ──
+    let ySpl = MARGEM_TOPO;
+    for (const s of data.splitters) {
+      const entrada = s.vias.find(v => v.viaNumber === 0) ?? null;
+      const saidas = s.vias.filter(v => v.viaNumber > 0);
+      const altTri = Math.max(ALT_MIN_SPL, saidas.length * ALT_PORTA_SPL);
+      const yTri = ySpl + ALT_TITULO_SPL;
+      const alt = ALT_TITULO_SPL + altTri + 10;
 
-    const fimSplitters = posicionar(
-      data.splitters.map(s => ({
-        chave: "splitter",
+      // O vértice é a entrada; a base, à direita, distribui as saídas.
+      const xApice = COL_SPLITTERS_X;
+      const xBase = COL_SPLITTERS_X + LARG_SPLITTER;
+
+      const entradaPos: Via | null = entrada
+        ? { ...entrada, y: yTri + altTri / 2 }
+        : null;
+      if (entradaPos) {
+        ancoras.set(`splitter:${entradaPos.id}`, { xEsq: xApice, xDir: xApice, y: entradaPos.y });
+      }
+
+      const saidasPos: Via[] = saidas.map((v, i) => ({
+        ...v,
+        y: yTri + ((i + 0.5) * altTri) / Math.max(1, saidas.length),
+      }));
+      for (const v of saidasPos) {
+        ancoras.set(`splitter:${v.id}`, { xEsq: xBase, xDir: xBase, y: v.y });
+      }
+
+      blocos.push({
+        forma: "splitter",
+        chave: `splitter-${s.id}`,
         titulo: s.identifier,
         subtitulo: `${s.ratio} · ${s.splitterType === "balanced" ? "balanceado" : "desbalanceado"}`,
+        x: COL_SPLITTERS_X, y: ySpl, altura: alt,
         cor: "#a855f7",
-        vias: s.vias.map(v => ({ ...v, y: 0 })),
-      })),
-      COL_SPLITTERS_X
-    );
+        yTri, altTri,
+        entrada: entradaPos,
+        saidas: saidasPos,
+      });
+      ySpl += alt + ESP_VERTICAL;
+    }
 
-    return { blocos, ancoras, altura: Math.max(fimTubos, fimSplitters, 400) };
+    return {
+      blocos,
+      ancoras,
+      altura: Math.max(yTubo, ySpl, 400),
+      largura: COL_SPLITTERS_X + LARG_SPLITTER + 160,
+    };
   }, [data]);
 
   const cabosSemEstrutura = useMemo(
@@ -189,8 +266,6 @@ export default function DiagramaOptico() {
       </div>
     );
   }
-
-  const larguraTotal = COL_SPLITTERS_X + LARG_BLOCO + 60;
 
   return (
     <div className="relative w-full h-[calc(100vh-4rem)] overflow-hidden bg-muted/20">
@@ -238,7 +313,7 @@ export default function DiagramaOptico() {
         )}
         <div className="flex items-center gap-1.5 rounded-md border border-border bg-card/90 text-muted-foreground text-[11px] px-2.5 py-1.5">
           <Info className="w-3 h-3 shrink-0" />
-          Somente leitura. Arraste para mover, role para aproximar.
+          Somente leitura. Vias esbatidas estão livres. Arraste para mover, role para aproximar.
         </div>
       </div>
 
@@ -255,49 +330,100 @@ export default function DiagramaOptico() {
             const a = ancoras.get(`${f.sourceType}:${f.sourceViaId}`);
             const b = ancoras.get(`${f.targetType}:${f.targetViaId}`);
             if (!a || !b) return null;
-            // Sai pela direita da origem e entra pela esquerda do destino. Quando
-            // os dois estão na mesma coluna a curva abre para a esquerda, para
-            // não ficar uma recta por cima dos próprios blocos.
-            const x1 = a.x + LARG_BLOCO;
-            const x2 = b.x;
-            const mesmaColuna = Math.abs(a.x - b.x) < 1;
-            const ctrl = mesmaColuna ? 70 : Math.max(40, Math.abs(x2 - x1) / 2);
-            const d = mesmaColuna
-              ? `M ${x1} ${a.y} C ${x1 + ctrl} ${a.y}, ${x2 + LARG_BLOCO + ctrl} ${b.y}, ${x2 + LARG_BLOCO} ${b.y}`
-              : `M ${x1} ${a.y} C ${x1 + ctrl} ${a.y}, ${x2 - ctrl} ${b.y}, ${x2} ${b.y}`;
+            // Sai pela direita da origem e entra pela esquerda do destino. Se o
+            // destino não estiver à direita — dois tubos na mesma coluna, ou uma
+            // saída de splitter a voltar para trás — a curva abre pela direita
+            // dos dois, em vez de atravessar os próprios blocos.
+            const paraFrente = b.xEsq - a.xDir > 40;
+            const x1 = a.xDir;
+            const x2 = paraFrente ? b.xEsq : b.xDir;
+            const ctrl = paraFrente ? Math.max(40, (x2 - x1) / 2) : 70;
+            const d = paraFrente
+              ? `M ${x1} ${a.y} C ${x1 + ctrl} ${a.y}, ${x2 - ctrl} ${b.y}, ${x2} ${b.y}`
+              : `M ${x1} ${a.y} C ${x1 + ctrl} ${a.y}, ${x2 + ctrl} ${b.y}, ${x2} ${b.y}`;
             return (
               <path key={f.id} d={d} fill="none" stroke="#22d3ee" strokeWidth={1.6} opacity={0.75} />
             );
           })}
 
-          {blocos.map(b => (
-            <g key={`${b.chave}-${b.titulo}-${b.y}`}>
+          {blocos.map(b => b.forma === "tubo" ? (
+            <g key={b.chave}>
               <rect
-                x={b.x} y={b.y} width={LARG_BLOCO} height={b.altura} rx={8}
+                x={b.x} y={b.y} width={LARG_TUBO} height={b.altura} rx={8}
                 className="fill-card stroke-border" strokeWidth={1}
               />
-              <rect x={b.x} y={b.y} width={LARG_BLOCO} height={3} rx={1.5} fill={b.cor ?? "#64748b"} />
+              <rect x={b.x} y={b.y} width={LARG_TUBO} height={3} rx={1.5} fill={b.cor ?? "#64748b"} />
               <text x={b.x + 12} y={b.y + 20} className="fill-foreground" fontSize={12} fontWeight={600}>
                 {b.titulo}
               </text>
               <text x={b.x + 12} y={b.y + 32} className="fill-muted-foreground" fontSize={9}>
                 {b.subtitulo}
               </text>
-              {b.vias.map(v => (
-                <g key={v.id}>
-                  <rect
-                    x={b.x + 10} y={v.y - 6} width={10} height={12} rx={2}
-                    fill={corDaVia(v.viaNumber)} stroke="rgba(0,0,0,0.25)" strokeWidth={0.5}
-                  />
-                  <text x={b.x + 26} y={v.y + 4} className="fill-foreground" fontSize={10}>
-                    {v.viaNumber === 0 ? "ENT" : String(v.viaNumber).padStart(2, "0")}
-                    {v.label ? ` · ${v.label}` : ""}
+              {b.vias.map(v => {
+                const usada = viasEmUso.has(`tube:${v.id}`);
+                return (
+                  <g key={v.id} opacity={usada ? 1 : 0.32}>
+                    <rect
+                      x={b.x + 10} y={v.y - 6} width={10} height={12} rx={2}
+                      fill={corDaVia(v.viaNumber)} stroke="rgba(0,0,0,0.25)" strokeWidth={0.5}
+                    />
+                    <text
+                      x={b.x + 26} y={v.y + 4} fontSize={10}
+                      className={usada ? "fill-foreground" : "fill-muted-foreground"}
+                    >
+                      {v.viaNumber === 0 ? "ENT" : String(v.viaNumber).padStart(2, "0")}
+                      {v.label ? ` · ${v.label}` : ""}
+                    </text>
+                    {usada && (
+                      <circle cx={b.x + LARG_TUBO} cy={v.y} r={2.5} className="fill-muted-foreground/60" />
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          ) : (
+            <g key={b.chave}>
+              <text x={b.x} y={b.y + 12} className="fill-foreground" fontSize={12} fontWeight={600}>
+                {b.titulo}
+              </text>
+              <text x={b.x} y={b.y + 24} className="fill-muted-foreground" fontSize={9}>
+                {b.subtitulo}
+              </text>
+
+              {/* O triângulo: vértice à esquerda (entrada), base à direita. */}
+              <path
+                d={`M ${b.x} ${b.yTri + b.altTri / 2} L ${b.x + LARG_SPLITTER} ${b.yTri} L ${b.x + LARG_SPLITTER} ${b.yTri + b.altTri} Z`}
+                fill="#a855f7" fillOpacity={0.14} stroke="#a855f7" strokeWidth={1.4} strokeLinejoin="round"
+              />
+
+              {b.entrada && (
+                <>
+                  <circle cx={b.x} cy={b.entrada.y} r={3.5} fill="#a855f7" />
+                  <text
+                    x={b.x - 7} y={b.entrada.y + 3} fontSize={9} textAnchor="end"
+                    className="fill-muted-foreground"
+                  >
+                    ENT
                   </text>
-                  {/* Pontos de ligação nas duas bordas */}
-                  <circle cx={b.x} cy={v.y} r={2.5} className="fill-muted-foreground/50" />
-                  <circle cx={b.x + LARG_BLOCO} cy={v.y} r={2.5} className="fill-muted-foreground/50" />
-                </g>
-              ))}
+                </>
+              )}
+
+              {b.saidas.map(v => {
+                const usada = viasEmUso.has(`splitter:${v.id}`);
+                return (
+                  <g key={v.id} opacity={usada ? 1 : 0.35}>
+                    {usada
+                      ? <circle cx={b.x + LARG_SPLITTER} cy={v.y} r={3} fill={corDaVia(v.viaNumber)} />
+                      : <circle cx={b.x + LARG_SPLITTER} cy={v.y} r={2} className="fill-muted-foreground" />}
+                    <text
+                      x={b.x + LARG_SPLITTER + 7} y={v.y + 3} fontSize={8.5}
+                      className={usada ? "fill-foreground" : "fill-muted-foreground"}
+                    >
+                      {String(v.viaNumber).padStart(2, "0")}
+                    </text>
+                  </g>
+                );
+              })}
             </g>
           ))}
 
@@ -308,7 +434,7 @@ export default function DiagramaOptico() {
           )}
 
           {/* Reserva a área para o scroll não colapsar quando há poucos blocos */}
-          <rect x={0} y={0} width={larguraTotal} height={altura} fill="none" />
+          <rect x={0} y={0} width={largura} height={altura} fill="none" />
         </g>
       </svg>
     </div>
