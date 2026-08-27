@@ -4,10 +4,11 @@ import "leaflet/dist/leaflet.css";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { getTenantSlug } from "@/const";
 import { Button } from "@/components/ui/button";
 import {
   MousePointer2, Ruler, Hexagon, Layers, Loader2, Trash2, Undo2, Info, Check,
-  FolderTree, Plus, ChevronDown, FolderPlus, Cable, Pencil,
+  FolderTree, Plus, ChevronDown, FolderPlus, Cable, Pencil, ExternalLink,
 } from "lucide-react";
 import MapContextMenu, { type MapContextMenuTarget, type MapContextMenuTipo } from "@/components/map/MapContextMenu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -107,6 +108,18 @@ const OPCOES_QUERY = { staleTime: 30_000, refetchOnWindowFocus: false } as const
  * pessoas a projetar bairros diferentes não devem disputar o mesmo valor.
  */
 const CHAVE_PROJETO = "fiberdoc.mapa2.projetoAtivo";
+
+/**
+ * Endereço do cadastro completo de uma caixa.
+ *
+ * Inclui o slug do tenant: sem ele, abrir /ceo/12 num provedor levaria o
+ * primeiro segmento a ser lido como nome de tenant e a página inteira
+ * falharia — é o mesmo mecanismo que já quebrou o login com a rota /mapa2.
+ */
+function urlDoCadastro(tipo: "cto" | "ceo", id: number): string {
+  const slug = getTenantSlug();
+  return `${slug ? `/${slug}` : ""}/${tipo}/${id}`;
+}
 
 function lerProjetoGuardado(): number | null {
   try {
@@ -1465,9 +1478,23 @@ export default function MapaBeta() {
               </select>
             </div>
 
-            <p className="text-[11px] text-muted-foreground">
-              Posição e traçado não se editam aqui — para mover, use o Mapa de
-              Infraestrutura. Apagar também continua lá.
+            {(dialogoEditar?.tipo === "cto" || dialogoEditar?.tipo === "ceo") && (
+              <a
+                href={urlDoCadastro(dialogoEditar.tipo, dialogoEditar.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Abrir cadastro completo
+              </a>
+            )}
+
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Aqui muda-se o que é do desenho. Splitters, tubos, fusões e cabos
+              ligados vivem no cadastro — o link acima abre numa aba nova, sem
+              perder o que está traçado. Mover e apagar continuam no Mapa de
+              Infraestrutura.
             </p>
           </div>
           <DialogFooter>
