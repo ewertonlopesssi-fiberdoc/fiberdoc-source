@@ -7,11 +7,17 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import {
   MousePointer2, Ruler, Hexagon, Layers, Loader2, Trash2, Undo2, Info, Check,
+  FolderTree, Plus, ChevronDown, FolderPlus,
 } from "lucide-react";
 import MapContextMenu, { type MapContextMenuTarget, type MapContextMenuTipo } from "@/components/map/MapContextMenu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { resumirProjeto, formatarContagem } from "@shared/projectSummary";
 import { createStreetLayer, createSatelliteLayer, clampZoomForStreet, satelliteProviderLabel } from "@/lib/mapTiles";
 import { createLeafletIcon } from "@/lib/map/icons";
 import { safeLeafletRemove } from "@/lib/map/leaflet-utils";
@@ -59,6 +65,27 @@ interface Item {
 const chave = (tipo: TipoSel, id: number) => `${tipo}:${id}`;
 
 const OPCOES_QUERY = { staleTime: 30_000, refetchOnWindowFocus: false } as const;
+
+/**
+ * O projeto activo sobrevive a recarregamentos.
+ *
+ * A ideia é escolher uma vez e trabalhar o dia inteiro; perder a escolha a
+ * cada F5 transformaria a comodidade em irritação. Fica no navegador de quem
+ * desenha, porque é preferência de trabalho e não dado do sistema — duas
+ * pessoas a projetar bairros diferentes não devem disputar o mesmo valor.
+ */
+const CHAVE_PROJETO = "fiberdoc.mapa2.projetoAtivo";
+
+function lerProjetoGuardado(): number | null {
+  try {
+    const v = localStorage.getItem(CHAVE_PROJETO);
+    const n = v ? Number(v) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    // Modo privado, armazenamento bloqueado. Sem projeto activo, e sem drama.
+    return null;
+  }
+}
 
 export default function MapaBeta() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -110,6 +137,75 @@ export default function MapaBeta() {
   const { data: postes = [] } = trpc.mapPoles.list.useQuery(undefined, OPCOES_QUERY);
   const { data: rotas = [] } = trpc.infraMap.routes.useQuery(undefined, OPCOES_QUERY);
   const { data: sysConfig } = trpc.systemConfig.get.useQuery(undefined, { staleTime: 600_000, refetchOnWindowFocus: false });
+  const { data: grupos = [] } = trpc.mapGroups.list.useQuery(undefined, OPCOES_QUERY);
+  const { data: resumos = {} } = trpc.mapGroups.projectSummary.useQuery(undefined, { staleTime: 30_000, refetchOnWindowFocus: true });
+  // Os elementos do mapa não são desenhados a partir daqui — as caixas vêm de
+  // ctos/ceos com a sua própria posição. Esta consulta serve só para traduzir
+  // (tipo, id do cadastro) → id do elemento do mapa, que é a chave por onde a
+  // associação a grupo funciona.
+  const { data: elementosMapa = [] } = trpc.infraMap.elements.useQuery(undefined, OPCOES_QUERY);
+
+  // ─── Projeto activo ───────────────────────────────────────────────────────
+  const [projetoAtivo, setProjetoAtivo] = useState<number | null>(lerProjetoGuardado);
+  const [soDoProjeto, setSoDoProjeto] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (projetoAtivo == null) localStorage.removeItem(CHAVE_PROJETO);
+      else localStorage.setItem(CHAVE_PROJETO, String(projetoAtivo));
+    } catch { /* armazenamento indisponível — a escolha vale só nesta sessão */ }
+  }, [projetoAtivo]);
+
+  const projetos = useMemo(() => (grupos as any[]).filter(g => g?.isProject), [grupos]);
+  const projeto = useMemo(
+    () => projetos.find((p: any) => Number(p.id) === projetoAtivo) ?? null,
+    [projetos, projetoAtivo]
+  );
+
+  // O projeto guardado pode ter sido apagado noutra tela. Sem isto, o filtro
+  // "só este projeto" esconderia tudo apontando para um grupo que não existe.
+  useEffect(() => {
+    if (projetoAtivo != null && projetos.length > 0 && !projeto) {
+      setProjetoAtivo(null);
+      setSoDoProjeto(false);
+    }
+  }, [projeto, projetoAtivo, projetos.length]);
+
+  const resumoProjeto = useMemo(
+    () => (projeto ? resumirProjeto((resumos as any)[projeto.id]) : null),
+    [projeto, resumos]
+  );
+
+  /** (tipo, id do cadastro) → id do elemento do mapa. */
+  const idElementoPorItem = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of elementosMapa as any[]) {
+      if (e?.type === "cto" || e?.type === "ceo") {
+        m.set(chave(e.type, Number(e.referenceId)), Number(e.id));
+      }
+    }
+    return m;
+  }, [elementosMapa]);
+
+  /** Chaves dos itens que pertencem ao projeto activo. Null = sem projeto. */
+  const chavesDoProjeto = useMemo(() => {
+    if (!projeto) return null;
+    const s = new Set<string>();
+    const idsElementos = new Set((projeto.elements ?? []).map((x: any) => Number(x.elementId)));
+    for (const e of elementosMapa as any[]) {
+      if ((e?.type === "cto" || e?.type === "ceo") && idsElementos.has(Number(e.id))) {
+        s.add(chave(e.type, Number(e.referenceId)));
+      }
+    }
+    for (const p of (projeto.poles ?? [])) s.add(chave("poste", Number(p.poleId)));
+    return s;
+  }, [projeto, elementosMapa]);
+
+  /** Ids de cabos do projeto activo, para o filtro de visualização. */
+  const rotasDoProjeto = useMemo(() => {
+    if (!projeto) return null;
+    return new Set((projeto.routes ?? []).map((r: any) => Number(r.routeId)));
+  }, [projeto]);
 
   const carregando = carregandoCtos || carregandoCeos;
 
@@ -138,8 +234,14 @@ export default function MapaBeta() {
       juntar(ceos as any[], "ceo", "CEO");
     }
     if (mostrarPostes) juntar(postes as any[], "poste", "Poste");
+    // "Só este projeto" é um interruptor à parte, e não um efeito de escolher
+    // o projeto: escolher já filtrar esconderia em silêncio a rede existente,
+    // e desenhar por cima do que não se vê é como se criam sobreposições.
+    if (soDoProjeto && chavesDoProjeto) {
+      return saida.filter(i => chavesDoProjeto.has(chave(i.tipo, i.id)));
+    }
     return saida;
-  }, [ctos, ceos, postes, mostrarCaixas, mostrarPostes]);
+  }, [ctos, ceos, postes, mostrarCaixas, mostrarPostes, soDoProjeto, chavesDoProjeto]);
 
   const itensPorChave = useMemo(() => {
     const m = new Map<string, Item>();
@@ -247,6 +349,7 @@ export default function MapaBeta() {
 
     if (mostrarCabos) {
       (rotas as any[]).forEach(r => {
+        if (soDoProjeto && rotasDoProjeto && !rotasDoProjeto.has(Number(r.id))) return;
         let caminho: { lat: number; lng: number }[] = [];
         try { caminho = typeof r.path === "string" ? JSON.parse(r.path) : (r.path ?? []); } catch { caminho = []; }
         if (caminho.length < 2) return;
@@ -295,7 +398,7 @@ export default function MapaBeta() {
         .on("click", aoClicarItem(item.tipo, item.id))
         .addTo(grupo);
     }
-  }, [mapPronto, itens, ctos, ceos, rotas, mostrarCabos, alternarItem]);
+  }, [mapPronto, itens, ctos, ceos, rotas, mostrarCabos, alternarItem, soDoProjeto, rotasDoProjeto]);
 
   // ─── Destaque da selecção ─────────────────────────────────────────────────
   // Camada própria, redesenhada a cada mudança de selecção. É barata: desenha
@@ -528,6 +631,19 @@ export default function MapaBeta() {
   const criarPosteMut = trpc.mapPoles.create.useMutation();
   const upsertElementoMut = trpc.infraMap.upsertElement.useMutation();
   const setStatusMut = trpc.projectStatus.set.useMutation();
+  const addElementoGrupoMut = trpc.mapGroups.addElement.useMutation();
+  const addPosteGrupoMut = trpc.mapGroups.addPole.useMutation();
+  const criarProjetoMut = trpc.mapGroups.create.useMutation();
+
+  /** Recarrega o que muda quando se cria ou se reassocia alguma coisa. */
+  const recarregarTudo = useCallback(() => Promise.all([
+    utils.ctos.list.invalidate(),
+    utils.ceos.list.invalidate(),
+    utils.mapPoles.list.invalidate(),
+    utils.infraMap.elements.invalidate(),
+    utils.mapGroups.list.invalidate(),
+    utils.mapGroups.projectSummary.invalidate(),
+  ]), [utils]);
 
   const criando =
     criarCtoMut.isPending || criarCeoMut.isPending || criarPosteMut.isPending ||
@@ -558,6 +674,9 @@ export default function MapaBeta() {
         if (novoEstado !== "deployed") {
           await setStatusMut.mutateAsync({ tipo: "poste", id: r.id, status: novoEstado });
         }
+        if (projetoAtivo != null) {
+          await addPosteGrupoMut.mutateAsync({ poleId: r.id, groupId: projetoAtivo });
+        }
       } else {
         // CTO e CEO nascem em duas partes: o cadastro numa tabela própria, e a
         // posição em map_elements. Sem o segundo passo o elemento existe e não
@@ -565,23 +684,88 @@ export default function MapaBeta() {
         const criado = tipo === "cto"
           ? await criarCtoMut.mutateAsync({ name: nome, capacity: novaCapacidade, lat, lng })
           : await criarCeoMut.mutateAsync({ name: nome });
-        await upsertElementoMut.mutateAsync({ type: tipo, referenceId: criado.id, lat, lng });
+        // O id que a associação a grupo usa é o do ELEMENTO DO MAPA, devolvido
+        // aqui — não o do cadastro. Confundir os dois associaria o grupo a um
+        // elemento qualquer, em silêncio.
+        const elemento = await upsertElementoMut.mutateAsync({ type: tipo, referenceId: criado.id, lat, lng });
         // `deployed` é o padrão da coluna; só escreve quando é outra coisa.
         if (novoEstado !== "deployed") {
           await setStatusMut.mutateAsync({ tipo, id: criado.id, status: novoEstado });
         }
+        if (projetoAtivo != null) {
+          await addElementoGrupoMut.mutateAsync({ elementId: elemento.id, groupId: projetoAtivo });
+        }
       }
-      toast.success(`${tipo === "poste" ? "Poste" : tipo.toUpperCase()} "${nome}" criado`);
+      toast.success(
+        projeto
+          ? `${tipo === "poste" ? "Poste" : tipo.toUpperCase()} "${nome}" criado em ${projeto.name}`
+          : `${tipo === "poste" ? "Poste" : tipo.toUpperCase()} "${nome}" criado`
+      );
       setDialogoCriar(null);
-      await Promise.all([
-        utils.ctos.list.invalidate(),
-        utils.ceos.list.invalidate(),
-        utils.mapPoles.list.invalidate(),
-      ]);
+      await recarregarTudo();
     } catch (e: any) {
       toast.error("Erro ao criar: " + (e?.message ?? "desconhecido"));
     }
-  }, [dialogoCriar, novoNome, novaCapacidade, novoEstado, criarCtoMut, criarCeoMut, criarPosteMut, upsertElementoMut, setStatusMut, utils]);
+  }, [dialogoCriar, novoNome, novaCapacidade, novoEstado, projetoAtivo, projeto,
+      criarCtoMut, criarCeoMut, criarPosteMut, upsertElementoMut, setStatusMut,
+      addElementoGrupoMut, addPosteGrupoMut, recarregarTudo]);
+
+  // ─── Juntar o que já está seleccionado ao projeto activo ──────────────────
+  const adicionarSelecaoAoProjeto = useCallback(async () => {
+    if (projetoAtivo == null || !projeto) return;
+    const jaDentro = chavesDoProjeto ?? new Set<string>();
+    const novos = selecionadosVisiveis.filter(i => !jaDentro.has(chave(i.tipo, i.id)));
+    if (novos.length === 0) {
+      toast.info("Todos os selecionados já estão neste projeto.");
+      return;
+    }
+    try {
+      let entraram = 0;
+      let semElemento = 0;
+      for (const i of novos) {
+        if (i.tipo === "poste") {
+          await addPosteGrupoMut.mutateAsync({ poleId: i.id, groupId: projetoAtivo });
+          entraram++;
+          continue;
+        }
+        const elementId = idElementoPorItem.get(chave(i.tipo, i.id));
+        if (elementId == null) {
+          // Caixa cadastrada com coordenada mas sem linha em map_elements.
+          // Acontece com importações antigas; associar sem isso é impossível.
+          semElemento++;
+          continue;
+        }
+        await addElementoGrupoMut.mutateAsync({ elementId, groupId: projetoAtivo });
+        entraram++;
+      }
+      if (entraram > 0) toast.success(`${entraram} ${entraram === 1 ? "item adicionado" : "itens adicionados"} a ${projeto.name}`);
+      if (semElemento > 0) toast.warning(`${semElemento} sem posição no mapa — abra pelo Mapa de Infraestrutura primeiro.`);
+      await recarregarTudo();
+    } catch (e: any) {
+      toast.error("Erro ao adicionar: " + (e?.message ?? "desconhecido"));
+    }
+  }, [projetoAtivo, projeto, chavesDoProjeto, selecionadosVisiveis, idElementoPorItem,
+      addElementoGrupoMut, addPosteGrupoMut, recarregarTudo]);
+
+  // ─── Criar projeto sem sair da prancheta ──────────────────────────────────
+  const [dialogoProjeto, setDialogoProjeto] = useState(false);
+  const [nomeProjeto, setNomeProjeto] = useState("");
+  const [corProjeto, setCorProjeto] = useState("#6366f1");
+
+  const confirmarCriarProjeto = useCallback(async () => {
+    const nome = nomeProjeto.trim();
+    if (!nome) { toast.error("Informe o nome do projeto."); return; }
+    try {
+      const r = await criarProjetoMut.mutateAsync({ name: nome, color: corProjeto, isProject: true });
+      setProjetoAtivo(r.id);
+      setDialogoProjeto(false);
+      setNomeProjeto("");
+      toast.success(`Projeto "${nome}" criado e activo`);
+      await utils.mapGroups.list.invalidate();
+    } catch (e: any) {
+      toast.error("Erro ao criar projeto: " + (e?.message ?? "desconhecido"));
+    }
+  }, [nomeProjeto, corProjeto, criarProjetoMut, utils]);
 
   const trocarModo = useCallback((novo: Modo) => {
     setModo(atual => {
@@ -596,6 +780,82 @@ export default function MapaBeta() {
     <div className="relative w-full h-[calc(100vh-4rem)]">
       {/* ── Barra de modos ── */}
       <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-1 rounded-lg border border-border bg-card/95 backdrop-blur px-1.5 py-1 shadow-lg">
+        {/* Seletor de projeto activo */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              // Alvo estável para o teste de fumaça. Sem isto ele teria de
+              // apontar para a estrutura do DOM, e qualquer mexida no desenho
+              // quebraria o teste sem nada de errado ter acontecido.
+              data-smoke="seletor-projeto"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-muted text-left max-w-[220px]"
+              title={
+                projeto
+                  ? resumoProjeto && !resumoProjeto.vazio
+                    ? `${projeto.name} — ${resumoProjeto.feitos} de ${resumoProjeto.total} implantados · ${formatarContagem(resumoProjeto, PROJECT_TIPO_LABEL)}`
+                    : `${projeto.name} — ainda sem itens`
+                  : "Nenhum projeto activo. Escolher um faz tudo o que você criar entrar nele."
+              }
+            >
+              {projeto ? (
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: projeto.color ?? "#6366f1" }} />
+              ) : (
+                <FolderTree className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              )}
+              <span className="text-xs truncate">
+                {projeto ? projeto.name : <span className="text-muted-foreground">Nenhum projeto</span>}
+              </span>
+              {projeto && resumoProjeto && !resumoProjeto.vazio && (
+                <span className="text-[10px] tabular-nums text-muted-foreground shrink-0">
+                  {resumoProjeto.percentual}%
+                </span>
+              )}
+              <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-64">
+            <DropdownMenuLabel className="text-xs">Projeto activo</DropdownMenuLabel>
+            <DropdownMenuItem className="text-xs" onSelect={() => { setProjetoAtivo(null); setSoDoProjeto(false); }}>
+              <span className="text-muted-foreground">Nenhum projeto</span>
+            </DropdownMenuItem>
+            {projetos.length > 0 && <DropdownMenuSeparator />}
+            {projetos.map((p: any) => {
+              const r = resumirProjeto((resumos as any)[p.id]);
+              return (
+                <DropdownMenuItem key={p.id} className="text-xs gap-2" onSelect={() => setProjetoAtivo(Number(p.id))}>
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: p.color ?? "#6366f1" }} />
+                  <span className="flex-1 truncate">{p.name}</span>
+                  <span className="text-[10px] tabular-nums text-muted-foreground shrink-0">
+                    {r.vazio ? "vazio" : `${r.percentual}%`}
+                  </span>
+                </DropdownMenuItem>
+              );
+            })}
+            {podeEditar && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="text-xs gap-2" onSelect={() => setDialogoProjeto(true)}>
+                  <FolderPlus className="w-3.5 h-3.5 text-violet-400" />
+                  Novo projeto…
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {projeto && (
+          <button
+            onClick={() => setSoDoProjeto(v => !v)}
+            title="Mostrar apenas os itens deste projeto"
+            className={`px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
+              soDoProjeto ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            só este
+          </button>
+        )}
+
+        <div className="w-px h-6 bg-border mx-0.5" />
         <BotaoModo ativo={modo === "selecionar"} onClick={() => trocarModo("selecionar")} Icone={MousePointer2} rotulo="Selecionar" />
         <div className="w-px h-6 bg-border mx-0.5" />
         <BotaoModo ativo={modo === "regua"} onClick={() => trocarModo("regua")} Icone={Ruler} rotulo="Régua" />
@@ -689,6 +949,14 @@ export default function MapaBeta() {
             </span>
           )}
 
+          {podeEditar && projeto && (
+            <Button size="sm" variant="outline" className="h-7 gap-1 text-xs shrink-0"
+              onClick={adicionarSelecaoAoProjeto} title={`Adicionar ao projeto ${projeto.name}`}>
+              <Plus className="w-3 h-3" />
+              <span className="max-w-[120px] truncate">{projeto.name}</span>
+            </Button>
+          )}
+
           <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs border-l border-border rounded-none pl-3"
             onClick={limparSelecao}>
             <Trash2 className="w-3 h-3" />Limpar
@@ -780,6 +1048,12 @@ export default function MapaBeta() {
                 Começa em "Em projeto" porque aqui se desenha o que ainda vai ser feito.
               </p>
             </div>
+            {projeto && (
+              <p className="text-[11px] flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: projeto.color ?? "#6366f1" }} />
+                <span className="text-muted-foreground">Entra no projeto <strong className="text-foreground">{projeto.name}</strong></span>
+              </p>
+            )}
             {dialogoCriar && (
               <p className="text-[11px] text-muted-foreground font-mono">
                 {dialogoCriar.lat.toFixed(6)}, {dialogoCriar.lng.toFixed(6)}
@@ -790,6 +1064,43 @@ export default function MapaBeta() {
             <Button variant="outline" onClick={() => setDialogoCriar(null)} disabled={criando}>Cancelar</Button>
             <Button onClick={confirmarCriacao} disabled={criando}>
               {criando ? <Loader2 className="w-4 h-4 animate-spin" /> : "Criar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Diálogo de novo projeto ── */}
+      <Dialog open={dialogoProjeto} onOpenChange={setDialogoProjeto}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Novo projeto</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Nome *</Label>
+              <Input
+                value={nomeProjeto}
+                autoFocus
+                onChange={e => setNomeProjeto(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !criarProjetoMut.isPending) confirmarCriarProjeto(); }}
+                placeholder="Ex: Expansão Dom Hélder"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Cor</Label>
+              <div className="flex gap-2 items-center">
+                <input type="color" value={corProjeto} onChange={e => setCorProjeto(e.target.value)}
+                  className="w-10 h-8 rounded cursor-pointer border border-border" />
+                <span className="text-xs text-muted-foreground">{corProjeto}</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              O projeto é uma pasta do mapa com acompanhamento de execução. Ele
+              aparece igual no painel de grupos do Mapa de Infraestrutura.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogoProjeto(false)} disabled={criarProjetoMut.isPending}>Cancelar</Button>
+            <Button onClick={confirmarCriarProjeto} disabled={criarProjetoMut.isPending}>
+              {criarProjetoMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Criar"}
             </Button>
           </DialogFooter>
         </DialogContent>

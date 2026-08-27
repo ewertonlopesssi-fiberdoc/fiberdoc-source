@@ -107,6 +107,21 @@ const INTERACOES = [
     // propósito: o smoke deve correr com a conta que a equipa usa de facto.
     esperar: "Criar neste ponto",
   },
+  {
+    rota: "/mapa2",
+    nome: "seletor de projeto abre",
+    // Aponta para um data-attribute, não para a estrutura do DOM: mexer no
+    // desenho da barra não deve partir o teste sem nada de errado ter
+    // acontecido. Abrir a lista não escreve nada.
+    acao: `(() => {
+      const el = document.querySelector('[data-smoke="seletor-projeto"]');
+      if (!el) return "sem-seletor";
+      el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, isPrimary: true, button: 0 }));
+      el.click();
+      return "ok";
+    })()`,
+    esperar: "Projeto activo",
+  },
 ];
 
 function eRuido(texto) {
