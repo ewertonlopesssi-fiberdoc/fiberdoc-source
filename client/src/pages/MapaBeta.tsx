@@ -583,6 +583,27 @@ export default function MapaBeta() {
   const utils = trpc.useUtils();
   const setManyMut = trpc.projectStatus.setMany.useMutation();
 
+  /**
+   * Recarrega tudo o que uma escrita pode ter mexido.
+   *
+   * Fica declarado ANTES de quem o usa de propósito: a lista de dependências
+   * de um useCallback é avaliada durante o render, e referenciar um const
+   * declarado mais abaixo estoura com "Cannot access before initialization".
+   *
+   * E inclui projectSummary. Sem ele, aplicar estado em lote actualizava os
+   * marcadores e deixava o percentual do projeto congelado até um F5 — que
+   * foi exactamente o que aconteceu no primeiro teste de ponta a ponta.
+   */
+  const recarregarTudo = useCallback(() => Promise.all([
+    utils.ctos.list.invalidate(),
+    utils.ceos.list.invalidate(),
+    utils.mapPoles.list.invalidate(),
+    utils.infraMap.elements.invalidate(),
+    utils.mapGroups.list.invalidate(),
+    utils.mapGroups.projectSummary.invalidate(),
+  ]), [utils]);
+
+
   const aplicarEstado = useCallback(async () => {
     // Uma chamada por tipo: setMany aceita um tipo de cada vez, porque o nome
     // da tabela vem de um mapa fechado no servidor e nunca da entrada.
@@ -613,15 +634,11 @@ export default function MapaBeta() {
         }
       }
       toast.success(`${total} ${total === 1 ? "item marcado" : "itens marcados"} como ${PROJECT_STATUS_LABEL[estadoAlvo]}`);
-      await Promise.all([
-        utils.ctos.list.invalidate(),
-        utils.ceos.list.invalidate(),
-        utils.mapPoles.list.invalidate(),
-      ]);
+      await recarregarTudo();
     } catch (e: any) {
       toast.error("Erro ao aplicar: " + (e?.message ?? "desconhecido"));
     }
-  }, [selecionadosVisiveis, estadoAlvo, setManyMut, utils]);
+  }, [selecionadosVisiveis, estadoAlvo, setManyMut, recarregarTudo]);
 
   const limparSelecao = useCallback(() => setSelecionados(new Set()), []);
 
@@ -634,16 +651,6 @@ export default function MapaBeta() {
   const addElementoGrupoMut = trpc.mapGroups.addElement.useMutation();
   const addPosteGrupoMut = trpc.mapGroups.addPole.useMutation();
   const criarProjetoMut = trpc.mapGroups.create.useMutation();
-
-  /** Recarrega o que muda quando se cria ou se reassocia alguma coisa. */
-  const recarregarTudo = useCallback(() => Promise.all([
-    utils.ctos.list.invalidate(),
-    utils.ceos.list.invalidate(),
-    utils.mapPoles.list.invalidate(),
-    utils.infraMap.elements.invalidate(),
-    utils.mapGroups.list.invalidate(),
-    utils.mapGroups.projectSummary.invalidate(),
-  ]), [utils]);
 
   const criando =
     criarCtoMut.isPending || criarCeoMut.isPending || criarPosteMut.isPending ||
