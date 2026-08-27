@@ -23,10 +23,20 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script
-      defer
-      src="%VITE_ANALYTICS_ENDPOINT%/umami"
-      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+    <!--
+      Removido: script de analytics do modelo original.
+
+      A variável do endpoint nunca foi definida nesta instalação, então o Vite
+      deixava o marcador por substituir e cada carregamento de página disparava
+      um pedido a esse caminho literal — 400 em toda página, para todo
+      utilizador, desde sempre. Não media nada; só sujava o console.
+
+      (O nome da variável não é repetido aqui de propósito: o Vite substitui
+      marcadores neste ficheiro inclusive dentro de comentários.)
+
+      Se um dia houver analytics a sério, o snippet volta com a variável
+      definida no ambiente de build, não com um marcador por preencher.
+    -->
   </body>
 
 </html>

@@ -37,7 +37,15 @@ const ESPERA_MS = Number(process.env.SMOKE_ESPERA_MS ?? 3500);
 const EMAIL = process.env.SMOKE_EMAIL ?? "";
 const SENHA = process.env.SMOKE_PASSWORD ?? "";
 
-const ROTAS_PADRAO = ["/login", "/", "/mapa", "/mapa2", "/ctos", "/ceos"];
+/**
+ * Rotas reais de App.tsx. Os nomes são no SINGULAR (/cto, /ceo) — a primeira
+ * versão desta lista usava o plural, que não é rota, e o resultado foi
+ * instrutivo: um primeiro segmento desconhecido é tratado como slug de tenant,
+ * as chamadas de API saem prefixadas com ele e a página inteira falha com
+ * "Unexpected token '<'". É o mesmo mecanismo do bug do /mapa2, e serve de
+ * lembrete de que esta lista tem de acompanhar as rotas.
+ */
+const ROTAS_PADRAO = ["/login", "/", "/mapa", "/mapa2", "/cto", "/ceo", "/equipamentos"];
 const ROTAS = (process.env.SMOKE_ROTAS ?? "").trim()
   ? process.env.SMOKE_ROTAS.split(",").map(r => r.trim()).filter(Boolean)
   : ROTAS_PADRAO;
@@ -61,12 +69,16 @@ function eRuido(texto) {
 
 function acharChromium() {
   if (process.env.SMOKE_CHROME) return process.env.SMOKE_CHROME;
+  // chromium-shell primeiro: é o pacote headless, ~500 MB contra os 680 MB do
+  // chromium completo, que arrasta GTK, CUPS e configurador de impressora para
+  // um servidor que não tem ecrã.
   const candidatos = [
+    "chromium-shell",
+    "chrome-headless-shell",
     "chromium",
     "chromium-browser",
     "google-chrome",
     "google-chrome-stable",
-    "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
   ];
   for (const c of candidatos) {
     const r = spawnSync("sh", ["-c", `command -v ${c} || test -x ${c} && echo ${c}`], { encoding: "utf8" });
