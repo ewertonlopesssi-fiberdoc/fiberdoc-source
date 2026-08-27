@@ -87,6 +87,26 @@ const INTERACOES = [
     })()`,
     esperar: "selecionado",
   },
+  {
+    rota: "/mapa2",
+    nome: "botão direito abre o menu de criação",
+    // Abrir o menu não escreve nada — quem escreve é o diálogo que vem
+    // depois, e esse não é tocado aqui.
+    acao: `(() => {
+      const el = document.querySelector(".leaflet-container");
+      if (!el) return "sem-mapa";
+      const r = el.getBoundingClientRect();
+      el.dispatchEvent(new MouseEvent("contextmenu", {
+        bubbles: true, cancelable: true, view: window,
+        clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+      }));
+      return "ok";
+    })()`,
+    // Só aparece para operador/admin. Com um utilizador sem permissão o menu
+    // abre apenas com "Copiar coordenadas", e este teste acusaria — de
+    // propósito: o smoke deve correr com a conta que a equipa usa de facto.
+    esperar: "Criar neste ponto",
+  },
 ];
 
 function eRuido(texto) {
@@ -293,8 +313,10 @@ async function main() {
         interagiu = true;
         const antes = coletados.length;
         const r = await avaliar(inter.acao);
-        if (r === "sem-marcador") {
-          console.log(`  ok    ${rota}  (interacção "${inter.nome}" ignorada: nada no mapa)`);
+        // Qualquer "sem-…" significa que o alvo não existe nesta página: não é
+        // defeito, é falta de dado ou de elemento para exercitar.
+        if (typeof r === "string" && r.startsWith("sem-")) {
+          console.log(`  ok    ${rota}  (interacção "${inter.nome}" ignorada: ${r})`);
           continue;
         }
         await new Promise(res => setTimeout(res, 900));

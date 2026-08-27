@@ -17,14 +17,23 @@ export interface MapContextMenuTarget {
   lat: number;
   lng: number;
 }
+export type MapContextMenuTipo = "ceo" | "cto" | "poste" | "reserva" | "poi";
+
 interface MapContextMenuProps {
   target: MapContextMenuTarget;
   isAdmin: boolean;
   onClose: () => void;
-  onAdd: (tipo: "ceo" | "cto" | "poste" | "reserva" | "poi", lat: number, lng: number) => void;
+  onAdd: (tipo: MapContextMenuTipo, lat: number, lng: number) => void;
   onCopyCoords: (lat: number, lng: number) => void;
+  /**
+   * Quais tipos oferecer. Omitido, oferece todos — que é o que o Mapa de
+   * Infraestrutura quer. O Mapa 2.0 ainda não desenha reservas nem POIs, e
+   * oferecer criação de algo que a tela não mostra depois seria pior do que
+   * não oferecer: o item some sem explicação.
+   */
+  tipos?: MapContextMenuTipo[];
 }
-export default function MapContextMenu({ target, isAdmin, onClose, onAdd, onCopyCoords }: MapContextMenuProps) {
+export default function MapContextMenu({ target, isAdmin, onClose, onAdd, onCopyCoords, tipos }: MapContextMenuProps) {
   const ref = useRef<HTMLDivElement | null>(null);
 
   // Fecha ao clicar fora ou com Esc — o menu vive fora do fluxo do Radix,
@@ -48,19 +57,23 @@ export default function MapContextMenu({ target, isAdmin, onClose, onAdd, onCopy
     };
   }, [onClose]);
 
-  // Mantém o menu dentro da janela quando o clique é perto da borda.
-  const LARGURA = 208;
-  const ALTURA_ESTIMADA = isAdmin ? 240 : 96;
-  const x = Math.min(target.x, window.innerWidth - LARGURA - 8);
-  const y = Math.min(target.y, window.innerHeight - ALTURA_ESTIMADA - 8);
-
-  const itens: Array<{ tipo: "ceo" | "cto" | "poste" | "reserva" | "poi"; rotulo: string; Icone: any; cor: string }> = [
+  const TODOS: Array<{ tipo: MapContextMenuTipo; rotulo: string; Icone: any; cor: string }> = [
     { tipo: "cto", rotulo: "Adicionar CTO aqui", Icone: Box, cor: "text-emerald-400" },
     { tipo: "ceo", rotulo: "Adicionar CEO aqui", Icone: Radio, cor: "text-blue-400" },
     { tipo: "poste", rotulo: "Adicionar poste aqui", Icone: MapPin, cor: "text-amber-400" },
     { tipo: "reserva", rotulo: "Adicionar reserva aqui", Icone: Layers, cor: "text-cyan-400" },
     { tipo: "poi", rotulo: "Adicionar POI aqui", Icone: Star, cor: "text-violet-400" },
   ];
+  const itens = tipos ? TODOS.filter(i => tipos.indexOf(i.tipo) !== -1) : TODOS;
+
+  // Mantém o menu dentro da janela quando o clique é perto da borda.
+  const LARGURA = 208;
+  // Altura estimada a partir do número real de itens: com a lista filtrada o
+  // menu é mais curto, e uma estimativa fixa o empurraria para cima à toa.
+  const ALTURA_ESTIMADA = isAdmin ? 96 + itens.length * 29 : 96;
+  const x = Math.min(target.x, window.innerWidth - LARGURA - 8);
+  const y = Math.min(target.y, window.innerHeight - ALTURA_ESTIMADA - 8);
+
 
   // Renderizado em portal no body: dentro da árvore do mapa, qualquer ancestral
   // com transform, filter ou contexto de empilhamento próprio faria o

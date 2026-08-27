@@ -8,6 +8,10 @@ import { Button } from "@/components/ui/button";
 import {
   MousePointer2, Ruler, Hexagon, Layers, Loader2, Trash2, Undo2, Info, Check,
 } from "lucide-react";
+import MapContextMenu, { type MapContextMenuTarget, type MapContextMenuTipo } from "@/components/map/MapContextMenu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { createStreetLayer, createSatelliteLayer, clampZoomForStreet, satelliteProviderLabel } from "@/lib/mapTiles";
 import { createLeafletIcon } from "@/lib/map/icons";
 import { safeLeafletRemove } from "@/lib/map/leaflet-utils";
@@ -89,6 +93,17 @@ export default function MapaBeta() {
   const [estadoAlvo, setEstadoAlvo] = useState<ProjectStatus>("deployed");
   // A caixa de selecção em curso, em coordenadas do mapa.
   const [caixa, setCaixa] = useState<L.LatLngBounds | null>(null);
+
+  // ─── Criação ──────────────────────────────────────────────────────────────
+  const [menuContexto, setMenuContexto] = useState<MapContextMenuTarget | null>(null);
+  const [dialogoCriar, setDialogoCriar] = useState<{ tipo: TipoSel; lat: number; lng: number } | null>(null);
+  const [novoNome, setNovoNome] = useState("");
+  const [novaCapacidade, setNovaCapacidade] = useState(8);
+  // O padrão é "Em projeto", e não "Implantado" como no resto do sistema.
+  // Aqui é prancheta: quem desenha está a projetar, não a documentar o que já
+  // existe em campo. Marcar como implantado por omissão faria o percentual do
+  // projeto nascer em 100%, que é o oposto do que se quer ver.
+  const [novoEstado, setNovoEstado] = useState<ProjectStatus>("planned");
 
   const { data: ctos = [], isLoading: carregandoCtos } = trpc.ctos.list.useQuery(undefined, OPCOES_QUERY);
   const { data: ceos = [], isLoading: carregandoCeos } = trpc.ceos.list.useQuery({}, OPCOES_QUERY);
@@ -316,6 +331,23 @@ export default function MapaBeta() {
     return () => { map.off("click", aoClicar); map.off("dblclick", aoDuploClique); };
   }, [mapPronto]);
 
+  // ─── Botão direito: criar neste ponto ─────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapPronto || !map) return;
+    const aoBotaoDireito = (e: L.LeafletMouseEvent) => {
+      L.DomEvent.preventDefault(e.originalEvent);
+      setMenuContexto({
+        x: e.originalEvent.clientX,
+        y: e.originalEvent.clientY,
+        lat: e.latlng.lat,
+        lng: e.latlng.lng,
+      });
+    };
+    map.on("contextmenu", aoBotaoDireito);
+    return () => { map.off("contextmenu", aoBotaoDireito); };
+  }, [mapPronto]);
+
   // O cursor indica que o mapa está em modo de medição.
   useEffect(() => {
     const map = mapRef.current;
@@ -490,6 +522,67 @@ export default function MapaBeta() {
 
   const limparSelecao = useCallback(() => setSelecionados(new Set()), []);
 
+  // ─── Criar elemento no ponto clicado ──────────────────────────────────────
+  const criarCtoMut = trpc.ctos.create.useMutation();
+  const criarCeoMut = trpc.ceos.create.useMutation();
+  const criarPosteMut = trpc.mapPoles.create.useMutation();
+  const upsertElementoMut = trpc.infraMap.upsertElement.useMutation();
+  const setStatusMut = trpc.projectStatus.set.useMutation();
+
+  const criando =
+    criarCtoMut.isPending || criarCeoMut.isPending || criarPosteMut.isPending ||
+    upsertElementoMut.isPending || setStatusMut.isPending;
+
+  const abrirDialogoCriar = useCallback((tipo: MapContextMenuTipo, lat: number, lng: number) => {
+    // O menu só oferece os três tipos que esta tela desenha, mas a assinatura
+    // do componente permite cinco — a guarda é para o dia em que alguém
+    // alargar a lista e esquecer o resto.
+    if (tipo !== "cto" && tipo !== "ceo" && tipo !== "poste") {
+      toast.info("Este tipo ainda não é criado pelo Mapa 2.0.");
+      return;
+    }
+    setDialogoCriar({ tipo, lat, lng });
+    setNovoNome("");
+    setNovaCapacidade(8);
+    setNovoEstado("planned");
+  }, []);
+
+  const confirmarCriacao = useCallback(async () => {
+    if (!dialogoCriar) return;
+    const nome = novoNome.trim();
+    if (!nome) { toast.error("Informe o nome."); return; }
+    const { tipo, lat, lng } = dialogoCriar;
+    try {
+      if (tipo === "poste") {
+        const r = await criarPosteMut.mutateAsync({ name: nome, lat, lng });
+        if (novoEstado !== "deployed") {
+          await setStatusMut.mutateAsync({ tipo: "poste", id: r.id, status: novoEstado });
+        }
+      } else {
+        // CTO e CEO nascem em duas partes: o cadastro numa tabela própria, e a
+        // posição em map_elements. Sem o segundo passo o elemento existe e não
+        // aparece no mapa — foi assim que o mapa antigo sempre fez.
+        const criado = tipo === "cto"
+          ? await criarCtoMut.mutateAsync({ name: nome, capacity: novaCapacidade, lat, lng })
+          : await criarCeoMut.mutateAsync({ name: nome });
+        await upsertElementoMut.mutateAsync({ type: tipo, referenceId: criado.id, lat, lng });
+        // `deployed` é o padrão da coluna; só escreve quando é outra coisa.
+        if (novoEstado !== "deployed") {
+          await setStatusMut.mutateAsync({ tipo, id: criado.id, status: novoEstado });
+        }
+      }
+      toast.success(`${tipo === "poste" ? "Poste" : tipo.toUpperCase()} "${nome}" criado`);
+      setDialogoCriar(null);
+      await Promise.all([
+        utils.ctos.list.invalidate(),
+        utils.ceos.list.invalidate(),
+        utils.mapPoles.list.invalidate(),
+      ]);
+    } catch (e: any) {
+      toast.error("Erro ao criar: " + (e?.message ?? "desconhecido"));
+    }
+  }, [dialogoCriar, novoNome, novaCapacidade, novoEstado, criarCtoMut, criarCeoMut, criarPosteMut, upsertElementoMut, setStatusMut, utils]);
+
   const trocarModo = useCallback((novo: Modo) => {
     setModo(atual => {
       if (atual === novo) return "selecionar";
@@ -626,6 +719,81 @@ export default function MapaBeta() {
           <Loader2 className="w-3 h-3 animate-spin" />Carregando dados do mapa…
         </div>
       )}
+
+      {/* ── Menu do botão direito ── */}
+      {menuContexto && (
+        <MapContextMenu
+          target={menuContexto}
+          isAdmin={podeEditar}
+          tipos={["cto", "ceo", "poste"]}
+          onClose={() => setMenuContexto(null)}
+          onAdd={abrirDialogoCriar}
+          onCopyCoords={(lat, lng) => {
+            navigator.clipboard?.writeText(`${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+              .then(() => toast.success("Coordenadas copiadas"))
+              .catch(() => toast.error("Não foi possível copiar"));
+          }}
+        />
+      )}
+
+      {/* ── Diálogo de criação ── */}
+      <Dialog open={dialogoCriar !== null} onOpenChange={aberto => { if (!aberto) setDialogoCriar(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {dialogoCriar?.tipo === "poste" ? "Novo poste" : `Novo ${dialogoCriar?.tipo?.toUpperCase() ?? ""}`}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Nome *</Label>
+              <Input
+                value={novoNome}
+                autoFocus
+                onChange={e => setNovoNome(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !criando) confirmarCriacao(); }}
+                placeholder={dialogoCriar?.tipo === "cto" ? "Ex: CX-0042" : "Ex: CEO Centro"}
+              />
+            </div>
+            {dialogoCriar?.tipo === "cto" && (
+              <div className="space-y-1.5">
+                <Label>Capacidade (portas)</Label>
+                <Input
+                  type="number" min={1}
+                  value={novaCapacidade}
+                  onChange={e => setNovaCapacidade(Math.max(1, Number(e.target.value) || 1))}
+                />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Estado de projeto</Label>
+              <select
+                value={novoEstado}
+                onChange={e => setNovoEstado(e.target.value as ProjectStatus)}
+                className="w-full h-9 rounded-md border border-border bg-background text-sm px-2"
+              >
+                {PROJECT_STATUSES.map(s => (
+                  <option key={s} value={s}>{PROJECT_STATUS_LABEL[s]}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-muted-foreground">
+                Começa em "Em projeto" porque aqui se desenha o que ainda vai ser feito.
+              </p>
+            </div>
+            {dialogoCriar && (
+              <p className="text-[11px] text-muted-foreground font-mono">
+                {dialogoCriar.lat.toFixed(6)}, {dialogoCriar.lng.toFixed(6)}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogoCriar(null)} disabled={criando}>Cancelar</Button>
+            <Button onClick={confirmarCriacao} disabled={criando}>
+              {criando ? <Loader2 className="w-4 h-4 animate-spin" /> : "Criar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div ref={mapContainerRef} className="w-full h-full" style={{ zIndex: 0 }} />
     </div>
