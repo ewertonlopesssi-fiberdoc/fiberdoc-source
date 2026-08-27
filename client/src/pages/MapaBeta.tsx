@@ -58,6 +58,15 @@ type Modo = "selecionar" | "regua" | "area" | "cabo";
 /** Tipos que esta tela sabe selecionar. Reservas e POIs ainda não. */
 type TipoSel = "cto" | "ceo" | "poste" | "cabo";
 
+/**
+ * O que o diálogo do botão direito cria. Cabo fica de fora porque nasce de
+ * outro jeito — traçado, não um ponto — e porque manter "cabo" aqui fazia o
+ * ramo CTO/CEO deixar de ser só CTO/CEO, e o upsertElement só aceita esses
+ * dois. O compilador apanhou isso; sem o tipo estreito, a garantia era só
+ * uma verificação em tempo de execução umas linhas acima.
+ */
+type TipoCriavel = "cto" | "ceo" | "poste";
+
 interface Item {
   tipo: TipoSel;
   /** Id do CADASTRO (ctos.id / ceos.id / map_poles.id). */
@@ -146,7 +155,7 @@ export default function MapaBeta() {
 
   // ─── Criação ──────────────────────────────────────────────────────────────
   const [menuContexto, setMenuContexto] = useState<MapContextMenuTarget | null>(null);
-  const [dialogoCriar, setDialogoCriar] = useState<{ tipo: TipoSel; lat: number; lng: number } | null>(null);
+  const [dialogoCriar, setDialogoCriar] = useState<{ tipo: TipoCriavel; lat: number; lng: number } | null>(null);
   const [novoNome, setNovoNome] = useState("");
   const [novaCapacidade, setNovaCapacidade] = useState(8);
   // O padrão é "Em projeto", e não "Implantado" como no resto do sistema.
