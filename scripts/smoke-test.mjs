@@ -63,6 +63,32 @@ const RUIDO = [
 
 const TEXTO_ERRO_BOUNDARY = "Ocorreu um erro inesperado";
 
+/**
+ * Interacções guiadas.
+ *
+ * Carregar a página apanha o que quebra ao montar. A maior parte dos defeitos
+ * desta aplicação, porém, só aparece ao mexer: dependências de efeito erradas,
+ * handler preso a uma instância antiga, campo de formulário não preenchido.
+ * Isto é o começo dessa cobertura.
+ *
+ * Regra: nada aqui pode ESCREVER. Seleccionar é estado local e não toca no
+ * banco; clicar em "Aplicar" tocaria, e por isso não está aqui. Um teste de
+ * fumaça que altera dados de produção seria pior do que não ter teste.
+ */
+const INTERACOES = [
+  {
+    rota: "/mapa2",
+    nome: "clicar num marcador selecciona",
+    acao: `(() => {
+      const el = document.querySelector(".leaflet-marker-icon");
+      if (!el) return "sem-marcador";
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+      return "ok";
+    })()`,
+    esperar: "selecionado",
+  },
+];
+
 function eRuido(texto) {
   return RUIDO.some(re => re.test(texto));
 }
@@ -259,8 +285,36 @@ async function main() {
       problemas.push({ tipo: "página vazia", texto: "document.body sem texto após a espera" });
     }
 
+    // Interacções desta rota, só se o carregamento já estiver limpo: mexer
+    // numa tela que já está a estourar só produz ruído em cima de ruído.
+    let interagiu = false;
     if (problemas.length === 0) {
-      console.log(`  ok    ${rota}`);
+      for (const inter of INTERACOES.filter(i => i.rota === rota)) {
+        interagiu = true;
+        const antes = coletados.length;
+        const r = await avaliar(inter.acao);
+        if (r === "sem-marcador") {
+          console.log(`  ok    ${rota}  (interacção "${inter.nome}" ignorada: nada no mapa)`);
+          continue;
+        }
+        await new Promise(res => setTimeout(res, 900));
+        const texto = await avaliar("document.body.innerText");
+        const novos = coletados.slice(antes);
+        if (novos.length > 0) {
+          problemas.push(...novos.map(p => ({ ...p, tipo: `${p.tipo} após "${inter.nome}"` })));
+        } else if (!(texto ?? "").includes(inter.esperar)) {
+          problemas.push({
+            tipo: "interacção sem efeito",
+            texto: `"${inter.nome}": esperava ver "${inter.esperar}" na página e não vi`,
+          });
+        } else {
+          console.log(`  ok    ${rota}  → ${inter.nome}`);
+        }
+      }
+    }
+
+    if (problemas.length === 0) {
+      if (!interagiu) console.log(`  ok    ${rota}`);
     } else {
       console.log(`  FALHA ${rota} — ${problemas.length} problema(s)`);
       for (const p of problemas.slice(0, 6)) {
