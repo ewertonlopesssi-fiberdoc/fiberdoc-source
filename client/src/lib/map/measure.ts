@@ -8,14 +8,21 @@ import { haversineDistance } from "./geo";
  * testáveis. A régua reaproveita o haversineDistance já extraído.
  */
 
-/** Distância total de uma sequência de pontos, em metros. */
-export function distanciaTotal(pontos: L.LatLng[]): number {
+/**
+ * Distância total de uma sequência de pontos, em metros.
+ *
+ * Aceita LatLngExpression — tupla, L.LatLng ou literal { lat, lng } — porque
+ * é o que haversineDistance já trata, via paraPar. A assinatura anterior
+ * exigia L.LatLng e obrigava quem tem coordenadas cruas (o traçado gravado
+ * como JSON, por exemplo) a construir objetos do Leaflet só para medir.
+ */
+export function distanciaTotal(pontos: L.LatLngExpression[]): number {
   if (pontos.length < 2) return 0;
   return haversineDistance(pontos);
 }
 
 /** Distância de cada trecho isolado, em metros — para rotular segmento a segmento. */
-export function distanciasPorTrecho(pontos: L.LatLng[]): number[] {
+export function distanciasPorTrecho(pontos: L.LatLngExpression[]): number[] {
   const saida: number[] = [];
   for (let i = 0; i < pontos.length - 1; i++) {
     saida.push(haversineDistance([pontos[i], pontos[i + 1]]));
