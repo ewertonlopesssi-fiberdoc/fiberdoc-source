@@ -34,6 +34,12 @@ vi.mock("./db", async (importOriginal) => {
     setViaFusion: vi.fn().mockResolvedValue(undefined),
     clearViaFusion: vi.fn().mockResolvedValue(undefined),
     updateVia: vi.fn().mockResolvedValue(undefined),
+    // ceos.create/update/delete registam a alteração no histórico de
+    // manutenção. Como este mock espalha o módulo real, sem esta linha a
+    // função verdadeira era chamada, batia em getDb() e lançava
+    // "DB not available" — três testes vermelhos desde que o histórico foi
+    // acrescentado a esses procedimentos.
+    createMaintenanceRecord: vi.fn().mockResolvedValue(undefined),
   };
 });
 

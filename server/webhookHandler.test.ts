@@ -25,6 +25,19 @@ vi.mock("./genieacsRouter", () => ({
 
 // ─── Testes ───────────────────────────────────────────────────────────────────
 
+/**
+ * syncOnuFromWebhook faz retry com backoff exponencial real: 1s + 2s + 4s = 7s
+ * quando esgota as tentativas. O limite padrão do Vitest é 5s, então os testes
+ * que exercitam o caminho de falha estouravam por tempo — não por defeito no
+ * código que testam.
+ *
+ * A alternativa seria relógio falso (vi.useFakeTimers + runAllTimersAsync), que
+ * deixaria a suíte rápida. Fica para depois: aumentar o limite não tem como
+ * introduzir bug, e o custo é a suíte ficar alguns segundos mais lenta nos
+ * casos de falha — que são poucos.
+ */
+vi.setConfig({ testTimeout: 20000 });
+
 describe("Webhook Handler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
