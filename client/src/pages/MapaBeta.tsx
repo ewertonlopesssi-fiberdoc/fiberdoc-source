@@ -7,7 +7,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import {
   MousePointer2, Ruler, Hexagon, Layers, Loader2, Trash2, Undo2, Info, Check,
-  FolderTree, Plus, ChevronDown, FolderPlus,
+  FolderTree, Plus, ChevronDown, FolderPlus, Cable,
 } from "lucide-react";
 import MapContextMenu, { type MapContextMenuTarget, type MapContextMenuTipo } from "@/components/map/MapContextMenu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -48,7 +48,12 @@ import {
  * caso de uso real guiando a interface, em vez de adivinhada de antemão.
  */
 
-type Modo = "selecionar" | "regua" | "area";
+/**
+ * "cabo" partilha a maquinaria da régua de propósito: desenhar um cabo é
+ * colocar vértices e querer saber quanto deu. A diferença é o que acontece no
+ * fim — a régua descarta, o cabo grava.
+ */
+type Modo = "selecionar" | "regua" | "area" | "cabo";
 
 /** Tipos que esta tela sabe selecionar. Cabos e reservas ainda não. */
 type TipoSel = "cto" | "ceo" | "poste";
@@ -131,6 +136,27 @@ export default function MapaBeta() {
   // existe em campo. Marcar como implantado por omissão faria o percentual do
   // projeto nascer em 100%, que é o oposto do que se quer ver.
   const [novoEstado, setNovoEstado] = useState<ProjectStatus>("planned");
+
+  // ─── Desenho de cabo ──────────────────────────────────────────────────────
+  /**
+   * A que caixa cada vértice do cabo está preso, na mesma ordem de `pontos`.
+   * Null quando o vértice caiu no vazio.
+   *
+   * É um array paralelo, e não dois valores "de"/"para", por causa do desfazer:
+   * guardando só as duas pontas, remover o último vértice deixaria uma ligação
+   * fantasma apontando para uma caixa que já não está no traçado. Assim as
+   * pontas são sempre derivadas do que está desenhado agora.
+   *
+   * Os ids são de ELEMENTO DO MAPA — que é o que map_routes referencia — e não
+   * do cadastro da CTO. São números diferentes para a mesma caixa.
+   */
+  const [pontasIdx, setPontasIdx] = useState<Array<{ id: number; rotulo: string } | null>>([]);
+  const [dialogoCabo, setDialogoCabo] = useState(false);
+  const [caboNome, setCaboNome] = useState("");
+  const [caboFibras, setCaboFibras] = useState(12);
+  const [caboTipo, setCaboTipo] = useState("FO");
+  const [caboCor, setCaboCor] = useState("#22d3ee");
+  const [caboEstado, setCaboEstado] = useState<ProjectStatus>("planned");
 
   const { data: ctos = [], isLoading: carregandoCtos } = trpc.ctos.list.useQuery(undefined, OPCOES_QUERY);
   const { data: ceos = [], isLoading: carregandoCeos } = trpc.ceos.list.useQuery({}, OPCOES_QUERY);
@@ -267,6 +293,11 @@ export default function MapaBeta() {
   const itensRef = useRef<Item[]>([]);
   useEffect(() => { itensRef.current = itens; }, [itens]);
 
+  // O mesmo motivo, para o índice de elementos: pô-lo nas dependências do
+  // efeito de desenho faria o mapa inteiro ser redesenhado a cada refetch.
+  const idElementoPorItemRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => { idElementoPorItemRef.current = idElementoPorItem; }, [idElementoPorItem]);
+
   const alternarItem = useCallback((tipo: TipoSel, id: number, acumular: boolean) => {
     setSelecionados(atual => {
       const k = chave(tipo, id);
@@ -362,7 +393,23 @@ export default function MapaBeta() {
     // O clique de selecção é ligado aqui, mas o destaque visual NÃO: ele mora
     // na camada de selecção. Se dependesse deste efeito, cada clique
     // redesenharia todos os marcadores do mapa.
-    const aoClicarItem = (tipo: TipoSel, id: number) => (e: L.LeafletMouseEvent) => {
+    const aoClicarItem = (tipo: TipoSel, id: number, lat: number, lng: number, nome: string) => (e: L.LeafletMouseEvent) => {
+      // No modo cabo, clicar numa caixa krava o vértice na posição exacta dela
+      // e liga a ponta. Traçar até "perto" da caixa deixaria o cabo solto, e a
+      // ligação é o que faz o cabo valer alguma coisa no cadastro.
+      if (modoRef.current === "cabo") {
+        L.DomEvent.stopPropagation(e.originalEvent);
+        const idElemento = tipo === "poste" ? null : (idElementoPorItemRef.current.get(chave(tipo, id)) ?? null);
+        // Lido do ref, e não de dentro do actualizador do setPontos: disparar
+        // um setState dentro do actualizador de outro roda duas vezes em modo
+        // estrito, e a ponta acabaria gravada duas vezes.
+        const ponta = idElemento != null
+          ? { id: idElemento, rotulo: `${tipo.toUpperCase()} ${nome}` }
+          : null;
+        setPontasIdx(a => [...a, ponta]);
+        setPontos(atuais => [...atuais, L.latLng(lat, lng)]);
+        return;
+      }
       if (modoRef.current !== "selecionar") return;
       L.DomEvent.stopPropagation(e.originalEvent);
       alternarItem(tipo, id, e.originalEvent.shiftKey || e.originalEvent.ctrlKey || e.originalEvent.metaKey);
@@ -384,7 +431,7 @@ export default function MapaBeta() {
           bubblingMouseEvents: false,
         })
           .bindTooltip(`${item.nome} · ${PROJECT_STATUS_LABEL[item.estado]}`, { direction: "top" })
-          .on("click", aoClicarItem(item.tipo, item.id))
+          .on("click", aoClicarItem(item.tipo, item.id, item.lat, item.lng, item.nome))
           .addTo(grupo);
         continue;
       }
@@ -395,7 +442,7 @@ export default function MapaBeta() {
         ),
       })
         .bindTooltip(`${item.tipo.toUpperCase()} ${item.nome} · ${PROJECT_STATUS_LABEL[item.estado]}`, { direction: "top" })
-        .on("click", aoClicarItem(item.tipo, item.id))
+        .on("click", aoClicarItem(item.tipo, item.id, item.lat, item.lng, item.nome))
         .addTo(grupo);
     }
   }, [mapPronto, itens, ctos, ceos, rotas, mostrarCabos, alternarItem, soDoProjeto, rotasDoProjeto]);
@@ -423,10 +470,18 @@ export default function MapaBeta() {
 
     const aoClicar = (e: L.LeafletMouseEvent) => {
       if (modoRef.current === "selecionar") return;
+      // No modo cabo o vértice caiu no vazio: entra sem ponta.
+      if (modoRef.current === "cabo") setPontasIdx(a => [...a, null]);
       setPontos(atuais => [...atuais, e.latlng]);
     };
-    // Duplo clique encerra a medição sem apagá-la.
+    // Duplo clique encerra a medição sem apagá-la. No modo cabo, encerra o
+    // traçado e abre o diálogo — os dois cliques que compõem o duplo já
+    // acrescentaram vértices repetidos, e eles são retirados ao gravar.
     const aoDuploClique = () => {
+      if (modoRef.current === "cabo") {
+        if (pontosRef.current.length >= 2) setDialogoCabo(true);
+        return;
+      }
       if (modoRef.current !== "selecionar") setModo("selecionar");
     };
     map.on("click", aoClicar);
@@ -545,7 +600,11 @@ export default function MapaBeta() {
     grupo.clearLayers();
     if (pontos.length === 0) return;
 
-    const cor = modo === "area" || (modo === "selecionar" && pontos.length > 2) ? "#a855f7" : "#f97316";
+    // No modo cabo o traçado já sai na cor escolhida, para o que se vê ser o
+    // que vai ficar gravado.
+    const cor = modo === "cabo"
+      ? caboCor
+      : modo === "area" || (modo === "selecionar" && pontos.length > 2) ? "#a855f7" : "#f97316";
 
     if (modo === "area" && pontos.length >= 3) {
       L.polygon(pontos, { color: cor, weight: 2, fillOpacity: 0.15 }).addTo(grupo);
@@ -576,8 +635,11 @@ export default function MapaBeta() {
   const total = distanciaTotal(pontos);
   const area = modo === "area" ? areaPoligono(pontos) : 0;
 
-  const limpar = useCallback(() => setPontos([]), []);
-  const desfazer = useCallback(() => setPontos(p => p.slice(0, -1)), []);
+  const limpar = useCallback(() => { setPontos([]); setPontasIdx([]); }, []);
+  const desfazer = useCallback(() => {
+    setPontos(p => p.slice(0, -1));
+    setPontasIdx(a => a.slice(0, -1));
+  }, []);
 
   // ─── Estado de projeto em lote ────────────────────────────────────────────
   const utils = trpc.useUtils();
@@ -754,6 +816,83 @@ export default function MapaBeta() {
   }, [projetoAtivo, projeto, chavesDoProjeto, selecionadosVisiveis, idElementoPorItem,
       addElementoGrupoMut, addPosteGrupoMut, recarregarTudo]);
 
+  // ─── Gravar o cabo desenhado ──────────────────────────────────────────────
+  const criarRotaMut = trpc.infraMap.createRoute.useMutation();
+  const addRotaGrupoMut = trpc.mapGroups.addRoute.useMutation();
+
+  /**
+   * Vértices sem as repetições que o duplo clique deixa.
+   *
+   * O duplo clique dispara dois cliques antes, então o traçado acaba com dois
+   * ou três vértices no mesmo sítio. Gravar assim daria um cabo com pontos
+   * mortos no fim e um comprimento correcto por acidente.
+   */
+  const caminhoCabo = useMemo(() => {
+    const saida: L.LatLng[] = [];
+    const pontas: Array<{ id: number; rotulo: string } | null> = [];
+    pontos.forEach((p, i) => {
+      const ultimo = saida[saida.length - 1];
+      if (ultimo && Math.abs(ultimo.lat - p.lat) < 1e-9 && Math.abs(ultimo.lng - p.lng) < 1e-9) {
+        // Repetido: mantém a ponta se este vértice trouxe uma e o anterior não.
+        if (pontasIdx[i] && !pontas[pontas.length - 1]) pontas[pontas.length - 1] = pontasIdx[i];
+        return;
+      }
+      saida.push(p);
+      pontas.push(pontasIdx[i] ?? null);
+    });
+    return { pontos: saida, pontas };
+  }, [pontos, pontasIdx]);
+
+  /** Pontas derivadas do que está desenhado agora — nunca de estado antigo. */
+  const pontasDoCabo = useMemo(() => {
+    const comPonta = caminhoCabo.pontas
+      .map((p, i) => (p ? { ...p, i } : null))
+      .filter(Boolean) as Array<{ id: number; rotulo: string; i: number }>;
+    if (comPonta.length === 0) return { de: null, para: null };
+    const de = comPonta[0];
+    const para = comPonta.length > 1 ? comPonta[comPonta.length - 1] : null;
+    // Um cabo que sai e volta à mesma caixa não tem duas pontas distintas.
+    return { de, para: para && para.id !== de.id ? para : null };
+  }, [caminhoCabo]);
+
+  const comprimentoCabo = useMemo(() => distanciaTotal(caminhoCabo.pontos), [caminhoCabo]);
+
+  const confirmarCabo = useCallback(async () => {
+    const nome = caboNome.trim();
+    if (caminhoCabo.pontos.length < 2) { toast.error("Um cabo precisa de pelo menos dois pontos."); return; }
+    try {
+      const r = await criarRotaMut.mutateAsync({
+        name: nome || undefined,
+        fromElementId: pontasDoCabo.de?.id,
+        toElementId: pontasDoCabo.para?.id,
+        fiberCount: caboFibras,
+        cableType: caboTipo,
+        color: caboCor,
+        path: JSON.stringify(caminhoCabo.pontos.map(p => ({ lat: p.lat, lng: p.lng }))),
+      });
+      if (caboEstado !== "deployed") {
+        await setStatusMut.mutateAsync({ tipo: "cabo", id: r.id, status: caboEstado });
+      }
+      if (projetoAtivo != null) {
+        await addRotaGrupoMut.mutateAsync({ routeId: r.id, groupId: projetoAtivo });
+      }
+      toast.success(
+        `Cabo ${nome ? `"${nome}" ` : ""}gravado — ${formatarDistancia(comprimentoCabo)}` +
+        (projeto ? ` em ${projeto.name}` : "")
+      );
+      setDialogoCabo(false);
+      setCaboNome("");
+      setPontos([]);
+      setPontasIdx([]);
+      setModo("selecionar");
+      await Promise.all([utils.infraMap.routes.invalidate(), recarregarTudo()]);
+    } catch (e: any) {
+      toast.error("Erro ao gravar o cabo: " + (e?.message ?? "desconhecido"));
+    }
+  }, [caboNome, caminhoCabo, pontasDoCabo, caboFibras, caboTipo, caboCor, caboEstado,
+      comprimentoCabo, projetoAtivo, projeto, criarRotaMut, setStatusMut, addRotaGrupoMut,
+      utils, recarregarTudo]);
+
   // ─── Criar projeto sem sair da prancheta ──────────────────────────────────
   const [dialogoProjeto, setDialogoProjeto] = useState(false);
   const [nomeProjeto, setNomeProjeto] = useState("");
@@ -777,8 +916,8 @@ export default function MapaBeta() {
   const trocarModo = useCallback((novo: Modo) => {
     setModo(atual => {
       if (atual === novo) return "selecionar";
-      // Trocar de ferramenta começa uma medição nova.
-      if (novo !== "selecionar") setPontos([]);
+      // Trocar de ferramenta começa um traçado novo.
+      if (novo !== "selecionar") { setPontos([]); setPontasIdx([]); }
       return novo;
     });
   }, []);
@@ -867,6 +1006,9 @@ export default function MapaBeta() {
         <div className="w-px h-6 bg-border mx-0.5" />
         <BotaoModo ativo={modo === "regua"} onClick={() => trocarModo("regua")} Icone={Ruler} rotulo="Régua" />
         <BotaoModo ativo={modo === "area"} onClick={() => trocarModo("area")} Icone={Hexagon} rotulo="Área" />
+        {podeEditar && (
+          <BotaoModo ativo={modo === "cabo"} onClick={() => trocarModo("cabo")} Icone={Cable} rotulo="Cabo" dataSmoke="modo-cabo" />
+        )}
       </div>
 
       {/* ── Camadas e base ── */}
@@ -888,12 +1030,22 @@ export default function MapaBeta() {
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] rounded-lg border border-border bg-card/95 backdrop-blur px-4 py-2.5 shadow-lg flex items-center gap-4">
           <div className="flex flex-col">
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {modo === "area" ? "Área" : "Distância"}
+              {modo === "area" ? "Área" : modo === "cabo" ? "Comprimento" : "Distância"}
             </span>
             <span className="text-base font-semibold tabular-nums">
-              {modo === "area" ? formatarArea(area) : formatarDistancia(total)}
+              {modo === "area" ? formatarArea(area) : formatarDistancia(modo === "cabo" ? comprimentoCabo : total)}
             </span>
           </div>
+          {modo === "cabo" && (
+            <div className="flex flex-col max-w-[260px]">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Pontas</span>
+              <span className="text-xs truncate">
+                {pontasDoCabo.de
+                  ? <>{pontasDoCabo.de.rotulo}{pontasDoCabo.para ? <> → {pontasDoCabo.para.rotulo}</> : <span className="text-muted-foreground"> → solta</span>}</>
+                  : <span className="text-muted-foreground">nenhuma — clique numa caixa para ligar</span>}
+              </span>
+            </div>
+          )}
           {modo === "area" && pontos.length >= 3 && (
             <div className="flex flex-col">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Perímetro</span>
@@ -911,6 +1063,12 @@ export default function MapaBeta() {
             <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={limpar}>
               <Trash2 className="w-3 h-3" />Limpar
             </Button>
+            {modo === "cabo" && (
+              <Button size="sm" className="h-7 gap-1 text-xs ml-1" onClick={() => setDialogoCabo(true)}
+                disabled={caminhoCabo.pontos.length < 2}>
+                <Check className="w-3 h-3" />Gravar cabo
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -979,7 +1137,11 @@ export default function MapaBeta() {
       )}
       {modo !== "selecionar" && pontos.length === 0 && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] rounded-md bg-foreground/90 text-background text-xs px-3 py-1.5 shadow-lg">
-          {modo === "regua" ? "Clique no mapa para medir. Duplo clique encerra." : "Clique para marcar os vértices da área. Duplo clique encerra."}
+          {modo === "regua"
+            ? "Clique no mapa para medir. Duplo clique encerra."
+            : modo === "cabo"
+              ? "Clique para traçar o cabo. Clique numa caixa para ligar a ponta. Duplo clique encerra."
+              : "Clique para marcar os vértices da área. Duplo clique encerra."}
         </div>
       )}
 
@@ -1076,6 +1238,85 @@ export default function MapaBeta() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Diálogo do cabo ── */}
+      <Dialog open={dialogoCabo} onOpenChange={setDialogoCabo}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Gravar cabo</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border border-border px-3 py-2 space-y-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Comprimento</span>
+                <span className="font-semibold tabular-nums">{formatarDistancia(comprimentoCabo)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Vértices</span>
+                <span className="tabular-nums">{caminhoCabo.pontos.length}</span>
+              </div>
+              <div className="text-xs pt-1 border-t border-border/60">
+                {pontasDoCabo.de ? (
+                  <span>
+                    {pontasDoCabo.de.rotulo}
+                    {pontasDoCabo.para
+                      ? <> → {pontasDoCabo.para.rotulo}</>
+                      : <span className="text-amber-500"> → ponta solta</span>}
+                  </span>
+                ) : (
+                  <span className="text-amber-500">Sem ligação a caixas — o cabo fica solto no mapa.</span>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Nome</Label>
+              <Input value={caboNome} autoFocus onChange={e => setCaboNome(e.target.value)}
+                placeholder="Opcional — ex: Tronco Dom Hélder" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Fibras</Label>
+                <Input type="number" min={1} value={caboFibras}
+                  onChange={e => setCaboFibras(Math.max(1, Number(e.target.value) || 1))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tipo</Label>
+                <Input value={caboTipo} onChange={e => setCaboTipo(e.target.value)} placeholder="FO" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Cor</Label>
+                <div className="flex gap-2 items-center">
+                  <input type="color" value={caboCor} onChange={e => setCaboCor(e.target.value)}
+                    className="w-10 h-8 rounded cursor-pointer border border-border" />
+                  <span className="text-xs text-muted-foreground">{caboCor}</span>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Estado</Label>
+                <select value={caboEstado} onChange={e => setCaboEstado(e.target.value as ProjectStatus)}
+                  className="w-full h-9 rounded-md border border-border bg-background text-sm px-2">
+                  {PROJECT_STATUSES.map(s => (
+                    <option key={s} value={s}>{PROJECT_STATUS_LABEL[s]}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {projeto && (
+              <p className="text-[11px] flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: projeto.color ?? "#6366f1" }} />
+                <span className="text-muted-foreground">Entra no projeto <strong className="text-foreground">{projeto.name}</strong></span>
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogoCabo(false)} disabled={criarRotaMut.isPending}>Continuar traçando</Button>
+            <Button onClick={confirmarCabo} disabled={criarRotaMut.isPending || caminhoCabo.pontos.length < 2}>
+              {criarRotaMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Gravar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Diálogo de novo projeto ── */}
       <Dialog open={dialogoProjeto} onOpenChange={setDialogoProjeto}>
         <DialogContent className="max-w-sm">
@@ -1118,13 +1359,14 @@ export default function MapaBeta() {
   );
 }
 
-function BotaoModo({ ativo, onClick, Icone, rotulo }: {
-  ativo: boolean; onClick: () => void; Icone: any; rotulo: string;
+function BotaoModo({ ativo, onClick, Icone, rotulo, dataSmoke }: {
+  ativo: boolean; onClick: () => void; Icone: any; rotulo: string; dataSmoke?: string;
 }) {
   return (
     <button
       onClick={onClick}
       title={rotulo}
+      data-smoke={dataSmoke}
       className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-md transition-colors ${
         ativo ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
       }`}

@@ -122,6 +122,19 @@ const INTERACOES = [
     })()`,
     esperar: "Projeto activo",
   },
+  {
+    rota: "/mapa2",
+    nome: "modo cabo entra em traçado",
+    // Entrar no modo não desenha nem grava nada; o cabo só existe depois de
+    // vértices e de um "Gravar" explícito, e nada disso acontece aqui.
+    acao: `(() => {
+      const el = document.querySelector('[data-smoke="modo-cabo"]');
+      if (!el) return "sem-modo-cabo";
+      el.click();
+      return "ok";
+    })()`,
+    esperar: "Clique para traçar o cabo",
+  },
 ];
 
 function eRuido(texto) {
