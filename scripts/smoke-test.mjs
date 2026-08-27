@@ -320,11 +320,18 @@ async function main() {
           continue;
         }
         await new Promise(res => setTimeout(res, 900));
-        const texto = await avaliar("document.body.innerText");
+        // innerText devolve o texto COMO RENDERIZADO, e isso inclui
+        // text-transform. Um cabeçalho com a classe `uppercase` chega aqui em
+        // maiúsculas, e uma comparação sensível a caixa nunca casaria — foi
+        // exactamente o que aconteceu com "Criar neste ponto", que o innerText
+        // entrega como "CRIAR NESTE PONTO". O textContent não transforma, mas
+        // também não respeita elementos escondidos, e um menu fechado passaria
+        // por aberto. Fica o innerText, comparado sem caixa.
+        const texto = ((await avaliar("document.body.innerText")) ?? "").toLowerCase();
         const novos = coletados.slice(antes);
         if (novos.length > 0) {
           problemas.push(...novos.map(p => ({ ...p, tipo: `${p.tipo} após "${inter.nome}"` })));
-        } else if (!(texto ?? "").includes(inter.esperar)) {
+        } else if (!texto.includes(inter.esperar.toLowerCase())) {
           problemas.push({
             tipo: "interacção sem efeito",
             texto: `"${inter.nome}": esperava ver "${inter.esperar}" na página e não vi`,
