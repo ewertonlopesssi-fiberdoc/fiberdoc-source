@@ -99,7 +99,12 @@ if ! command -v zip &>/dev/null; then
   log_error "zip não encontrado. Instale com: apt-get install -y zip"
   exit 1
 fi
-log_ok "zip $(zip --version | head -1 | awk '{print $NF}')"
+# A versão sai de uma linha do tipo "This is Zip 3.0 (July 5th 2008)...".
+# O parsing anterior (head -1 | awk '{print $NF}') imprimia "license.", porque
+# a primeira linha do `zip --version` não é a que tem o número — e o `head`
+# fechava o cano no meio, o que sob `pipefail` é o mesmo defeito do passo 6.
+ZIP_VER=$(zip --version 2>/dev/null | sed -n 's/.*Zip \([0-9][0-9.]*\).*/\1/p' | head -1 || true)
+log_ok "zip ${ZIP_VER:-(versão desconhecida)}"
 
 # Verificar sha256sum
 if command -v sha256sum &>/dev/null; then

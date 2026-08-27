@@ -66,7 +66,7 @@ if [ -f "${UPDATE_URL}" ]; then
   log_info "Ficheiro local detectado -- a copiar..."
   cp "${UPDATE_URL}" "${ZIP_FILE}" \
     || { log_error "Falha ao copiar ficheiro local."; exit 1; }
-elif echo "${UPDATE_URL}" | grep -qE '^https?://'; then
+elif grep -qE '^https?://' <<< "${UPDATE_URL}"; then
   log_info "URL remota detectada -- a fazer download..."
   if [ -z "${DOWNLOADER}" ]; then
     log_error "Nem wget nem curl estao instalados. Instale um deles."; exit 1
@@ -97,7 +97,17 @@ log_step "[2/7] A validar o pacote..."
 if ! unzip -t "${ZIP_FILE}" >/dev/null 2>&1; then
   log_error "Ficheiro nao e um ZIP valido."; exit 1
 fi
-if ! unzip -l "${ZIP_FILE}" 2>/dev/null | grep -qE "dist/index\.js$"; then
+# A listagem e lida UMA vez para uma variavel, em vez de `unzip -l | grep -q`.
+# Aquele encadeamento tem um falso negativo real: o `grep -q` sai no primeiro
+# casamento, o `unzip` continua a escrever e apanha SIGPIPE (141), e com o
+# `set -o pipefail` do topo deste script o `if` ve o estado do unzip morto em
+# vez do sucesso do grep. O resultado era este aviso a disparar em pacotes
+# perfeitamente bons -- e como ele PEDE CONFIRMACAO, ensinava a teclar "s" por
+# cima da unica validacao que existe antes de substituir a aplicacao em
+# producao. No dia em que o pacote estivesse mesmo incompleto, o "s" sairia
+# por habito. (O mesmo defeito estava no passo 6 do gerar-pacote-update.sh.)
+ZIP_LISTA=$(unzip -l "${ZIP_FILE}" 2>/dev/null || true)
+if ! grep -qE "dist/index\.js$" <<< "${ZIP_LISTA}"; then
   log_warn "dist/index.js nao encontrado no ZIP."
   log_warn "Continuar? Digite s para continuar:"
   read -r CONFIRM
@@ -301,7 +311,7 @@ if [ -n "${DB_URL}" ]; then
   DB_HOST=$(echo "${DB_HOSTPORT}" | cut -d: -f1)
   DB_PORT=$(echo "${DB_HOSTPORT}" | cut -d: -f2)
   DB_PORT="${DB_PORT:-3306}"
-  if [ "${DB_PORT}" = "4000" ] || echo "${DB_HOST}" | grep -qi "tidb\|cloud\|aws\|azure\|gcp"; then
+  if [ "${DB_PORT}" = "4000" ] || grep -qi "tidb\|cloud\|aws\|azure\|gcp" <<< "${DB_HOST}"; then
     SSL_OPT="--ssl-mode=REQUIRED"
   fi
   # MYSQL_PWD em vez de -p: a senha deixa de aparecer na lista de processos.
