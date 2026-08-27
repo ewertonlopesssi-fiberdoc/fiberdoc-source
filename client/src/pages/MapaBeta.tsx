@@ -134,7 +134,9 @@ export default function MapaBeta() {
 
   /** Só os que continuam visíveis — esconder a camada esvazia a selecção dela. */
   const selecionadosVisiveis = useMemo(
-    () => [...selecionados].map(k => itensPorChave.get(k)).filter(Boolean) as Item[],
+    // Array.from, e não [...], porque o tsconfig não define target e o TypeScript
+    // assume ES5, onde espalhar um Set exige downlevelIteration.
+    () => Array.from(selecionados).map(k => itensPorChave.get(k)).filter(Boolean) as Item[],
     [selecionados, itensPorChave]
   );
 
@@ -462,7 +464,9 @@ export default function MapaBeta() {
     }
     try {
       let total = 0;
-      for (const [tipo, ids] of porTipo) {
+      // Array.from nas entradas pela mesma razão do Array.from acima: iterar
+      // um Map directamente exige downlevelIteration com target ES5.
+      for (const [tipo, ids] of Array.from(porTipo.entries())) {
         // O procedure aceita no máximo 500 ids. Uma caixa grande passa disso
         // com facilidade, e sem fatiar a chamada morreria na validação.
         for (let i = 0; i < ids.length; i += 500) {
