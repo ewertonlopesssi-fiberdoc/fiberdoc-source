@@ -263,81 +263,106 @@ if [ "${INSTALL_OK}" = "false" ]; then
 fi
 
 # -- 6b. Migracao SQL -----------------------------------------------------------
+#
+# O FiberDoc e multi-tenant: cada provedor tem o seu proprio banco. Ate a v23
+# as migracoes corriam SO no banco principal, e o resultado foi seis provedores
+# com o mapa quebrado durante um dia inteiro -- descoberto por acaso, numa
+# conferencia manual. Agora o script percorre o banco principal mais todos os
+# bancos listados na tabela `tenants`.
+#
+# A lista vem da tabela `tenants`, e nao de `SHOW DATABASES LIKE 'fiberdoc%'`:
+# bancos orfaos, de provedores ja removidos, nao devem receber migracao. Havia
+# um assim (fiberdoc_netteste) e ele so poluia toda conferencia.
+
 MIGRATE_SQL=""
 for candidate in \
   "${FIBERDOC_DIR}/migrate.sql" "${FIBERDOC_DIR}/migrate-latest.sql" \
   "${SOURCE_DIR}/migrate.sql" "${SOURCE_DIR}/migrate-latest.sql"; do
   if [ -f "${candidate}" ]; then MIGRATE_SQL="${candidate}"; break; fi
 done
-# Aplicar também migrate-v*.sql incrementais (em ordem numérica)
-for migrate_inc in $(ls "${SOURCE_DIR}"/migrate-v*.sql 2>/dev/null | sort -V); do
-  if [ -f "${migrate_inc}" ]; then
-    log_info "Migracao incremental: $(basename ${migrate_inc})"
-    DB_URL="${DB_URL_SAVED:-}"
-    if [ -z "${DB_URL}" ] && [ -f "${ENV_DEST}" ]; then
-      DB_URL=$(grep '^DATABASE_URL=' "${ENV_DEST}" 2>/dev/null | head -1 | sed 's/^DATABASE_URL=//' | tr -d '"' || true)
-    fi
-    if [ -z "${DB_URL}" ]; then
-      log_warn "DATABASE_URL nao configurada -- migracao incremental ignorada."
-    elif command -v mysql >/dev/null 2>&1; then
-      DB_CLEAN=$(echo "${DB_URL}" | sed 's|mysql://||' | sed 's|?.*||')
-      DB_USER=$(echo "${DB_CLEAN}" | sed 's|:.*||')
-      DB_REST=$(echo "${DB_CLEAN}" | sed "s|${DB_USER}:||")
-      DB_PASS=$(echo "${DB_REST}" | sed 's|@.*||')
-      DB_HOSTPORT=$(echo "${DB_REST}" | sed "s|${DB_PASS}@||" | sed 's|/.*||')
-      DB_NAME=$(echo "${DB_REST}" | sed "s|${DB_PASS}@${DB_HOSTPORT}/||")
-      DB_HOST=$(echo "${DB_HOSTPORT}" | cut -d: -f1)
-      DB_PORT=$(echo "${DB_HOSTPORT}" | cut -d: -f2)
-      DB_PORT="${DB_PORT:-3306}"
-      SSL_OPT=""
-      if [ "${DB_PORT}" = "4000" ] || echo "${DB_HOST}" | grep -qi "tidb\|cloud\|aws\|azure\|gcp"; then
-        SSL_OPT="--ssl-mode=REQUIRED"
-      fi
-      if mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" "-p${DB_PASS}" \
-               ${SSL_OPT} "${DB_NAME}" < "${migrate_inc}" 2>&1; then
-        log_ok "Migracao $(basename ${migrate_inc}) aplicada."
-      else
-        log_warn "Falha em $(basename ${migrate_inc}). Execute manualmente se necessario."
-      fi
-    fi
-  fi
-done
 
-if [ -n "${MIGRATE_SQL}" ]; then
-  log_info "Migracao SQL: ${MIGRATE_SQL}"
-  DB_URL="${DB_URL_SAVED:-}"
-  if [ -z "${DB_URL}" ] && [ -f "${ENV_DEST}" ]; then
-    DB_URL=$(grep '^DATABASE_URL=' "${ENV_DEST}" 2>/dev/null \
-             | head -1 | sed 's/^DATABASE_URL=//' | tr -d '"' || true)
+# Parsing da DATABASE_URL, uma vez so. Antes estava duplicado nos dois blocos
+# de migracao, com uma terceira copia na seccao 6.5 -- tres lugares para
+# divergirem.
+DB_URL="${DB_URL_SAVED:-}"
+if [ -z "${DB_URL}" ] && [ -f "${ENV_DEST}" ]; then
+  DB_URL=$(grep '^DATABASE_URL=' "${ENV_DEST}" 2>/dev/null \
+           | head -1 | sed 's/^DATABASE_URL=//' | tr -d '"' || true)
+fi
+
+DB_USER=""; DB_PASS=""; DB_HOST=""; DB_PORT=""; DB_NAME=""; SSL_OPT=""
+if [ -n "${DB_URL}" ]; then
+  DB_CLEAN=$(echo "${DB_URL}" | sed 's|mysql://||' | sed 's|?.*||')
+  DB_USER=$(echo "${DB_CLEAN}" | sed 's|:.*||')
+  DB_REST=$(echo "${DB_CLEAN}" | sed "s|${DB_USER}:||")
+  DB_PASS=$(echo "${DB_REST}" | sed 's|@.*||')
+  DB_HOSTPORT=$(echo "${DB_REST}" | sed "s|${DB_PASS}@||" | sed 's|/.*||')
+  DB_NAME=$(echo "${DB_REST}" | sed "s|${DB_PASS}@${DB_HOSTPORT}/||")
+  DB_HOST=$(echo "${DB_HOSTPORT}" | cut -d: -f1)
+  DB_PORT=$(echo "${DB_HOSTPORT}" | cut -d: -f2)
+  DB_PORT="${DB_PORT:-3306}"
+  if [ "${DB_PORT}" = "4000" ] || echo "${DB_HOST}" | grep -qi "tidb\|cloud\|aws\|azure\|gcp"; then
+    SSL_OPT="--ssl-mode=REQUIRED"
   fi
-  if [ -z "${DB_URL}" ]; then
-    log_warn "DATABASE_URL nao configurada -- migracao ignorada."
-  elif command -v mysql >/dev/null 2>&1; then
-    DB_CLEAN=$(echo "${DB_URL}" | sed 's|mysql://||' | sed 's|?.*||')
-    DB_USER=$(echo "${DB_CLEAN}" | sed 's|:.*||')
-    DB_REST=$(echo "${DB_CLEAN}" | sed "s|${DB_USER}:||")
-    DB_PASS=$(echo "${DB_REST}" | sed 's|@.*||')
-    DB_HOSTPORT=$(echo "${DB_REST}" | sed "s|${DB_PASS}@||" | sed 's|/.*||')
-    DB_NAME=$(echo "${DB_REST}" | sed "s|${DB_PASS}@${DB_HOSTPORT}/||")
-    DB_HOST=$(echo "${DB_HOSTPORT}" | cut -d: -f1)
-    DB_PORT=$(echo "${DB_HOSTPORT}" | cut -d: -f2)
-    DB_PORT="${DB_PORT:-3306}"
-    SSL_OPT=""
-    if [ "${DB_PORT}" = "4000" ] || echo "${DB_HOST}" | grep -qi "tidb\|cloud\|aws\|azure\|gcp"; then
-      SSL_OPT="--ssl-mode=REQUIRED"
-    fi
-    log_info "A aplicar migracao em ${DB_HOST}:${DB_PORT}/${DB_NAME}..."
-    if mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" "-p${DB_PASS}" \
-             ${SSL_OPT} "${DB_NAME}" < "${MIGRATE_SQL}" 2>&1; then
-      log_ok "Migracao SQL aplicada."
-    else
-      log_warn "Falha na migracao. Execute manualmente."
-    fi
-  else
-    log_warn "mysql-client nao encontrado -- migracao ignorada."
+  # MYSQL_PWD em vez de -p: a senha deixa de aparecer na lista de processos.
+  export MYSQL_PWD="${DB_PASS}"
+fi
+
+# Aplica um ficheiro SQL a um banco. Usa --force de proposito: um tenant
+# incompleto pode nao ter alguma tabela (ha provedores sem map_poles), e parar
+# no primeiro erro deixaria o resto da migracao daquele banco por fazer -- foi
+# exactamente assim que a v22 nao chegou aos tenants. Os erros nao somem: sao
+# contados e mostrados.
+aplicar_migracao() {
+  am_ficheiro="$1"
+  am_banco="$2"
+  am_saida=$(mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" \
+                   ${SSL_OPT} --force "${am_banco}" < "${am_ficheiro}" 2>&1 || true)
+  am_erros=$(echo "${am_saida}" | grep -c '^ERROR' || true)
+  if [ "${am_erros}" -eq 0 ]; then
+    log_ok "  ${am_banco}"
+    return 0
   fi
+  log_warn "  ${am_banco} -- ${am_erros} erro(s):"
+  echo "${am_saida}" | grep '^ERROR' | head -5 | sed 's/^/        /'
+  return 1
+}
+
+if [ -z "${DB_URL}" ]; then
+  log_warn "DATABASE_URL nao configurada -- migracoes ignoradas."
+elif ! command -v mysql >/dev/null 2>&1; then
+  log_warn "mysql-client nao encontrado -- migracoes ignoradas."
 else
-  log_info "Nenhum ficheiro de migracao SQL encontrado."
+  # Banco principal primeiro; depois os provedores registados.
+  DBS_ALVO="${DB_NAME}"
+  TENANT_DBS=$(mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" ${SSL_OPT} \
+                 -N -B -e "SELECT dbName FROM tenants" "${DB_NAME}" 2>/dev/null || true)
+  for t in ${TENANT_DBS}; do
+    [ "${t}" = "${DB_NAME}" ] && continue
+    DBS_ALVO="${DBS_ALVO} ${t}"
+  done
+  N_BANCOS=$(echo "${DBS_ALVO}" | wc -w)
+  log_info "Bancos a migrar (${N_BANCOS}): ${DBS_ALVO}"
+
+  # Incrementais em ordem numerica, depois a consolidada.
+  for migrate_inc in $(ls "${SOURCE_DIR}"/migrate-v*.sql 2>/dev/null | sort -V); do
+    [ -f "${migrate_inc}" ] || continue
+    log_info "Migracao incremental: $(basename ${migrate_inc})"
+    for banco in ${DBS_ALVO}; do
+      aplicar_migracao "${migrate_inc}" "${banco}" || true
+    done
+  done
+
+  if [ -n "${MIGRATE_SQL}" ]; then
+    log_info "Migracao consolidada: $(basename ${MIGRATE_SQL})"
+    for banco in ${DBS_ALVO}; do
+      aplicar_migracao "${MIGRATE_SQL}" "${banco}" || true
+    done
+  else
+    log_info "Nenhum ficheiro de migracao consolidada encontrado."
+  fi
+
+  unset MYSQL_PWD
 fi
 
 # -- 6.5 Ajustar max_connections do MySQL se necessário -----------------------
