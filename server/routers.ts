@@ -149,6 +149,7 @@ import {
   getMapOltElements, getMapOltElementById, createMapOltElement, updateMapOltElement, deleteMapOltElement,
   getOltPortLinks, createOltPortLink, updateOltPortLink, deleteOltPortLink,
   calculateOpticalBalance,
+  getOpticalDiagram,
   calculateOpticalBalanceFromDgo,
   getDgoSlotCtoBalances,
   getDgoPortFiberLinks,
@@ -2839,6 +2840,18 @@ ${fiberFolder}
         await deleteOltPortLink(input.id);
         return { ok: true };
       }),
+    /**
+     * Retrato de leitura do interior de uma CEO ou CTO, para o diagrama óptico.
+     * Uma consulta só: seis independentes podem chegar de instantes diferentes
+     * e mostrar uma fusão apontando para uma via que a outra ainda não trouxe.
+     */
+    opticalDiagram: protectedProcedure
+      .input(z.object({
+        tipo: z.enum(["ceo", "cto"]),
+        id: z.number().int().positive(),
+      }))
+      .query(({ input }) => getOpticalDiagram(input.tipo, input.id)),
+
     opticalBalance: protectedProcedure
       .input(z.object({ ctoElementId: z.number() }))
       .query(({ input }) => calculateOpticalBalance(input.ctoElementId)),

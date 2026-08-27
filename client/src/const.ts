@@ -20,7 +20,7 @@ export const RESERVED_SLUGS = new Set([
   "historico", "salas", "importar", "relatorio-ocupacao", "ceo", "cto",
   "busca-porta", "usuarios", "backup", "sistema", "rede", "ip-doc",
   "fontes-energia", "alertas", "sensores-tuya", "sgp", "ssh-commander",
-  "cpe-manager", "monitor-rede", "404", "mapa2",
+  "cpe-manager", "monitor-rede", "404", "mapa2", "diagrama",
 ]);
 
 /**

@@ -5840,3 +5840,181 @@ export async function getProjectSummaries(): Promise<Record<number, ContagensDoP
 
   return acc;
 }
+
+// ─── Diagrama óptico ──────────────────────────────────────────────────────────
+//
+// Retrato de leitura do interior de uma CEO ou CTO: tubos, vias, splitters,
+// fusões e os cabos que chegam ali. Uma consulta só, e não seis, porque o
+// canvas desenha tudo junto — seis consultas independentes podem chegar de
+// instantes diferentes e mostrar uma fusão apontando para uma via que a outra
+// consulta ainda não trouxe.
+//
+// Só lê. A criação de tubos e vias para um cabo recém-ligado é escrita, e fica
+// para depois de este desenho estar provado.
+//
+// Assimetria que o desenho tem de aguentar: na CEO um splitter é entidade
+// própria (ceo_splitters + ceo_splitter_vias, dentro de bandeja); na CTO é um
+// cto_tubes com type="splitter" e um campo `ratio`. São dois modelos para a
+// mesma coisa, e uniformizá-los mexeria em dados de produção por elegância,
+// antes de a tela existir.
+
+export interface DiagramaViaOptica {
+  id: number;
+  viaNumber: number;
+  label: string | null;
+  lossDb?: number | null;
+}
+
+export interface DiagramaTuboOptico {
+  id: number;
+  identifier: string;
+  tipo: "tube" | "splitter";
+  totalVias: number;
+  bandejaId: number | null;
+  cor: string | null;
+  /** Só nas CTOs, onde o splitter é um tubo. */
+  ratio: string | null;
+  vias: DiagramaViaOptica[];
+}
+
+export interface DiagramaSplitterOptico {
+  id: number;
+  identifier: string;
+  ratio: string;
+  splitterType: string;
+  bandejaId: number;
+  vias: DiagramaViaOptica[];
+}
+
+export interface DiagramaCaboOptico {
+  id: number;
+  nome: string;
+  fibras: number;
+  cor: string | null;
+  /** Se este elemento é a origem ou o destino do cabo. */
+  lado: "from" | "to";
+  /** Tubos deste elemento onde o cabo termina. Vazio = ligado sem estrutura. */
+  tuboIds: number[];
+  /** Geometria, para o cliente medir o comprimento com o módulo que já tem. */
+  path: string | null;
+}
+
+export interface DiagramaOptico {
+  tipo: "ceo" | "cto";
+  id: number;
+  elementId: number | null;
+  nome: string;
+  bandejas: Array<{ id: number; number: number; label: string | null }>;
+  tubos: DiagramaTuboOptico[];
+  splitters: DiagramaSplitterOptico[];
+  fusoes: Array<{
+    id: number;
+    sourceType: "tube" | "splitter";
+    sourceViaId: number;
+    targetType: "tube" | "splitter";
+    targetViaId: number;
+    notes: string | null;
+  }>;
+  cabos: DiagramaCaboOptico[];
+}
+
+export async function getOpticalDiagram(tipo: "ceo" | "cto", id: number): Promise<DiagramaOptico | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const cadastro = tipo === "ceo"
+    ? (await db.select().from(ceos).where(eq(ceos.id, id)).limit(1))[0]
+    : (await db.select().from(ctos).where(eq(ctos.id, id)).limit(1))[0];
+  if (!cadastro) return null;
+
+  // O elemento do mapa é quem os cabos referenciam — não o cadastro.
+  const elemRows = await db.select().from(mapElements)
+    .where(and(eq(mapElements.type, tipo), eq(mapElements.referenceId, id)))
+    .limit(1);
+  const elementId = elemRows[0]?.id ?? null;
+
+  const saida: DiagramaOptico = {
+    tipo, id, elementId,
+    nome: (cadastro as any).name ?? `${tipo.toUpperCase()} #${id}`,
+    bandejas: [], tubos: [], splitters: [], fusoes: [], cabos: [],
+  };
+
+  if (tipo === "ceo") {
+    const [bandejas, tubos, vias, splitters, splitterVias, assoc] = await Promise.all([
+      db.select().from(ceoBandejas).where(eq(ceoBandejas.ceoId, id)),
+      db.select().from(ceoTubes).where(eq(ceoTubes.ceoId, id)),
+      db.select().from(ceoVias).where(eq(ceoVias.ceoId, id)),
+      db.select().from(ceoSplitters).where(eq(ceoSplitters.ceoId, id)),
+      db.select().from(ceoSplitterVias).where(eq(ceoSplitterVias.ceoId, id)),
+      db.select().from(ceoViaAssociations).where(eq(ceoViaAssociations.ceoId, id)),
+    ]);
+    saida.bandejas = bandejas.map(b => ({ id: b.id, number: b.number, label: b.label ?? null }));
+    saida.tubos = tubos.map(t => ({
+      id: t.id, identifier: t.identifier, tipo: t.type as "tube" | "splitter",
+      totalVias: t.totalVias, bandejaId: t.bandejaId ?? null, cor: t.color ?? null, ratio: null,
+      vias: vias.filter(v => v.tubeId === t.id)
+        .sort((a, b) => a.viaNumber - b.viaNumber)
+        .map(v => ({ id: v.id, viaNumber: v.viaNumber, label: v.label ?? null })),
+    }));
+    saida.splitters = splitters.map(s => ({
+      id: s.id, identifier: s.identifier, ratio: s.ratio,
+      splitterType: s.splitterType, bandejaId: s.bandejaId,
+      vias: splitterVias.filter(v => v.splitterId === s.id)
+        .sort((a, b) => a.viaNumber - b.viaNumber)
+        .map(v => ({ id: v.id, viaNumber: v.viaNumber, label: v.label ?? null, lossDb: v.lossDb ?? null })),
+    }));
+    saida.fusoes = assoc.map(a => ({
+      id: a.id, sourceType: a.sourceType as "tube" | "splitter", sourceViaId: a.sourceViaId,
+      targetType: a.targetType as "tube" | "splitter", targetViaId: a.targetViaId, notes: a.notes ?? null,
+    }));
+  } else {
+    const [tubos, vias, assoc] = await Promise.all([
+      db.select().from(ctoTubes).where(eq(ctoTubes.ctoId, id)),
+      db.select().from(ctoVias).where(eq(ctoVias.ctoId, id)),
+      db.select().from(ctoViaAssociations).where(eq(ctoViaAssociations.ctoId, id)),
+    ]);
+    saida.tubos = tubos.map(t => ({
+      id: t.id, identifier: t.identifier, tipo: t.type as "tube" | "splitter",
+      totalVias: t.totalVias, bandejaId: null, cor: t.color ?? null, ratio: t.ratio ?? null,
+      vias: vias.filter(v => v.tubeId === t.id)
+        .sort((a, b) => a.viaNumber - b.viaNumber)
+        .map(v => ({ id: v.id, viaNumber: v.viaNumber, label: v.label ?? null })),
+    }));
+    saida.fusoes = assoc.map(a => ({
+      id: a.id, sourceType: a.sourceType as "tube" | "splitter", sourceViaId: a.sourceViaId,
+      targetType: a.targetType as "tube" | "splitter", targetViaId: a.targetViaId, notes: a.notes ?? null,
+    }));
+  }
+
+  if (elementId != null) {
+    const rotas = await db.select().from(mapRoutes)
+      .where(or(eq(mapRoutes.fromElementId, elementId), eq(mapRoutes.toElementId, elementId)));
+    const extras = rotas.length > 0
+      ? await db.select().from(routeExtraTubes)
+          .where(and(
+            eq(routeExtraTubes.elementId, elementId),
+            inArray(routeExtraTubes.routeId, rotas.map(r => r.id))
+          ))
+      : [];
+    saida.cabos = rotas.map(r => {
+      const lado: "from" | "to" = r.toElementId === elementId ? "to" : "from";
+      const principal = lado === "to" ? r.toTubeId : r.fromTubeId;
+      const tuboIds = [
+        ...(principal != null ? [principal] : []),
+        ...extras.filter(e => e.routeId === r.id && e.side === lado).map(e => e.tubeId),
+      ];
+      return {
+        id: r.id,
+        nome: r.name ?? `Cabo #${r.id}`,
+        fibras: r.fiberCount ?? 12,
+        cor: r.color ?? null,
+        lado,
+        // Sem repetidos: um cabo pode aparecer no principal e nos extras.
+        tuboIds: Array.from(new Set(tuboIds)),
+        path: r.path ?? null,
+      };
+    });
+  }
+
+  return saida;
+}

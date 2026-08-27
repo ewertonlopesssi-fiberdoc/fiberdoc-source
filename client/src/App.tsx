@@ -37,6 +37,7 @@ import Ctos from "./pages/Ctos";
 import CtoImport from "./pages/CtoImport";
 import InfrastructureMap from "./pages/InfrastructureMap";
 import MapaBeta from "./pages/MapaBeta";
+import DiagramaOptico from "./pages/DiagramaOptico";
 import SgpConfig from "./pages/SgpConfig";
 import SshCommander from "./pages/SshCommander";
 import CpeManager from "./pages/CpeManager";
@@ -95,6 +96,7 @@ function AppRoutes() {
             <Route path="/cto/importar" component={CtoImport} />
             <Route path="/mapa" component={InfrastructureMap} />
             <Route path="/mapa2" component={MapaBeta} />
+            <Route path="/diagrama/:tipo/:id" component={DiagramaOptico} />
             <Route path="/sgp" component={SgpConfig} />
             <Route path="/ssh-commander" component={SshCommander} />
             <Route path="/cpe-manager" component={CpeManager} />

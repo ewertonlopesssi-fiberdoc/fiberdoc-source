@@ -8,7 +8,7 @@ import { getTenantSlug } from "@/const";
 import { Button } from "@/components/ui/button";
 import {
   MousePointer2, Ruler, Hexagon, Layers, Loader2, Trash2, Undo2, Info, Check,
-  FolderTree, Plus, ChevronDown, FolderPlus, Cable, Pencil, ExternalLink,
+  FolderTree, Plus, ChevronDown, FolderPlus, Cable, Pencil, ExternalLink, Waypoints,
 } from "lucide-react";
 import MapContextMenu, { type MapContextMenuTarget, type MapContextMenuTipo } from "@/components/map/MapContextMenu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -1478,6 +1478,15 @@ export default function MapaBeta() {
               </select>
             </div>
 
+            {(dialogoEditar?.tipo === "cto" || dialogoEditar?.tipo === "ceo") && (
+              <a
+                href={`${getTenantSlug() ? `/${getTenantSlug()}` : ""}/diagrama/${dialogoEditar.tipo}/${dialogoEditar.id}`}
+                className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+              >
+                <Waypoints className="w-3.5 h-3.5" />
+                Abrir diagrama óptico
+              </a>
+            )}
             {(dialogoEditar?.tipo === "cto" || dialogoEditar?.tipo === "ceo") && (
               <a
                 href={urlDoCadastro(dialogoEditar.tipo, dialogoEditar.id)}
