@@ -60,11 +60,21 @@ type TipoSel = "cto" | "ceo" | "poste";
 
 interface Item {
   tipo: TipoSel;
+  /** Id do CADASTRO (ctos.id / ceos.id / map_poles.id). */
   id: number;
+  /**
+   * Id do ELEMENTO DO MAPA, quando existe. É por ele que a associação a grupo
+   * e as pontas de cabo funcionam — número diferente do `id` acima para a
+   * mesma caixa, e confundi-los liga a coisa errada em silêncio.
+   */
+  elementId?: number;
   lat: number;
   lng: number;
   nome: string;
   estado: ProjectStatus;
+  /** Status operacional e cor do cadastro, para o ícone. */
+  status: string;
+  cor: string | null;
 }
 
 const chave = (tipo: TipoSel, id: number) => `${tipo}:${id}`;
@@ -202,16 +212,6 @@ export default function MapaBeta() {
     [projeto, resumos]
   );
 
-  /** (tipo, id do cadastro) → id do elemento do mapa. */
-  const idElementoPorItem = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const e of elementosMapa as any[]) {
-      if (e?.type === "cto" || e?.type === "ceo") {
-        m.set(chave(e.type, Number(e.referenceId)), Number(e.id));
-      }
-    }
-    return m;
-  }, [elementosMapa]);
 
   /** Chaves dos itens que pertencem ao projeto activo. Null = sem projeto. */
   const chavesDoProjeto = useMemo(() => {
@@ -242,24 +242,51 @@ export default function MapaBeta() {
    */
   const itens = useMemo<Item[]>(() => {
     const saida: Item[] = [];
-    const juntar = (linhas: any[], tipo: TipoSel, rotuloPadrao: string) => {
-      for (const r of linhas) {
+
+    if (mostrarCaixas) {
+      // A posição de uma caixa vive em map_elements, não na tabela de cadastro.
+      // A tabela `ceos` NÃO TEM lat/lng — desenhar CEOs a partir de ceos.list,
+      // como esta tela fazia, significava não desenhar CEO nenhum, nunca. Os
+      // CTOs têm coordenada própria, mas quem manda continua a ser
+      // map_elements: é ela que o arrastar do mapa antigo actualiza.
+      const ctoPorId = new Map((ctos as any[]).map(r => [Number(r.id), r]));
+      const ceoPorId = new Map((ceos as any[]).map(r => [Number(r.id), r]));
+      for (const e of elementosMapa as any[]) {
+        const tipo = e?.type;
+        if (tipo !== "cto" && tipo !== "ceo") continue;
+        const lat = Number(e.lat);
+        const lng = Number(e.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+        const cadastro = (tipo === "cto" ? ctoPorId : ceoPorId).get(Number(e.referenceId));
+        saida.push({
+          tipo,
+          id: Number(e.referenceId),
+          elementId: Number(e.id),
+          lat, lng,
+          nome: cadastro?.name ?? e.elementName ?? tipo.toUpperCase(),
+          estado: normalizeProjectStatus(cadastro?.projectStatus ?? e.projectStatus),
+          status: cadastro?.status ?? "active",
+          cor: e.color ?? cadastro?.color ?? null,
+        });
+      }
+    }
+
+    if (mostrarPostes) {
+      for (const r of postes as any[]) {
         if (r?.lat == null || r?.lng == null || r?.id == null) continue;
         const lat = Number(r.lat);
         const lng = Number(r.lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
         saida.push({
-          tipo, id: Number(r.id), lat, lng,
-          nome: r.name ?? rotuloPadrao,
+          tipo: "poste", id: Number(r.id), lat, lng,
+          nome: r.name ?? "Poste",
           estado: normalizeProjectStatus(r.projectStatus),
+          status: r.status ?? "active",
+          cor: null,
         });
       }
-    };
-    if (mostrarCaixas) {
-      juntar(ctos as any[], "cto", "CTO");
-      juntar(ceos as any[], "ceo", "CEO");
     }
-    if (mostrarPostes) juntar(postes as any[], "poste", "Poste");
+
     // "Só este projeto" é um interruptor à parte, e não um efeito de escolher
     // o projeto: escolher já filtrar esconderia em silêncio a rede existente,
     // e desenhar por cima do que não se vê é como se criam sobreposições.
@@ -267,7 +294,7 @@ export default function MapaBeta() {
       return saida.filter(i => chavesDoProjeto.has(chave(i.tipo, i.id)));
     }
     return saida;
-  }, [ctos, ceos, postes, mostrarCaixas, mostrarPostes, soDoProjeto, chavesDoProjeto]);
+  }, [ctos, ceos, postes, elementosMapa, mostrarCaixas, mostrarPostes, soDoProjeto, chavesDoProjeto]);
 
   const itensPorChave = useMemo(() => {
     const m = new Map<string, Item>();
@@ -293,10 +320,6 @@ export default function MapaBeta() {
   const itensRef = useRef<Item[]>([]);
   useEffect(() => { itensRef.current = itens; }, [itens]);
 
-  // O mesmo motivo, para o índice de elementos: pô-lo nas dependências do
-  // efeito de desenho faria o mapa inteiro ser redesenhado a cada refetch.
-  const idElementoPorItemRef = useRef<Map<string, number>>(new Map());
-  useEffect(() => { idElementoPorItemRef.current = idElementoPorItem; }, [idElementoPorItem]);
 
   const alternarItem = useCallback((tipo: TipoSel, id: number, acumular: boolean) => {
     setSelecionados(atual => {
@@ -393,13 +416,14 @@ export default function MapaBeta() {
     // O clique de selecção é ligado aqui, mas o destaque visual NÃO: ele mora
     // na camada de selecção. Se dependesse deste efeito, cada clique
     // redesenharia todos os marcadores do mapa.
-    const aoClicarItem = (tipo: TipoSel, id: number, lat: number, lng: number, nome: string) => (e: L.LeafletMouseEvent) => {
+    const aoClicarItem = (item: Item) => (e: L.LeafletMouseEvent) => {
+      const { tipo, id, lat, lng, nome } = item;
       // No modo cabo, clicar numa caixa krava o vértice na posição exacta dela
       // e liga a ponta. Traçar até "perto" da caixa deixaria o cabo solto, e a
       // ligação é o que faz o cabo valer alguma coisa no cadastro.
       if (modoRef.current === "cabo") {
         L.DomEvent.stopPropagation(e.originalEvent);
-        const idElemento = tipo === "poste" ? null : (idElementoPorItemRef.current.get(chave(tipo, id)) ?? null);
+        const idElemento = item.elementId ?? null;
         // Lido do ref, e não de dentro do actualizador do setPontos: disparar
         // um setState dentro do actualizador de outro roda duas vezes em modo
         // estrito, e a ponta acabaria gravada duas vezes.
@@ -415,13 +439,6 @@ export default function MapaBeta() {
       alternarItem(tipo, id, e.originalEvent.shiftKey || e.originalEvent.ctrlKey || e.originalEvent.metaKey);
     };
 
-    // Índice por id. Sem ele, procurar a linha original de cada item com um
-    // find() dentro do laço seria O(n²) — imperceptível com dezenas de caixas,
-    // e segundos de travamento com milhares.
-    const indice = new Map<string, any>();
-    for (const r of ctos as any[]) indice.set(chave("cto", Number(r.id)), r);
-    for (const r of ceos as any[]) indice.set(chave("ceo", Number(r.id)), r);
-
     for (const item of itens) {
       if (item.tipo === "poste") {
         L.circleMarker([item.lat, item.lng], {
@@ -431,18 +448,17 @@ export default function MapaBeta() {
           bubblingMouseEvents: false,
         })
           .bindTooltip(`${item.nome} · ${PROJECT_STATUS_LABEL[item.estado]}`, { direction: "top" })
-          .on("click", aoClicarItem(item.tipo, item.id, item.lat, item.lng, item.nome))
+          .on("click", aoClicarItem(item))
           .addTo(grupo);
         continue;
       }
-      const origem = indice.get(chave(item.tipo, item.id));
       L.marker([item.lat, item.lng], {
         icon: createLeafletIcon(
-          item.tipo, origem?.status ?? "active", item.nome, false, null, origem?.color ?? null, true, item.estado
+          item.tipo, item.status, item.nome, false, null, item.cor, true, item.estado
         ),
       })
         .bindTooltip(`${item.tipo.toUpperCase()} ${item.nome} · ${PROJECT_STATUS_LABEL[item.estado]}`, { direction: "top" })
-        .on("click", aoClicarItem(item.tipo, item.id, item.lat, item.lng, item.nome))
+        .on("click", aoClicarItem(item))
         .addTo(grupo);
     }
   }, [mapPronto, itens, ctos, ceos, rotas, mostrarCabos, alternarItem, soDoProjeto, rotasDoProjeto]);
@@ -614,11 +630,15 @@ export default function MapaBeta() {
       const trechos = distanciasPorTrecho(pontos);
       trechos.forEach((m, i) => {
         const meio = L.latLng((pontos[i].lat + pontos[i + 1].lat) / 2, (pontos[i].lng + pontos[i + 1].lng) / 2);
+        // O translate(-50%,-50%) e o iconSize [0,0] juntos centram a etiqueta
+        // no meio do trecho. Sem ele, o canto superior esquerdo ficava ANCORADO
+        // no ponto e a etiqueta caía por cima do vértice seguinte — que foi o
+        // que deixou a metragem ilegível no primeiro desenho de cabo.
         L.marker(meio, {
           interactive: false,
           icon: L.divIcon({
             className: "",
-            html: `<div style="background:rgba(17,24,39,0.85);color:#fff;font-size:10px;font-weight:600;padding:1px 5px;border-radius:3px;white-space:nowrap;">${formatarDistancia(m)}</div>`,
+            html: `<div style="transform:translate(-50%,-50%);display:inline-block;background:rgba(17,24,39,0.92);color:#fff;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;white-space:nowrap;border:1px solid rgba(255,255,255,0.28);box-shadow:0 1px 4px rgba(0,0,0,0.45);">${formatarDistancia(m)}</div>`,
             iconSize: [0, 0],
           }),
         }).addTo(grupo);
@@ -626,9 +646,14 @@ export default function MapaBeta() {
     }
 
     pontos.forEach((p, i) => {
-      L.circleMarker(p, {
-        radius: 5, color: "#fff", weight: 2, fillColor: cor, fillOpacity: 1,
-      }).bindTooltip(`${i + 1}`, { direction: "top" }).addTo(grupo);
+      const vertice = L.circleMarker(p, {
+        radius: modo === "cabo" ? 4 : 5, color: "#fff", weight: 2, fillColor: cor, fillOpacity: 1,
+      });
+      // A numeração dos vértices ajuda a conferir uma medição, e atrapalha ao
+      // traçar um cabo: são as metragens que interessam, e as duas etiquetas
+      // disputam o mesmo espaço em cima da linha.
+      if (modo !== "cabo") vertice.bindTooltip(`${i + 1}`, { direction: "top" });
+      vertice.addTo(grupo);
     });
   }, [pontos, modo, mapPronto]);
 
@@ -797,7 +822,7 @@ export default function MapaBeta() {
           entraram++;
           continue;
         }
-        const elementId = idElementoPorItem.get(chave(i.tipo, i.id));
+        const elementId = i.elementId;
         if (elementId == null) {
           // Caixa cadastrada com coordenada mas sem linha em map_elements.
           // Acontece com importações antigas; associar sem isso é impossível.
@@ -813,7 +838,7 @@ export default function MapaBeta() {
     } catch (e: any) {
       toast.error("Erro ao adicionar: " + (e?.message ?? "desconhecido"));
     }
-  }, [projetoAtivo, projeto, chavesDoProjeto, selecionadosVisiveis, idElementoPorItem,
+  }, [projetoAtivo, projeto, chavesDoProjeto, selecionadosVisiveis,
       addElementoGrupoMut, addPosteGrupoMut, recarregarTudo]);
 
   // ─── Gravar o cabo desenhado ──────────────────────────────────────────────
