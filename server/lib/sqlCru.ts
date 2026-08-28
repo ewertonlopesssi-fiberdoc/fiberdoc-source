@@ -22,6 +22,11 @@
  *
  * Há 42 tabelas onde o nome da propriedade difere do nome da coluna, e 25
  * blocos de SQL cru no `db.ts`. Verificar isto à mão uma vez não é verificar.
+ *
+ * NOTA sobre o estilo: este ficheiro evita `for...of` sobre `Map`, `Set` e
+ * `matchAll`, e evita espalhá-los com `...`. O `tsconfig.json` não define
+ * `target`, portanto o TypeScript assume ES5 e recusa essas formas com
+ * TS2802 -- o mesmo tropeção que deu origem ao `25-fix-downleveliteration`.
  */
 
 export type Divergencias = Map<string, Map<string, string>>;
@@ -34,15 +39,16 @@ export type Divergencias = Map<string, Map<string, string>>;
  */
 export function lerDivergencias(fonteSchema: string): Divergencias {
   const fora: Divergencias = new Map();
-  const tabelas = fonteSchema.matchAll(
-    /export const \w+ = mysqlTable\(\s*"([\w]+)"\s*,\s*\{([\s\S]*?)\n\}\)/g,
-  );
-  for (const t of tabelas) {
-    const [, tabela, corpo] = t;
+  const reTabela = /export const \w+ = mysqlTable\(\s*"([\w]+)"\s*,\s*\{([\s\S]*?)\n\}\)/g;
+  let t: RegExpExecArray | null;
+  while ((t = reTabela.exec(fonteSchema)) !== null) {
+    const tabela = t[1];
+    const corpo = t[2];
     const mapa = new Map<string, string>();
-    for (const c of corpo.matchAll(/^\s*(\w+)\s*:\s*\w+\(\s*"([\w]+)"/gm)) {
-      const [, prop, coluna] = c;
-      if (prop !== coluna) mapa.set(prop, coluna);
+    const reCampo = /^\s*(\w+)\s*:\s*\w+\(\s*"([\w]+)"/gm;
+    let c: RegExpExecArray | null;
+    while ((c = reCampo.exec(corpo)) !== null) {
+      if (c[1] !== c[2]) mapa.set(c[1], c[2]);
     }
     if (mapa.size > 0) fora.set(tabela, mapa);
   }
@@ -57,7 +63,9 @@ export interface Consulta {
 /** Os template literals que contêm SQL. */
 export function extrairConsultas(fonte: string): Consulta[] {
   const saida: Consulta[] = [];
-  for (const m of fonte.matchAll(/`([^`]*?)`/g)) {
+  const re = /`([^`]*?)`/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(fonte)) !== null) {
     const sql = m[1];
     if (!/\b(SELECT|UPDATE|INSERT\s+INTO|DELETE\s+FROM)\b/i.test(sql)) continue;
     saida.push({ sql, linha: fonte.slice(0, m.index).split("\n").length });
@@ -75,10 +83,10 @@ export function extrairConsultas(fonte: string): Consulta[] {
 export function aliasesDeTabelas(sql: string): Map<string, string> {
   const mapa = new Map<string, string>();
   const re = /\b(?:FROM|JOIN|UPDATE|INSERT\s+INTO)\s+`?(\w+)`?(?:\s+(?:AS\s+)?(?!ON\b|SET\b|WHERE\b|VALUES\b|LEFT\b|RIGHT\b|INNER\b|JOIN\b|GROUP\b|ORDER\b|LIMIT\b|USING\b)(\w+))?/gi;
-  for (const m of sql.matchAll(re)) {
-    const tabela = m[1];
-    mapa.set(tabela, tabela);
-    if (m[2]) mapa.set(m[2], tabela);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sql)) !== null) {
+    mapa.set(m[1], m[1]);
+    if (m[2]) mapa.set(m[2], m[1]);
   }
   return mapa;
 }
@@ -89,6 +97,17 @@ export interface Achado {
   prop: string;
   coluna: string;
   trecho: string;
+}
+
+/** Quantas vezes `re` casa em `texto`. */
+function contar(texto: string, re: RegExp): number {
+  let n = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(texto)) !== null) {
+    n++;
+    if (m.index === re.lastIndex) re.lastIndex++; // casamento vazio: não ficar preso
+  }
+  return n;
 }
 
 /**
@@ -106,33 +125,35 @@ export function analisarConsulta(consulta: Consulta, divergencias: Divergencias)
   const alias = aliasesDeTabelas(sql);
   const achados: Achado[] = [];
 
-  const tabelasNaConsulta = new Set(alias.values());
-  const tabelaUnica = tabelasNaConsulta.size === 1 ? [...tabelasNaConsulta][0] : null;
+  const tabelas: string[] = [];
+  alias.forEach((tabela) => {
+    if (tabelas.indexOf(tabela) === -1) tabelas.push(tabela);
+  });
+  const tabelaUnica = tabelas.length === 1 ? tabelas[0] : null;
 
-  for (const [nome, tabela] of alias) {
+  alias.forEach((tabela, nome) => {
     const divs = divergencias.get(tabela);
-    if (!divs) continue;
-    for (const [prop, coluna] of divs) {
-      const re = new RegExp(`\\b${nome}\\.${prop}\\b`, "g");
-      for (const m of sql.matchAll(re)) {
-        achados.push({ linha, tabela, prop, coluna, trecho: m[0] });
+    if (!divs) return;
+    divs.forEach((coluna, prop) => {
+      const vezes = contar(sql, new RegExp(`\\b${nome}\\.${prop}\\b`, "g"));
+      for (let i = 0; i < vezes; i++) {
+        achados.push({ linha, tabela, prop, coluna, trecho: `${nome}.${prop}` });
       }
-    }
-  }
+    });
+  });
 
   if (tabelaUnica) {
     const divs = divergencias.get(tabelaUnica);
     if (divs) {
-      for (const [prop, coluna] of divs) {
+      divs.forEach((coluna, prop) => {
         // Sem prefixo, sem `AS` antes, e a coluna certa não aparece na consulta.
-        const re = new RegExp(`(?<![\\w.])(?<!AS\\s)${prop}\\b`, "gi");
-        const temColunaCerta = new RegExp(`\\b${coluna}\\b`).test(sql);
-        if (temColunaCerta) continue;
-        for (const m of sql.matchAll(re)) {
-          if (achados.some(a => a.prop === prop)) continue;
-          achados.push({ linha, tabela: tabelaUnica, prop, coluna, trecho: m[0] });
+        if (new RegExp(`\\b${coluna}\\b`).test(sql)) return;
+        if (achados.some(a => a.prop === prop)) return;
+        const vezes = contar(sql, new RegExp(`(?<![\\w.])(?<!AS\\s)${prop}\\b`, "gi"));
+        if (vezes > 0) {
+          achados.push({ linha, tabela: tabelaUnica, prop, coluna, trecho: prop });
         }
-      }
+      });
     }
   }
 
@@ -141,5 +162,9 @@ export function analisarConsulta(consulta: Consulta, divergencias: Divergencias)
 
 /** Todos os achados de um ficheiro. */
 export function analisarFonte(fonte: string, divergencias: Divergencias): Achado[] {
-  return extrairConsultas(fonte).flatMap(c => analisarConsulta(c, divergencias));
+  const saida: Achado[] = [];
+  extrairConsultas(fonte).forEach(c => {
+    analisarConsulta(c, divergencias).forEach(a => saida.push(a));
+  });
+  return saida;
 }

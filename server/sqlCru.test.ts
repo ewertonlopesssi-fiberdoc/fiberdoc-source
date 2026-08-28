@@ -79,12 +79,12 @@ describe("SQL escrito à mão contra o modelo", () => {
     });
 
     it("resolve alias com e sem AS", () => {
-      expect([...aliasesDeTabelas("FROM a x JOIN b AS y ON 1=1").entries()].sort())
+      expect(Array.from(aliasesDeTabelas("FROM a x JOIN b AS y ON 1=1").entries()).sort())
         .toEqual([["a", "a"], ["b", "b"], ["x", "a"], ["y", "b"]]);
     });
 
     it("uma tabela sem alias continua a servir de prefixo", () => {
-      expect([...aliasesDeTabelas("FROM tabela WHERE 1=1").entries()]).toEqual([["tabela", "tabela"]]);
+      expect(Array.from(aliasesDeTabelas("FROM tabela WHERE 1=1").entries())).toEqual([["tabela", "tabela"]]);
     });
   });
 
