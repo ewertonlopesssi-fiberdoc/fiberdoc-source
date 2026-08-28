@@ -87,6 +87,7 @@ import {
   routeExtraTubes,
   RouteExtraTube,
   InsertRouteExtraTube,
+  appSettings,
 } from "../drizzle/schema";
 import { normalizeProjectStatus, type ProjectTipo } from "../shared/projectStatus";
 import type { ContagensDoProjeto } from "../shared/projectSummary";
@@ -96,6 +97,10 @@ import type { OpticalEndpoint } from "../shared/optica/endpoint";
 import { validarNovaLigacao, validarFusaoDirecta } from "../shared/optica/regrasFusao";
 import { perdaDoSplitter, saidasDoSplitter } from "../shared/optica/perdas";
 import { perdasDesbalanceadas, perdaDaSaidaDesbalanceada } from "../shared/optica/desbalanceado";
+import {
+  lerParametros, resolverParametro, CHAVE_PARAMETROS, PARAMETROS_PADRAO,
+  type LeituraParametros,
+} from "../shared/optica/parametros";
 import { ENV } from "./_core/env";
 import { getTenantDbFromContext, getTenantDbNameFromContext } from "./_core/tenantContext";
 import { getTenantRawPool } from "./_core/tenantPool";
@@ -3976,6 +3981,18 @@ export interface OpticalBalanceResult {
   cableLossDb: number;               // Perda por cabo
   splitterLossDb: number;            // Perda por splitters
   fusionLossDb: number;              // Perda por fusões
+  /**
+   * O rastreio chegou a uma porta de OLT ou DGO?
+   *
+   * Quando o balanco e pedido a partir do DGO, a potencia vem por
+   * `overrideTxPowerDbm` e a guarda que exigia origem era saltada por inteiro.
+   * Se o rastreio para tras parasse a meio -- num CEO onde faltasse um vinculo
+   * -- a funcao devolvia `found: true` na mesma, com a distancia e as fusoes
+   * que conseguiu somar ate onde chegou. Menos percurso e menos perda, portanto
+   * o numero saia OPTIMISTA, e nada no ecra o distinguia de um rastreio
+   * inteiro.
+   */
+  percursoCompleto: boolean;
   signalQuality: "optimal" | "good" | "marginal" | "weak" | "no_signal";
   path: Array<{
     type: "olt" | "cable" | "splitter" | "fusion" | "ceo" | "cto";
@@ -4030,6 +4047,27 @@ function getSplitterLoss(ratio: string): number {
   // silencio. Agora devolve 0 e a origem diz "desconhecida": uma perda a mais
   // e tao errada como uma a menos, e o zero pelo menos aparece no resultado.
   return perdaDoSplitter(ratio).db;
+}
+
+/**
+ * Le os parametros opticos de `app_settings`.
+ *
+ * A tabela pode nao existir num tenant que ainda nao correu a migracao, e por
+ * isso ha um `catch` -- mas ele devolve o valor por omissao E DIZ-NO no aviso,
+ * em vez de engolir. Foi um `try/catch` mudo, no `contarPorGrupo`, que escondeu
+ * durante anos tres divergencias de esquema.
+ */
+async function lerParametrosOpticos(db: NonNullable<Awaited<ReturnType<typeof getDb>>>): Promise<LeituraParametros> {
+  try {
+    const linhas = await db.select({ value: appSettings.value })
+      .from(appSettings).where(eq(appSettings.key, CHAVE_PARAMETROS)).limit(1);
+    return lerParametros(linhas[0]?.value ?? null);
+  } catch (err) {
+    return {
+      valores: { ...PARAMETROS_PADRAO },
+      avisos: [`Parâmetros ópticos: não foi possível lê-los (${(err as Error).message}) — a usar os valores por omissão.`],
+    };
+  }
 }
 
 function getSignalQuality(rxDbm: number): OpticalBalanceResult["signalQuality"] {
@@ -4100,16 +4138,16 @@ export async function calculateOpticalBalance(
   // Verificar se o elemento alvo é uma CTO
   const ctoElement = elementById.get(ctoElementId);
   if (!ctoElement) {
-    return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: 0, cableLossDb: 0, splitterLossDb: 0, fusionLossDb: 0, signalQuality: "no_signal", path: [], warnings: [`Elemento #${ctoElementId} não encontrado`] };
+    return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: 0, cableLossDb: 0, splitterLossDb: 0, fusionLossDb: 0, percursoCompleto: false, signalQuality: "no_signal", path: [], warnings: [`Elemento #${ctoElementId} não encontrado`] };
   }
   if (ctoElement.type !== "cto") {
-    return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: 0, cableLossDb: 0, splitterLossDb: 0, fusionLossDb: 0, signalQuality: "no_signal", path: [], warnings: [`Elemento #${ctoElementId} não é uma CTO`] };
+    return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: 0, cableLossDb: 0, splitterLossDb: 0, fusionLossDb: 0, percursoCompleto: false, signalQuality: "no_signal", path: [], warnings: [`Elemento #${ctoElementId} não é uma CTO`] };
   }
   const ctoName = getElementName(ctoElement);
   // Encontrar rotas conectadas à CTO
   const incomingRoutes = allRoutes.filter(r => r.toElementId === ctoElementId || r.fromElementId === ctoElementId);
   if (incomingRoutes.length === 0) {
-    return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: 0, cableLossDb: 0, splitterLossDb: 0, fusionLossDb: 0, signalQuality: "no_signal", path: [], warnings: [`CTO "${ctoName}" não tem cabos conectados`] };
+    return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: 0, cableLossDb: 0, splitterLossDb: 0, fusionLossDb: 0, percursoCompleto: false, signalQuality: "no_signal", path: [], warnings: [`CTO "${ctoName}" não tem cabos conectados`] };
   }
   // Encontrar a rota de entrada e o tubo de chegada
   let entryRoute: typeof allRoutes[0] | null = null;
@@ -4714,17 +4752,29 @@ export async function calculateOpticalBalance(
   }
   if (!foundOlt && !foundDgo && options?.overrideTxPowerDbm == null) {
     warnings.push("Não foi possível rastrear a fibra até uma porta OLT ou DGO — verifique se o equipamento está posicionado no mapa e se as portas estão vinculadas aos tubos dos CEOs");
-    return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: totalDistanceKm, cableLossDb: 0, splitterLossDb: totalSplitterLoss, fusionLossDb: 0, signalQuality: "no_signal" as const, path: [], warnings };
+    return { found: false, rxPowerDbm: null, txPowerDbm: 0, totalLossDb: 0, distanceKm: totalDistanceKm, cableLossDb: 0, splitterLossDb: totalSplitterLoss, fusionLossDb: 0, percursoCompleto: false, signalQuality: "no_signal" as const, path: [], warnings };
   }
   // Calcular potência
   // Prioridade: overrideTxPowerDbm > DGO link txPowerDbm > DGO equipment txPowerDbm > OLT link txPowerDbm > OLT defaultTxPowerDbm
+  //
+  // Os parametros vinham de dois sitios que nunca se encontravam: as colunas da
+  // OLT (configuraveis, com ecra proprio, e LIDAS POR NINGUEM -- exigem
+  // `foundOlt`, que exige `olt_port_fiber_links`, tabela vazia nos seis bancos)
+  // e os literais 0.35/0.1 aqui em baixo, por onde passam todos os balancos que
+  // de facto funcionam. Agora ha um valor global, e o da OLT ganha-lhe quando
+  // existir. Os valores por omissao sao os mesmos literais, portanto activar
+  // isto nao mexe em nenhum numero ja apresentado.
+  const parametros = await lerParametrosOpticos(db);
+  for (const aviso of parametros.avisos) warnings.push(aviso);
+  const P = parametros.valores;
+
   let txPower: number;
   let attenuationPerKm: number;
   let fusionLossPerFusion: number;
   if (options?.overrideTxPowerDbm != null) {
     txPower = options.overrideTxPowerDbm;
-    attenuationPerKm = 0.35;
-    fusionLossPerFusion = 0.1;
+    attenuationPerKm = P.atenuacaoDbPorKm;
+    fusionLossPerFusion = P.perdaPorFusaoDb;
     if (options.overrideEquipmentName) {
       reversePath.push({ type: "olt", label: options.overrideEquipmentName, lossDb: 0 });
     }
@@ -4744,15 +4794,29 @@ export async function calculateOpticalBalance(
     if (resolvedTxPower === null) {
       // Último fallback: txPowerDbm do equipamento DGO
       const dgoEquip = allEquipments.find((e: any) => e.id === foundDgo!.element.equipmentId);
-      resolvedTxPower = dgoEquip?.txPowerDbm ?? 5.0;
+      resolvedTxPower = dgoEquip?.txPowerDbm ?? P.potenciaTxPadraoDbm;
     }
-    txPower = resolvedTxPower ?? 5.0;
-    attenuationPerKm = 0.35;
-    fusionLossPerFusion = 0.1;
+    txPower = resolvedTxPower ?? P.potenciaTxPadraoDbm;
+    attenuationPerKm = P.atenuacaoDbPorKm;
+    fusionLossPerFusion = P.perdaPorFusaoDb;
   } else {
-    txPower = foundOlt?.link.txPowerDbm ?? foundOlt?.element.defaultTxPowerDbm ?? 5.0;
-    attenuationPerKm = foundOlt?.element.fiberAttenuationDbPerKm ?? 0.35;
-    fusionLossPerFusion = foundOlt?.element.fusionLossDb ?? 0.1;
+    // Aqui, e so aqui, a OLT tem valores proprios -- troços com fibra diferente
+    // sao reais e a coluna existe para isso. Quando nao tem, vale o global.
+    txPower = foundOlt?.link.txPowerDbm ?? foundOlt?.element.defaultTxPowerDbm ?? P.potenciaTxPadraoDbm;
+    attenuationPerKm = resolverParametro(P.atenuacaoDbPorKm, foundOlt?.element.fiberAttenuationDbPerKm, "atenuacaoDbPorKm");
+    fusionLossPerFusion = resolverParametro(P.perdaPorFusaoDb, foundOlt?.element.fusionLossDb, "perdaPorFusaoDb");
+  }
+
+  // O rastreio chegou a origem? Com override, a guarda la em cima nao verifica
+  // nada, e um percurso truncado saia como se fosse inteiro -- com menos perda,
+  // portanto optimista, que e a direccao errada para errar.
+  const percursoCompleto = foundOlt != null || foundDgo != null;
+  if (!percursoCompleto) {
+    warnings.push(
+      "O rastreio não chegou a uma porta de OLT ou DGO: o percurso mostrado está " +
+      "incompleto e as perdas somadas são apenas as do troço encontrado. " +
+      "A potência real na CTO é MENOR que a apresentada."
+    );
   }
   const cableLoss = totalDistanceKm * attenuationPerKm;
   const fusionLoss = totalFusionCount * fusionLossPerFusion;
@@ -4774,6 +4838,7 @@ export async function calculateOpticalBalance(
     cableLossDb: cableLoss,
     splitterLossDb: totalSplitterLoss,
     fusionLossDb: fusionLoss,
+    percursoCompleto,
     signalQuality: getSignalQuality(rxPower),
     path: pathWithPower,
     warnings,
@@ -5423,7 +5488,7 @@ export async function calculateOpticalBalanceFromDgo(input: {
   const noResult = (msg: string) => ({
     found: false as const, rxPowerDbm: null, txPowerDbm: null, equipmentName: null,
     totalLossDb: 0, distanceKm: 0, cableLossDb: 0, splitterLossDb: 0, fusionLossDb: 0,
-    signalQuality: "no_signal" as const, path: [], warnings: [msg], cableOutElementId: null,
+    percursoCompleto: false, signalQuality: "no_signal" as const, path: [], warnings: [msg], cableOutElementId: null,
   });
 
   if (!_pool) return noResult("DB não disponível");
