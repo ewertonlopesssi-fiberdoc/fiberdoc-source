@@ -102,6 +102,7 @@ import {
   type LeituraParametros,
 } from "../shared/optica/parametros";
 import { acumularPercurso } from "../shared/optica/percurso";
+import { mesmaPorta } from "../shared/numeroDePorta";
 import { ENV } from "./_core/env";
 import { getTenantDbFromContext, getTenantDbNameFromContext } from "./_core/tenantContext";
 import { getTenantRawPool } from "./_core/tenantPool";
@@ -4448,10 +4449,14 @@ export async function calculateOpticalBalance(
             // Porta = via atual (via 1 → porta 1, via 2 → porta 2, ...)
             const portNumber = currentViaNumber ?? 1;
             // Buscar porta do equipamento DGO com slotId = matchedSlotLink.slotId e portNumber = portNumber
+            // `ports.portNumber` e varchar: no D.I.O do fiberdoc as portas estao
+            // gravadas "01".."12". O `String(a) === String(b)` que estava aqui
+            // dava falso para "07" vs 7 -- nove em cada doze portas de cada
+            // bandeja eram invisiveis ao rastreio, e sao as de numero baixo.
             const dgoPort = allPorts.find((p: any) =>
               p.equipmentId === dgoEl.equipmentId &&
               p.slotId === matchedSlotLink.slotId &&
-              String(p.portNumber) === String(portNumber)
+              mesmaPorta(p.portNumber, portNumber)
             );
             // Verificar se há dgo_port_fiber_link manual configurado para esta porta
             const manualDgoLink = dgoPort
@@ -4510,7 +4515,18 @@ export async function calculateOpticalBalance(
               } as any,
             };
             reversePath.push({ type: "olt", label: `${dgoEquipName} — ${portLabel}`, lossDb: 0 });
-            warnings.push(`Porta ${portNumber} da bandeja do DGO "${dgoEquipName}" não encontrada no cadastro — usando potência do equipamento`);
+            // A mensagem antiga dizia "usando potencia do equipamento". Nao e
+            // verdade: e justamente por a porta nao estar no cadastro que o
+            // codigo NAO chega a consultar o equipamento ligado a ela. O
+            // equipamento do DGO costuma ter txPowerDbm NULL -- os dois D.I.O
+            // do fiberdoc tem -- e o numero acaba por vir do valor por omissao.
+            // Quem manda a luz e a OLT ligada aquela porta, e essa so se sabe
+            // com a porta cadastrada.
+            warnings.push(
+              `Não foi encontrada a porta ${portNumber} da bandeja do DGO "${dgoEquipName}". ` +
+              `Sem ela não se sabe que equipamento alimenta este troço, e a potência ` +
+              `usada é a do valor por omissão da configuração.`
+            );
             break;
           }
         }
@@ -5593,10 +5609,10 @@ export async function calculateOpticalBalanceFromDgo(input: {
        mr.name AS routeName,
        mr.fromElementId,
        mr.toElementId,
-       dscl.side
+       dscl.dgo_link_side AS side
      FROM dgo_slot_cable_links dscl
      JOIN map_routes mr ON mr.id = dscl.routeId
-     WHERE dscl.dgoElementId = ? AND dscl.slotId = ? AND dscl.side = 'out'
+     WHERE dscl.dgoElementId = ? AND dscl.slotId = ? AND dscl.dgo_link_side = 'out'
      LIMIT 1`,
     [input.dgoElementId, input.slotId]
   );
@@ -5696,7 +5712,7 @@ export async function getDgoSlotCtoBalances(input: {
     `SELECT mr.fromElementId, mr.toElementId
      FROM dgo_slot_cable_links dscl
      JOIN map_routes mr ON mr.id = dscl.routeId
-     WHERE dscl.dgoElementId = ? AND dscl.slotId = ? AND dscl.side = 'out'
+     WHERE dscl.dgoElementId = ? AND dscl.slotId = ? AND dscl.dgo_link_side = 'out'
      LIMIT 1`,
     [input.dgoElementId, input.slotId]
   );
