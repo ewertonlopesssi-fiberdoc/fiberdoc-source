@@ -94,6 +94,7 @@ import { unirFusoes } from "../shared/opticalFusions";
 import { lerTracado, metrosDoTracado } from "../shared/optica/comprimento";
 import type { OpticalEndpoint } from "../shared/optica/endpoint";
 import { validarNovaLigacao, validarFusaoDirecta } from "../shared/optica/regrasFusao";
+import { perdaDoSplitter, saidasDoSplitter } from "../shared/optica/perdas";
 import { ENV } from "./_core/env";
 import { getTenantDbFromContext, getTenantDbNameFromContext } from "./_core/tenantContext";
 import { getTenantRawPool } from "./_core/tenantPool";
@@ -3044,14 +3045,9 @@ export async function deleteCeoBandeja(id: number, deleteTubes = false) {
 
 // ─── CEO Splitters ────────────────────────────────────────────────────────────
 
-// Tabela de perda dB por tipo de splitter balanceado (valores típicos)
-const BALANCED_LOSS_DB: Record<string, number> = {
-  "1:2": 3.5,
-  "1:4": 7.2,
-  "1:8": 10.5,
-  "1:16": 13.5,
-  "1:32": 17.0,
-};
+// A tabela de perdas vive em shared/optica/perdas.ts, uma so para a criacao e
+// para o calculo. Eram duas, escritas a mao, e ja tinham divergido: esta dizia
+// 1:4 = 7,2 e a do balanco dizia 7,0.
 
 // Perda dB para splitters desbalanceados (entrada=0, saídas indexadas por percentagem)
 // Formato ratio: "1:2_90/10", "1:2_80/20", etc.
@@ -3096,8 +3092,12 @@ export async function createCeoSplitter(data: Omit<InsertCeoSplitter, "id" | "cr
     // Criar vias automaticamente
     const vias: Omit<InsertCeoSplitterVia, "id" | "createdAt" | "updatedAt">[] = [];
     if (data.splitterType === "balanced") {
-      const outputCount = parseInt(data.ratio.split(":")[1] ?? "2");
-      const lossDb = BALANCED_LOSS_DB[data.ratio] ?? 3.5;
+      // saidasDoSplitter e perdaDoSplitter leem o mesmo rotulo. O ?? 3.5 que
+      // estava aqui gravava a perda de um 1:2 em qualquer ratio fora da
+      // tabela -- num 1:64 seriam 17 dB a menos, e como o balanco le o lossDb
+      // gravado antes da constante, o erro vencia.
+      const outputCount = saidasDoSplitter(data.ratio) ?? 2;
+      const lossDb = perdaDoSplitter(data.ratio).db;
       // Via 0 = entrada (sem perda)
       vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: 0, label: "Entrada", lossDb: 0 });
       // Vias 1..N = saídas
@@ -3978,14 +3978,6 @@ export interface OpticalBalanceResult {
 }
 
 // Tabela de perda por splitter balanceado (em dB)
-const SPLITTER_LOSS_DB: Record<string, number> = {
-  "1:2": 3.5,
-  "1:4": 7.0,
-  "1:8": 10.5,
-  "1:16": 13.5,
-  "1:32": 17.0,
-  "1:64": 20.5,
-};
 
 /**
  * Detecta se o identifier corresponde a um splitter desbalanceado.
@@ -4031,26 +4023,11 @@ function getUnbalancedSplitterLoss(
 }
 
 function getSplitterLoss(ratio: string): number {
-  // Normalizar o ratio (ex: "1/8" → "1:8", "SPLINTER 1:8" → "1:8", "8" → "1:8")
-  const normalized = ratio.replace("/", ":").trim();
-  // Verificação directa na tabela
-  if (SPLITTER_LOSS_DB[normalized] !== undefined) return SPLITTER_LOSS_DB[normalized];
-  // Extrair padrão "1:N" ou "1/N" de qualquer parte do string (ex: "SPLINTER 1:8" → "1:8")
-  const ratioMatch = normalized.match(/\b(1[:/]\d+)\b/);
-  if (ratioMatch) {
-    const extracted = ratioMatch[1].replace("/", ":");
-    if (SPLITTER_LOSS_DB[extracted] !== undefined) return SPLITTER_LOSS_DB[extracted];
-  }
-  // Tentar extrair apenas o denominador
-  const denomMatch = normalized.match(/1[:/](\d+)/);
-  if (denomMatch) {
-    const n = parseInt(denomMatch[1]);
-    // Procurar na tabela pelo denominador
-    const tableKey = `1:${n}`;
-    if (SPLITTER_LOSS_DB[tableKey] !== undefined) return SPLITTER_LOSS_DB[tableKey];
-    return Math.round(10 * Math.log10(n) * 10) / 10; // 10*log10(N) dB
-  }
-  return 3.5; // fallback: 1:2
+  // A normalizacao do rotulo e a tabela vivem em shared/optica/perdas.ts.
+  // Um ratio irreconhecivel devolvia 3.5 -- a perda de um 1:2 -- assumido em
+  // silencio. Agora devolve 0 e a origem diz "desconhecida": uma perda a mais
+  // e tao errada como uma a menos, e o zero pelo menos aparece no resultado.
+  return perdaDoSplitter(ratio).db;
 }
 
 function getSignalQuality(rxDbm: number): OpticalBalanceResult["signalQuality"] {
