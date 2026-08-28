@@ -947,46 +947,58 @@ export async function getTubesByCeo(ceoId: number) {
 export async function createCeoTube(data: Omit<InsertCeoTube, "id" | "createdAt" | "updatedAt">) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  // Verificar se já existe tubo com mesmo identificador nesta CEO
-  const existing = await db.select({ id: ceoTubes.id, bandejaId: ceoTubes.bandejaId })
-    .from(ceoTubes)
-    .where(and(eq(ceoTubes.ceoId, data.ceoId), eq(ceoTubes.identifier, data.identifier.trim())));
-  if (existing.length > 0) {
-    // Se existe um tubo órfão (sem bandeja), reatribuir à nova bandeja em vez de criar duplicata
-    const orphan = existing.find(t => t.bandejaId === null);
-    if (orphan) {
-      const newBandejaId = (data as any).bandejaId ?? null;
-      await db.update(ceoTubes).set({ bandejaId: newBandejaId }).where(eq(ceoTubes.id, orphan.id));
-      return orphan.id;
+
+  // O tubo e as suas vias, ou nada.
+  //
+  // NOTA sobre a unicidade do identificador: a verificacao ali abaixo continua
+  // a ser um SELECT seguido de um INSERT. A transacao garante que o tubo e as
+  // vias entram juntos, mas NAO impede duas criacoes simultaneas do mesmo
+  // identificador de passarem as duas -- para isso era preciso um indice unico
+  // em (ceoId, identifier), que e migracao e fica para depois de medir se ja
+  // existem duplicados. Digo-o aqui para nao dar a impressao de que esta
+  // resolvido.
+  return await db.transaction(async (tx) => {
+    // Verificar se já existe tubo com mesmo identificador nesta CEO
+    const existing = await tx.select({ id: ceoTubes.id, bandejaId: ceoTubes.bandejaId })
+      .from(ceoTubes)
+      .where(and(eq(ceoTubes.ceoId, data.ceoId), eq(ceoTubes.identifier, data.identifier.trim())));
+    if (existing.length > 0) {
+      // Se existe um tubo órfão (sem bandeja), reatribuir à nova bandeja em vez de criar duplicata
+      const orphan = existing.find(t => t.bandejaId === null);
+      if (orphan) {
+        const newBandejaId = (data as any).bandejaId ?? null;
+        await tx.update(ceoTubes).set({ bandejaId: newBandejaId }).where(eq(ceoTubes.id, orphan.id));
+        return orphan.id;
+      }
+      throw new Error(`Já existe um tubo com o identificador "${data.identifier.trim()}" nesta CEO.`);
     }
-    throw new Error(`Já existe um tubo com o identificador "${data.identifier.trim()}" nesta CEO.`);
-  }
-  // Garantir que color sempre tenha valor válido; omitir notes quando vazio para compatibilidade com NOT NULL
-  const colorVal = (data.color && data.color.trim() !== "") ? data.color.trim() : "blue";
-  const notesVal = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : undefined;
-  const insertData: any = {
-    ceoId: data.ceoId,
-    bandejaId: (data as any).bandejaId ?? null,
-    type: data.type ?? "tube",
-    identifier: data.identifier,
-    totalVias: data.totalVias ?? 12,
-    color: colorVal,
-  };
-  if (notesVal !== undefined) insertData.notes = notesVal;
-  const result = await db.insert(ceoTubes).values(insertData);
-  const insertId = (result as any)[0]?.insertId ?? 0;
-  // Criar as vias automaticamente
-  const totalVias = data.totalVias ?? 0;
-  if (totalVias > 0) {
-    const viaRows: Omit<InsertCeoVia, "id" | "createdAt" | "updatedAt">[] = [];
-    for (let i = 1; i <= totalVias; i++) {
-      viaRows.push({ tubeId: insertId, ceoId: data.ceoId, viaNumber: i });
+    // Garantir que color sempre tenha valor válido; omitir notes quando vazio para compatibilidade com NOT NULL
+    const colorVal = (data.color && data.color.trim() !== "") ? data.color.trim() : "blue";
+    const notesVal = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : undefined;
+    const insertData: any = {
+      ceoId: data.ceoId,
+      bandejaId: (data as any).bandejaId ?? null,
+      type: data.type ?? "tube",
+      identifier: data.identifier,
+      totalVias: data.totalVias ?? 12,
+      color: colorVal,
+    };
+    if (notesVal !== undefined) insertData.notes = notesVal;
+    const result = await tx.insert(ceoTubes).values(insertData);
+    const insertId = (result as any)[0]?.insertId ?? 0;
+    // Criar as vias automaticamente
+    const totalVias = data.totalVias ?? 0;
+    if (totalVias > 0) {
+      const viaRows: Omit<InsertCeoVia, "id" | "createdAt" | "updatedAt">[] = [];
+      for (let i = 1; i <= totalVias; i++) {
+        viaRows.push({ tubeId: insertId, ceoId: data.ceoId, viaNumber: i });
+      }
+      if (viaRows.length > 0) {
+        await tx.insert(ceoVias).values(viaRows);
+      }
     }
-    if (viaRows.length > 0) {
-      await db.insert(ceoVias).values(viaRows);
-    }
-  }
-  return insertId;
+    return insertId;
+  });
 }
 
 export async function updateCeoTube(id: number, data: Partial<Omit<InsertCeoTube, "id" | "createdAt" | "updatedAt">>) {
@@ -1193,35 +1205,41 @@ export async function getTubesByCto(ctoId: number) {
 export async function createCtoTube(data: Omit<InsertCtoTube, "id" | "createdAt" | "updatedAt">) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  // Garantir que color sempre tenha valor válido; omitir notes quando vazio para compatibilidade com NOT NULL
-  const colorVal = (data.color && data.color.trim() !== "") ? data.color.trim() : "blue";
-  const notesVal = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : undefined;
-  const insertData: any = {
-    ctoId: data.ctoId,
-    type: data.type ?? "tube",
-    identifier: data.identifier,
-    totalVias: data.totalVias ?? 12,
-    color: colorVal,
-  };
-  if (notesVal !== undefined) insertData.notes = notesVal;
-  if ((data as any).splitterType) insertData.splitterType = (data as any).splitterType;
-  if ((data as any).ratio) insertData.ratio = (data as any).ratio;
-  const result = await db.insert(ctoTubes).values(insertData);
-  const insertId = (result as any)[0]?.insertId ?? 0;
-  const totalVias = data.totalVias ?? 0;
-  if (totalVias > 0) {
-    const viaRows: Omit<InsertCtoVia, "id" | "createdAt" | "updatedAt">[] = [];
-    const isSplitter = (data.type ?? "tube") === "splitter";
-    // Para splitters: criar via de Entrada (viaNumber=0) + saídas (1..N), igual ao CEO
-    if (isSplitter) {
-      viaRows.push({ tubeId: insertId, ctoId: data.ctoId, viaNumber: 0, label: "ENT" });
+
+  // O tubo e as suas vias, ou nada. Mesmo raciocinio do createCeoSplitter:
+  // um tubo de 12 FO sem vias nao serve para nada e ninguem o arranja sem
+  // apagar.
+  return await db.transaction(async (tx) => {
+    // Garantir que color sempre tenha valor válido; omitir notes quando vazio para compatibilidade com NOT NULL
+    const colorVal = (data.color && data.color.trim() !== "") ? data.color.trim() : "blue";
+    const notesVal = (data.notes && data.notes.trim() !== "") ? data.notes.trim() : undefined;
+    const insertData: any = {
+      ctoId: data.ctoId,
+      type: data.type ?? "tube",
+      identifier: data.identifier,
+      totalVias: data.totalVias ?? 12,
+      color: colorVal,
+    };
+    if (notesVal !== undefined) insertData.notes = notesVal;
+    if ((data as any).splitterType) insertData.splitterType = (data as any).splitterType;
+    if ((data as any).ratio) insertData.ratio = (data as any).ratio;
+    const result = await tx.insert(ctoTubes).values(insertData);
+    const insertId = (result as any)[0]?.insertId ?? 0;
+    const totalVias = data.totalVias ?? 0;
+    if (totalVias > 0) {
+      const viaRows: Omit<InsertCtoVia, "id" | "createdAt" | "updatedAt">[] = [];
+      const isSplitter = (data.type ?? "tube") === "splitter";
+      // Para splitters: criar via de Entrada (viaNumber=0) + saídas (1..N), igual ao CEO
+      if (isSplitter) {
+        viaRows.push({ tubeId: insertId, ctoId: data.ctoId, viaNumber: 0, label: "ENT" });
+      }
+      for (let i = 1; i <= totalVias; i++) {
+        viaRows.push({ tubeId: insertId, ctoId: data.ctoId, viaNumber: i });
+      }
+      if (viaRows.length > 0) await tx.insert(ctoVias).values(viaRows);
     }
-    for (let i = 1; i <= totalVias; i++) {
-      viaRows.push({ tubeId: insertId, ctoId: data.ctoId, viaNumber: i });
-    }
-    if (viaRows.length > 0) await db.insert(ctoVias).values(viaRows);
-  }
-  return insertId;
+    return insertId;
+  });
 }
 export async function updateCtoTube(id: number, data: Partial<Omit<InsertCtoTube, "id" | "createdAt" | "updatedAt">>) {
   const db = await getDb();
@@ -3063,32 +3081,42 @@ export async function getSplittersByBandeja(bandejaId: number) {
 export async function createCeoSplitter(data: Omit<InsertCeoSplitter, "id" | "createdAt" | "updatedAt">) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  const result = await db.insert(ceoSplitters).values(data);
-  const insertId = (result as any)[0]?.insertId ?? 0;
 
-  // Criar vias automaticamente
-  const vias: Omit<InsertCeoSplitterVia, "id" | "createdAt" | "updatedAt">[] = [];
-  if (data.splitterType === "balanced") {
-    const outputCount = parseInt(data.ratio.split(":")[1] ?? "2");
-    const lossDb = BALANCED_LOSS_DB[data.ratio] ?? 3.5;
-    // Via 0 = entrada (sem perda)
-    vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: 0, label: "Entrada", lossDb: 0 });
-    // Vias 1..N = saídas
-    for (let i = 1; i <= outputCount; i++) {
-      vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: i, label: `Saída ${i}`, lossDb });
+  // O splitter e as suas vias, ou nada.
+  //
+  // Eram dois INSERT independentes: o do splitter, e o das vias em lote.
+  // Falhar o segundo deixava um splitter SEM VIAS NENHUMAS -- uma entidade
+  // que existe no cadastro, aparece no diagrama, e nao tem uma unica porta
+  // para ligar. Nao ha caminho de reparacao na interface: so apagando e
+  // criando de novo, e so depois de alguem perceber o que aconteceu.
+  return await db.transaction(async (tx) => {
+    const result = await tx.insert(ceoSplitters).values(data);
+    const insertId = (result as any)[0]?.insertId ?? 0;
+
+    // Criar vias automaticamente
+    const vias: Omit<InsertCeoSplitterVia, "id" | "createdAt" | "updatedAt">[] = [];
+    if (data.splitterType === "balanced") {
+      const outputCount = parseInt(data.ratio.split(":")[1] ?? "2");
+      const lossDb = BALANCED_LOSS_DB[data.ratio] ?? 3.5;
+      // Via 0 = entrada (sem perda)
+      vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: 0, label: "Entrada", lossDb: 0 });
+      // Vias 1..N = saídas
+      for (let i = 1; i <= outputCount; i++) {
+        vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: i, label: `Saída ${i}`, lossDb });
+      }
+    } else {
+      // Desbalanceado
+      const { inputLoss, outputs } = getUnbalancedLoss(data.ratio);
+      vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: 0, label: "Entrada", lossDb: inputLoss });
+      outputs.forEach((loss, idx) => {
+        vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: idx + 1, label: `Saída ${idx + 1}`, lossDb: loss });
+      });
     }
-  } else {
-    // Desbalanceado
-    const { inputLoss, outputs } = getUnbalancedLoss(data.ratio);
-    vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: 0, label: "Entrada", lossDb: inputLoss });
-    outputs.forEach((loss, idx) => {
-      vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: idx + 1, label: `Saída ${idx + 1}`, lossDb: loss });
-    });
-  }
-  if (vias.length > 0) {
-    await db.insert(ceoSplitterVias).values(vias);
-  }
-  return insertId;
+    if (vias.length > 0) {
+      await tx.insert(ceoSplitterVias).values(vias);
+    }
+    return insertId;
+  });
 }
 
 export async function updateCeoSplitter(id: number, data: Partial<Omit<InsertCeoSplitter, "id" | "createdAt" | "updatedAt">>) {
