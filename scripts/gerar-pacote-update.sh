@@ -254,11 +254,31 @@ done
 # Copiar scripts de deploy/actualização (excluindo este próprio script)
 if [[ -d "${PROJECT_DIR}/scripts" ]]; then
   mkdir -p "${STAGE_ROOT}/scripts"
-  for script in "${PROJECT_DIR}/scripts"/*.sh; do
+  # .sh e .mjs: o conferir-schema.mjs corre no passo 6c do actualizador, e a
+  # primeira vez que isto foi tentado ele nao chegou la -- este laco so
+  # apanhava *.sh e o passo saltou-se sem dizer nada.
+  for script in "${PROJECT_DIR}/scripts"/*.sh "${PROJECT_DIR}/scripts"/*.mjs; do
     [[ -f "${script}" ]] || continue
     cp "${script}" "${STAGE_ROOT}/scripts/"
   done
-  log_ok "scripts/ incluído."
+  log_ok "scripts/ incluído ($(ls -1 "${STAGE_ROOT}/scripts" | wc -l) ficheiros)."
+fi
+
+# Lista de colunas que o modelo espera, para o actualizador conferir os bancos.
+#
+# Gera-se AQUI e nao la, porque o conferir-schema.mjs le drizzle/schema.ts e o
+# pacote nao leva o drizzle/. Enviar o resultado em vez da ferramenta tambem
+# dispensa o node no servidor durante a actualizacao.
+if command -v node >/dev/null 2>&1 && [[ -f "${PROJECT_DIR}/scripts/conferir-schema.mjs" ]]; then
+  if node "${PROJECT_DIR}/scripts/conferir-schema.mjs" 2>/dev/null \
+       | sort > "${STAGE_ROOT}/schema-esperado.txt"; then
+    log_ok "schema-esperado.txt incluído ($(wc -l < "${STAGE_ROOT}/schema-esperado.txt") colunas)."
+  else
+    rm -f "${STAGE_ROOT}/schema-esperado.txt"
+    log_warn "conferir-schema.mjs falhou -- o actualizador nao vai poder conferir os bancos."
+  fi
+else
+  log_warn "node ou conferir-schema.mjs em falta -- sem schema-esperado.txt no pacote."
 fi
 
 # Copiar deploy.sh se existir

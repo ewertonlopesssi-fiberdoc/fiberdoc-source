@@ -396,10 +396,16 @@ else
   #
   # So imprime. Nunca falha o update: um relatorio que interrompe a instalacao
   # seria pior do que nao ter relatorio.
-  if command -v node >/dev/null 2>&1 && [ -f "${SOURCE_DIR}/scripts/conferir-schema.mjs" ]; then
+  # A ausencia de qualquer das duas condicoes E DITA. Uma verificacao que se
+  # salta em silencio nao e uma verificacao -- foi assim que ela propria falhou
+  # na primeira vez, porque o gerador de pacotes so copiava *.sh e o .mjs nunca
+  # chegou ao servidor.
+  if [ ! -f "${SOURCE_DIR}/schema-esperado.txt" ]; then
+    log_warn "[6c] schema-esperado.txt nao veio no pacote -- conferencia dos bancos nao corre."
+  else
     log_step "[6c] A conferir o modelo contra os bancos..."
-    ESPERADO="${TMP_DIR}/esperado.txt"
-    if node "${SOURCE_DIR}/scripts/conferir-schema.mjs" 2>/dev/null | sort > "${ESPERADO}"; then
+    ESPERADO="${SOURCE_DIR}/schema-esperado.txt"
+    if [ -s "${ESPERADO}" ]; then
       for banco in ${DBS_ALVO}; do
         TABELAS="${TMP_DIR}/tab-${banco}.txt"
         REAL="${TMP_DIR}/real-${banco}.txt"
@@ -419,7 +425,7 @@ else
         fi
       done
     else
-      log_info "Conferidor de schema nao correu; a seguir sem ele."
+      log_warn "[6c] schema-esperado.txt esta vazio; a seguir sem conferencia."
     fi
   fi
 
