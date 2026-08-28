@@ -90,6 +90,7 @@ import {
 } from "../drizzle/schema";
 import { normalizeProjectStatus, type ProjectTipo } from "../shared/projectStatus";
 import type { ContagensDoProjeto } from "../shared/projectSummary";
+import { unirFusoes } from "../shared/opticalFusions";
 import { ENV } from "./_core/env";
 import { getTenantDbFromContext, getTenantDbNameFromContext } from "./_core/tenantContext";
 import { getTenantRawPool } from "./_core/tenantPool";
@@ -5914,6 +5915,12 @@ export interface DiagramaOptico {
     targetType: "tube" | "splitter";
     targetViaId: number;
     notes: string | null;
+    /**
+     * "associacao" = linha de *_via_associations, com id real, apagavel.
+     * "coluna"     = fusao gravada em ceo_vias/cto_vias.fusedTo*, id negativo
+     *                sintetico. Nao existe linha para apagar por id.
+     */
+    origem: "associacao" | "coluna";
   }>;
   cabos: DiagramaCaboOptico[];
 }
@@ -5963,10 +5970,9 @@ export async function getOpticalDiagram(tipo: "ceo" | "cto", id: number): Promis
         .sort((a, b) => a.viaNumber - b.viaNumber)
         .map(v => ({ id: v.id, viaNumber: v.viaNumber, label: v.label ?? null, lossDb: v.lossDb ?? null })),
     }));
-    saida.fusoes = assoc.map(a => ({
-      id: a.id, sourceType: a.sourceType as "tube" | "splitter", sourceViaId: a.sourceViaId,
-      targetType: a.targetType as "tube" | "splitter", targetViaId: a.targetViaId, notes: a.notes ?? null,
-    }));
+    // As duas fontes juntas. Ler so as associacoes escondia 100% das fusoes
+    // tubo<->tubo -- 686 vias no banco principal, medido a 28/08/2026.
+    saida.fusoes = unirFusoes(assoc, vias);
   } else {
     const [tubos, vias, assoc] = await Promise.all([
       db.select().from(ctoTubes).where(eq(ctoTubes.ctoId, id)),
@@ -5980,10 +5986,13 @@ export async function getOpticalDiagram(tipo: "ceo" | "cto", id: number): Promis
         .sort((a, b) => a.viaNumber - b.viaNumber)
         .map(v => ({ id: v.id, viaNumber: v.viaNumber, label: v.label ?? null })),
     }));
-    saida.fusoes = assoc.map(a => ({
-      id: a.id, sourceType: a.sourceType as "tube" | "splitter", sourceViaId: a.sourceViaId,
-      targetType: a.targetType as "tube" | "splitter", targetViaId: a.targetViaId, notes: a.notes ?? null,
-    }));
+    // Na CTO o splitter E um tubo: as suas vias vivem em cto_vias, no mesmo
+    // espaco de ids das outras. O tipo "splitter" gravado na associacao mandava
+    // o cliente procurar a ancora em "splitter:<id>", que nunca existe na CTO --
+    // e a fusao desaparecia sem erro. Aqui normaliza-se para "tube", que e o que
+    // o id realmente e. O tubo continua a dizer de si `tipo: "splitter"`.
+    const assocCto = assoc.map(a => ({ ...a, sourceType: "tube", targetType: "tube" }));
+    saida.fusoes = unirFusoes(assocCto, vias);
   }
 
   if (elementId != null) {
