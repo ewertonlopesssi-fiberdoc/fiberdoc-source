@@ -387,6 +387,42 @@ else
     log_info "Nenhum ficheiro de migracao consolidada encontrado."
   fi
 
+  # Relatorio: colunas que o modelo espera e o banco nao tem.
+  #
+  # Este e o passo que faltava. Tres defeitos deste tipo estiveram anos em
+  # producao sem sintoma -- o SQL cru funcionava, o Drizzle e que falhava, e
+  # onde havia try/catch a falha nem aparecia. Depois de migrar, vale um minuto
+  # a perguntar ao banco se ele ficou como o modelo diz.
+  #
+  # So imprime. Nunca falha o update: um relatorio que interrompe a instalacao
+  # seria pior do que nao ter relatorio.
+  if command -v node >/dev/null 2>&1 && [ -f "${SOURCE_DIR}/scripts/conferir-schema.mjs" ]; then
+    log_step "[6c] A conferir o modelo contra os bancos..."
+    ESPERADO="${TMP_DIR}/esperado.txt"
+    if node "${SOURCE_DIR}/scripts/conferir-schema.mjs" 2>/dev/null | sort > "${ESPERADO}"; then
+      for banco in ${DBS_ALVO}; do
+        TABELAS="${TMP_DIR}/tab-${banco}.txt"
+        REAL="${TMP_DIR}/real-${banco}.txt"
+        mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" ${SSL_OPT} -N -B \
+          -e "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA='${banco}'" \
+          2>/dev/null | sort > "${TABELAS}" || continue
+        mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" ${SSL_OPT} -N -B \
+          -e "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='${banco}'" \
+          2>/dev/null | sort > "${REAL}" || continue
+        DIVERG=$(awk -F'\t' 'NR==FNR{t[$1]=1;next} t[$1]' "${TABELAS}" "${ESPERADO}" \
+                 | comm -23 - "${REAL}" | head -20)
+        if [ -n "${DIVERG}" ]; then
+          log_info "AVISO: ${banco} diverge do modelo:"
+          printf '%s\n' "${DIVERG}" | while IFS= read -r l; do log_info "    ${l}"; done
+        else
+          log_ok "${banco}: alinhado com o modelo."
+        fi
+      done
+    else
+      log_info "Conferidor de schema nao correu; a seguir sem ele."
+    fi
+  fi
+
   unset MYSQL_PWD
 fi
 
