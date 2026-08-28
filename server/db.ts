@@ -95,6 +95,7 @@ import { lerTracado, metrosDoTracado } from "../shared/optica/comprimento";
 import type { OpticalEndpoint } from "../shared/optica/endpoint";
 import { validarNovaLigacao, validarFusaoDirecta } from "../shared/optica/regrasFusao";
 import { perdaDoSplitter, saidasDoSplitter } from "../shared/optica/perdas";
+import { perdasDesbalanceadas, perdaDaSaidaDesbalanceada } from "../shared/optica/desbalanceado";
 import { ENV } from "./_core/env";
 import { getTenantDbFromContext, getTenantDbNameFromContext } from "./_core/tenantContext";
 import { getTenantRawPool } from "./_core/tenantPool";
@@ -3049,18 +3050,14 @@ export async function deleteCeoBandeja(id: number, deleteTubes = false) {
 // para o calculo. Eram duas, escritas a mao, e ja tinham divergido: esta dizia
 // 1:4 = 7,2 e a do balanco dizia 7,0.
 
-// Perda dB para splitters desbalanceados (entrada=0, saídas indexadas por percentagem)
-// Formato ratio: "1:2_90/10", "1:2_80/20", etc.
-function getUnbalancedLoss(ratio: string): { inputLoss: number; outputs: number[] } {
-  const match = ratio.match(/(\d+)\/(\d+)/);
-  if (!match) return { inputLoss: 0, outputs: [3.5, 3.5] };
-  const p1 = parseInt(match[1]);
-  const p2 = parseInt(match[2]);
-  // Perda = -10 * log10(percentagem/100)
-  const loss1 = parseFloat((-10 * Math.log10(p1 / 100)).toFixed(1));
-  const loss2 = parseFloat((-10 * Math.log10(p2 / 100)).toFixed(1));
-  return { inputLoss: 0, outputs: [loss1, loss2] };
-}
+// A convencao das saidas (1 = maior percentagem = menor perda) e a formula
+// vivem em shared/optica/desbalanceado.ts. Estavam aqui e no rastreio OTDR,
+// escritas duas vezes e INVERTIDAS uma da outra: o mesmo splitter dava 0,5 dB
+// numa via para quem criava e 10 dB na mesma via para quem rastreava.
+//
+// O ?? [3.5, 3.5] que estava aqui gravava a perda de um 1:2 balanceado em
+// qualquer rotulo que a expressao nao apanhasse -- e ela nao apanhava um 1/99,
+// porque exigia que ambas as percentagens fossem > 1.
 
 export async function getSplittersByCeo(ceoId: number) {
   const db = await getDb();
@@ -3105,12 +3102,24 @@ export async function createCeoSplitter(data: Omit<InsertCeoSplitter, "id" | "cr
         vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: i, label: `Saída ${i}`, lossDb });
       }
     } else {
-      // Desbalanceado
-      const { inputLoss, outputs } = getUnbalancedLoss(data.ratio);
-      vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: 0, label: "Entrada", lossDb: inputLoss });
-      outputs.forEach((loss, idx) => {
-        vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: idx + 1, label: `Saída ${idx + 1}`, lossDb: loss });
-      });
+      // Desbalanceado. O rotulo da via diz a percentagem -- "Saida 1 (90%)" --
+      // porque a escolha em campo e feita pela referencia da percentagem, e um
+      // "Saida 1" sozinho obriga a saber de cor qual e qual.
+      const desb = perdasDesbalanceadas(data.ratio);
+      if (!desb) {
+        // Antes assumia 3,5 dB nas duas saidas, em silencio: a perda de um 1:2
+        // balanceado num componente que nao divide ao meio. Recusar e melhor --
+        // um splitter com perdas erradas gravadas mente em todos os balancos
+        // que passem por ele, e nao ha nada no ecra que o denuncie.
+        throw new Error(
+          `Relacao desbalanceada nao reconhecida: "${data.ratio}". ` +
+          `Use uma relacao em que as duas percentagens somem 100 (ex: 90/10).`
+        );
+      }
+      vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: 0, label: "Entrada", lossDb: desb.entradaDb });
+      for (const s of desb.saidas) {
+        vias.push({ splitterId: insertId, ceoId: data.ceoId, viaNumber: s.viaNumber, label: s.rotulo, lossDb: s.db });
+      }
     }
     if (vias.length > 0) {
       await tx.insert(ceoSplitterVias).values(vias);
@@ -3984,42 +3993,35 @@ export interface OpticalBalanceResult {
  * Retorna as percentagens [maior, menor] ou null se não for desbalanceado.
  * Ex: "95/5" → [95, 5], "SPLINTER 90/10" → [90, 10]
  */
-function detectUnbalancedRatio(identifier: string): [number, number] | null {
-  const m = identifier.match(/(\d+)\/(\d+)/);
-  if (!m) return null;
-  const a = parseInt(m[1]);
-  const b = parseInt(m[2]);
-  // Se ambos > 1 e somam ~100, é desbalanceado
-  if (a > 1 && b > 1 && Math.abs(a + b - 100) <= 5) {
-    return [Math.max(a, b), Math.min(a, b)];
-  }
-  return null;
+/**
+ * Perda de uma saida de splitter desbalanceado, ou null se o rotulo nao for
+ * desbalanceado -- e nesse caso quem chama cai na tabela dos balanceados.
+ *
+ * A convencao (Saida 1 = maior percentagem = menor perda) vive em
+ * shared/optica/desbalanceado.ts, a mesma que a criacao usa para gravar o
+ * lossDb. Esta funcao dizia o CONTRARIO: assumia que a via de maior numero era
+ * a de maior percentagem. Para um 90/10, a criacao gravava 0,5 dB na via 1 e o
+ * rastreio cobrava-lhe 10 dB. Medido a 28/08/2026.
+ *
+ * `allSplitterViaNumbers` deixou de ser preciso: a convencao e por numero de
+ * via, nao pela posicao relativa dentro do conjunto que calhou vir na consulta.
+ */
+function getUnbalancedSplitterLoss(ratio: string, exitViaNumber: number): number | null {
+  return perdaDaSaidaDesbalanceada(ratio, exitViaNumber);
 }
 
 /**
- * Calcula a perda de um splitter desbalanceado com base no viaNumber da via de saída.
- * Usa a fórmula: perda = -10 × log10(percentagem/100)
- * Convenção: via de MAIOR viaNumber = porta de MAIOR percentagem (menor perda).
- *             via de MENOR viaNumber (excluindo ENT=0) = porta de MENOR percentagem (maior perda).
- * @param ratio Identifier do splitter (ex: "95/5", "SPLINTER 90/10")
- * @param exitViaNumber viaNumber da via de saída do splitter
- * @param allSplitterViaNumbers todos os viaNumbers das vias deste splitter
+ * O rotulo de que se le a relacao de um splitter da CTO.
+ *
+ * `ratio` e o campo estruturado, escolhido numa lista ("1:8", "1:2_90/10").
+ * `identifier` e o nome que alguem escreveu ("SPLITTER 1*8", "S/P 5/95"). O
+ * rastreio lia o NOME, e por isso um splitter desbalanceado da CTO so era
+ * reconhecido como tal se calhasse de ter as percentagens escritas no nome.
+ * Le-se o campo primeiro e o nome so como recurso, para os registos antigos em
+ * que o ratio ficou por preencher.
  */
-function getUnbalancedSplitterLoss(
-  ratio: string,
-  exitViaNumber: number,
-  allSplitterViaNumbers: number[]
-): number | null {
-  const percentages = detectUnbalancedRatio(ratio);
-  if (!percentages) return null;
-  const [pctMajor, pctMinor] = percentages;
-  // Excluir via ENT (viaNumber=0) para determinar max/min das saídas
-  const outputVias = allSplitterViaNumbers.filter(n => n > 0);
-  if (outputVias.length === 0) return null;
-  const maxVia = Math.max(...outputVias);
-  // Via de maior viaNumber = porta maior% = menor perda
-  const pct = exitViaNumber === maxVia ? pctMajor : pctMinor;
-  return parseFloat((-10 * Math.log10(pct / 100)).toFixed(2));
+function rotuloDoSplitterCto(t: { ratio?: string | null; identifier?: string | null }): string {
+  return t.ratio ?? t.identifier ?? "1:8";
 }
 
 function getSplitterLoss(ratio: string): number {
@@ -4168,16 +4170,18 @@ export async function calculateOpticalBalance(
     const entryTubeObj = ctoTubeById.get(entryTubeId);
     if (entryTubeObj?.type === "splitter") {
       // O tubo de entrada é o próprio splitter — adicionar perda
-      const splitterRatio = entryTubeObj.identifier ?? "1:8";
+      const splitterRatio = rotuloDoSplitterCto(entryTubeObj);
       // Encontrar a via ENT do splitter (viaNumber = 0 ou 1) que tem fusão com um tubo
       const splitterVias = allCtoVias.filter(v => v.tubeId === entryTubeId);
-      // Para splitter desbalanceado, a via de saída é a que está associada ao cliente
-      // (a via que está conectada ao cabo de entrada da CTO = a via de saída do splitter)
-      // Neste caso, o entryTubeId é o splitter, e a via de saída é a que tem viaNumber máximo
       const splitterViaNumbers = splitterVias.map(v => v.viaNumber);
-      // A via de saída do splitter (que vai para o cliente) tem o maior viaNumber
+      // Aqui NAO se sabe em que saida o cliente esta pendurado -- assume-se a de
+      // maior numero. Num desbalanceado isso importa: e a diferenca entre 0,5 e
+      // 10 dB. Pela convencao (saida 1 = menor perda), a de maior numero e a que
+      // perde mais, portanto a suposicao erra para o lado pessimista. E a
+      // direccao certa para errar: um enlace bom parecer mau leva alguem a ir
+      // ver; um enlace mau parecer bom nao leva ninguem a lado nenhum.
       const exitViaNumber = splitterViaNumbers.length > 0 ? Math.max(...splitterViaNumbers) : 0;
-      const unbalancedLoss = getUnbalancedSplitterLoss(splitterRatio, exitViaNumber, splitterViaNumbers);
+      const unbalancedLoss = getUnbalancedSplitterLoss(splitterRatio, exitViaNumber);
       const loss = unbalancedLoss !== null ? unbalancedLoss : getSplitterLoss(splitterRatio);
       totalSplitterLoss += loss;
       reversePath.push({ type: "splitter", label: `${entryTubeObj.identifier} (splitter interno)`, lossDb: loss });
@@ -4227,8 +4231,9 @@ export async function calculateOpticalBalance(
           const exitViaForFusion = viaWithSplitterFusion.fusedToViaId
             ? (ctoViaById.get(viaWithSplitterFusion.fusedToViaId)?.viaNumber ?? Math.max(...splitterViaNumbers2))
             : Math.max(...splitterViaNumbers2);
-          const unbalancedLoss2 = getUnbalancedSplitterLoss(splitterTube.identifier ?? "1:8", exitViaForFusion, splitterViaNumbers2);
-          const loss = unbalancedLoss2 !== null ? unbalancedLoss2 : getSplitterLoss(splitterTube.identifier ?? "1:8");
+          const rotulo2 = rotuloDoSplitterCto(splitterTube);
+          const unbalancedLoss2 = getUnbalancedSplitterLoss(rotulo2, exitViaForFusion);
+          const loss = unbalancedLoss2 !== null ? unbalancedLoss2 : getSplitterLoss(rotulo2);
           totalSplitterLoss += loss;
           totalFusionCount++;
           reversePath.push({ type: "splitter", label: `${splitterTube.identifier} (splitter interno)`, lossDb: loss });
@@ -4253,11 +4258,11 @@ export async function calculateOpticalBalance(
           if (splitterSideVia) {
             const splitterTube = ctoTubeById.get(splitterSideVia.tubeId);
             if (splitterTube?.type === "splitter") {
-              // Para splitter desbalanceado: a splitterSideVia é a via de saída do splitter
-              const splitterVias3 = allCtoVias.filter(v => v.tubeId === splitterSideVia.tubeId);
-              const splitterViaNumbers3 = splitterVias3.map(v => v.viaNumber);
-              const unbalancedLoss3 = getUnbalancedSplitterLoss(splitterTube.identifier ?? "1:8", splitterSideVia.viaNumber, splitterViaNumbers3);
-              const loss = unbalancedLoss3 !== null ? unbalancedLoss3 : getSplitterLoss(splitterTube.identifier ?? "1:8");
+              // Aqui SABE-SE qual e a saida: e a via que esta associada. Este e o
+              // unico dos tres sitios que nao tem de supor.
+              const rotulo3 = rotuloDoSplitterCto(splitterTube);
+              const unbalancedLoss3 = getUnbalancedSplitterLoss(rotulo3, splitterSideVia.viaNumber);
+              const loss = unbalancedLoss3 !== null ? unbalancedLoss3 : getSplitterLoss(rotulo3);
               totalSplitterLoss += loss;
               totalFusionCount++;
               reversePath.push({ type: "splitter", label: `${splitterTube.identifier} (splitter interno)`, lossDb: loss });

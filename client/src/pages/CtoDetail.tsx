@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useRole } from "@/hooks/useRole";
 
+import { RATIOS_DESBALANCEADOS } from "@shared/optica/desbalanceado";
 // ─── Notificar mapa pai (quando aberto em iframe) ─────────────────────────────
 function notifyCtoParent(ctoId: number) {
   if (window.parent && window.parent !== window) {
@@ -41,7 +42,12 @@ type Tube = {
 };
 
 const BALANCED_RATIOS = ["1:2", "1:4", "1:8", "1:16", "1:32"];
-const UNBALANCED_RATIOS = ["1:2_90/10", "1:2_80/20", "1:2_70/30", "1:2_60/40", "1:2_50/50"];
+// A lista vive em shared/optica/desbalanceado.ts, a mesma que o servidor usa
+// para calcular a perda de cada saida. Estava escrita a mao aqui e no CtoDetail,
+// e faltavam-lhe o 99/1 e o 95/5: quem quis registar um "S/P 1/99" nao tinha
+// onde, ficou o 90/10 que e o valor por omissao, e escreveu a verdade no nome.
+// Sao 10 dB de erro no balanco, para o lado optimista.
+const UNBALANCED_RATIOS: readonly string[] = RATIOS_DESBALANCEADOS;
 function formatRatio(ratio: string): string {
   if (ratio.includes("_")) {
     const [base, pct] = ratio.split("_");
