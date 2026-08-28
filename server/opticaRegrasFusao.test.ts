@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  jaTemLigacao, validarNovaLigacao, validarFusaoDirecta,
+  jaTemLigacao, validarNovaLigacao, validarFusaoDirecta, ligacoesQueTocamAsVias,
   type LigacaoExistente, type EstadoVia,
 } from "@shared/optica/regrasFusao";
 
@@ -164,6 +164,34 @@ describe("regras de fusão", () => {
       const r = validarFusaoDirecta(via(10), { id: 20, viaNumber: 20, ceoId: 2 });
       expect(r.tipo).toBe("recusado");
       if (r.tipo === "recusado") expect(r.motivo).toContain("mesma CEO");
+    });
+  });
+
+  describe("ligacoesQueTocamAsVias", () => {
+    const ids = (ls: LigacaoExistente[]) => ls.map(l => l.id);
+
+    it("apagar um splitter NÃO leva as fusões dos outros splitters da CEO", () => {
+      const ceo = [lig(1, "tube", 10, "splitter", 1), lig(2, "tube", 11, "splitter", 2),
+                   lig(3, "tube", 12, "splitter", 50)];
+      expect(ids(ligacoesQueTocamAsVias(ceo, "splitter", [1, 2]))).toEqual([1, 2]);
+    });
+
+    it("a via 7 de um splitter não é a via 7 de um tubo", () => {
+      const e = [lig(1, "tube", 99, "splitter", 7), lig(2, "tube", 7, "splitter", 300)];
+      expect(ids(ligacoesQueTocamAsVias(e, "splitter", [7]))).toEqual([1]);
+      expect(ids(ligacoesQueTocamAsVias(e, "tube", [7]))).toEqual([2]);
+    });
+
+    it("via inexistente ou lista vazia não levam nada", () => {
+      const e = [lig(1, "tube", 99, "splitter", 7)];
+      expect(ligacoesQueTocamAsVias(e, "splitter", [55])).toEqual([]);
+      expect(ligacoesQueTocamAsVias(e, "splitter", [])).toEqual([]);
+    });
+
+    it("na CTO o tipo não conta, porque o id é o id", () => {
+      const cto = [lig(1, "tube", 5, "splitter", 9), lig(2, "tube", 9, "tube", 20)];
+      expect(ids(ligacoesQueTocamAsVias(cto, "tube", [9], "cto"))).toEqual([1, 2]);
+      expect(ids(ligacoesQueTocamAsVias(cto, "splitter", [9], "cto"))).toEqual([1, 2]);
     });
   });
 });

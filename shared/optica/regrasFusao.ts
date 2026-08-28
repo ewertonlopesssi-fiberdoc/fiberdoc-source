@@ -185,3 +185,29 @@ export function validarFusaoDirecta(origem: EstadoVia, destino: EstadoVia): Resu
   }
   return { tipo: "ok" };
 }
+
+/**
+ * Que ligações desaparecem ao apagar um tubo ou um splitter.
+ *
+ * O `deleteCeoSplitter` apagava as associações filtrando só pelo `ceoId`, e
+ * levava a CEO inteira. A primeira correcção que escrevi filtrava só pelo id,
+ * e levaria a ligação de uma via de tubo com o mesmo número. É preciso o par
+ * (tipo, id) — excepto na CTO, onde o splitter é um tubo e o id é o id.
+ *
+ * Ver `rastreio-optico.md` no projecto para os números medidos.
+ */
+export function ligacoesQueTocamAsVias(
+  existentes: LigacaoExistente[],
+  tipoDoLado: "tube" | "splitter",
+  idsDasVias: number[],
+  familia: FamiliaCaixa = "ceo",
+): LigacaoExistente[] {
+  if (idsDasVias.length === 0) return [];
+  const alvo = new Set(idsDasVias);
+  const ladoDe = (t: string) => (t === "splitter" ? "splitter" : "tube");
+  return existentes.filter(l =>
+    familia === "cto"
+      ? alvo.has(l.sourceViaId) || alvo.has(l.targetViaId)
+      : (ladoDe(l.sourceType) === tipoDoLado && alvo.has(l.sourceViaId))
+        || (ladoDe(l.targetType) === tipoDoLado && alvo.has(l.targetViaId)));
+}

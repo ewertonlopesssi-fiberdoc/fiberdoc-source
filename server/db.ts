@@ -1029,10 +1029,22 @@ export async function updateCeoTube(id: number, data: Partial<Omit<InsertCeoTube
 export async function deleteCeoTube(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  // Limpar fusões que apontam para este tubo
-  await db.update(ceoVias).set({ fusedToTubeId: null, fusedToViaId: null }).where(eq(ceoVias.fusedToTubeId, id));
-  await db.delete(ceoVias).where(eq(ceoVias.tubeId, id));
-  await db.delete(ceoTubes).where(eq(ceoTubes.id, id));
+  // Ver `ligacoesQueTocamAsVias` em shared/optica/regrasFusao.ts.
+  return await db.transaction(async (tx) => {
+    const vias = await tx.select({ id: ceoVias.id }).from(ceoVias).where(eq(ceoVias.tubeId, id));
+    const ids = vias.map(v => v.id);
+    await tx.update(ceoVias).set({ fusedToTubeId: null, fusedToViaId: null })
+      .where(eq(ceoVias.fusedToTubeId, id));
+    if (ids.length > 0) {
+      // O tipo tem de entrar: os dois espacos de ids sobrepoem-se.
+      await tx.delete(ceoViaAssociations).where(or(
+        and(eq(ceoViaAssociations.sourceType, "tube"), inArray(ceoViaAssociations.sourceViaId, ids)),
+        and(eq(ceoViaAssociations.targetType, "tube"), inArray(ceoViaAssociations.targetViaId, ids)),
+      ));
+    }
+    await tx.delete(ceoVias).where(eq(ceoVias.tubeId, id));
+    await tx.delete(ceoTubes).where(eq(ceoTubes.id, id));
+  });
 }
 
 // ─── CEO Vias ─────────────────────────────────────────────────────────────────
@@ -1268,9 +1280,21 @@ export async function updateCtoTube(id: number, data: Partial<Omit<InsertCtoTube
 export async function deleteCtoTube(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  await db.update(ctoVias).set({ fusedToTubeId: null, fusedToViaId: null }).where(eq(ctoVias.fusedToTubeId, id));
-  await db.delete(ctoVias).where(eq(ctoVias.tubeId, id));
-  await db.delete(ctoTubes).where(eq(ctoTubes.id, id));
+  return await db.transaction(async (tx) => {
+    const vias = await tx.select({ id: ctoVias.id }).from(ctoVias).where(eq(ctoVias.tubeId, id));
+    const ids = vias.map(v => v.id);
+    await tx.update(ctoVias).set({ fusedToTubeId: null, fusedToViaId: null })
+      .where(eq(ctoVias.fusedToTubeId, id));
+    if (ids.length > 0) {
+      // Na CTO nao se filtra por tipo: o splitter e um tubo, o id e o id.
+      await tx.delete(ctoViaAssociations).where(or(
+        inArray(ctoViaAssociations.sourceViaId, ids),
+        inArray(ctoViaAssociations.targetViaId, ids),
+      ));
+    }
+    await tx.delete(ctoVias).where(eq(ctoVias.tubeId, id));
+    await tx.delete(ctoTubes).where(eq(ctoTubes.id, id));
+  });
 }
 // ─── CTO Vias ─────────────────────────────────────────────────────────────────
 export async function getViasByCtotube(tubeId: number) {
@@ -3167,15 +3191,23 @@ export async function updateCeoSplitter(id: number, data: Partial<Omit<InsertCeo
 export async function deleteCeoSplitter(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  // Remover associações de vias que referenciam este splitter
-  await db.delete(ceoViaAssociations).where(
-    and(
-      eq(ceoViaAssociations.ceoId, (await db.select({ ceoId: ceoSplitters.ceoId }).from(ceoSplitters).where(eq(ceoSplitters.id, id)).limit(1))[0]?.ceoId ?? 0),
-      // Não filtramos por via aqui — apagamos as vias primeiro e depois as associações ficam órfãs
-    )
-  );
-  await db.delete(ceoSplitterVias).where(eq(ceoSplitterVias.splitterId, id));
-  await db.delete(ceoSplitters).where(eq(ceoSplitters.id, id));
+  // O `and()` que estava aqui tinha uma condicao so, o ceoId, e apagava as
+  // fusoes da CEO INTEIRA. Ver `ligacoesQueTocamAsVias`.
+  return await db.transaction(async (tx) => {
+    const vias = await tx.select({ id: ceoSplitterVias.id }).from(ceoSplitterVias)
+      .where(eq(ceoSplitterVias.splitterId, id));
+    const ids = vias.map(v => v.id);
+    if (ids.length > 0) {
+      await tx.delete(ceoViaAssociations).where(or(
+        and(eq(ceoViaAssociations.sourceType, "splitter"), inArray(ceoViaAssociations.sourceViaId, ids)),
+        and(eq(ceoViaAssociations.targetType, "splitter"), inArray(ceoViaAssociations.targetViaId, ids)),
+      ));
+    }
+    await tx.update(ceoVias).set({ fusedToSplitterId: null, fusedToSplitterViaId: null })
+      .where(eq(ceoVias.fusedToSplitterId, id));
+    await tx.delete(ceoSplitterVias).where(eq(ceoSplitterVias.splitterId, id));
+    await tx.delete(ceoSplitters).where(eq(ceoSplitters.id, id));
+  });
 }
 
 // ─── CEO Splitter Vias ────────────────────────────────────────────────────────
