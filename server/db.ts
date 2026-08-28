@@ -93,7 +93,7 @@ import type { ContagensDoProjeto } from "../shared/projectSummary";
 import { unirFusoes } from "../shared/opticalFusions";
 import { lerTracado, metrosDoTracado } from "../shared/optica/comprimento";
 import type { OpticalEndpoint } from "../shared/optica/endpoint";
-import { validarNovaLigacao } from "../shared/optica/regrasFusao";
+import { validarNovaLigacao, validarFusaoDirecta } from "../shared/optica/regrasFusao";
 import { ENV } from "./_core/env";
 import { getTenantDbFromContext, getTenantDbNameFromContext } from "./_core/tenantContext";
 import { getTenantRawPool } from "./_core/tenantPool";
@@ -1028,28 +1028,65 @@ export async function setViaFusion(
   const db = await getDb();
   if (!db) throw new Error("DB not available");
 
-  // Os dois lados da fusao numa transacao so.
+  // Este era o caminho SEM validacao nenhuma.
   //
-  // A fusao e bidirecional: a linha de A aponta para B e a de B aponta para A.
-  // Eram dois UPDATE independentes, e uma falha no segundo deixava a fusao
-  // meio aberta -- A ligado a B, B ligado a nada. Nao ha como isso ser
-  // reparado sozinho, e o diagrama passava a mostrar uma ligacao que so existe
-  // de um lado.
+  // A regra "uma fusao por via" so alguma vez foi aplicada no caminho das
+  // associacoes -- o das fusoes tubo<->splitter. As tubo<->tubo, que sao 100%
+  // das que existem em producao, passavam por aqui e escreviam por cima. Com
+  // A ja fundida a C, fundir A com B deixava C a apontar para A sem que A
+  // apontasse de volta: uma fusao meio aberta criada em uso NORMAL, nao por
+  // falha. O diagrama desenha-a de um lado so e o rastreio optico segue-a
+  // numa direccao e perde-a na outra.
+  //
+  // Encontrado a 28/08/2026 pelo roteiro manual, depois de 309 testes verdes.
+  // Nenhum teste automatico o teria apanhado: o defeito estava no que o codigo
+  // NAO fazia.
   await db.transaction(async (tx) => {
-    const originRows = await tx.select().from(ceoVias)
-      .where(eq(ceoVias.id, viaId)).limit(1).for("update");
-    const origin = originRows[0];
-    if (!origin) throw new Error("Via de origem não encontrada");
+    // As duas linhas sao bloqueadas por ordem crescente de id, sempre.
+    // Bloquear "primeiro a origem, depois o destino" faria duas fusoes
+    // simultaneas em sentidos opostos travarem uma na outra.
+    const ids = fusedToViaId != null && fusedToViaId !== viaId
+      ? [viaId, fusedToViaId].sort((a, b) => a - b)
+      : [viaId];
+    const linhas = await tx.select().from(ceoVias)
+      .where(inArray(ceoVias.id, ids)).orderBy(ceoVias.id).for("update");
+
+    const origem = linhas.find(v => v.id === viaId);
+    if (!origem) throw new Error("Via de origem não encontrada");
+
+    const limpar = {
+      fusedToTubeId: null, fusedToViaId: null,
+      fusedToSplitterId: null, fusedToSplitterViaId: null,
+    };
+
+    // Desfazer. Tem de limpar os DOIS lados: limpar so a origem era outra
+    // maneira de fabricar uma fusao meio aberta.
+    if (fusedToViaId === null || fusedToTubeId === null) {
+      const parceiro = origem.fusedToViaId;
+      await tx.update(ceoVias).set({ ...limpar, notes: notes ?? null })
+        .where(eq(ceoVias.id, viaId));
+      if (parceiro != null) {
+        await tx.update(ceoVias).set(limpar).where(eq(ceoVias.id, parceiro));
+      }
+      return;
+    }
+
+    if (fusedToViaId === viaId) throw new Error("Uma via não se funde a si própria.");
+
+    const destino = linhas.find(v => v.id === fusedToViaId);
+    if (!destino) throw new Error("Via de destino não encontrada");
+
+    // A regra vive em shared/optica/regrasFusao.ts, onde tem teste.
+    const r = validarFusaoDirecta(origem, destino);
+    if (r.tipo === "recusado") throw new Error(r.motivo);
+    if (r.tipo === "jaExiste") return;  // ja esta assim: nada a fazer
 
     await tx.update(ceoVias)
-      .set({ fusedToTubeId, fusedToViaId, notes: notes ?? null })
+      .set({ fusedToTubeId, fusedToViaId, fusedToSplitterId: null, fusedToSplitterViaId: null, notes: notes ?? null })
       .where(eq(ceoVias.id, viaId));
-
-    if (fusedToViaId !== null && fusedToTubeId !== null) {
-      await tx.update(ceoVias)
-        .set({ fusedToTubeId: origin.tubeId, fusedToViaId: viaId })
-        .where(eq(ceoVias.id, fusedToViaId));
-    }
+    await tx.update(ceoVias)
+      .set({ fusedToTubeId: origem.tubeId, fusedToViaId: viaId, fusedToSplitterId: null, fusedToSplitterViaId: null })
+      .where(eq(ceoVias.id, fusedToViaId));
   });
 }
 
@@ -1073,29 +1110,38 @@ export async function clearViaFusion(viaId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
 
-  // Buscar a via para saber qual é a via destino (para limpar nos dois sentidos)
-  const rows = await db.select().from(ceoVias).where(eq(ceoVias.id, viaId)).limit(1);
-  const via = rows[0];
+  await db.transaction(async (tx) => {
+    const rows = await tx.select().from(ceoVias)
+      .where(eq(ceoVias.id, viaId)).limit(1).for("update");
+    const via = rows[0];
+    if (!via) return;
 
-  // Limpar a via de origem (tubo→tubo e tubo→splitter)
-  await db.update(ceoVias)
-    .set({ fusedToTubeId: null, fusedToViaId: null, fusedToSplitterId: null, fusedToSplitterViaId: null })
-    .where(eq(ceoVias.id, viaId));
+    const limpar = {
+      fusedToTubeId: null, fusedToViaId: null,
+      fusedToSplitterId: null, fusedToSplitterViaId: null,
+    };
 
-  // Limpar a via destino (bidirecional tubo→tubo)
-  if (via?.fusedToViaId) {
-    await db.update(ceoVias)
-      .set({ fusedToTubeId: null, fusedToViaId: null, fusedToSplitterId: null, fusedToSplitterViaId: null })
-      .where(eq(ceoVias.id, via.fusedToViaId));
-  }
+    await tx.update(ceoVias).set(limpar).where(eq(ceoVias.id, viaId));
+    if (via.fusedToViaId) {
+      await tx.update(ceoVias).set(limpar).where(eq(ceoVias.id, via.fusedToViaId));
+    }
 
-  // Limpar associação bidirecional em ceoViaAssociations (tubo→splitter)
-  await db.delete(ceoViaAssociations).where(
-    or(
-      eq(ceoViaAssociations.sourceViaId, viaId),
-      eq(ceoViaAssociations.targetViaId, viaId)
-    )
-  );
+    // O filtro por ceoId nao e zelo: sem ele este DELETE apaga fusoes de
+    // OUTRAS CEOs. `ceo_vias.id` e `ceo_splitter_vias.id` sao numeracoes
+    // independentes, e a tabela de associacoes guarda as duas -- portanto
+    // "sourceViaId = 7" casa tanto com a via 7 desta CEO como com a via 7 de
+    // um splitter de qualquer outra. Desfazer uma fusao aqui apagava uma
+    // fusao acola, sem erro e sem rasto.
+    await tx.delete(ceoViaAssociations).where(
+      and(
+        eq(ceoViaAssociations.ceoId, via.ceoId),
+        or(
+          eq(ceoViaAssociations.sourceViaId, viaId),
+          eq(ceoViaAssociations.targetViaId, viaId)
+        )
+      )
+    );
+  });
 }
 
 export async function updateVia(id: number, data: { label?: string | null; notes?: string | null; fiberId?: number | null }) {

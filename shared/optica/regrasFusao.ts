@@ -133,3 +133,55 @@ export function validarNovaLigacao(
 
   return { tipo: "ok" };
 }
+
+/**
+ * A mesma regra, para a fusão gravada nas COLUNAS (`ceo_vias.fusedTo*`).
+ *
+ * Este caminho -- o das fusões tubo↔tubo, que são 100% das que existem em
+ * produção -- nunca passou por validação nenhuma. Escrevia por cima. Com A já
+ * fundida a C, fundir A com B deixava C a apontar para A sem que A apontasse
+ * de volta: uma fusão meio aberta criada em uso normal.
+ *
+ * Encontrado a 28/08/2026, pelo roteiro manual, depois de 309 testes verdes.
+ * Nenhum teste automático o teria apanhado — o defeito estava no que o código
+ * não fazia.
+ */
+export interface EstadoVia {
+  id: number;
+  viaNumber: number;
+  ceoId: number;
+  fusedToViaId?: number | null;
+  fusedToSplitterViaId?: number | null;
+}
+
+function viaOcupada(v: EstadoVia): boolean {
+  return v.fusedToViaId != null || v.fusedToSplitterViaId != null;
+}
+
+export function validarFusaoDirecta(origem: EstadoVia, destino: EstadoVia): ResultadoValidacao {
+  if (origem.id === destino.id) {
+    return { tipo: "recusado", motivo: "Uma via não se funde a si própria." };
+  }
+  if (origem.ceoId !== destino.ceoId) {
+    return { tipo: "recusado", motivo: "As duas vias não estão na mesma CEO." };
+  }
+
+  // Refazer a MESMA fusão é idempotente, não um erro.
+  if (origem.fusedToViaId === destino.id && destino.fusedToViaId === origem.id) {
+    return { tipo: "jaExiste", id: origem.id };
+  }
+
+  if (viaOcupada(origem) && origem.fusedToViaId !== destino.id) {
+    return {
+      tipo: "recusado",
+      motivo: `A via ${origem.viaNumber} já está fundida. Desfaça a fusão antes de criar outra.`,
+    };
+  }
+  if (viaOcupada(destino) && destino.fusedToViaId !== origem.id) {
+    return {
+      tipo: "recusado",
+      motivo: `A via ${destino.viaNumber} já está fundida. Desfaça a fusão antes de criar outra.`,
+    };
+  }
+  return { tipo: "ok" };
+}

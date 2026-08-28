@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { jaTemLigacao, validarNovaLigacao, type LigacaoExistente } from "@shared/optica/regrasFusao";
+import {
+  jaTemLigacao, validarNovaLigacao, validarFusaoDirecta,
+  type LigacaoExistente, type EstadoVia,
+} from "@shared/optica/regrasFusao";
 
 const tubo = (id: number) => ({ tipo: "ceoVia" as const, id });
 const spl = (id: number) => ({ tipo: "ceoSplitterVia" as const, id });
@@ -111,6 +114,56 @@ describe("regras de fusão", () => {
         expect(validarNovaLigacao(existentes, tubo(10), tubo(alvo)).tipo).toBe("recusado");
       }
       expect(existentes).toHaveLength(1);
+    });
+  });
+
+  describe("validarFusaoDirecta — o caminho das colunas, que nunca validou", () => {
+    const via = (id: number, extra: Partial<EstadoVia> = {}): EstadoVia =>
+      ({ id, viaNumber: id, ceoId: 1, ...extra });
+
+    it("aceita duas vias livres", () => {
+      expect(validarFusaoDirecta(via(10), via(20))).toEqual({ tipo: "ok" });
+    });
+
+    it("RECUSA fundir uma via que já está fundida com outra", () => {
+      // O defeito encontrado a 28/08/2026 no roteiro manual: isto era aceite,
+      // escrevia por cima, e deixava o parceiro antigo a apontar para o nada.
+      const r = validarFusaoDirecta(via(10, { fusedToViaId: 99 }), via(20));
+      expect(r.tipo).toBe("recusado");
+      if (r.tipo === "recusado") expect(r.motivo).toContain("já está fundida");
+    });
+
+    it("recusa quando é o DESTINO que já está fundido", () => {
+      expect(validarFusaoDirecta(via(10), via(20, { fusedToViaId: 99 })).tipo).toBe("recusado");
+    });
+
+    it("recusa uma via que está fundida a um splitter", () => {
+      // Ocupada é ocupada, venha a fusão de que coluna vier.
+      expect(validarFusaoDirecta(via(10, { fusedToSplitterViaId: 3 }), via(20)).tipo).toBe("recusado");
+    });
+
+    it("refazer a MESMA fusão é idempotente, não erro", () => {
+      const a = via(10, { fusedToViaId: 20 });
+      const b = via(20, { fusedToViaId: 10 });
+      expect(validarFusaoDirecta(a, b).tipo).toBe("jaExiste");
+    });
+
+    it("uma fusão meio aberta NÃO conta como já existente", () => {
+      // A aponta para B mas B não aponta de volta. Reescrever isto tem de ser
+      // permitido: é assim que se repara o estrago que o defeito deixou.
+      const a = via(10, { fusedToViaId: 20 });
+      const b = via(20);
+      expect(validarFusaoDirecta(a, b)).toEqual({ tipo: "ok" });
+    });
+
+    it("recusa uma via ligada a si própria", () => {
+      expect(validarFusaoDirecta(via(10), via(10)).tipo).toBe("recusado");
+    });
+
+    it("recusa vias de CEOs diferentes", () => {
+      const r = validarFusaoDirecta(via(10), { id: 20, viaNumber: 20, ceoId: 2 });
+      expect(r.tipo).toBe("recusado");
+      if (r.tipo === "recusado") expect(r.motivo).toContain("mesma CEO");
     });
   });
 });
