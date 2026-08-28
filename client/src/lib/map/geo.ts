@@ -1,4 +1,5 @@
 import L from "leaflet";
+import { metrosDoTracado } from "@shared/optica/comprimento";
 
 /**
  * Normaliza um ponto para o par [lat, lng].
@@ -15,19 +16,20 @@ function paraPar(p: L.LatLngExpression): [number, number] {
   return [(p as L.LatLng).lat, (p as L.LatLng).lng];
 }
 
-// Calcula distância em metros ao longo de uma sequência de pontos (Haversine)
+/**
+ * Distância em metros ao longo de uma sequência de pontos.
+ *
+ * A conta vive agora em shared/optica/comprimento.ts, para ser a mesma que o
+ * servidor usa. Esta função fica como adaptador: só ela sabe o que é um
+ * L.LatLngExpression, e o módulo partilhado não precisa de saber. O resultado
+ * é bit a bit o mesmo -- as duas implementações usavam R = 6371 km e a mesma
+ * fórmula, conferidas antes da troca.
+ */
 export function haversineDistance(latlngs: L.LatLngExpression[]): number {
-  let total = 0;
-  const toRad = (v: number) => (v * Math.PI) / 180;
-  for (let i = 0; i < latlngs.length - 1; i++) {
-    const a = paraPar(latlngs[i]);
-    const b = paraPar(latlngs[i + 1]);
-    const R = 6371000;
-    const dLat = toRad(b[0] - a[0]); const dLng = toRad(b[1] - a[1]);
-    const x = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLng / 2) ** 2;
-    total += R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-  }
-  return total;
+  return metrosDoTracado(latlngs.map(p => {
+    const [lat, lng] = paraPar(p);
+    return { lat, lng };
+  }));
 }
 
 export function formatDistance(meters: number): string {

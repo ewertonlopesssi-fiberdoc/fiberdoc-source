@@ -91,6 +91,7 @@ import {
 import { normalizeProjectStatus, type ProjectTipo } from "../shared/projectStatus";
 import type { ContagensDoProjeto } from "../shared/projectSummary";
 import { unirFusoes } from "../shared/opticalFusions";
+import { lerTracado, metrosDoTracado } from "../shared/optica/comprimento";
 import { ENV } from "./_core/env";
 import { getTenantDbFromContext, getTenantDbNameFromContext } from "./_core/tenantContext";
 import { getTenantRawPool } from "./_core/tenantPool";
@@ -721,22 +722,15 @@ export async function getDashboardStats() {
 
   // Comprimento total da rede (soma dos traçados de cabos)
   const allRoutes = await db.execute(sql`SELECT path FROM map_routes`) as any;
-  const haversineKm = (a: {lat:number;lng:number}, b: {lat:number;lng:number}) => {
-    const R = 6371;
-    const dLat = (b.lat - a.lat) * Math.PI / 180;
-    const dLng = (b.lng - a.lng) * Math.PI / 180;
-    const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
-    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
-  };
+  // A conta esta em shared/optica/comprimento.ts, a mesma que o cliente usa.
+  // Aqui nao ha recurso a linha recta: um cabo sem tracado nao entra no total,
+  // que e o comportamento que ja existia. E `lerTracado` descarta pontos
+  // invalidos em vez de os deixar virar NaN e envenenar a soma inteira.
   let totalNetworkKm = 0;
   const routeRows: any[] = Array.isArray(allRoutes[0]) ? allRoutes[0] : (allRoutes.rows ?? allRoutes);
   const totalRoutes = routeRows.length;
   for (const r of routeRows) {
-    try {
-      if (!r.path) continue;
-      const pts: {lat:number;lng:number}[] = JSON.parse(r.path);
-      for (let i = 1; i < pts.length; i++) totalNetworkKm += haversineKm(pts[i-1], pts[i]);
-    } catch {}
+    totalNetworkKm += metrosDoTracado(lerTracado(r.path)) / 1000;
   }
 
   return {
