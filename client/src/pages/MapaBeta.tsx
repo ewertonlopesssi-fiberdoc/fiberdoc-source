@@ -94,6 +94,8 @@ interface Item {
   /** Contagem de fibras e tipo, só para cabos. */
   fibras?: number;
   tipoCabo?: string;
+  /** Metragem medida em campo, em metros. undefined = usar o traçado. */
+  metrosMedidos?: number;
 }
 
 const chave = (tipo: TipoSel, id: number) => `${tipo}:${id}`;
@@ -323,6 +325,7 @@ export default function MapaBeta() {
           caminho,
           fibras: Number(r.fiberCount) || undefined,
           tipoCabo: r.cableType ?? undefined,
+          metrosMedidos: (r as any).lengthMetersOverride ?? undefined,
         });
       }
     }
@@ -1019,6 +1022,9 @@ export default function MapaBeta() {
   const [edFibras, setEdFibras] = useState(12);
   const [edTipoCabo, setEdTipoCabo] = useState("FO");
   const [edCor, setEdCor] = useState("#22d3ee");
+  // Vazio = usar o traco do mapa. Guardado como texto para o campo poder ficar
+  // em branco, que e o que limpa a metragem medida.
+  const [edMetros, setEdMetros] = useState("");
   const [edEstado, setEdEstado] = useState<ProjectStatus>("deployed");
 
   const abrirEdicao = useCallback((item: Item) => {
@@ -1026,6 +1032,7 @@ export default function MapaBeta() {
     setEdNome(item.nome);
     setEdCapacidade(Number((ctos as any[]).find(c => Number(c.id) === item.id)?.capacity) || 8);
     setEdFibras(item.fibras ?? 12);
+    setEdMetros(item.metrosMedidos != null ? String(item.metrosMedidos) : "");
     setEdTipoCabo(item.tipoCabo ?? "FO");
     setEdCor(item.cor ?? "#22d3ee");
     setEdEstado(item.estado);
@@ -1047,6 +1054,10 @@ export default function MapaBeta() {
         await atualizarRotaMut.mutateAsync({
           id: item.id, name: nome || undefined,
           fiberCount: edFibras, cableType: edTipoCabo, color: edCor,
+          // Campo em branco limpa a metragem e devolve o calculo ao traco.
+          lengthMetersOverride: edMetros.trim() === ""
+            ? null
+            : Number(edMetros.replace(",", ".")),
         });
       }
       // O estado de projeto vive noutro procedure, e só é escrito se mudou.
@@ -1059,7 +1070,7 @@ export default function MapaBeta() {
     } catch (e: any) {
       toast.error("Erro ao salvar: " + (e?.message ?? "desconhecido"));
     }
-  }, [dialogoEditar, edNome, edCapacidade, edFibras, edTipoCabo, edCor, edEstado,
+  }, [dialogoEditar, edNome, edCapacidade, edFibras, edTipoCabo, edCor, edMetros, edEstado,
       atualizarCtoMut, atualizarCeoMut, atualizarPosteMut, atualizarRotaMut,
       setStatusMut, utils, recarregarTudo]);
 
@@ -1460,6 +1471,19 @@ export default function MapaBeta() {
                     <Label>Tipo</Label>
                     <Input value={edTipoCabo} onChange={e => setEdTipoCabo(e.target.value)} />
                   </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Metragem medida (m)</Label>
+                  <Input
+                    inputMode="decimal"
+                    placeholder="em branco = usar o traçado do mapa"
+                    value={edMetros}
+                    onChange={e => setEdMetros(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    O traçado do mapa é sempre menos que a fibra que existe no poste.
+                    Com este valor preenchido, o balanço óptico passa a usá-lo.
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Cor</Label>

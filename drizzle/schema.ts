@@ -644,6 +644,10 @@ export const mapRoutes = mysqlTable("map_routes", {
   // Ciclo de vida de PROJETO (planned/pending/deployed/certified) — ver shared/projectStatus.ts.
   // Independente de `status`, que é operacional. Ver comentário em migrate-v22.sql.
   projectStatus: varchar("projectStatus", { length: 16 }).default("deployed").notNull(),
+  // Metragem medida em campo, em metros. Quando preenchida ganha ao traco do
+  // mapa; o traco e sempre menos do que a fibra que existe no poste, e
+  // subestimar o comprimento subestima a perda no balanco optico.
+  lengthMetersOverride: float("length_meters_override"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

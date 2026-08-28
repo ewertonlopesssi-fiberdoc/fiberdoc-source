@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, gte, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2";
 import {
@@ -92,7 +92,7 @@ import {
 import { normalizeProjectStatus, type ProjectTipo } from "../shared/projectStatus";
 import type { ContagensDoProjeto } from "../shared/projectSummary";
 import { unirFusoes } from "../shared/opticalFusions";
-import { lerTracado, metrosDoTracado } from "../shared/optica/comprimento";
+import { lerTracado, metrosDoTracado, metrosDoCabo, type ComprimentoDoCabo } from "../shared/optica/comprimento";
 import type { OpticalEndpoint } from "../shared/optica/endpoint";
 import { validarNovaLigacao, validarFusaoDirecta } from "../shared/optica/regrasFusao";
 import { perdaDoSplitter, saidasDoSplitter } from "../shared/optica/perdas";
@@ -732,16 +732,26 @@ export async function getDashboardStats() {
   capacityAlerts.sort((a, b) => b.occupancyRate - a.occupancyRate);
 
   // Comprimento total da rede (soma dos traçados de cabos)
-  const allRoutes = await db.execute(sql`SELECT path FROM map_routes`) as any;
+  const allRoutes = await db.execute(
+    sql`SELECT path, length_meters_override FROM map_routes`,
+  ) as any;
   // A conta esta em shared/optica/comprimento.ts, a mesma que o cliente usa.
   // Aqui nao ha recurso a linha recta: um cabo sem tracado nao entra no total,
   // que e o comportamento que ja existia. E `lerTracado` descarta pontos
   // invalidos em vez de os deixar virar NaN e envenenar a soma inteira.
+  //
+  // A metragem medida (migrate-v29) ganha ao tracado quando existir: o total de
+  // rede passa a ser fibra a serio e nao linhas desenhadas no mapa.
   let totalNetworkKm = 0;
   const routeRows: any[] = Array.isArray(allRoutes[0]) ? allRoutes[0] : (allRoutes.rows ?? allRoutes);
   const totalRoutes = routeRows.length;
   for (const r of routeRows) {
-    totalNetworkKm += metrosDoTracado(lerTracado(r.path)) / 1000;
+    const medido = r.length_meters_override;
+    if (medido != null && Number.isFinite(Number(medido)) && Number(medido) > 0) {
+      totalNetworkKm += Number(medido) / 1000;
+    } else {
+      totalNetworkKm += metrosDoTracado(lerTracado(r.path)) / 1000;
+    }
   }
 
   return {
@@ -2473,14 +2483,27 @@ export async function updateMapRoute(id: number, data: Partial<Omit<InsertMapRou
   // Obtém o pool correto: tenant (via AsyncLocalStorage) ou padrão
   const tenantDbName = getTenantDbNameFromContext();
   const pool = tenantDbName ? getTenantRawPool(tenantDbName) : (_pool ?? (_pool = createPool()));
+  // As chaves de `data` sao os nomes das PROPRIEDADES do modelo, e nem sempre
+  // sao os nomes das colunas: `lengthMetersOverride` vive na coluna
+  // `length_meters_override`. Como este SQL e montado a mao a partir das
+  // chaves, interpola-las directamente pediria colunas inexistentes.
+  //
+  // A traducao vem do proprio Drizzle, portanto acompanha o modelo sozinha --
+  // e o guarda `sqlCru.test.ts` nao apanharia isto, porque aqui o nome nao
+  // esta literal no ficheiro, e construido em tempo de execucao.
+  const colunas = getTableColumns(mapRoutes) as Record<string, { name: string }>;
   const setClauses: string[] = [];
   const params: any[] = [];
   for (const [key, value] of Object.entries(data)) {
+    const coluna = colunas[key]?.name;
+    if (!coluna) {
+      throw new Error(`updateMapRoute: "${key}" não é uma coluna de map_routes.`);
+    }
     if (value === null) {
-      setClauses.push(`\`${key}\` = NULL`);
+      setClauses.push(`\`${coluna}\` = NULL`);
       // NULL não precisa de parâmetro
     } else if (value !== undefined) {
-      setClauses.push(`\`${key}\` = ?`);
+      setClauses.push(`\`${coluna}\` = ?`);
       params.push(value);
     }
   }
@@ -4197,26 +4220,15 @@ export async function calculateOpticalBalance(
     warnings.push(`Cabo "${entryRoute.name ?? `#${entryRoute.id}`}" não tem tubo vinculado na CTO — estimativa pode ser imprecisa`);
   }
   // Funções auxiliares
-  function haversineKm(p1: { lat: number; lng: number }, p2: { lat: number; lng: number }): number {
-    const R = 6371;
-    const phi1 = p1.lat * Math.PI / 180;
-    const phi2 = p2.lat * Math.PI / 180;
-    const dphi = (p2.lat - p1.lat) * Math.PI / 180;
-    const dlambda = (p2.lng - p1.lng) * Math.PI / 180;
-    const a = Math.sin(dphi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dlambda / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  }
-  function calcRouteDistanceKm(route: typeof allRoutes[0]): number {
-    let pts: { lat: number; lng: number }[] = [];
-    try { pts = route.path ? JSON.parse(route.path) : []; } catch { /* ignore */ }
-    if (pts.length < 2) {
-      const fromEl = elementById.get(route.fromElementId ?? 0);
-      const toEl = elementById.get(route.toElementId ?? 0);
-      if (fromEl && toEl) pts = [{ lat: fromEl.lat, lng: fromEl.lng }, { lat: toEl.lat, lng: toEl.lng }];
-    }
-    let total = 0;
-    for (let i = 1; i < pts.length; i++) total += haversineKm(pts[i - 1], pts[i]);
-    return total;
+  function comprimentoDoCabo(route: typeof allRoutes[0]): ComprimentoDoCabo {
+    const fromEl = elementById.get(route.fromElementId ?? 0);
+    const toEl = elementById.get(route.toElementId ?? 0);
+    return metrosDoCabo({
+      path: route.path,
+      metrosMedidos: (route as any).lengthMetersOverride ?? null,
+      pontaA: fromEl ? { lat: fromEl.lat, lng: fromEl.lng } : null,
+      pontaB: toEl ? { lat: toEl.lat, lng: toEl.lng } : null,
+    });
   }
   // Rastrear de volta a partir da CTO até encontrar uma OLT
   let totalDistanceKm = 0;
@@ -4419,13 +4431,23 @@ export async function calculateOpticalBalance(
       break;
     }
     visitedRouteIds.add(activeRoute.id); // marcar rota como percorrida
-    const segDistKmBase = calcRouteDistanceKm(activeRoute);
+    const comprimento = comprimentoDoCabo(activeRoute);
     const reserveMetersOB = reserveByRouteOB.get(activeRoute.id) ?? 0;
-    const segDistKm = segDistKmBase + (reserveMetersOB / 1000);
+    const segDistKm = comprimento.metros / 1000 + (reserveMetersOB / 1000);
     totalDistanceKm += segDistKm;
-    const cableLabel = reserveMetersOB > 0
-      ? `${activeRoute.name ?? `Cabo #${activeRoute.id}`} (+${reserveMetersOB}m reserva)`
-      : (activeRoute.name ?? `Cabo #${activeRoute.id}`);
+    // A proveniencia do comprimento vai no rotulo. Um cabo medido em campo e um
+    // cabo estimado pelo traco do mapa nao merecem a mesma confianca, e ate
+    // agora nada no ecra os distinguia.
+    const nomeDoCabo = activeRoute.name ?? `Cabo #${activeRoute.id}`;
+    const anotacoes: string[] = [];
+    if (comprimento.origem === "medido") anotacoes.push("medido");
+    if (comprimento.origem === "reta") anotacoes.push("linha recta, sem traçado");
+    if (comprimento.origem === "sem-dados") anotacoes.push("sem traçado nem pontas");
+    if (reserveMetersOB > 0) anotacoes.push(`+${reserveMetersOB}m reserva`);
+    const cableLabel = anotacoes.length > 0 ? `${nomeDoCabo} (${anotacoes.join(", ")})` : nomeDoCabo;
+    if (comprimento.origem === "sem-dados") {
+      warnings.push(`Cabo "${nomeDoCabo}" não tem traçado nem pontas no mapa: entra no cálculo com zero metros.`);
+    }
     reversePath.push({ type: "cable", label: cableLabel, lossDb: 0, distKm: segDistKm });
     // Avançar para o elemento anterior (origem do cabo)
     const prevElementId = isForwardOnRoute ? (activeRoute.fromElementId ?? null) : (activeRoute.toElementId ?? null);

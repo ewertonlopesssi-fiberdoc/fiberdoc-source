@@ -2433,6 +2433,8 @@ export const appRouter = router({
         toElementId: z.number().nullable().optional(),
         fromTubeId: z.number().nullable().optional(),
         toTubeId: z.number().nullable().optional(),
+        // Metragem medida em campo. `null` limpa e volta ao traco do mapa.
+        lengthMetersOverride: z.number().positive().max(200000).nullable().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const { id, ...data } = input;
