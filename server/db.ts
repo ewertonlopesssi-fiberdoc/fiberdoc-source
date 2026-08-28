@@ -101,6 +101,7 @@ import {
   lerParametros, resolverParametro, CHAVE_PARAMETROS, PARAMETROS_PADRAO,
   type LeituraParametros,
 } from "../shared/optica/parametros";
+import { acumularPercurso } from "../shared/optica/percurso";
 import { ENV } from "./_core/env";
 import { getTenantDbFromContext, getTenantDbNameFromContext } from "./_core/tenantContext";
 import { getTenantRawPool } from "./_core/tenantPool";
@@ -4227,6 +4228,7 @@ export async function calculateOpticalBalance(
       const entViaWithFusion = splitterVias.find(v => v.fusedToTubeId !== null && v.fusedToTubeId !== undefined);
       if (entViaWithFusion?.fusedToTubeId) {
         totalFusionCount++;
+        reversePath.push({ type: "fusion", label: "Fusão", lossDb: 0 });
         currentTubeId = entViaWithFusion.fusedToTubeId;
         currentViaNumber = entViaWithFusion.fusedToViaId ? (ctoViaById.get(entViaWithFusion.fusedToViaId)?.viaNumber ?? null) : null;
       } else {
@@ -4243,6 +4245,7 @@ export async function calculateOpticalBalance(
           const tubeSideVia = ctoViaById.get(tubeSideViaId);
           if (tubeSideVia) {
             totalFusionCount++;
+            reversePath.push({ type: "fusion", label: "Fusão", lossDb: 0 });
             currentTubeId = tubeSideVia.tubeId;
             currentViaNumber = tubeSideVia.viaNumber;
           }
@@ -4274,6 +4277,7 @@ export async function calculateOpticalBalance(
           const loss = unbalancedLoss2 !== null ? unbalancedLoss2 : getSplitterLoss(rotulo2);
           totalSplitterLoss += loss;
           totalFusionCount++;
+          reversePath.push({ type: "fusion", label: "Fusão", lossDb: 0 });
           reversePath.push({ type: "splitter", label: `${splitterTube.identifier} (splitter interno)`, lossDb: loss });
           // O tubo de entrada real é o tubo de entrada do splitter — mas como o splitter
           // é interno à CTO, o cabo chega ao tubo de entrada (entryTubeId) directamente.
@@ -4303,6 +4307,7 @@ export async function calculateOpticalBalance(
               const loss = unbalancedLoss3 !== null ? unbalancedLoss3 : getSplitterLoss(rotulo3);
               totalSplitterLoss += loss;
               totalFusionCount++;
+              reversePath.push({ type: "fusion", label: "Fusão", lossDb: 0 });
               reversePath.push({ type: "splitter", label: `${splitterTube.identifier} (splitter interno)`, lossDb: loss });
               // currentTubeId permanece = entryTubeId (o cabo chega a este tubo)
             }
@@ -4577,6 +4582,7 @@ export async function calculateOpticalBalance(
       // Caminho 1: fusão directa (fusedToTubeId na via do tubo)
       if (arrivalVia?.fusedToTubeId) {
         totalFusionCount++;
+        reversePath.push({ type: "fusion", label: "Fusão", lossDb: 0 });
         currentTubeId = arrivalVia.fusedToTubeId;
         if (arrivalVia.fusedToViaId) {
           const exitVia = ceoViaById.get(arrivalVia.fusedToViaId);
@@ -4599,6 +4605,7 @@ export async function calculateOpticalBalance(
           totalSplitterLoss += loss;
           reversePath.push({ type: "splitter", label: `${splitter.identifier} (${splitter.ratio})`, lossDb: loss });
           totalFusionCount++; // fusão de entrada do splitter
+          reversePath.push({ type: "fusion", label: "Fusão", lossDb: 0 });
           // Encontrar a via de entrada do splitter (viaNumber=0)
           const splitterEntryVia = allSplitterVias.find(v => v.splitterId === splitter.id && v.viaNumber === 0);
           if (splitterEntryVia) {
@@ -4674,6 +4681,7 @@ export async function calculateOpticalBalance(
               totalSplitterLoss += loss;
               reversePath.push({ type: "splitter", label: `${splitter.identifier} (${splitter.ratio})`, lossDb: loss });
               totalFusionCount++; // fusão de entrada do splitter
+              reversePath.push({ type: "fusion", label: "Fusão", lossDb: 0 });
               // Encontrar a via de entrada do splitter (viaNumber=0)
               const splitterEntryVia = allSplitterVias.find(v =>
                 v.splitterId === splitter.id && v.viaNumber === 0
@@ -4731,6 +4739,7 @@ export async function calculateOpticalBalance(
       ) ?? null;
       if (arrivalVia?.fusedToTubeId) {
         totalFusionCount++;
+        reversePath.push({ type: "fusion", label: "Fusão", lossDb: 0 });
         currentTubeId = arrivalVia.fusedToTubeId;
         if (arrivalVia.fusedToViaId) {
           const exitVia = ctoViaById.get(arrivalVia.fusedToViaId);
@@ -4823,12 +4832,37 @@ export async function calculateOpticalBalance(
   const totalLoss = cableLoss + totalSplitterLoss + fusionLoss;
   const rxPower = txPower - totalLoss;
   // Construir o path final (inverter o percurso reverso)
-  const finalPath = reversePath.reverse();
-  let cumulativePower = txPower;
-  const pathWithPower: OpticalBalanceResult["path"] = finalPath.map(step => {
-    cumulativePower -= step.lossDb;
-    return { ...step, cumulativePowerDbm: cumulativePower };
+  //
+  // Os passos de cabo eram empurrados com `lossDb: 0` (linha 4393): levavam a
+  // distancia e nao a perda. Os passos de fusao nunca chegaram a existir --
+  // `type: "fusion"` esta no tipo e nao havia uma unica ocorrencia a ser
+  // empurrada. Resultado: a fita de badges so descia nos splitters e acabava
+  // num numero diferente do da caixa RX, pela diferenca exacta de
+  // cabo + fusoes. Visto no ecra a 28/08/2026: fita a acabar em -16,0 e caixa
+  // a dizer -16,8, com Cabo 0,5 e Fusoes 0,3.
+  //
+  // Quem lia a fita concluia que chegava mais luz do que chega. Optimista
+  // outra vez -- e a mesma direccao errada de todos os defeitos deste dia.
+  const acumulado = acumularPercurso(reversePath.reverse(), txPower, {
+    atenuacaoDbPorKm: attenuationPerKm,
+    perdaPorFusaoDb: fusionLossPerFusion,
   });
+  const pathWithPower: OpticalBalanceResult["path"] = acumulado.passos;
+
+  // A fita fecha com a caixa?
+  //
+  // Os totais do cabecalho vem de `totalDistanceKm` e `totalFusionCount`, que
+  // sao acumulados a parte do percurso. Se algum troco somar distancia sem
+  // deixar passo, ou alguma fusao contar sem se ver, as duas contas afastam-se
+  // -- e ate hoje ninguem saberia, porque nada as comparava. Em vez de escolher
+  // uma como verdadeira, diz-se que discordam: uma discrepancia visivel e
+  // reparavel, uma escondida nao.
+  if (Math.abs(acumulado.perdaSomada - totalLoss) > 0.05) {
+    warnings.push(
+      `O percurso apresentado soma ${acumulado.perdaSomada.toFixed(1)} dB mas a perda total é ` +
+      `${totalLoss.toFixed(1)} dB. Há troços contados no total que não aparecem no percurso.`
+    );
+  }
   return {
     found: true,
     rxPowerDbm: rxPower,
