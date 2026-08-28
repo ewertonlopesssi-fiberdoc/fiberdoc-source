@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import CartaoParametrosOpticos from "@/components/CartaoParametrosOpticos";
 
 const THEMES = [
   {
@@ -777,6 +778,9 @@ export default function SystemSettingsPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Parâmetros ópticos */}
+        <CartaoParametrosOpticos />
 
         {/* Telegram */}
         <Card className="border-border/50 border-blue-500/20">

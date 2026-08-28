@@ -99,7 +99,7 @@ import { perdaDoSplitter, saidasDoSplitter } from "../shared/optica/perdas";
 import { perdasDesbalanceadas, perdaDaSaidaDesbalanceada } from "../shared/optica/desbalanceado";
 import {
   lerParametros, resolverParametro, CHAVE_PARAMETROS, PARAMETROS_PADRAO,
-  type LeituraParametros,
+  type LeituraParametros, type ParametrosOpticos,
 } from "../shared/optica/parametros";
 import { acumularPercurso } from "../shared/optica/percurso";
 import { mesmaPorta } from "../shared/numeroDePorta";
@@ -4070,6 +4070,36 @@ async function lerParametrosOpticos(db: NonNullable<Awaited<ReturnType<typeof ge
       avisos: [`Parâmetros ópticos: não foi possível lê-los (${(err as Error).message}) — a usar os valores por omissão.`],
     };
   }
+}
+
+/**
+ * Os parametros opticos como estao guardados, para o ecra de configuracao.
+ *
+ * Devolve tambem os avisos: se alguem gravou um valor fora da faixa, o ecra
+ * tem de o dizer em vez de mostrar o valor por omissao como se fosse o que la
+ * esta. Um ecra que mente sobre a configuracao e pior que nao haver ecra.
+ */
+export async function obterParametrosOpticos(): Promise<LeituraParametros> {
+  const db = await getDb();
+  if (!db) return { valores: { ...PARAMETROS_PADRAO }, avisos: ["Banco indisponivel."] };
+  return lerParametrosOpticos(db);
+}
+
+/** Grava os parametros. Valida antes: o que nao passar nao chega ao banco. */
+export async function gravarParametrosOpticos(valores: ParametrosOpticos): Promise<LeituraParametros> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const json = JSON.stringify(valores);
+  // Passar pela mesma leitura que o calculo usa: se algum valor for recusado
+  // aqui, e melhor sabe-lo agora do que ao ver um balanco estranho daqui a um
+  // mes.
+  const conferido = lerParametros(json);
+  if (conferido.avisos.length > 0) {
+    throw new Error(conferido.avisos.join(" "));
+  }
+  await db.insert(appSettings).values({ key: CHAVE_PARAMETROS, value: json })
+    .onDuplicateKeyUpdate({ set: { value: json } });
+  return conferido;
 }
 
 function getSignalQuality(rxDbm: number): OpticalBalanceResult["signalQuality"] {

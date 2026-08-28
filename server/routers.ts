@@ -149,6 +149,8 @@ import {
   getMapOltElements, getMapOltElementById, createMapOltElement, updateMapOltElement, deleteMapOltElement,
   getOltPortLinks, createOltPortLink, updateOltPortLink, deleteOltPortLink,
   calculateOpticalBalance,
+  obterParametrosOpticos,
+  gravarParametrosOpticos,
   getOpticalDiagram,
   calculateOpticalBalanceFromDgo,
   getDgoSlotCtoBalances,
@@ -2112,6 +2114,25 @@ export const appRouter = router({
       .query(({ input }) => getSnmpReadings(input.id, input.hours)),
   }),
   // ─── Alertas SNMP ──────────────────────────────────────────────────────────
+  /**
+   * Parametros opticos.
+   *
+   * Ate a v5.96.73 estes valores viviam so como literais no db.ts, e as
+   * colunas configuraveis da OLT -- que tinham ecra proprio -- nao eram lidas
+   * por caminho nenhum. So se mudava por SQL.
+   */
+  opticaParametros: router({
+    get: publicProcedure.query(() => obterParametrosOpticos()),
+    save: adminProcedure
+      .input(z.object({
+        atenuacaoDbPorKm: z.number(),
+        perdaPorFusaoDb: z.number(),
+        perdaPorConectorDb: z.number(),
+        potenciaTxPadraoDbm: z.number(),
+      }))
+      .mutation(({ input }) => gravarParametrosOpticos(input)),
+  }),
+
   alerts: router({
     list: protectedProcedure
       .input(z.object({
