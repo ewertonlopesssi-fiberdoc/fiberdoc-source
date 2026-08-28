@@ -92,6 +92,8 @@ import { normalizeProjectStatus, type ProjectTipo } from "../shared/projectStatu
 import type { ContagensDoProjeto } from "../shared/projectSummary";
 import { unirFusoes } from "../shared/opticalFusions";
 import { lerTracado, metrosDoTracado } from "../shared/optica/comprimento";
+import type { OpticalEndpoint } from "../shared/optica/endpoint";
+import { validarNovaLigacao } from "../shared/optica/regrasFusao";
 import { ENV } from "./_core/env";
 import { getTenantDbFromContext, getTenantDbNameFromContext } from "./_core/tenantContext";
 import { getTenantRawPool } from "./_core/tenantPool";
@@ -1026,22 +1028,29 @@ export async function setViaFusion(
   const db = await getDb();
   if (!db) throw new Error("DB not available");
 
-  // Buscar o tubo da via de origem para registrar a volta
-  const originRows = await db.select().from(ceoVias).where(eq(ceoVias.id, viaId)).limit(1);
-  const origin = originRows[0];
-  if (!origin) throw new Error("Via de origem não encontrada");
+  // Os dois lados da fusao numa transacao so.
+  //
+  // A fusao e bidirecional: a linha de A aponta para B e a de B aponta para A.
+  // Eram dois UPDATE independentes, e uma falha no segundo deixava a fusao
+  // meio aberta -- A ligado a B, B ligado a nada. Nao ha como isso ser
+  // reparado sozinho, e o diagrama passava a mostrar uma ligacao que so existe
+  // de um lado.
+  await db.transaction(async (tx) => {
+    const originRows = await tx.select().from(ceoVias)
+      .where(eq(ceoVias.id, viaId)).limit(1).for("update");
+    const origin = originRows[0];
+    if (!origin) throw new Error("Via de origem não encontrada");
 
-  // Gravar: via origem aponta para via destino
-  await db.update(ceoVias)
-    .set({ fusedToTubeId, fusedToViaId, notes: notes ?? null })
-    .where(eq(ceoVias.id, viaId));
+    await tx.update(ceoVias)
+      .set({ fusedToTubeId, fusedToViaId, notes: notes ?? null })
+      .where(eq(ceoVias.id, viaId));
 
-  // Gravar: via destino aponta de volta para via origem (bidirecional)
-  if (fusedToViaId !== null && fusedToTubeId !== null) {
-    await db.update(ceoVias)
-      .set({ fusedToTubeId: origin.tubeId, fusedToViaId: viaId })
-      .where(eq(ceoVias.id, fusedToViaId));
-  }
+    if (fusedToViaId !== null && fusedToTubeId !== null) {
+      await tx.update(ceoVias)
+        .set({ fusedToTubeId: origin.tubeId, fusedToViaId: viaId })
+        .where(eq(ceoVias.id, fusedToViaId));
+    }
+  });
 }
 
 // Fusão tubo → splitter: grava na via do tubo os campos de splitter
@@ -3087,51 +3096,41 @@ export async function getViaAssociationsByCeo(ceoId: number) {
 export async function createViaAssociation(data: Omit<InsertCeoViaAssociation, "id" | "createdAt">) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  // Verificar se já existe associação exacta entre estas vias (evitar duplicados)
-  const existing = await db.select().from(ceoViaAssociations).where(
-    and(
-      eq(ceoViaAssociations.ceoId, data.ceoId),
-      eq(ceoViaAssociations.sourceViaId, data.sourceViaId),
-      eq(ceoViaAssociations.targetViaId, data.targetViaId),
-    )
-  ).limit(1);
-  if (existing.length > 0) return existing[0].id;
-  // Verificar se a via (source ou target) já tem qualquer associação
-  // Cada via só pode ter uma fusão via associação
-  // Verificar source como source
-  const existingSrcAsSource = await db.select().from(ceoViaAssociations).where(
-    and(
-      eq(ceoViaAssociations.ceoId, data.ceoId),
-      eq(ceoViaAssociations.sourceViaId, data.sourceViaId),
-    )
-  ).limit(1);
-  if (existingSrcAsSource.length > 0) throw new Error("Esta via já tem uma fusão associada.");
-  // Verificar source como target
-  const existingSrcAsTarget = await db.select().from(ceoViaAssociations).where(
-    and(
-      eq(ceoViaAssociations.ceoId, data.ceoId),
-      eq(ceoViaAssociations.targetViaId, data.sourceViaId),
-    )
-  ).limit(1);
-  if (existingSrcAsTarget.length > 0) throw new Error("Esta via já tem uma fusão associada.");
-  // Verificar target como target
-  const existingTgtAsTarget = await db.select().from(ceoViaAssociations).where(
-    and(
-      eq(ceoViaAssociations.ceoId, data.ceoId),
-      eq(ceoViaAssociations.targetViaId, data.targetViaId),
-    )
-  ).limit(1);
-  if (existingTgtAsTarget.length > 0) throw new Error("Esta via já tem uma fusão associada.");
-  // Verificar target como source
-  const existingTgtAsSource = await db.select().from(ceoViaAssociations).where(
-    and(
-      eq(ceoViaAssociations.ceoId, data.ceoId),
-      eq(ceoViaAssociations.sourceViaId, data.targetViaId),
-    )
-  ).limit(1);
-  if (existingTgtAsSource.length > 0) throw new Error("Esta via já tem uma fusão associada.");
-  const result = await db.insert(ceoViaAssociations).values(data);
-  return (result as any)[0]?.insertId ?? 0;
+
+  const a: OpticalEndpoint = {
+    tipo: data.sourceType === "splitter" ? "ceoSplitterVia" : "ceoVia",
+    id: data.sourceViaId,
+  };
+  const b: OpticalEndpoint = {
+    tipo: data.targetType === "splitter" ? "ceoSplitterVia" : "ceoVia",
+    id: data.targetViaId,
+  };
+
+  // Ler e escrever na MESMA transacao, com as linhas bloqueadas.
+  //
+  // Antes eram quatro SELECT soltos seguidos de um INSERT. Duas chamadas ao
+  // mesmo tempo passavam as duas na validacao e inseriam as duas -- a regra
+  // "uma fusao por via" era verificada mas nao garantida. E sob REPEATABLE
+  // READ um SELECT simples dentro da transacao le um instantaneo e nao
+  // bloqueia nada, por isso o `for("update")` nao e decoracao: e ele que
+  // serializa.
+  //
+  // A regra em si saiu para shared/optica/regrasFusao.ts, onde tem teste. Os
+  // quatro SELECT antigos comparavam so o ID, sem o tipo, e como ceo_vias e
+  // ceo_splitter_vias sao numeracoes independentes que se sobrepoem, o sistema
+  // recusava fusoes validas dizendo que a via estava ocupada.
+  return await db.transaction(async (tx) => {
+    const existentes = await tx.select().from(ceoViaAssociations)
+      .where(eq(ceoViaAssociations.ceoId, data.ceoId))
+      .for("update");
+
+    const r = validarNovaLigacao(existentes, a, b, "ceo");
+    if (r.tipo === "jaExiste") return r.id;
+    if (r.tipo === "recusado") throw new Error(r.motivo);
+
+    const result = await tx.insert(ceoViaAssociations).values(data);
+    return (result as any)[0]?.insertId ?? 0;
+  });
 }
 
 export async function deleteViaAssociation(id: number) {
@@ -4734,47 +4733,25 @@ export async function getViaAssociationsByCto(ctoId: number) {
 export async function createCtoViaAssociation(data: Omit<InsertCtoViaAssociation, "id" | "createdAt">) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  // Verificar se já existe associação exacta entre estas vias (evitar duplicados)
-  const existing = await db.select().from(ctoViaAssociations).where(
-    and(
-      eq(ctoViaAssociations.ctoId, data.ctoId),
-      eq(ctoViaAssociations.sourceViaId, data.sourceViaId),
-      eq(ctoViaAssociations.targetViaId, data.targetViaId),
-    )
-  ).limit(1);
-  if (existing.length > 0) return existing[0].id;
-  // Verificar se a via source já tem qualquer associação
-  const existingSrcAsSource = await db.select().from(ctoViaAssociations).where(
-    and(
-      eq(ctoViaAssociations.ctoId, data.ctoId),
-      eq(ctoViaAssociations.sourceViaId, data.sourceViaId),
-    )
-  ).limit(1);
-  if (existingSrcAsSource.length > 0) throw new Error("Esta via já tem uma fusão associada.");
-  const existingSrcAsTarget = await db.select().from(ctoViaAssociations).where(
-    and(
-      eq(ctoViaAssociations.ctoId, data.ctoId),
-      eq(ctoViaAssociations.targetViaId, data.sourceViaId),
-    )
-  ).limit(1);
-  if (existingSrcAsTarget.length > 0) throw new Error("Esta via já tem uma fusão associada.");
-  // Verificar se a via target já tem qualquer associação
-  const existingTgtAsTarget = await db.select().from(ctoViaAssociations).where(
-    and(
-      eq(ctoViaAssociations.ctoId, data.ctoId),
-      eq(ctoViaAssociations.targetViaId, data.targetViaId),
-    )
-  ).limit(1);
-  if (existingTgtAsTarget.length > 0) throw new Error("Esta via já tem uma fusão associada.");
-  const existingTgtAsSource = await db.select().from(ctoViaAssociations).where(
-    and(
-      eq(ctoViaAssociations.ctoId, data.ctoId),
-      eq(ctoViaAssociations.sourceViaId, data.targetViaId),
-    )
-  ).limit(1);
-  if (existingTgtAsSource.length > 0) throw new Error("Esta via já tem uma fusão associada.");
-  const result = await db.insert(ctoViaAssociations).values(data);
-  return (result as any)[0]?.insertId ?? 0;
+
+  // Na CTO o splitter E um tubo: as suas vias vivem em cto_vias, o mesmo
+  // espaco de ids de todas as outras. Por isso os dois lados sao "ctoVia",
+  // independentemente do type gravado -- e por isso a familia e "cto".
+  const a: OpticalEndpoint = { tipo: "ctoVia", id: data.sourceViaId };
+  const b: OpticalEndpoint = { tipo: "ctoVia", id: data.targetViaId };
+
+  return await db.transaction(async (tx) => {
+    const existentes = await tx.select().from(ctoViaAssociations)
+      .where(eq(ctoViaAssociations.ctoId, data.ctoId))
+      .for("update");
+
+    const r = validarNovaLigacao(existentes, a, b, "cto");
+    if (r.tipo === "jaExiste") return r.id;
+    if (r.tipo === "recusado") throw new Error(r.motivo);
+
+    const result = await tx.insert(ctoViaAssociations).values(data);
+    return (result as any)[0]?.insertId ?? 0;
+  });
 }
 
 export async function deleteCtoViaAssociation(id: number) {
